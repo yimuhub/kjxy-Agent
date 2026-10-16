@@ -1,0 +1,44 @@
+# 生产覆盖配置：固定镜像标签、资源限制、不挂载源码、更严格的重启策略
+# 用法：docker compose -f compose.yaml -f compose.production.yaml up -d
+name: tech-yard-platform-prod
+
+services:
+  api:
+    image: ${API_IMAGE:?请设置 API_IMAGE 为固定版本镜像标签，禁止 latest}
+    build: ~
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+    environment:
+      APP_ENV: production
+
+  worker:
+    image: ${WORKER_IMAGE:?请设置 WORKER_IMAGE 为固定版本镜像标签，禁止 latest}
+    build: ~
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 4G
+    environment:
+      APP_ENV: production
+
+  web:
+    image: ${WEB_IMAGE:?请设置 WEB_IMAGE 为固定版本镜像标签，禁止 latest}
+    build: ~
+    restart: always
+
+  postgres:
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  redis:
+    restart: always
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:?请设置 REDIS_PASSWORD}

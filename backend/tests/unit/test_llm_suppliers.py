@@ -1,0 +1,502 @@
+"""模型供应商配置体系测试（A 组）。
+
+- Fernet 加解密 / 打码 / 密钥缺失报错；
+- suppliers CRUD（加密落库、打码返回、租户可见性）；
+- 连通性探测（/models 优先、chat 降级、连续失败 3 次自动禁用）；
+- get_provider() 热更新（租户 active → 全局 active → settings 回退）与缓存失效；
+- 路由层：鉴权、Key 永不返回明文、模板接口。
+"""
+
+import os
+
+import pytest
+
+os.environ.setdefault("APP_SECRET_KEY", "test-secret-key-min-32-chars-for-unit-tests")
+os.environ.setdefault("LLM_PROVIDER", "fake")
+os.environ.setdefault("EMBEDDING_PROVIDER", "mock")
+
+from cryptography.fernet import Fernet  # noqa: E402
+
+os.environ.setdefault("SUPPLIER_KEY_SECRET", Fernet.generate_key().decode())
+
+import httpx  # noqa: E402
+from app.core.errors import AppError  # noqa: E402
+from app.core.security import create_access_token  # noqa: E402
+from app.modules.llm import provider as provider_module  # noqa: E402
+from app.modules.llm import supplier_service  # noqa: E402
+from app.modules.llm.supplier_crypto import (  # noqa: E402
+    decrypt_api_key,
+    encrypt_api_key,
+    get_fernet,
+    mask_api_key,
+    reset_fernet_cache,
+)
+from app.modules.llm.supplier_models import Supplier  # noqa: E402,F401 触发建表
+from app.modules.llm.supplier_schemas import SupplierCreate, SupplierUpdate  # noqa: E402
+
+TENANT = "t-001"
+OTHER_TENANT = "t-002"
+TEST_KEY = "sk-test-secret-key-12345"
+
+
+def _payload(**kw):
+    base = dict(
+        name="deepseek-main",
+        provider_type="deepseek",
+        base_url="https://api.deepseek.com",
+        model_id="deepseek-chat",
+        api_key=TEST_KEY,
+        priority=10,
+    )
+    base.update(kw)
+    return SupplierCreate(**base)
+
+
+@pytest.fixture()
+def admin_headers():
+    token = create_access_token(user_id="u-admin", tenant_id=TENANT, roles=["admin"])
+    return {"Authorization": f"Bearer {token}"}
+
+
+# ---------- 加密 ----------
+
+
+def test_encrypt_decrypt_roundtrip():
+    assert decrypt_api_key(encrypt_api_key(TEST_KEY)) == TEST_KEY
+
+
+def test_mask_only_shows_head_tail():
+    assert mask_api_key(TEST_KEY) == "sk-t****2345"
+    assert mask_api_key("short") == "****"
+    assert mask_api_key("") == "****"
+
+
+def test_missing_secret_raises_with_hint(monkeypatch):
+    monkeypatch.delenv("SUPPLIER_KEY_SECRET", raising=False)
+    reset_fernet_cache()
+    try:
+        with pytest.raises(AppError) as e:
+            encrypt_api_key("x")
+        assert e.value.code == "SUPPLIER_KEY_NOT_CONFIGURED"
+        assert "SUPPLIER_KEY_SECRET" in e.value.message
+    finally:
+        monkeypatch.undo()  # 先恢复环境变量，再重建缓存
+        reset_fernet_cache()
+        get_fernet()
+
+
+# ---------- CRUD ----------
+
+
+def test_create_encrypts_and_masks(db_session):
+    out = supplier_service.create_supplier(db_session, TENANT, _payload(), is_platform_admin=False)
+    db_session.commit()
+    assert out.api_key_masked == "sk-t****2345"
+    assert out.tenant_id == TENANT
+    assert out.status == 1
+
+    row = db_session.query(Supplier).one()
+    assert row.api_key_enc != TEST_KEY  # 落库为密文
+    assert decrypt_api_key(row.api_key_enc) == TEST_KEY
+
+
+def test_list_visibility_global_plus_own(db_session):
+    supplier_service.create_supplier(
+        db_session, TENANT, _payload(name="own"), is_platform_admin=False
+    )
+    supplier_service.create_supplier(
+        db_session, OTHER_TENANT, _payload(name="other"), is_platform_admin=False
+    )
+    supplier_service.create_supplier(
+        db_session, None, _payload(name="shared", scope="global"), is_platform_admin=True
+    )
+    db_session.commit()
+
+    names = {s.name for s in supplier_service.list_suppliers(db_session, TENANT)}
+    assert names == {"own", "shared"}  # 看不到 other 租户的
+
+
+def test_create_global_requires_platform_admin(db_session):
+    with pytest.raises(AppError) as e:
+        supplier_service.create_supplier(
+            db_session, TENANT, _payload(scope="global"), is_platform_admin=False
+        )
+    assert e.value.code == "FORBIDDEN"
+
+
+def test_update_rotates_key_and_resets_failures(db_session):
+    out = supplier_service.create_supplier(db_session, TENANT, _payload(), is_platform_admin=False)
+    row = db_session.query(Supplier).one()
+    row.consecutive_failures = 2
+    db_session.flush()
+
+    updated = supplier_service.update_supplier(
+        db_session, TENANT, out.id, SupplierUpdate(api_key="sk-new-key-99999", priority=5)
+    )
+    db_session.commit()
+    assert updated.api_key_masked == "sk-n****9999"
+    assert updated.priority == 5
+    row = db_session.query(Supplier).one()
+    assert decrypt_api_key(row.api_key_enc) == "sk-new-key-99999"
+    assert row.consecutive_failures == 0  # 轮换后清零
+
+
+def test_update_without_key_keeps_old(db_session):
+    out = supplier_service.create_supplier(db_session, TENANT, _payload(), is_platform_admin=False)
+    updated = supplier_service.update_supplier(
+        db_session, TENANT, out.id, SupplierUpdate(name="renamed")
+    )
+    assert updated.name == "renamed"
+    assert updated.api_key_masked == "sk-t****2345"
+    row = db_session.query(Supplier).one()
+    assert decrypt_api_key(row.api_key_enc) == TEST_KEY
+
+
+def test_delete_removes_row(db_session):
+    out = supplier_service.create_supplier(db_session, TENANT, _payload(), is_platform_admin=False)
+    supplier_service.delete_supplier(db_session, TENANT, out.id)
+    db_session.commit()
+    assert db_session.query(Supplier).count() == 0
+
+
+def test_enable_disable(db_session):
+    from app.modules.llm.supplier_schemas import STATUS_DISABLED, STATUS_ENABLED
+
+    out = supplier_service.create_supplier(db_session, TENANT, _payload(), is_platform_admin=False)
+    assert (
+        supplier_service.set_supplier_status(db_session, TENANT, out.id, STATUS_DISABLED).status
+        == STATUS_DISABLED
+    )
+    assert (
+        supplier_service.set_supplier_status(db_session, TENANT, out.id, STATUS_ENABLED).status
+        == STATUS_ENABLED
+    )
+
+
+# ---------- active 解析 ----------
+
+
+def test_resolve_prefers_tenant_active_then_global(db_session):
+    tenant_row = supplier_service.create_supplier(
+        db_session, TENANT, _payload(name="tenant-one", priority=1), is_platform_admin=False
+    )
+    supplier_service.create_supplier(
+        db_session,
+        None,
+        _payload(name="global-high", priority=100, scope="global"),
+        is_platform_admin=True,
+    )
+    db_session.commit()
+
+    # 未设置 active：走全局最高优先级
+    assert supplier_service.resolve_active_supplier(db_session, TENANT).name == "global-high"
+    # 设置租户 active 后优先
+    supplier_service.set_active_supplier(db_session, TENANT, tenant_row.id)
+    db_session.commit()
+    assert supplier_service.resolve_active_supplier(db_session, TENANT).name == "tenant-one"
+
+
+def test_resolve_disabled_active_falls_back_to_global(db_session):
+    from app.modules.llm.supplier_schemas import STATUS_DISABLED
+
+    tenant_row = supplier_service.create_supplier(
+        db_session, TENANT, _payload(name="tenant-one"), is_platform_admin=False
+    )
+    supplier_service.create_supplier(
+        db_session, None, _payload(name="global-one", scope="global"), is_platform_admin=True
+    )
+    supplier_service.set_active_supplier(db_session, TENANT, tenant_row.id)
+    supplier_service.set_supplier_status(db_session, TENANT, tenant_row.id, STATUS_DISABLED)
+    db_session.commit()
+    assert supplier_service.resolve_active_supplier(db_session, TENANT).name == "global-one"
+
+
+def test_resolve_none_when_no_supplier(db_session):
+    assert supplier_service.resolve_active_supplier(db_session, TENANT) is None
+
+
+def test_set_active_rejects_disabled(db_session):
+    from app.modules.llm.supplier_schemas import STATUS_DISABLED
+
+    out = supplier_service.create_supplier(db_session, TENANT, _payload(), is_platform_admin=False)
+    supplier_service.set_supplier_status(db_session, TENANT, out.id, STATUS_DISABLED)
+    with pytest.raises(AppError) as e:
+        supplier_service.set_active_supplier(db_session, TENANT, out.id)
+    assert e.value.code == "SUPPLIER_DISABLED"
+
+
+# ---------- 探测 ----------
+
+
+class _FakeResp:
+    def __init__(self, status_code, payload=None):
+        self.status_code = status_code
+        self._payload = payload or {}
+
+    def json(self):
+        return self._payload
+
+
+class _FakeClient:
+    mode = "models_ok"
+
+    def __init__(self, *a, **k):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def get(self, url, headers=None):
+        if _FakeClient.mode == "models_ok":
+            return _FakeResp(200, {"data": [{"id": "deepseek-chat"}, {"id": "deepseek-reasoner"}]})
+        if _FakeClient.mode in ("models_401", "chat_ok"):
+            return _FakeResp(401)
+        raise httpx.ConnectError("unreachable")
+
+    async def post(self, url, json=None, headers=None):
+        if _FakeClient.mode in ("models_401", "chat_ok"):
+            return _FakeResp(200, {"choices": [{"message": {"content": "hi"}}]})
+        if _FakeClient.mode == "chat_401":
+            return _FakeResp(401)
+        raise httpx.ConnectError("unreachable")
+
+
+@pytest.fixture()
+def fake_httpx(monkeypatch):
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
+    _FakeClient.mode = "models_ok"
+    yield _FakeClient
+
+
+@pytest.mark.asyncio
+async def test_probe_models_ok(fake_httpx):
+    result = await supplier_service.probe_upstream("https://x", "k", "m")
+    assert result.ok is True
+    assert result.models == ["deepseek-chat", "deepseek-reasoner"]
+    assert result.latency_ms >= 0
+
+
+@pytest.mark.asyncio
+async def test_probe_falls_back_to_chat(fake_httpx):
+    fake_httpx.mode = "models_401"
+    result = await supplier_service.probe_upstream("https://x", "k", "m")
+    assert result.ok is True
+    assert result.models == []
+    assert "chat" in result.note
+
+
+@pytest.mark.asyncio
+async def test_probe_auth_failure(fake_httpx):
+    fake_httpx.mode = "chat_401"
+    result = await supplier_service.probe_upstream("https://x", "bad-key", "m")
+    assert result.ok is False
+    assert "鉴权" in result.note
+
+
+@pytest.mark.asyncio
+async def test_probe_connect_error(fake_httpx):
+    fake_httpx.mode = "unreachable"
+    result = await supplier_service.probe_upstream("https://x", "k", "m")
+    assert result.ok is False
+
+
+@pytest.mark.asyncio
+async def test_saved_test_writes_back_and_auto_disables_after_3(db_session, fake_httpx):
+    from app.modules.llm.supplier_schemas import STATUS_DISABLED
+
+    out = supplier_service.create_supplier(db_session, TENANT, _payload(), is_platform_admin=False)
+    fake_httpx.mode = "unreachable"
+    for _ in range(3):
+        _out, result = await supplier_service.test_saved_supplier(db_session, TENANT, out.id)
+        assert result.ok is False
+    db_session.commit()
+    row = db_session.query(Supplier).one()
+    assert row.status == STATUS_DISABLED  # 连续 3 次失败自动禁用
+    assert row.test_time is not None
+    assert row.response_time_ms is not None
+    assert row.last_error
+
+
+@pytest.mark.asyncio
+async def test_saved_test_success_resets_failures(db_session, fake_httpx):
+    out = supplier_service.create_supplier(db_session, TENANT, _payload(), is_platform_admin=False)
+    row = db_session.query(Supplier).one()
+    row.consecutive_failures = 2
+    db_session.flush()
+    _out, result = await supplier_service.test_saved_supplier(db_session, TENANT, out.id)
+    assert result.ok is True
+    row = db_session.query(Supplier).one()
+    assert row.consecutive_failures == 0
+    assert row.last_error is None
+
+
+# ---------- 热更新 ----------
+
+
+def test_get_provider_uses_active_supplier(db_session):
+    out = supplier_service.create_supplier(db_session, TENANT, _payload(), is_platform_admin=False)
+    supplier_service.set_active_supplier(db_session, TENANT, out.id)
+    db_session.commit()
+
+    with provider_module.provider_resolution(TENANT, db_session):
+        provider = provider_module.get_provider()
+    # 解密后的 key 注入到 Provider，且调用记录标签带供应商名
+    assert provider.api_key == TEST_KEY
+    assert provider.model == "deepseek-chat"
+    assert provider.base_url == "https://api.deepseek.com"
+    assert provider.provider_name == "supplier:deepseek-main"
+
+
+def test_get_provider_falls_back_to_settings_without_supplier(db_session):
+    with provider_module.provider_resolution(TENANT, db_session):
+        provider = provider_module.get_provider()
+    assert type(provider).__name__ == "FakeProvider"  # settings.llm_provider=fake
+
+
+def test_cache_invalidated_on_update(db_session):
+    out = supplier_service.create_supplier(db_session, TENANT, _payload(), is_platform_admin=False)
+    supplier_service.set_active_supplier(db_session, TENANT, out.id)
+    db_session.commit()
+
+    with provider_module.provider_resolution(TENANT, db_session):
+        p1 = provider_module.get_provider()
+        assert p1.api_key == TEST_KEY
+        # 轮换密钥后缓存失效，新实例使用新 key
+        supplier_service.update_supplier(
+            db_session, TENANT, out.id, SupplierUpdate(api_key="sk-rotated-00001")
+        )
+        db_session.commit()
+        p2 = provider_module.get_provider()
+    assert p2 is not p1
+    assert p2.api_key == "sk-rotated-00001"
+
+
+def test_cache_invalidated_on_delete(db_session):
+    out = supplier_service.create_supplier(db_session, TENANT, _payload(), is_platform_admin=False)
+    supplier_service.set_active_supplier(db_session, TENANT, out.id)
+    db_session.commit()
+    with provider_module.provider_resolution(TENANT, db_session):
+        assert provider_module.get_provider().api_key == TEST_KEY
+    supplier_service.delete_supplier(db_session, TENANT, out.id)
+    db_session.commit()
+    with provider_module.provider_resolution(TENANT, db_session):
+        assert type(provider_module.get_provider()).__name__ == "FakeProvider"
+
+
+# ---------- 模板 ----------
+
+
+def test_templates_have_no_keys():
+    templates = supplier_service.get_provider_templates()
+    assert {t.provider_type for t in templates} == {
+        "deepseek",
+        "qwen",
+        "moonshot",
+        "openai",
+        "openai_compatible",
+    }
+    for t in templates:
+        assert "api_key" not in t.model_dump()
+
+
+# ---------- 路由层 ----------
+
+
+def test_router_create_and_list_masked(client, admin_headers):
+    r = client.post(
+        "/api/v1/llm/providers",
+        json={
+            "name": "deepseek-main",
+            "provider_type": "deepseek",
+            "base_url": "https://api.deepseek.com",
+            "model_id": "deepseek-chat",
+            "api_key": TEST_KEY,
+        },
+        headers=admin_headers,
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()["data"]
+    assert body["api_key_masked"] == "sk-t****2345"
+    assert TEST_KEY not in r.text  # 明文 key 永不出现在响应中
+    assert "api_key" not in body or body.get("api_key") is None
+
+    r = client.get("/api/v1/llm/providers", headers=admin_headers)
+    assert r.status_code == 200
+    items = r.json()["data"]
+    assert len(items) == 1
+    assert items[0]["api_key_masked"] == "sk-t****2345"
+
+
+def test_router_requires_admin(client):
+    user_token = create_access_token(user_id="u1", tenant_id=TENANT, roles=["member"])
+    r = client.get("/api/v1/llm/providers", headers={"Authorization": f"Bearer {user_token}"})
+    assert r.status_code == 403
+    r = client.get("/api/v1/llm/providers")
+    assert r.status_code == 401
+
+
+def test_router_test_candidate_does_not_persist(client, admin_headers, monkeypatch):
+    async def fake_probe(base_url, api_key, model_id, timeout=10):
+        assert api_key == TEST_KEY  # key 透传到探测
+        from app.modules.llm.supplier_schemas import SupplierTestResult
+
+        return SupplierTestResult(ok=True, latency_ms=12, models=["m1"], note="ok")
+
+    monkeypatch.setattr(supplier_service, "probe_upstream", fake_probe)
+    r = client.post(
+        "/api/v1/llm/providers/test",
+        json={
+            "provider_type": "deepseek",
+            "base_url": "https://api.deepseek.com",
+            "model_id": "deepseek-chat",
+            "api_key": TEST_KEY,
+        },
+        headers=admin_headers,
+    )
+    assert r.status_code == 200, r.text
+    data = r.json()["data"]
+    assert data["ok"] is True and data["models"] == ["m1"]
+    assert TEST_KEY not in r.text
+
+
+def test_router_templates(client, admin_headers):
+    r = client.get("/api/v1/llm/provider-templates", headers=admin_headers)
+    assert r.status_code == 200
+    items = r.json()["data"]
+    assert len(items) == 5
+    deepseek = next(t for t in items if t["provider_type"] == "deepseek")
+    assert deepseek["base_url"] == "https://api.deepseek.com"
+
+
+def test_router_set_active_and_enable_disable(client, admin_headers):
+    r = client.post(
+        "/api/v1/llm/providers",
+        json={
+            "name": "qwen-1",
+            "provider_type": "qwen",
+            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "model_id": "qwen-max",
+            "api_key": "sk-qwen-key-abcd1234",
+        },
+        headers=admin_headers,
+    )
+    sid = r.json()["data"]["id"]
+
+    r = client.post(
+        "/api/v1/llm/providers/active", json={"supplier_id": sid}, headers=admin_headers
+    )
+    assert r.status_code == 200
+    assert r.json()["data"]["is_active"] is True
+
+    r = client.post(f"/api/v1/llm/providers/{sid}/disable", headers=admin_headers)
+    assert r.json()["data"]["status"] == 2
+    r = client.post(f"/api/v1/llm/providers/{sid}/enable", headers=admin_headers)
+    assert r.json()["data"]["status"] == 1
+
+    r = client.delete(f"/api/v1/llm/providers/{sid}", headers=admin_headers)
+    assert r.status_code == 200
+    r = client.get("/api/v1/llm/providers", headers=admin_headers)
+    assert r.json()["data"] == []

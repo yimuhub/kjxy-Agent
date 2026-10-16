@@ -1,0 +1,15 @@
+[Unit]
+Description=科技小院平台 API（uvicorn）
+After=network.target
+
+[Service]
+Type=simple
+User=__RUN_USER__
+WorkingDirectory=__INSTALL_DIR__/backend
+ExecStart=__INSTALL_DIR__/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

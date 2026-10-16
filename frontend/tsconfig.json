@@ -1,0 +1,1 @@
+{"compilerOptions":{"baseUrl":".","moduleResolution":"bundler","noFallthroughCasesInSwitch":true,"noUnusedLocals":true,"noUnusedParameters":true,"paths":{"@/*":["src/*"]},"strict":true,"target":"ES2020","types":["vite/client"]},"exclude":["node_modules","dist"],"extends":"@vue/tsconfig/tsconfig.dom.json","include":["src/**/*.ts","src/**/*.d.ts","src/**/*.tsx","src/**/*.vue"]}

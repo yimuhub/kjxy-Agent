@@ -1,0 +1,1 @@
+{"edges":[{"from":"retrieve","to":"answer"},{"from":"answer","to":"validate"}],"limits":{"max_steps":8,"timeout_seconds":60},"nodes":[{"id":"retrieve","name":"knowledge.search","type":"tool"},{"id":"answer","name":"agriculture_qa","type":"agent"},{"id":"validate","name":"qa_output_schema","type":"validation"}],"version":"1.0.0","workflow_code":"knowledge_qa_v1"}

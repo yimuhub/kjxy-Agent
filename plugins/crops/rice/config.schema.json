@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"default_top_k":{"default":5,"type":"integer"},"growth_stages":{"items":{"type":"string"},"type":"array"},"region":{"type":"string"}},"title":"RicePackConfig","type":"object"}

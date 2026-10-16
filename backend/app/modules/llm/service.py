@@ -1,0 +1,138 @@
+"""LLM 调用服务：统一走 Provider，并在 llm_calls 表中记录调用（含失败）。"""
+
+import hashlib
+import time
+import uuid
+
+from sqlalchemy.orm import Session
+
+from app.core.config import settings
+from app.core.errors import AppError
+from app.core.logging import get_logger
+from app.modules.llm.models import LLMCall
+from app.modules.llm.provider import get_provider, provider_resolution
+from app.modules.llm.schemas import LLMRequest, LLMResponse, LLMStatusOut
+from app.modules.tenants.quota import check_and_consume
+
+log = get_logger(__name__)
+
+
+def _prompt_sha(request: LLMRequest) -> str:
+    """只存 prompt 的 sha256 摘要，不存原文。"""
+    text = "\n".join(f"{m.role}:{m.content}" for m in request.messages)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _estimate_cost(provider, input_tokens: int | None, output_tokens: int | None) -> float:
+    """(in+out)/1000 * 单价；单价取 provider 常量（fake 为 0）。"""
+    unit_price = float(getattr(provider, "PRICE_PER_1K_USD", 0.0) or 0.0)
+    total = (input_tokens or 0) + (output_tokens or 0)
+    return round(total / 1000 * unit_price, 6)
+
+
+def _provider_label(provider) -> str:
+    """调用记录中的提供方标签：供应商模式用 supplier:<name>，否则回退 settings。"""
+    return getattr(provider, "provider_name", settings.llm_provider) or settings.llm_provider
+
+
+def _write_call(
+    db: Session,
+    *,
+    provider,
+    request: LLMRequest,
+    resp: LLMResponse | None,
+    status: str,
+    error_category: str | None,
+    latency_ms: int,
+    request_id: str,
+    tenant_id: str,
+) -> None:
+    db.add(
+        LLMCall(
+            tenant_id=tenant_id,
+            task_id=request.metadata.task_id,
+            provider=_provider_label(provider),
+            model=(
+                resp.model
+                if resp
+                else (request.model or getattr(provider, "model", "") or "unknown")
+            ),
+            input_tokens=resp.input_tokens if resp else None,
+            output_tokens=resp.output_tokens if resp else None,
+            estimated_cost=_estimate_cost(
+                provider, resp.input_tokens if resp else None, resp.output_tokens if resp else None
+            ),
+            status=status,
+            error_category=error_category,
+            latency_ms=latency_ms,
+            request_id=request_id,
+            prompt_sha=_prompt_sha(request),
+        )
+    )
+    db.flush()
+
+
+async def complete_with_logging(db: Session, request: LLMRequest) -> LLMResponse:
+    """调用模型并记录 llm_calls 行；成功/失败都记，失败时原样抛出 AppError。"""
+    tenant_id = request.metadata.tenant_id
+    if not tenant_id:
+        raise AppError("INVALID_REQUEST", "缺少租户信息，无法记录模型调用。", http_status=400)
+    # 配额拦截：调用模型前先扣减 llm_calls，超限直接 429 拒绝，不消耗上游资源
+    check_and_consume(db, tenant_id, "llm_calls")
+    request_id = request.metadata.request_id or f"req_{uuid.uuid4().hex[:16]}"
+
+    # 供应商热更新：注入租户上下文，get_provider() 按 DB 配置解析
+    with provider_resolution(tenant_id, db):
+        provider = get_provider()
+    started = time.perf_counter()
+    try:
+        resp = await provider.complete(request)
+    except AppError as e:
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        category = e.details.get("category") if e.code == "LLM_ERROR" else None
+        _write_call(
+            db,
+            provider=provider,
+            request=request,
+            resp=None,
+            status="error",
+            error_category=category,
+            latency_ms=latency_ms,
+            request_id=request_id,
+            tenant_id=tenant_id,
+        )
+        raise
+
+    latency_ms = int((time.perf_counter() - started) * 1000)
+    _write_call(
+        db,
+        provider=provider,
+        request=request,
+        resp=resp,
+        status="success",
+        error_category=None,
+        latency_ms=latency_ms,
+        request_id=request_id,
+        tenant_id=tenant_id,
+    )
+    return resp
+
+
+def get_status() -> LLMStatusOut:
+    """模型状态：只返回 provider/model/configured/mode，绝不返回密钥。"""
+    provider_name = settings.llm_provider
+    if provider_name == "fake":
+        return LLMStatusOut(
+            provider=provider_name,
+            model=settings.llm_model or "fake-mock-1",
+            configured=True,
+            mode="mock",
+        )
+    if provider_name == "openai_compatible":
+        return LLMStatusOut(
+            provider=provider_name,
+            model=settings.llm_model or "",
+            configured=bool(settings.llm_base_url and settings.llm_api_key),
+            mode="live",
+        )
+    return LLMStatusOut(provider=provider_name, model="", configured=False, mode="unknown")

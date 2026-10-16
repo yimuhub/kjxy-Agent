@@ -1,0 +1,1 @@
+{"api_compatibility":"1.0.0","checksum":"placeholder-computed-at-publish","config_schema":{"$ref":"config.schema.json"},"dependencies":[],"description":"水稻种植技术知识包：术语、生育期观察清单与问答工作流模板","entry_point":null,"name":"水稻作物包","permissions":["knowledge:read"],"plugin_id":"crops.rice","type":"knowledge_pack","version":"1.0.0"}

@@ -1,0 +1,13 @@
+{
+  "plugin_id": "demo.hello",
+  "name": "Hello 演示插件",
+  "version": "1.0.0",
+  "type": "workflow",
+  "api_compatibility": "1.0.0",
+  "dependencies": [],
+  "permissions": [],
+  "entry_point": null,
+  "config_schema": {},
+  "description": "插件机制演示：最小 workflow 插件，用于验证扫描 / 启用 / 禁用流程。",
+  "checksum": "04515ea3db4c9d6f9e8a194d21b178160a34c4a35f031300643d60ea535dc818"
+}

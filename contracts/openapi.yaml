@@ -1,0 +1,2654 @@
+# =============================================================
+# 本文件由 backend/scripts/generate_openapi.py 自动生成，禁止手改。
+# 接口变更后运行该脚本重新生成，并与代码同 PR 提交。
+# =============================================================
+openapi: 3.1.0
+info:
+  title: 科技小院多智能体平台
+  version: 1.0.0
+  description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
+paths:
+  /health/live:
+    get:
+      tags:
+      - health
+      summary: Live
+      operationId: live_health_live_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /health/ready:
+    get:
+      tags:
+      - health
+      summary: Ready
+      operationId: ready_health_ready_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /api/v1/auth/login:
+    post:
+      tags:
+      - v1
+      summary: Login
+      description: 登录。公开接口，无需 Bearer 令牌。
+      operationId: login_api_v1_auth_login_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/auth/refresh:
+    post:
+      tags:
+      - v1
+      summary: Refresh Token
+      operationId: refresh_token_api_v1_auth_refresh_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/auth/logout:
+    post:
+      tags:
+      - v1
+      summary: Logout
+      operationId: logout_api_v1_auth_logout_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/auth/me:
+    get:
+      tags:
+      - v1
+      summary: Me
+      operationId: me_api_v1_auth_me_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/tenants/current:
+    get:
+      tags:
+      - v1
+      summary: Current Tenant
+      operationId: current_tenant_api_v1_tenants_current_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/tenants/current/members:
+    get:
+      tags:
+      - v1
+      summary: List Members
+      operationId: list_members_api_v1_tenants_current_members_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          description: 页码
+          default: 1
+          title: Page
+        description: 页码
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          description: 每页条数
+          default: 20
+          title: Page Size
+        description: 每页条数
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - v1
+      summary: Add Member
+      operationId: add_member_api_v1_tenants_current_members_post
+      security:
+      - HTTPBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddMemberRequest'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/tenants/current/members/{user_id}:
+    delete:
+      tags:
+      - v1
+      summary: Remove Member
+      operationId: remove_member_api_v1_tenants_current_members__user_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: User Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/tenants/quota:
+    get:
+      tags:
+      - v1
+      summary: Get Quota
+      operationId: get_quota_api_v1_tenants_quota_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/tenants/signup:
+    post:
+      tags:
+      - v1
+      summary: Tenant Signup
+      operationId: tenant_signup_api_v1_tenants_signup_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TenantSignupRequest'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/tasks:
+    post:
+      tags:
+      - v1
+      - tasks
+      summary: Create Task
+      operationId: create_task_api_v1_tasks_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Idempotency-Key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskCreate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - v1
+      - tasks
+      summary: List Tasks
+      operationId: list_tasks_api_v1_tasks_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: 按状态过滤
+          title: Status
+        description: 按状态过滤
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          description: 页码
+          default: 1
+          title: Page
+        description: 页码
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          description: 每页条数
+          default: 20
+          title: Page Size
+        description: 每页条数
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/tasks/{task_id}:
+    get:
+      tags:
+      - v1
+      - tasks
+      summary: Get Task
+      operationId: get_task_api_v1_tasks__task_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: task_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Task Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/tasks/{task_id}/events:
+    get:
+      tags:
+      - v1
+      - tasks
+      summary: List Task Events
+      operationId: list_task_events_api_v1_tasks__task_id__events_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: task_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Task Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/tasks/{task_id}/cancel:
+    post:
+      tags:
+      - v1
+      - tasks
+      summary: Cancel Task
+      operationId: cancel_task_api_v1_tasks__task_id__cancel_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: task_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Task Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/tasks/{task_id}/retry:
+    post:
+      tags:
+      - v1
+      - tasks
+      summary: Retry Task
+      operationId: retry_task_api_v1_tasks__task_id__retry_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: task_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Task Id
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Idempotency-Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/knowledge/documents:
+    post:
+      tags:
+      - v1
+      - knowledge
+      summary: Upload Document
+      operationId: upload_document_api_v1_knowledge_documents_post
+      security:
+      - HTTPBearer: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_upload_document_api_v1_knowledge_documents_post'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - v1
+      - knowledge
+      summary: List Documents
+      operationId: list_documents_api_v1_knowledge_documents_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          description: 页码
+          default: 1
+          title: Page
+        description: 页码
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          description: 每页条数
+          default: 20
+          title: Page Size
+        description: 每页条数
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/knowledge/documents/{document_id}:
+    get:
+      tags:
+      - v1
+      - knowledge
+      summary: Get Document
+      operationId: get_document_api_v1_knowledge_documents__document_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: document_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Document Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - v1
+      - knowledge
+      summary: Delete Document
+      operationId: delete_document_api_v1_knowledge_documents__document_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: document_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Document Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/knowledge/search:
+    post:
+      tags:
+      - v1
+      - knowledge
+      summary: Search Knowledge
+      operationId: search_knowledge_api_v1_knowledge_search_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/qa/answers:
+    post:
+      tags:
+      - v1
+      - agriculture-qa
+      summary: Answer Question
+      operationId: answer_question_api_v1_qa_answers_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QAInput'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/feedback:
+    post:
+      tags:
+      - v1
+      - evolution
+      summary: Create Feedback
+      operationId: create_feedback_api_v1_feedback_post
+      security:
+      - HTTPBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FeedbackCreate'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - v1
+      - evolution
+      summary: Get Feedback
+      operationId: get_feedback_api_v1_feedback_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          description: 页码
+          default: 1
+          title: Page
+        description: 页码
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          description: 每页条数
+          default: 20
+          title: Page Size
+        description: 每页条数
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/knowledge/candidates:
+    get:
+      tags:
+      - v1
+      - evolution
+      summary: Get Candidates
+      operationId: get_candidates_api_v1_knowledge_candidates_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: pending_review|approved|rejected
+          title: Status
+        description: pending_review|approved|rejected
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          description: 页码
+          default: 1
+          title: Page
+        description: 页码
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          description: 每页条数
+          default: 20
+          title: Page Size
+        description: 每页条数
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/knowledge/candidates/{candidate_id}/review:
+    post:
+      tags:
+      - v1
+      - evolution
+      summary: Review Candidate
+      operationId: review_candidate_api_v1_knowledge_candidates__candidate_id__review_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: candidate_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Candidate Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CandidateReview'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/skills:
+    get:
+      tags:
+      - v1
+      - evolution
+      summary: Get Skills
+      operationId: get_skills_api_v1_skills_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: draft|testing|pending_review|published|deprecated
+          title: Status
+        description: draft|testing|pending_review|published|deprecated
+      - name: skill_code
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Skill Code
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          description: 页码
+          default: 1
+          title: Page
+        description: 页码
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          description: 每页条数
+          default: 20
+          title: Page Size
+        description: 每页条数
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - v1
+      - evolution
+      summary: Create Skill
+      operationId: create_skill_api_v1_skills_post
+      security:
+      - HTTPBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SkillCreate'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/skills/{skill_id}/review:
+    post:
+      tags:
+      - v1
+      - evolution
+      summary: Review Skill
+      operationId: review_skill_api_v1_skills__skill_id__review_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: skill_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Skill Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SkillReview'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/skills/{skill_id}/eval-runs:
+    get:
+      tags:
+      - v1
+      - evolution
+      summary: Get Skill Eval Runs
+      description: 查询某 Skill 的评测门禁运行历史（第四期 4.2）。
+      operationId: get_skill_eval_runs_api_v1_skills__skill_id__eval_runs_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: skill_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Skill Id
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          description: 页码
+          default: 1
+          title: Page
+        description: 页码
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          description: 每页条数
+          default: 20
+          title: Page Size
+        description: 每页条数
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/skills/{skill_id}/rollout:
+    post:
+      tags:
+      - v1
+      - evolution
+      summary: Set Skill Rollout
+      operationId: set_skill_rollout_api_v1_skills__skill_id__rollout_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: skill_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Skill Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RolloutCreate'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - v1
+      - evolution
+      summary: Get Skill Rollout
+      operationId: get_skill_rollout_api_v1_skills__skill_id__rollout_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: skill_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Skill Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/skills/{skill_id}/rollout/promote:
+    post:
+      tags:
+      - v1
+      - evolution
+      summary: Promote Skill Rollout
+      operationId: promote_skill_rollout_api_v1_skills__skill_id__rollout_promote_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: skill_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Skill Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/skills/{skill_id}/rollout/halt:
+    post:
+      tags:
+      - v1
+      - evolution
+      summary: Halt Skill Rollout
+      operationId: halt_skill_rollout_api_v1_skills__skill_id__rollout_halt_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: skill_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Skill Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/llm/providers:
+    get:
+      tags:
+      - v1
+      - llm
+      - llm-suppliers
+      summary: List Providers
+      operationId: list_providers_api_v1_llm_providers_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+    post:
+      tags:
+      - v1
+      - llm
+      - llm-suppliers
+      summary: Create Provider
+      operationId: create_provider_api_v1_llm_providers_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SupplierCreate'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/llm/providers/{supplier_id}:
+    put:
+      tags:
+      - v1
+      - llm
+      - llm-suppliers
+      summary: Update Provider
+      operationId: update_provider_api_v1_llm_providers__supplier_id__put
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: supplier_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Supplier Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SupplierUpdate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - v1
+      - llm
+      - llm-suppliers
+      summary: Delete Provider
+      operationId: delete_provider_api_v1_llm_providers__supplier_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: supplier_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Supplier Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/llm/providers/{supplier_id}/enable:
+    post:
+      tags:
+      - v1
+      - llm
+      - llm-suppliers
+      summary: Enable Provider
+      operationId: enable_provider_api_v1_llm_providers__supplier_id__enable_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: supplier_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Supplier Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/llm/providers/{supplier_id}/disable:
+    post:
+      tags:
+      - v1
+      - llm
+      - llm-suppliers
+      summary: Disable Provider
+      operationId: disable_provider_api_v1_llm_providers__supplier_id__disable_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: supplier_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Supplier Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/llm/providers/test:
+    post:
+      tags:
+      - v1
+      - llm
+      - llm-suppliers
+      summary: Test Provider Candidate
+      description: 未落库候选配置的连通性测试：key 只在内存用一次，不落库、不打日志。
+      operationId: test_provider_candidate_api_v1_llm_providers_test_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SupplierTestBody'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/llm/providers/{supplier_id}/test:
+    post:
+      tags:
+      - v1
+      - llm
+      - llm-suppliers
+      summary: Test Saved Provider
+      description: '对已存供应商测试，结果写回 test_time/response_time_ms/last_error；
+
+        连续失败 3 次自动禁用。'
+      operationId: test_saved_provider_api_v1_llm_providers__supplier_id__test_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: supplier_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Supplier Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/llm/providers/active:
+    post:
+      tags:
+      - v1
+      - llm
+      - llm-suppliers
+      summary: Set Active Provider
+      description: 设置当前生效供应商（租户级），即时生效、无需重启。
+      operationId: set_active_provider_api_v1_llm_providers_active_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetActiveBody'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/llm/provider-templates:
+    get:
+      tags:
+      - v1
+      - llm
+      - llm-suppliers
+      summary: List Provider Templates
+      description: 预置模板：base_url + 默认 model_id，不含 Key。
+      operationId: list_provider_templates_api_v1_llm_provider_templates_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/llm/status:
+    get:
+      tags:
+      - v1
+      - llm
+      summary: Llm Status
+      operationId: llm_status_api_v1_llm_status_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /api/v1/tools:
+    get:
+      tags:
+      - v1
+      - tools
+      summary: List Tools
+      operationId: list_tools_api_v1_tools_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /api/v1/tool-approvals:
+    get:
+      tags:
+      - v1
+      - tool-approvals
+      summary: List Approvals
+      description: 本租户审批单列表（租户成员可见；审批动作需审批角色）。
+      operationId: list_approvals_api_v1_tool_approvals_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+          title: Page
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 20
+          title: Page Size
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/tool-approvals/{approval_id}/approve:
+    post:
+      tags:
+      - v1
+      - tool-approvals
+      summary: Approve
+      operationId: approve_api_v1_tool_approvals__approval_id__approve_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: approval_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Approval Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApprovalDecisionRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/tool-approvals/{approval_id}/reject:
+    post:
+      tags:
+      - v1
+      - tool-approvals
+      summary: Reject
+      operationId: reject_api_v1_tool_approvals__approval_id__reject_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: approval_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Approval Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApprovalDecisionRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/audit/logs:
+    get:
+      tags:
+      - v1
+      - audit
+      summary: Get Audit Logs
+      operationId: get_audit_logs_api_v1_audit_logs_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: action
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: 按动作过滤
+          title: Action
+        description: 按动作过滤
+      - name: resource_type
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: 按资源类型过滤
+          title: Resource Type
+        description: 按资源类型过滤
+      - name: request_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: 按请求 ID 过滤
+          title: Request Id
+        description: 按请求 ID 过滤
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          description: 页码
+          default: 1
+          title: Page
+        description: 页码
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          description: 每页条数
+          default: 20
+          title: Page Size
+        description: 每页条数
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/policies:
+    get:
+      tags:
+      - v1
+      - policy
+      summary: List Policies
+      operationId: list_policies_api_v1_policies_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: keyword
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: 政策名称关键词
+          title: Keyword
+        description: 政策名称关键词
+      - name: province
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Province
+      - name: policy_type
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Policy Type
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: active|expired|archived
+          title: Status
+        description: active|expired|archived
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          description: 页码
+          default: 1
+          title: Page
+        description: 页码
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          description: 每页条数
+          default: 20
+          title: Page Size
+        description: 每页条数
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - v1
+      - policy
+      summary: Ingest Policy
+      operationId: ingest_policy_api_v1_policies_post
+      security:
+      - HTTPBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicyIngestRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/policies/match:
+    post:
+      tags:
+      - v1
+      - policy
+      summary: Match Policies
+      operationId: match_policies_api_v1_policies_match_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicyProfile'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/policies/{policy_id}:
+    get:
+      tags:
+      - v1
+      - policy
+      summary: Get Policy
+      operationId: get_policy_api_v1_policies__policy_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: policy_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Policy Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/policies/{policy_id}/application-drafts:
+    post:
+      tags:
+      - v1
+      - policy
+      summary: Create Application Draft
+      operationId: create_application_draft_api_v1_policies__policy_id__application_drafts_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: policy_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Policy Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApplicationDraftCreate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/policies/application-drafts/{draft_id}:
+    get:
+      tags:
+      - v1
+      - policy
+      summary: Get Application Draft
+      operationId: get_application_draft_api_v1_policies_application_drafts__draft_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: draft_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Draft Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/plugins:
+    get:
+      tags:
+      - v1
+      - plugins
+      summary: List Plugins
+      operationId: list_plugins_api_v1_plugins_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: plugin_type
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: workflow|knowledge_pack|domain_pack
+          title: Plugin Type
+        description: workflow|knowledge_pack|domain_pack
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: enabled|disabled
+          title: Status
+        description: enabled|disabled
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/plugins/scan:
+    post:
+      tags:
+      - v1
+      - plugins
+      summary: Scan Plugins
+      operationId: scan_plugins_api_v1_plugins_scan_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/plugins/{plugin_id}/enable:
+    post:
+      tags:
+      - v1
+      - plugins
+      summary: Enable Plugin
+      operationId: enable_plugin_api_v1_plugins__plugin_id__enable_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: plugin_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Plugin Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/plugins/{plugin_id}/disable:
+    post:
+      tags:
+      - v1
+      - plugins
+      summary: Disable Plugin
+      operationId: disable_plugin_api_v1_plugins__plugin_id__disable_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: plugin_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Plugin Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/admin/stats:
+    get:
+      tags:
+      - v1
+      - admin
+      summary: Admin Stats
+      operationId: admin_stats_api_v1_admin_stats_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/agents:
+    get:
+      tags:
+      - v1
+      - agents
+      summary: List Agents
+      description: '列出已启用的 Agent 定义（租户内可见）。
+
+
+        每个 Agent 附 ``skills`` 字段：出生自带技能的精简列表
+
+        （code/name/description/risk_level），供前端"初始技能"区域展示。'
+      operationId: list_agents_api_v1_agents_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/agents/{code}/run:
+    post:
+      tags:
+      - v1
+      - agents
+      summary: Run Agent
+      description: 同步运行指定 Agent。
+      operationId: run_agent_api_v1_agents__code__run_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: code
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentRunRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+components:
+  schemas:
+    AddMemberRequest:
+      properties:
+        username:
+          type: string
+          maxLength: 64
+          minLength: 1
+          title: Username
+        role:
+          type: string
+          title: Role
+          description: tenant_admin|expert|operator|viewer|service_worker
+        display_name:
+          anyOf:
+          - type: string
+            maxLength: 64
+          - type: 'null'
+          title: Display Name
+      type: object
+      required:
+      - username
+      - role
+      title: AddMemberRequest
+    AgentRunRequest:
+      properties:
+        input:
+          additionalProperties: true
+          type: object
+          title: Input
+          description: Agent 输入（各 Agent 的 input schema）
+        task_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Task Id
+          description: 可选：关联任务 ID，不传则自动生成
+      type: object
+      title: AgentRunRequest
+    ApplicationDraftCreate:
+      properties:
+        applicant_name:
+          type: string
+          minLength: 1
+          title: Applicant Name
+        applicant_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Applicant Type
+        contact_info:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Contact Info
+        form_data:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Form Data
+      type: object
+      required:
+      - applicant_name
+      title: ApplicationDraftCreate
+      description: 生成申报材料草案的请求体。
+    ApprovalDecisionRequest:
+      properties:
+        note:
+          anyOf:
+          - type: string
+            maxLength: 1000
+          - type: 'null'
+          title: Note
+      type: object
+      title: ApprovalDecisionRequest
+    Body_upload_document_api_v1_knowledge_documents_post:
+      properties:
+        file:
+          type: string
+          format: binary
+          title: File
+        title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Title
+      type: object
+      required:
+      - file
+      title: Body_upload_document_api_v1_knowledge_documents_post
+    CandidateReview:
+      properties:
+        action:
+          type: string
+          enum:
+          - approve
+          - reject
+          title: Action
+        note:
+          anyOf:
+          - type: string
+            maxLength: 2000
+          - type: 'null'
+          title: Note
+      type: object
+      required:
+      - action
+      title: CandidateReview
+    FeedbackCreate:
+      properties:
+        task_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Task Id
+        rating:
+          anyOf:
+          - type: string
+            enum:
+            - up
+            - down
+          - type: 'null'
+          title: Rating
+        feedback_text:
+          anyOf:
+          - type: string
+            maxLength: 5000
+          - type: 'null'
+          title: Feedback Text
+        corrected_answer:
+          anyOf:
+          - type: string
+            maxLength: 20000
+          - type: 'null'
+          title: Corrected Answer
+      type: object
+      title: FeedbackCreate
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    LoginRequest:
+      properties:
+        username:
+          type: string
+          maxLength: 64
+          minLength: 1
+          title: Username
+        password:
+          type: string
+          maxLength: 128
+          minLength: 1
+          title: Password
+        tenant_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tenant Id
+          description: 多租户用户登录时指定；单租户用户自动选择
+      type: object
+      required:
+      - username
+      - password
+      title: LoginRequest
+    PolicyIngestRequest:
+      properties:
+        policy_name:
+          type: string
+          minLength: 1
+          title: Policy Name
+        publish_department:
+          type: string
+          minLength: 1
+          title: Publish Department
+        published_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Published At
+        scope:
+          type: string
+          enum:
+          - national
+          - province
+          - city
+          title: Scope
+          default: national
+        province:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Province
+        city:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: City
+        department:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Department
+        policy_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Policy Type
+        support_direction:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Support Direction
+        apply_conditions_json:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Apply Conditions Json
+        material_requirements_json:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Material Requirements Json
+        content:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Content
+        source_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source Url
+        apply_start_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Apply Start At
+        apply_end_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Apply End At
+      type: object
+      required:
+      - policy_name
+      - publish_department
+      title: PolicyIngestRequest
+      description: "政策采集输入。\n\napply_conditions_json 结构化申报条件示例：\n    {\"crops\": [\"水稻\"], \"min_area_mu\": 50, \"applicant_types\"\
+        : [\"合作社\"]}"
+    PolicyProfile:
+      properties:
+        crops:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Crops
+        area_mu:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Area Mu
+        province:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Province
+        city:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: City
+        applicant_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Applicant Type
+      type: object
+      title: PolicyProfile
+      description: 待匹配画像：任一字段都可缺省，缺省导致对应条件无法判断。
+    QAInput:
+      properties:
+        question:
+          type: string
+          maxLength: 2000
+          minLength: 1
+          title: Question
+          description: 用户问题
+        top_k:
+          type: integer
+          maximum: 20.0
+          minimum: 1.0
+          title: Top K
+          description: 检索片段数
+          default: 5
+        mode:
+          type: string
+          enum:
+          - sync
+          - async
+          title: Mode
+          description: sync=同步返回，async=走任务队列
+          default: sync
+        crop_type:
+          anyOf:
+          - type: string
+            maxLength: 100
+          - type: 'null'
+          title: Crop Type
+          description: 作物类型（可选，用于检索加权）
+      type: object
+      required:
+      - question
+      title: QAInput
+    RefreshRequest:
+      properties:
+        refresh_token:
+          type: string
+          minLength: 1
+          title: Refresh Token
+      type: object
+      required:
+      - refresh_token
+      title: RefreshRequest
+    RolloutCreate:
+      properties:
+        rollout_version:
+          type: string
+          maxLength: 50
+          minLength: 1
+          title: Rollout Version
+          description: 灰度中的新版本号
+        strategy:
+          type: string
+          enum:
+          - tenant_allowlist
+          - percentage
+          title: Strategy
+        percentage:
+          anyOf:
+          - type: integer
+            maximum: 100.0
+            minimum: 0.0
+          - type: 'null'
+          title: Percentage
+          description: 百分比策略 0-100
+        tenant_ids:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Tenant Ids
+          description: 名单策略的租户 ID 列表
+      type: object
+      required:
+      - rollout_version
+      - strategy
+      title: RolloutCreate
+    SearchRequest:
+      properties:
+        query:
+          type: string
+          maxLength: 2000
+          minLength: 1
+          title: Query
+        top_k:
+          type: integer
+          maximum: 20.0
+          minimum: 1.0
+          title: Top K
+          default: 5
+      type: object
+      required:
+      - query
+      title: SearchRequest
+    SetActiveBody:
+      properties:
+        supplier_id:
+          type: string
+          minLength: 1
+          title: Supplier Id
+      type: object
+      required:
+      - supplier_id
+      title: SetActiveBody
+    SkillCreate:
+      properties:
+        skill_code:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Skill Code
+        version:
+          type: string
+          maxLength: 50
+          minLength: 1
+          title: Version
+        definition:
+          additionalProperties: true
+          type: object
+          title: Definition
+          description: Skill 定义 JSON
+        created_from:
+          anyOf:
+          - type: string
+            maxLength: 100
+          - type: 'null'
+          title: Created From
+      type: object
+      required:
+      - skill_code
+      - version
+      - definition
+      title: SkillCreate
+    SkillReview:
+      properties:
+        action:
+          type: string
+          enum:
+          - submit
+          - approve
+          - reject
+          - rollback
+          title: Action
+        note:
+          anyOf:
+          - type: string
+            maxLength: 2000
+          - type: 'null'
+          title: Note
+      type: object
+      required:
+      - action
+      title: SkillReview
+    SupplierCreate:
+      properties:
+        name:
+          type: string
+          maxLength: 40
+          minLength: 1
+          title: Name
+          description: 逻辑名，如 deepseek-main
+        provider_type:
+          type: string
+          enum:
+          - deepseek
+          - qwen
+          - moonshot
+          - openai
+          - openai_compatible
+          title: Provider Type
+        base_url:
+          type: string
+          maxLength: 500
+          minLength: 1
+          title: Base Url
+        model_id:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Model Id
+          description: 上游物理模型名
+        api_key:
+          type: string
+          maxLength: 2000
+          minLength: 1
+          title: Api Key
+          description: 明文 Key，仅本次使用并加密落库
+        models:
+          anyOf:
+          - type: string
+            maxLength: 2000
+          - type: 'null'
+          title: Models
+          description: 模型白名单，逗号分隔；空=全量
+        priority:
+          type: integer
+          title: Priority
+          description: 越大越优先
+          default: 0
+        scope:
+          type: string
+          enum:
+          - tenant
+          - global
+          title: Scope
+          description: tenant=仅本租户可见，global=全局共享（仅平台管理员）
+          default: tenant
+      type: object
+      required:
+      - name
+      - provider_type
+      - base_url
+      - model_id
+      - api_key
+      title: SupplierCreate
+    SupplierTestBody:
+      properties:
+        provider_type:
+          type: string
+          enum:
+          - deepseek
+          - qwen
+          - moonshot
+          - openai
+          - openai_compatible
+          title: Provider Type
+        base_url:
+          type: string
+          maxLength: 500
+          minLength: 1
+          title: Base Url
+        model_id:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Model Id
+        api_key:
+          type: string
+          maxLength: 2000
+          minLength: 1
+          title: Api Key
+      type: object
+      required:
+      - provider_type
+      - base_url
+      - model_id
+      - api_key
+      title: SupplierTestBody
+      description: 未落库候选供应商的连通性测试。
+    SupplierUpdate:
+      properties:
+        name:
+          anyOf:
+          - type: string
+            maxLength: 40
+            minLength: 1
+          - type: 'null'
+          title: Name
+        provider_type:
+          anyOf:
+          - type: string
+            enum:
+            - deepseek
+            - qwen
+            - moonshot
+            - openai
+            - openai_compatible
+          - type: 'null'
+          title: Provider Type
+        base_url:
+          anyOf:
+          - type: string
+            maxLength: 500
+            minLength: 1
+          - type: 'null'
+          title: Base Url
+        model_id:
+          anyOf:
+          - type: string
+            maxLength: 100
+            minLength: 1
+          - type: 'null'
+          title: Model Id
+        api_key:
+          anyOf:
+          - type: string
+            maxLength: 2000
+            minLength: 1
+          - type: 'null'
+          title: Api Key
+          description: 提供则轮换密钥，不提供则保持不变
+        models:
+          anyOf:
+          - type: string
+            maxLength: 2000
+          - type: 'null'
+          title: Models
+        priority:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Priority
+      type: object
+      title: SupplierUpdate
+    TaskCreate:
+      properties:
+        task_type:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Task Type
+        input:
+          additionalProperties: true
+          type: object
+          title: Input
+        priority:
+          type: string
+          maxLength: 20
+          minLength: 1
+          title: Priority
+          default: normal
+      type: object
+      required:
+      - task_type
+      title: TaskCreate
+    TenantSignupRequest:
+      properties:
+        tenant_name:
+          type: string
+          maxLength: 64
+          minLength: 2
+          title: Tenant Name
+        admin_username:
+          type: string
+          maxLength: 32
+          minLength: 3
+          title: Admin Username
+        password:
+          type: string
+          maxLength: 128
+          minLength: 6
+          title: Password
+        contact:
+          anyOf:
+          - type: string
+            maxLength: 128
+          - type: 'null'
+          title: Contact
+      type: object
+      required:
+      - tenant_name
+      - admin_username
+      - password
+      title: TenantSignupRequest
+      description: 公开自助注册请求。
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+  securitySchemes:
+    HTTPBearer:
+      type: http
+      scheme: bearer

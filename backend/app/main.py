@@ -1,0 +1,112 @@
+"""FastAPI 应用入口。"""
+
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
+from app.api.v1.router import router as v1_router
+from app.core.config import settings
+from app.core.errors import (
+    AppError,
+    app_error_handler,
+    unhandled_error_handler,
+    validation_error_handler,
+)
+from app.core.logging import configure_logging, get_logger
+from app.core.middleware import RequestIDMiddleware
+
+log = get_logger(__name__)
+
+
+def _startup_wiring() -> None:
+    """应用启动时装配：工具元数据 seed + knowledge.search / workorder.dispatch 工具注册。"""
+    try:
+        from app.db.session import SessionLocal
+        from app.modules.knowledge.service import register_knowledge_search_tool
+        from app.modules.tools.registry import seed_builtin_tools
+        from app.modules.tools.workorder_tool import register_workorder_tool
+
+        # 注册各模块的任务 handler（native 模式无 Celery worker 时，API 进程的
+        # 同步降级线程依赖这里完成注册；spec §7.4 的 knowledge_qa 必须可用）
+        try:
+            import app.modules.agriculture.worker_tasks  # noqa: F401
+            import app.modules.knowledge.worker_tasks  # noqa: F401
+        except Exception as e:
+            log.warning("worker task registration import failed: %s", e)
+
+        db = SessionLocal()
+        try:
+            seed_builtin_tools(db)
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            log.warning("seed builtin tools failed: %s", e)
+        finally:
+            db.close()
+        register_knowledge_search_tool()
+        register_workorder_tool()
+    except Exception as e:
+        log.warning("startup wiring failed: %s", e)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    configure_logging(settings.log_level)
+    log.info("tech-yard-platform starting, env=%s", settings.app_env)
+    _startup_wiring()
+    yield
+    log.info("tech-yard-platform stopping")
+
+
+def create_app() -> FastAPI:
+    app = FastAPI(title="科技小院多智能体平台", version="1.0.0", lifespan=lifespan)
+    app.add_middleware(RequestIDMiddleware)
+    app.add_exception_handler(AppError, app_error_handler)
+    app.add_exception_handler(RequestValidationError, validation_error_handler)
+    app.add_exception_handler(Exception, unhandled_error_handler)
+
+    @app.get("/health/live", tags=["health"])
+    def live():
+        return {"status": "ok"}
+
+    @app.get("/health/ready", tags=["health"])
+    def ready():
+        checks = {"database": _check_db(), "redis": _check_redis()}
+        ready = all(checks.values())
+        # 未就绪时返回 503，供编排器/探针判断
+        return JSONResponse(
+            status_code=200 if ready else 503,
+            content={"status": "ready" if ready else "not_ready", "checks": checks},
+        )
+
+    app.include_router(v1_router, prefix="/api/v1", tags=["v1"])
+    return app
+
+
+def _check_db() -> bool:
+    try:
+        from sqlalchemy import text
+
+        from app.db.session import engine
+
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return True
+    except Exception:
+        return False
+
+
+def _check_redis() -> bool:
+    try:
+        import redis
+
+        client = redis.Redis.from_url(settings.redis_url, socket_connect_timeout=2)
+        client.ping()
+        return True
+    except Exception:
+        return False
+
+
+app = create_app()

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  科技小院平台 API · launchd 开机自启模板
+
+  使用方法：
+  1. 把本文件全文的 __INSTALL_DIR__ 替换为仓库的绝对路径
+     （例如 /Users/czmj/Documents/kejixiaoyuan）
+  2. 复制到 ~/Library/LaunchAgents/com.techyard.api.plist
+  3. 执行 launchctl load ~/Library/LaunchAgents/com.techyard.api.plist
+  卸载：launchctl unload ~/Library/LaunchAgents/com.techyard.api.plist
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.techyard.api</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__INSTALL_DIR__/.venv/bin/uvicorn</string>
+    <string>app.main:app</string>
+    <string>--host</string>
+    <string>127.0.0.1</string>
+    <string>--port</string>
+    <string>8000</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>__INSTALL_DIR__/backend</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>__INSTALL_DIR__/backend/data/api-stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>__INSTALL_DIR__/backend/data/api-stderr.log</string>
+</dict>
+</plist>

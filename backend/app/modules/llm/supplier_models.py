@@ -1,0 +1,44 @@
+"""模型供应商 ORM：suppliers（照抄 new-api Channel 精简）+ tenant_active_suppliers。
+
+- suppliers.tenant_id 为 NULL 表示全局共享供应商，所有租户可见；
+  非空则仅归属租户可见。
+- status：1=启用，2=禁用（连续探测失败 3 次自动置 2）。
+- tenant_active_suppliers：租户级"当前生效供应商"（一租户一行）。
+"""
+
+from datetime import datetime
+
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.db.base import Base, TimestampMixin
+
+
+class Supplier(Base, TimestampMixin):
+    __tablename__ = "suppliers"
+
+    # NULL=全局共享；非空=仅归属租户可见
+    tenant_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(40), nullable=False)  # 逻辑名，如 deepseek-main
+    provider_type: Mapped[str] = mapped_column(
+        String(30), nullable=False
+    )  # deepseek|qwen|moonshot|openai|openai_compatible
+    base_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    model_id: Mapped[str] = mapped_column(String(100), nullable=False)  # 上游物理模型名
+    api_key_enc: Mapped[str] = mapped_column(Text, nullable=False)  # Fernet 加密，永存密文
+    models: Mapped[str | None] = mapped_column(Text, nullable=True)  # 白名单，逗号分隔，空=全量
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # 越大越优先
+    status: Mapped[int] = mapped_column(Integer, nullable=False, default=1)  # 1=启用/2=禁用
+    consecutive_failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    test_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    response_time_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class TenantActiveSupplier(Base, TimestampMixin):
+    __tablename__ = "tenant_active_suppliers"
+
+    tenant_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True, index=True)
+    supplier_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("suppliers.id"), nullable=True
+    )

@@ -1,0 +1,105 @@
+# 科技小院平台 - 开发/单机试点 Compose
+name: tech-yard-platform
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: app_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_DB: techyard
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app_user -d techyard"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # 数据库默认不暴露公网端口；调试时可临时取消注释
+    # ports:
+    #   - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: deploy/docker/api.Dockerfile
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql+psycopg://app_user:${POSTGRES_PASSWORD:-change-me}@postgres:5432/techyard
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - filedata:/data/files
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/health/live')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: deploy/docker/worker.Dockerfile
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql+psycopg://app_user:${POSTGRES_PASSWORD:-change-me}@postgres:5432/techyard
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - filedata:/data/files
+    restart: unless-stopped
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: deploy/docker/worker.Dockerfile
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql+psycopg://app_user:${POSTGRES_PASSWORD:-change-me}@postgres:5432/techyard
+      CELERY_BROKER_URL: redis://redis:6379/1
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: celery -A app.workers.celery_app:celery_app beat --loglevel=info
+    restart: unless-stopped
+    profiles: ["scheduler"]
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: ../deploy/docker/web.Dockerfile
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
+  filedata:
