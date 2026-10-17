@@ -39,6 +39,15 @@
 - 配额管理 API `PATCH /api/v1/admin/quotas/{tenant_id}`（写审计）。
 - 周期任务 beat_schedule：超时回收/心跳/月度配额重置；生产 compose 默认启用 scheduler。
 
+### 知识与进化闭环
+- 审核入库失败显式化（响应透出 `ingest_ok/ingest_error`）；混合检索关键词满覆盖保底；
+  高风险词表扩至 14 词且新旧资料数值冲突强制转专家复核；切块可信级按来源映射；
+  新端点 reparse / batch-review；评估集 `backend/eval/qa_eval_v1.json`（22 用例）+ CI 评估测试通过率 100%。
+
+### 前端体验（21 文件）
+- 界面去演示密码/去内部术语（租户→使用空间等）、角色化菜单与路由守卫、
+  AsyncState 四态、任务 5s 轮询、批量审核、重新解析、新手引导与示例问题、≤900px 响应式。
+
 ### 部署修复
 - `web.Dockerfile` COPY 越出构建上下文的必败构建修复（web 构建上下文改为仓库根）。
 - `api/worker.Dockerfile` editable 安装顺序缺陷修复（源码缺失时 setuptools 构建必败）→ 非 editable。
@@ -46,7 +55,8 @@
 - 备份/恢复脚本参数化（动态解析 compose 卷名；修复生产项目名下静默备份空卷的事故隐患）；补执行位。
 - 生产 compose：强制 `POSTGRES_PASSWORD`；redis requirepass 后各服务 URL 带凭证（修复生产必断连）；
   新增 `.dockerignore`。
-- 新增 `/metrics`、`/health/worker`；生产 compose 默认启用 scheduler。
+- 新增 `/metrics`、`/health/worker`；生产 compose 默认启用 scheduler；beat 月度配额清零
+  `quota.monthly_reset`（Redis 幂等键方案，无需 migration）。
 
 ## 0.1.0（2026-10-16）
 
