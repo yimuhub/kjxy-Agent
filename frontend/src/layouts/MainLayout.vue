@@ -41,9 +41,13 @@
         </div>
       </el-header>
       <el-main class="main">
-        <!-- 尚无使用空间的账号：业务页都需要空间上下文，直接给明确提示而不是让各页报加载失败 -->
+        <!-- 尚无使用空间的账号：业务页都需要空间上下文。
+             平台管理员给"全局总览"（租户列表/调用量/任务状态，只读边界）；其他账号给明确指引。 -->
+        <GlobalOverview
+          v-if="showNoTenantNotice && isPlatformAdmin"
+        />
         <div
-          v-if="showNoTenantNotice"
+          v-else-if="showNoTenantNotice"
           class="no-tenant"
         >
           <el-empty>
@@ -83,6 +87,7 @@
   } from '@element-plus/icons-vue'
   import type { Component } from 'vue'
   import { useAuthStore } from '@/stores/auth'
+  import GlobalOverview from '@/views/GlobalOverview.vue'
 
   /** 侧栏菜单配置：roles 为空表示全员可见（与 router meta.roles 保持一致） */
   interface MenuEntry {
@@ -118,6 +123,9 @@
 
   /** 按当前角色过滤菜单 */
   const visibleMenus = computed(() => MENUS.filter(m => auth.hasAnyRole(m.roles)))
+
+  /** 平台管理员：无空间但给"全局总览"（租户列表/调用量/任务状态），而非空指引 */
+  const isPlatformAdmin = computed(() => auth.roles.includes('platform_admin'))
 
   /** 窄屏（≤900px）侧栏收起为图标条 */
   const collapsed = ref(false)
