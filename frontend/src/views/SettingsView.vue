@@ -398,7 +398,7 @@
         >
           <el-radio-group v-model="form.scope">
             <el-radio value="tenant">
-              仅本租户
+              仅本使用空间
             </el-radio>
             <el-radio value="global">
               全局共享（需平台管理员）

@@ -8,9 +8,11 @@ import type {
   AgentRunResult,
   ApiResponse,
   AuditLog,
+  BatchReviewResult,
   Candidate,
   ChunkHit,
   CreateTaskPayload,
+  DocumentReparseResult,
   Feedback,
   KnowledgeDocument,
   KnowledgeSearchResult,
@@ -69,7 +71,9 @@ function toParams(params: object): Record<string, string | number> {
 
 export const authApi = {
   login(username: string, password: string, tenant_id?: string): Promise<LoginResponse> {
-    return unwrap(api.post<ApiResponse<LoginResponse>>('/auth/login', { username, password, tenant_id }))
+    return unwrap(
+      api.post<ApiResponse<LoginResponse>>('/auth/login', { username, password, tenant_id }),
+    )
   },
   refresh(refresh_token: string): Promise<{ access_token: string; refresh_token: string }> {
     return unwrap(api.post('/auth/refresh', { refresh_token }))
@@ -160,14 +164,30 @@ export const taskApi = {
 // ---------- 高风险工具审批 ----------
 
 export const approvalApi = {
-  list(query: { status?: string; page?: number; page_size?: number } = {}): Promise<ListResult<ToolApproval>> {
-    return unwrapList(api.get<ListResponse<ToolApproval>>('/tool-approvals', { params: toParams(query) }))
+  list(
+    query: { status?: string; page?: number; page_size?: number } = {},
+  ): Promise<ListResult<ToolApproval>> {
+    return unwrapList(
+      api.get<ListResponse<ToolApproval>>('/tool-approvals', { params: toParams(query) }),
+    )
   },
-  approve(approval_id: string, note?: string): Promise<{ approval: ToolApproval; tool_result: unknown }> {
-    return unwrap(api.post<ApiResponse<{ approval: ToolApproval; tool_result: unknown }>>(`/tool-approvals/${approval_id}/approve`, { note }))
+  approve(
+    approval_id: string,
+    note?: string,
+  ): Promise<{ approval: ToolApproval; tool_result: unknown }> {
+    return unwrap(
+      api.post<ApiResponse<{ approval: ToolApproval; tool_result: unknown }>>(
+        `/tool-approvals/${approval_id}/approve`,
+        { note },
+      ),
+    )
   },
   reject(approval_id: string, note?: string): Promise<{ approval: ToolApproval }> {
-    return unwrap(api.post<ApiResponse<{ approval: ToolApproval }>>(`/tool-approvals/${approval_id}/reject`, { note }))
+    return unwrap(
+      api.post<ApiResponse<{ approval: ToolApproval }>>(`/tool-approvals/${approval_id}/reject`, {
+        note,
+      }),
+    )
   },
 }
 
@@ -189,6 +209,12 @@ export const knowledgeApi = {
   remove(document_id: string): Promise<void> {
     return api.delete(`/knowledge/documents/${document_id}`).then(() => undefined)
   },
+  /** 重新解析：仅 failed 文档可调，返回新解析任务 */
+  reparse(document_id: string): Promise<DocumentReparseResult> {
+    return unwrap(
+      api.post<ApiResponse<DocumentReparseResult>>(`/knowledge/documents/${document_id}/reparse`),
+    )
+  },
   search(query: string, top_k = 5): Promise<ChunkHit[]> {
     return unwrap<KnowledgeSearchResult>(
       api.post<ApiResponse<KnowledgeSearchResult>>('/knowledge/search', { query, top_k }),
@@ -201,6 +227,20 @@ export const knowledgeApi = {
   },
   reviewCandidate(candidate_id: string, payload: ReviewCandidatePayload): Promise<Candidate> {
     return unwrap(api.post(`/knowledge/candidates/${candidate_id}/review`, payload))
+  },
+  /** 批量审核候选知识：一次提交多个 ID 的通过/驳回 */
+  batchReview(
+    ids: string[],
+    action: 'approve' | 'reject',
+    review_note?: string,
+  ): Promise<BatchReviewResult> {
+    return unwrap(
+      api.post<ApiResponse<BatchReviewResult>>('/knowledge/candidates/batch-review', {
+        ids,
+        action,
+        review_note,
+      }),
+    )
   },
 }
 
@@ -232,7 +272,9 @@ export const feedbackApi = {
 
 export const skillApi = {
   list(status?: string): Promise<Skill[]> {
-    return unwrapList<Skill>(api.get('/skills', { params: toParams({ status }) })).then(r => r.items)
+    return unwrapList<Skill>(api.get('/skills', { params: toParams({ status }) })).then(
+      r => r.items,
+    )
   },
   create(payload: Record<string, unknown>): Promise<Skill> {
     return unwrap(api.post<ApiResponse<Skill>>('/skills', payload))
@@ -422,7 +464,9 @@ export const policyApi = {
   },
   /** 查看申报材料草案（租户隔离） */
   getDraft(draft_id: string): Promise<ApplicationDraft> {
-    return unwrap(api.get<ApiResponse<ApplicationDraft>>(`/policies/application-drafts/${draft_id}`))
+    return unwrap(
+      api.get<ApiResponse<ApplicationDraft>>(`/policies/application-drafts/${draft_id}`),
+    )
   },
 }
 

@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 import MainLayout from '@/layouts/MainLayout.vue'
 import Login from '@/views/Login.vue'
@@ -15,6 +16,10 @@ import EvolutionView from '@/views/EvolutionView.vue'
 import QuotaView from '@/views/QuotaView.vue'
 import SignupView from '@/views/SignupView.vue'
 
+/** 管理类页面：仅使用空间管理员与平台管理员 */
+const ADMIN_ROLES = ['tenant_admin', 'platform_admin']
+
+// meta.roles 声明允许访问的角色；缺省表示所有登录用户可见
 const routes: RouteRecordRaw[] = [
   {
     path: '/login',
@@ -26,7 +31,7 @@ const routes: RouteRecordRaw[] = [
     path: '/signup',
     name: 'Signup',
     component: SignupView,
-    meta: { public: true, title: '租户注册' },
+    meta: { public: true, title: '使用空间注册' },
   },
   {
     path: '/',
@@ -37,13 +42,39 @@ const routes: RouteRecordRaw[] = [
       { path: 'qa', name: 'QA', component: QaView, meta: { title: '知识问答' } },
       { path: 'knowledge', name: 'Knowledge', component: KnowledgeView, meta: { title: '知识库' } },
       { path: 'tasks', name: 'Tasks', component: TasksView, meta: { title: '任务中心' } },
-      { path: 'review', name: 'Review', component: ReviewView, meta: { title: '专家审核' } },
-      { path: 'agents', name: 'Agents', component: AgentsView, meta: { title: '专业智能体' } },
+      {
+        path: 'review',
+        name: 'Review',
+        component: ReviewView,
+        meta: { title: '专家审核', roles: ['tenant_admin', 'platform_admin', 'expert'] },
+      },
+      // 专业助手全员可见
+      { path: 'agents', name: 'Agents', component: AgentsView, meta: { title: '专业助手' } },
       { path: 'policies', name: 'Policies', component: PolicyView, meta: { title: '政策服务' } },
-      { path: 'evolution', name: 'Evolution', component: EvolutionView, meta: { title: '自生长管理' } },
-      { path: 'quota', name: 'Quota', component: QuotaView, meta: { title: '配额用量' } },
-      { path: 'members', name: 'Members', component: MembersView, meta: { title: '成员管理' } },
-      { path: 'settings', name: 'Settings', component: SettingsView, meta: { title: '系统设置' } },
+      {
+        path: 'evolution',
+        name: 'Evolution',
+        component: EvolutionView,
+        meta: { title: '自生长管理', roles: ADMIN_ROLES },
+      },
+      {
+        path: 'quota',
+        name: 'Quota',
+        component: QuotaView,
+        meta: { title: '用量额度', roles: ADMIN_ROLES },
+      },
+      {
+        path: 'members',
+        name: 'Members',
+        component: MembersView,
+        meta: { title: '成员管理', roles: ADMIN_ROLES },
+      },
+      {
+        path: 'settings',
+        name: 'Settings',
+        component: SettingsView,
+        meta: { title: '系统设置', roles: ADMIN_ROLES },
+      },
     ],
   },
 ]
@@ -53,14 +84,26 @@ const router = createRouter({
   routes,
 })
 
-router.beforeEach((to, _from, next) => {
+router.beforeEach(async to => {
   const auth = useAuthStore()
   if (to.path === '/login' || to.path === '/signup') {
-    if (auth.isLoggedIn()) return next('/')
-    return next()
+    return auth.isLoggedIn() ? '/' : true
   }
-  if (!auth.isLoggedIn()) return next('/login')
-  next()
+  if (!auth.isLoggedIn()) return '/login'
+  // 直达管理页 URL 时角色可能还没加载，先补一次 /auth/me
+  if (!auth.meLoaded) {
+    try {
+      await auth.fetchMe()
+    } catch {
+      /* 401 由 client 拦截器统一处理 */
+    }
+  }
+  const required = to.meta.roles as string[] | undefined
+  if (required && !auth.hasAnyRole(required)) {
+    ElMessage.warning('你没有权限访问该页面')
+    return '/'
+  }
+  return true
 })
 
 export default router

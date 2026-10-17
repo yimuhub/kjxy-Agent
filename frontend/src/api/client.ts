@@ -1,6 +1,7 @@
 import axios, { AxiosError, type AxiosRequestConfig } from 'axios'
 import { ElMessage } from 'element-plus'
 import type { ApiError } from '@/types/api'
+import { friendlyErrorMessage } from '@/utils/status'
 import { getMockAdapter, isMockEnabled } from './mock'
 
 export const TOKEN_KEY = 'ky_token'
@@ -56,11 +57,12 @@ api.interceptors.response.use(
         }
         return Promise.reject(error)
       }
-      // 统一错误 toast：取后端 error.message；opt-out 见 config.skipErrorToast
+      // 统一错误 toast：错误码优先映射为中文文案，未命中且为纯英文时兜底，
+      // 不把原始英文细节抛给用户；opt-out 见 config.skipErrorToast
       const config = error.config as AxiosRequestConfig & { skipErrorToast?: boolean }
       if (!config?.skipErrorToast && error.response) {
-        const { message } = extractErrorMessage(error)
-        ElMessage.error(message)
+        const { code, message } = extractErrorMessage(error)
+        ElMessage.error(friendlyErrorMessage(code, message))
       }
     }
     return Promise.reject(error)

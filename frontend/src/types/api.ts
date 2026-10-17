@@ -105,12 +105,7 @@ export interface AddMemberPayload {
 // ---------- 任务 ----------
 
 export type TaskStatus =
-  | 'queued'
-  | 'running'
-  | 'succeeded'
-  | 'failed'
-  | 'cancelled'
-  | 'awaiting_review'
+  'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'awaiting_review'
 
 export type TaskPriority = 'low' | 'normal' | 'high'
 
@@ -129,6 +124,7 @@ export interface Task {
   created_by?: string
   created_at?: string
   updated_at?: string
+  started_at?: string | null
   finished_at?: string | null
 }
 
@@ -211,6 +207,19 @@ export interface ReviewCandidatePayload {
   note?: string
 }
 
+/** 批量审核结果：approved/rejected 为成功候选 ID，failed 为逐条失败原因 */
+export interface BatchReviewResult {
+  approved: string[]
+  rejected: string[]
+  failed: Array<{ id: string; error_code: string }>
+}
+
+/** 文档重新解析结果（POST /knowledge/documents/{id}/reparse，仅 failed 文档可调） */
+export interface DocumentReparseResult {
+  task_id: string
+  status: string
+}
+
 // ---------- 问答 ----------
 
 /** 与 contracts/json-schema/qa-output.schema.json 一一对应 */
@@ -239,9 +248,7 @@ export interface QAAnswerRequest {
 }
 
 /** /qa/answers 200：sync 返回结构化答案，async 返回任务 ID */
-export type QAAnswerResult =
-  | { kind: 'sync'; output: QAOutput }
-  | { kind: 'async'; task_id: string }
+export type QAAnswerResult = { kind: 'sync'; output: QAOutput } | { kind: 'async'; task_id: string }
 
 // ---------- 反馈 ----------
 
