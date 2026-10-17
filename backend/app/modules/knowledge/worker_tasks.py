@@ -17,6 +17,23 @@ from app.workers.celery_app import celery_app
 
 log = get_logger(__name__)
 
+# 信任级映射（S4/A 审查项）：chunk 的 trust_level 不再硬编码 tenant_material，
+# 而是按文档 source 区分知识可信级别——专家纠错高于普通租户资料，
+# 官方/政策类来源视为已核实官方知识。
+_EXPERT_SOURCE = "expert_correction"
+_OFFICIAL_SOURCE_KEYS = ("official", "policy", "verified_official")
+
+
+def _trust_level_for_source(source: str | None) -> str:
+    """文档来源 → 切块信任级：expert_correction→expert_reviewed；
+    官方/政策→verified_official；其余（upload/seed 等）→tenant_material。"""
+    src = (source or "").strip().lower()
+    if src == _EXPERT_SOURCE:
+        return "expert_reviewed"
+    if src in _OFFICIAL_SOURCE_KEYS or "官方" in src or "政策" in src:
+        return "verified_official"
+    return "tenant_material"
+
 
 def parse_document_sync(db: Session, document_id: str) -> None:
     """同步执行文档解析全流程。异常时文档置 failed，error_message 仅面向用户（不含堆栈）。"""
@@ -58,7 +75,7 @@ def parse_document_sync(db: Session, document_id: str) -> None:
                     chunk_index=idx,
                     content=content,
                     page_number=page_no,
-                    trust_level="tenant_material",
+                    trust_level=_trust_level_for_source(doc.source),
                     visibility="tenant",
                     embedding=list(vec),
                 )

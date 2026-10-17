@@ -9,6 +9,9 @@ from app.core.responses import ok, paged
 from app.modules.evolution import rollout as rollout_service
 from app.modules.evolution import service
 from app.modules.evolution.schemas import (
+    CandidateBatchFailure,
+    CandidateBatchReview,
+    CandidateBatchReviewOut,
     CandidateOut,
     CandidateReview,
     EvalRunOut,
@@ -97,7 +100,36 @@ def review_candidate(
     except Exception:
         db.rollback()
         raise
+    # data 中的 ingest_ok/ingest_error 由 CandidateOut 从运行时属性读取（S1）
     return ok(CandidateOut.model_validate(candidate).model_dump(mode="json"))
+
+
+@router.post("/knowledge/candidates/batch-review")
+def batch_review_candidates(
+    body: CandidateBatchReview,
+    ctx: TenantContext = Depends(get_tenant_context),
+    db=Depends(get_db_session),
+):
+    """批量审核知识候选：逐条复用单条审核逻辑，单条失败不影响其余。"""
+    result = service.batch_review(
+        db,
+        ctx,
+        body.ids,
+        action=body.action,
+        review_note=body.review_note,
+        request_id=ctx.request_id,
+    )
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    out = CandidateBatchReviewOut(
+        approved=result["approved"],
+        rejected=result["rejected"],
+        failed=[CandidateBatchFailure(**item) for item in result["failed"]],
+    )
+    return ok(out.model_dump(mode="json"))
 
 
 @router.get("/skills")

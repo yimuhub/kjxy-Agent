@@ -49,6 +49,10 @@ class CandidateOut(BaseModel):
     reviewed_at: datetime | None
     review_note: str | None
     created_at: datetime
+    # S1：approve 后知识库入库结果。非审核动作或历史行默认视为成功；
+    # 入库失败时 ingest_ok=false 且 ingest_error 携带原因，禁止伪报纯成功。
+    ingest_ok: bool = True
+    ingest_error: str | None = None
 
 
 class CandidateReview(BaseModel):
@@ -56,6 +60,32 @@ class CandidateReview(BaseModel):
 
     action: CandidateAction
     note: str | None = Field(default=None, max_length=2000)
+
+
+class CandidateBatchReview(BaseModel):
+    """批量审核请求：逐条执行单条审核动作，单条失败不影响其余。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    ids: list[str] = Field(min_length=1, max_length=100, description="候选 ID 列表（1-100 条）")
+    action: CandidateAction
+    review_note: str | None = Field(default=None, max_length=2000)
+
+
+class CandidateBatchFailure(BaseModel):
+    """批量审核中单条失败明细。"""
+
+    id: str
+    error_code: str
+    error_message: str
+
+
+class CandidateBatchReviewOut(BaseModel):
+    """批量审核结果：approved/rejected 为成功条目 ID；failed 为失败明细。"""
+
+    approved: list[str]
+    rejected: list[str]
+    failed: list[CandidateBatchFailure]
 
 
 class SkillCreate(BaseModel):

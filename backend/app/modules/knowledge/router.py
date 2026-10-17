@@ -13,6 +13,7 @@ from app.modules.knowledge import service
 from app.modules.knowledge.schemas import (
     ChunkHitOut,
     DocumentOut,
+    ReparseOut,
     SearchRequest,
     SearchResponse,
 )
@@ -72,6 +73,20 @@ def delete_document(
 ):
     service.delete_document(db, ctx, document_id)
     return ok({"id": document_id, "deleted": True}, request)
+
+
+@router.post("/documents/{document_id}/reparse")
+def reparse_document(
+    document_id: str,
+    request: Request,
+    db=Depends(get_db_session),
+    ctx: TenantContext = Depends(get_tenant_context),
+):
+    """重新解析失败的文档（权限 knowledge:write，仅 status=failed 可调）。"""
+    data = service.reparse_document(
+        db, ctx, document_id, request_id=getattr(request.state, "request_id", "")
+    )
+    return ok(ReparseOut(**data).model_dump(mode="json"), request)
 
 
 @router.post("/search")

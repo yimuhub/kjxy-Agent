@@ -144,7 +144,19 @@ def review_candidate(
     candidate.review_note = note
     if action == "approve":
         candidate.status = "approved"
-        _ingest_approved_candidate(db, ctx, candidate)
+        ingest_ok, ingest_error = _ingest_approved_candidate(db, ctx, candidate)
+        if not ingest_ok and candidate.status != "approved":
+            # 入库失败路径的审计兜底可能回滚整个事务——回填审核结论，
+            # 保证"审核已提交"这一事实不因入库失败而丢失
+            candidate.status = "approved"
+            candidate.reviewed_by = ctx.user_id
+            candidate.reviewed_at = _utcnow()
+            candidate.review_note = note
+        # S1：入库结果显式透出。ingest_ok/ingest_error 是非映射的运行时属性，
+        # 由 CandidateOut 的同名默认字段读取后随响应返回；失败原因同时写入
+        # knowledge.ingest_failed 审计事件的 metadata（持久化留痕）。
+        setattr(candidate, "ingest_ok", ingest_ok)  # noqa: B010
+        setattr(candidate, "ingest_error", ingest_error)  # noqa: B010
     else:
         candidate.status = "rejected"
     db.flush()
@@ -163,17 +175,24 @@ def review_candidate(
 
 def _ingest_approved_candidate(
     db: Session, ctx: TenantContext, candidate: KnowledgeCandidate
-) -> None:
-    """approve 后将纠错内容作为文档写入知识库并触发解析；失败时降级为仅标记状态。"""
+) -> tuple[bool, str | None]:
+    """approve 后将纠错内容作为文档写入知识库并触发解析。
+
+    返回 ``(入库是否成功, 失败原因)``（S1）。入库失败不向调用方抛异常——
+    审核状态照常落库，但失败原因会返回给 review_candidate，由其写入审计
+    metadata 并经响应层的 ingest_ok/ingest_error 透出，调用方不会看到纯成功。
+    """
     try:
         from app.modules.knowledge.service import upload_document
     except ImportError as e:
+        # 开发裁剪场景：knowledge 模块尚未交付，保留降级路径；
+        # 但"没入库"同样不是入库成功，显式上报原因，禁止伪报纯成功。
         log.info(
             "knowledge service not available; candidate %s approved without ingestion: %s",
             candidate.id,
             e,
         )
-        return
+        return False, f"knowledge 模块不可用（开发裁剪场景）：{e}"
     try:
         import io
 
@@ -199,9 +218,11 @@ def _ingest_approved_candidate(
                 db.flush()
         except Exception as e:
             log.warning("set expert_correction source failed: %s", e)
-    except Exception:
-        # 降级：仅标记 approved，不阻断审核流程；但失败必须可诊断（规范 §3.3.5 失败可解释）
+    except Exception as e:
+        # 降级：仅标记 approved，不阻断审核流程；但失败必须可诊断且可感知
+        # （规范 §3.3.5 失败可解释；S1 禁止调用方在入库失败时看到纯成功）
         log.exception("knowledge ingestion failed for candidate %s", candidate.id)
+        error_text = f"{type(e).__name__}: {e}"
         try:
             from app.modules.audit.service import log_audit
 
@@ -214,11 +235,59 @@ def _ingest_approved_candidate(
                 resource_id=candidate.id,
                 result="failure",
                 request_id=ctx.request_id,
-                metadata={"note": "候选已通过审核，但写入知识库失败，请检查存储/解析配置"},
+                metadata={
+                    "note": "候选已通过审核，但写入知识库失败，请检查存储/解析配置",
+                    "ingest_error": error_text,
+                },
             )
             db.commit()
         except Exception:
             db.rollback()
+        return False, error_text
+    return True, None
+
+
+def batch_review(
+    db: Session,
+    ctx: TenantContext,
+    ids: list[str],
+    action: str,
+    review_note: str | None,
+    request_id: str = "",
+) -> dict[str, Any]:
+    """批量审核知识候选：逐条复用单条 review 逻辑，单条失败不影响其余。
+
+    权限与单条审核一致（review:approve），无权限整体 403。
+    返回 ``{"approved": [...], "rejected": [...], "failed": [{id, error_code,
+    error_message}]}``；failed 只表示审核动作本身失败（如已审核/不存在），
+    单条入库失败（ingest_ok=false）仍按审核成功计入 approved。
+    """
+    _require_review_permission(ctx)
+    if action not in ("approve", "reject"):
+        raise AppError(
+            "INVALID_REVIEW_ACTION", "审核动作只能为 approve 或 reject。", http_status=409
+        )
+    approved: list[str] = []
+    rejected: list[str] = []
+    failed: list[dict[str, str]] = []
+    for candidate_id in ids:
+        try:
+            reviewed = review_candidate(
+                db, ctx, candidate_id, action, review_note, request_id=request_id
+            )
+            (approved if action == "approve" else rejected).append(reviewed.id)
+        except AppError as e:
+            failed.append({"id": candidate_id, "error_code": e.code, "error_message": e.message})
+        except Exception as e:  # pragma: no cover - 防御分支：非业务异常也不阻断其余条目
+            log.exception("batch review item %s failed unexpectedly", candidate_id)
+            failed.append(
+                {
+                    "id": candidate_id,
+                    "error_code": "INTERNAL_ERROR",
+                    "error_message": f"{type(e).__name__}: {e}",
+                }
+            )
+    return {"approved": approved, "rejected": rejected, "failed": failed}
 
 
 def list_candidates(

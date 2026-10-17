@@ -32,6 +32,19 @@ paths:
           content:
             application/json:
               schema: {}
+  /health/worker:
+    get:
+      tags:
+      - health
+      summary: Worker Health
+      description: Worker 心跳新鲜度（规范 §18.4：不得用 API 健康代替 Worker 健康）。
+      operationId: worker_health_health_worker_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
   /api/v1/auth/login:
     post:
       tags:
@@ -231,6 +244,40 @@ paths:
               schema: {}
       security:
       - HTTPBearer: []
+  /api/v1/admin/quotas/{tenant_id}:
+    patch:
+      tags:
+      - v1
+      summary: Admin Patch Quota
+      description: 运营调整租户配额限额（ge=0）；每次调整写审计，返回调整后的配额状态。
+      operationId: admin_patch_quota_api_v1_admin_quotas__tenant_id__patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: tenant_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Tenant Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuotaAdminPatchRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/tenants/signup:
     post:
       tags:
@@ -587,6 +634,35 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/knowledge/documents/{document_id}/reparse:
+    post:
+      tags:
+      - v1
+      - knowledge
+      summary: Reparse Document
+      description: 重新解析失败的文档（权限 knowledge:write，仅 status=failed 可调）。
+      operationId: reparse_document_api_v1_knowledge_documents__document_id__reparse_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: document_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Document Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/knowledge/search:
     post:
       tags:
@@ -797,6 +873,34 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/knowledge/candidates/batch-review:
+    post:
+      tags:
+      - v1
+      - evolution
+      summary: Batch Review Candidates
+      description: 批量审核知识候选：逐条复用单条审核逻辑，单条失败不影响其余。
+      operationId: batch_review_candidates_api_v1_knowledge_candidates_batch_review_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CandidateBatchReview'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
   /api/v1/skills:
     get:
       tags:
@@ -2088,6 +2192,34 @@ components:
       required:
       - file
       title: Body_upload_document_api_v1_knowledge_documents_post
+    CandidateBatchReview:
+      properties:
+        ids:
+          items:
+            type: string
+          type: array
+          maxItems: 100
+          minItems: 1
+          title: Ids
+          description: 候选 ID 列表（1-100 条）
+        action:
+          type: string
+          enum:
+          - approve
+          - reject
+          title: Action
+        review_note:
+          anyOf:
+          - type: string
+            maxLength: 2000
+          - type: 'null'
+          title: Review Note
+      type: object
+      required:
+      - ids
+      - action
+      title: CandidateBatchReview
+      description: 批量审核请求：逐条执行单条审核动作，单条失败不影响其余。
     CandidateReview:
       properties:
         action:
@@ -2323,6 +2455,32 @@ components:
       required:
       - question
       title: QAInput
+    QuotaAdminPatchRequest:
+      properties:
+        llm_calls_limit:
+          anyOf:
+          - type: integer
+            minimum: 0.0
+          - type: 'null'
+          title: Llm Calls Limit
+          description: LLM 调用限额
+        knowledge_docs_limit:
+          anyOf:
+          - type: integer
+            minimum: 0.0
+          - type: 'null'
+          title: Knowledge Docs Limit
+          description: 知识文档限额
+        tasks_limit:
+          anyOf:
+          - type: integer
+            minimum: 0.0
+          - type: 'null'
+          title: Tasks Limit
+          description: 任务限额
+      type: object
+      title: QuotaAdminPatchRequest
+      description: 运营调整租户配额限额：三个限额字段均 ge=0，至少提供一个。
     RefreshRequest:
       properties:
         refresh_token:
@@ -2631,7 +2789,7 @@ components:
         password:
           type: string
           maxLength: 128
-          minLength: 6
+          minLength: 1
           title: Password
         contact:
           anyOf:
@@ -2645,7 +2803,12 @@ components:
       - admin_username
       - password
       title: TenantSignupRequest
-      description: 公开自助注册请求。
+      description: '公开自助注册请求。
+
+
+        密码长度不在此写死：由 signup 业务层按 settings.password_min_length 校验
+
+        （生产环境再强制不低于 10 位）。'
     ValidationError:
       properties:
         loc:

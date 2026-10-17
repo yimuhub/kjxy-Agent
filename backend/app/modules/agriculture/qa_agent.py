@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
@@ -116,7 +117,24 @@ except ImportError:  # pragma: no cover - 降级分支
     complete_with_logging = None
 
 # ---------------------------------------------------------------- 常量
-HIGH_RISK_KEYWORDS = ("农药", "剂量", "施用", "农残", "防疫", "兽药")
+# 高风险红线词（S4）：只扩不缩——原有词全部保留，扩展种衣剂/拌种等农药
+# 配比与用药安全类词汇；命中任一即触发风险提示并强制转专家复核。
+HIGH_RISK_KEYWORDS = (
+    "农药",
+    "剂量",
+    "施用",
+    "农残",
+    "防疫",
+    "兽药",
+    "种衣剂",
+    "拌种",
+    "药种比",
+    "稀释倍数",
+    "施药",
+    "用药量",
+    "安全间隔期",
+    "农药残留",
+)
 
 DISCLAIMER = (
     "本回答由 AI 基于知识库检索生成，仅供学习参考，不构成专业农业技术建议；"
@@ -320,6 +338,56 @@ def _build_citations(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
+# ---------------------------------------------------------------- 新旧资料数值冲突检测（S4）
+# 配比/用量数值：比例写法（如 1:50）与带单位数值（如 100毫升、2.5kg、3亩）。
+_RATIO_PATTERNS = (
+    re.compile(r"\d+:\d+"),
+    re.compile(r"\d+(?:\.\d+)?(?:kg|克|毫升|L|ml|亩)", re.IGNORECASE),
+)
+# 冲突判定所需的两类来源：新（专家纠错）与旧（普通上传/租户资料）
+_EXPERT_SOURCE = "expert_correction"
+_LEGACY_SOURCES = ("upload", "tenant_material")
+
+
+def _extract_ratio_values(text: str) -> set[str]:
+    """从文本中抽取配比/用量数值集合（比例 + 带单位数值两种模式）。"""
+    values: set[str] = set()
+    for pat in _RATIO_PATTERNS:
+        values.update(m.group(0) for m in pat.finditer(text or ""))
+    return values
+
+
+def _detect_conflicting_values(answer: str, citations: list[dict[str, Any]]) -> str | None:
+    """检测新旧资料对同一问题给出不同配比数值（S4 红线）。
+
+    触发条件：citations 同时包含 source=expert_correction 与
+    source=upload/tenant_material 的文档，且答案区（答案正文 + 引用原文）
+    出现的多于一种配比/用量数值。命中时返回警示语（列出各值与来源），
+    否则返回 None。宁可多提示不可漏报：多来源并存且数值不一致一律转专家。
+    """
+    sources = {str(c.get("source") or "") for c in citations}
+    if _EXPERT_SOURCE not in sources or not any(s in _LEGACY_SOURCES for s in sources):
+        return None
+    # 值 → 出现该值的引用来源集合（用于"列出各值与来源"）
+    value_sources: dict[str, set[str]] = {}
+    for c in citations:
+        src = str(c.get("source") or "") or "unknown"
+        for v in _extract_ratio_values(str(c.get("quote") or "")):
+            value_sources.setdefault(v, set()).add(src)
+    all_values = set(value_sources) | _extract_ratio_values(answer or "")
+    if len(all_values) <= 1:
+        return None
+    parts = []
+    for v in sorted(all_values):
+        srcs = sorted(value_sources.get(v) or {"答案正文"})
+        parts.append(f"{v}（{'/'.join(srcs)}）")
+    return (
+        "检测到新旧资料对同一问题给出不同数值（"
+        + "；".join(parts)
+        + "），已转专家复核，请以专家意见为准。"
+    )
+
+
 async def _generate_answer(
     question: str,
     hits: list[dict[str, Any]],
@@ -438,6 +506,13 @@ class AgricultureQAAgent:
         if high_risk:
             needs_expert_review = True
             warnings.append(RISK_WARNING)
+
+        # S4：新旧资料数值冲突红线——专家纠错与普通资料并存且配比数值不一致时，
+        # 强制转专家复核并明示各值与来源。
+        conflict_msg = _detect_conflicting_values(answer, citations)
+        if conflict_msg:
+            needs_expert_review = True
+            warnings.append(conflict_msg)
 
         output = QAOutput(
             answer=answer,

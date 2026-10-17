@@ -20,6 +20,7 @@ from app.modules.knowledge.embedding import get_embedding_provider
 from app.modules.knowledge.models import KnowledgeChunk, KnowledgeDocument
 from app.modules.knowledge.schemas import DocumentOut
 from app.modules.knowledge.storage import LocalStorageBackend
+from app.modules.tenants.permissions import has_permission as has_role_permission
 
 log = get_logger(__name__)
 
@@ -123,20 +124,84 @@ def upload_document(
     db.refresh(doc)
 
     # 创建解析任务；broker 不可用时不阻塞上传，解析可稍后重试/手动触发
+    _dispatch_parse(doc.id)
+
+    return DocumentOut.model_validate(doc)
+
+
+def _dispatch_parse(document_id: str) -> str | None:
+    """投递文档解析任务（上传与重解析共用的投递路径）。
+
+    返回 broker 任务 ID；broker 不可用时记录告警并按 worker_sync_fallback
+    配置降级为本机后台线程同步解析，此时返回 None。
+    """
     try:
         from app.modules.knowledge.worker_tasks import parse_document
 
-        parse_document.delay(doc.id)
+        result = parse_document.delay(document_id)
+        return getattr(result, "id", None)
     except Exception as e:
-        log.warning("解析任务投递失败 document_id=%s: %s", doc.id, e)
+        log.warning("解析任务投递失败 document_id=%s: %s", document_id, e)
         if settings.worker_sync_fallback:
             # 纯本机模式：无 Redis 时在后台线程同步解析，保证上传后可直接问答
             thread = threading.Thread(
-                target=_parse_inline, args=(doc.id,), name=f"parse-{doc.id[:8]}", daemon=True
+                target=_parse_inline,
+                args=(document_id,),
+                name=f"parse-{document_id[:8]}",
+                daemon=True,
             )
             thread.start()
+        return None
 
-    return DocumentOut.model_validate(doc)
+
+def reparse_document(
+    db: Session, ctx: TenantContext, document_id: str, request_id: str = ""
+) -> dict[str, str]:
+    """重新解析失败的文档（追加任务 A）：仅 status=failed 可调。
+
+    权限 knowledge:write；不存在/跨租户 → DOCUMENT_NOT_FOUND(404)；
+    非 failed 状态 → DOCUMENT_NOT_REPARSABLE(409)。
+    动作：状态重置 queued、清空 error_message，并复用现有解析投递路径。
+    """
+    if not has_role_permission(ctx.roles, "knowledge:write"):
+        raise AppError(
+            "FORBIDDEN", "缺少 knowledge:write 权限，无法重新解析文档。", http_status=403
+        )
+    doc = (
+        db.query(KnowledgeDocument)
+        .filter(
+            KnowledgeDocument.id == document_id,
+            KnowledgeDocument.tenant_id == ctx.tenant_id,
+            KnowledgeDocument.deleted_at.is_(None),
+        )
+        .first()
+    )
+    if doc is None:
+        # 跨租户与不存在统一 404，防资源枚举
+        raise AppError("DOCUMENT_NOT_FOUND", "文档不存在或无权访问。", http_status=404)
+    if doc.status != "failed":
+        raise AppError(
+            "DOCUMENT_NOT_REPARSABLE",
+            "仅解析失败（failed）的文档可以重新解析。",
+            http_status=409,
+            details={"status": doc.status},
+        )
+    doc.status = "queued"
+    doc.error_message = None
+    log_audit(
+        db,
+        tenant_id=ctx.tenant_id,
+        actor_id=ctx.user_id,
+        action="knowledge.document.reparse",
+        resource_type="knowledge_document",
+        resource_id=doc.id,
+        result="success",
+        request_id=request_id or ctx.request_id,
+        metadata={"title": doc.title},
+    )
+    db.commit()
+    task_id = _dispatch_parse(doc.id)
+    return {"task_id": task_id or "", "document_id": doc.id, "status": "queued"}
 
 
 def _parse_inline(document_id: str) -> None:
@@ -331,6 +396,8 @@ def search(
             )
 
     # chunk bigram 集合按需预计算（混合模式才算，纯向量路径零额外开销）
+    # 最低相似度阈值：低于此分数视为知识不足，不返回（防"伪相关"引用）
+    min_score = settings.retrieval_min_score
     chunk_bigrams_cache: dict[str, set[str]] = {}
     scored: list[tuple[float, float, float, KnowledgeChunk]] = []
     for chunk in candidates:
@@ -346,11 +413,17 @@ def search(
                 chunk_bigrams_cache[chunk.id] = bigrams
             keyword_score = _keyword_overlap_score(query_bigrams, bigrams)
         final_score = _fuse_score(vector_score, keyword_score, alpha)
+        # 检索保底（A9）：用户问题的 token（字符 bigram）全部出现在 chunk 中
+        # （keyword_score 达 1.0 的"完整覆盖"）时，最终得分保底为 min_score+0.01。
+        # 理由：逐字命中的资料不应被低向量分稀释到阈值以下而"查不到"；保底只抬升
+        # 不压低，且封顶 1.0，不影响其余候选的相对排序与阈值语义。
+        if resolved_mode == "hybrid" and keyword_score >= 1.0:
+            floor = min(min_score + 0.01, 1.0)
+            if final_score < floor:
+                final_score = floor
         scored.append((final_score, vector_score, keyword_score, chunk))
     scored.sort(key=lambda item: item[0], reverse=True)
 
-    # 最低相似度阈值：低于此分数视为知识不足，不返回（防"伪相关"引用）
-    min_score = settings.retrieval_min_score
     hits: list[ChunkHit] = []
     for final_score, vector_score, keyword_score, chunk in scored[:top_k]:
         if final_score < min_score:
