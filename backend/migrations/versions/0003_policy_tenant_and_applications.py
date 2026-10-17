@@ -33,6 +33,15 @@ def _ts():
 
 
 def upgrade() -> None:
+    # 兼容修正：0001 创建的 alembic_version.version_num 为 VARCHAR(32)，装不下本
+    # revision 名（36 字符）；PostgreSQL 强类型会在升级完成后的版本落库
+    # UPDATE 时报 StringDataRightTruncation（CI 首跑已实证）。此处先行放宽列宽，
+    # 仅 PG 需要；SQLite 的 varchar 长度不强制，跳过。
+    bind = op.get_bind()
+    if bind.dialect.name == "postgresql":
+        op.execute(
+            "ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(100)"
+        )
     # policies 加 tenant_id（SQLite 下用 batch 模式；nullable 以兼容老数据）
     with op.batch_alter_table("policies", recreate="auto") as batch_op:
         batch_op.add_column(sa.Column("tenant_id", sa.String(36), nullable=True))

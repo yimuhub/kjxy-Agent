@@ -154,7 +154,6 @@
       </template>
 
       <el-alert
-        v-if="warnings.length"
         v-for="(w, i) in warnings"
         :key="i"
         :title="w"
