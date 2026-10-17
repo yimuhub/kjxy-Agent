@@ -57,14 +57,22 @@
       <template #header>平台概况</template>
       <AsyncState :state="statsState" empty-text="暂无统计数据" @retry="loadAll">
         <el-descriptions :column="3" border>
-          <el-descriptions-item label="任务总数">{{ stats.tasks_total ?? '—' }}</el-descriptions-item>
-          <el-descriptions-item label="文档总数">{{ stats.documents_total ?? '—' }}</el-descriptions-item>
-          <el-descriptions-item label="反馈总数">{{ stats.feedback_total ?? '—' }}</el-descriptions-item>
-          <el-descriptions-item label="平均任务耗时">
-            {{ stats.avg_task_duration_seconds != null ? `${stats.avg_task_duration_seconds}s` : '—' }}
+          <el-descriptions-item label="任务总数">{{ stats.tasks?.total ?? '—' }}</el-descriptions-item>
+          <el-descriptions-item label="文档总数">
+            {{
+              Object.values(stats.knowledge?.documents_by_status ?? {}).reduce(
+                (a, b) => a + b,
+                0,
+              )
+            }}
+          </el-descriptions-item>
+          <el-descriptions-item label="成员总数">{{ stats.members?.total ?? '—' }}</el-descriptions-item>
+          <el-descriptions-item label="模型调用">
+            {{ stats.llm?.total_calls ?? '—' }} 次 · 输入 {{ stats.llm?.total_input_tokens ?? 0 }}
+            / 输出 {{ stats.llm?.total_output_tokens ?? 0 }} tokens
           </el-descriptions-item>
           <el-descriptions-item label="模型成本累计">
-            {{ stats.llm_cost_total ?? '—' }}
+            {{ stats.llm?.total_estimated_cost ?? '—' }}
           </el-descriptions-item>
         </el-descriptions>
       </AsyncState>

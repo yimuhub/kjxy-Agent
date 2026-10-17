@@ -1906,6 +1906,25 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/admin/tenants:
+    get:
+      tags:
+      - v1
+      - admin
+      summary: Admin Tenant List
+      description: '平台管理员全局只读：租户列表 + 每租户聚合计数（成员数/任务数）。
+
+
+        ADR-0002 收敛方案：只给"管理租户"入口，不含任何租户业务正文。'
+      operationId: admin_tenant_list_api_v1_admin_tenants_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
   /api/v1/admin/stats:
     get:
       tags:

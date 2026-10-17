@@ -3,6 +3,7 @@ import { api } from './client'
 import type {
   AddMemberPayload,
   AdminStats,
+  AdminTenantList,
   AgentDefinition,
   AgentRunResult,
   ApiResponse,
@@ -367,6 +368,9 @@ export const auditApi = {
 export const adminApi = {
   stats(): Promise<AdminStats> {
     return unwrap(api.get<ApiResponse<AdminStats>>('/admin/stats'))
+  },
+  tenants(): Promise<AdminTenantList> {
+    return unwrap(api.get<ApiResponse<AdminTenantList>>('/admin/tenants'))
   },
 }
 

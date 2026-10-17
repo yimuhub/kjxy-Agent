@@ -14,7 +14,7 @@ from app.core.responses import ok
 from app.modules.knowledge.models import KnowledgeDocument
 from app.modules.llm.models import LLMCall
 from app.modules.tasks.models import Task
-from app.modules.tenants.models import TenantMembership
+from app.modules.tenants.models import Tenant, TenantMembership
 from app.modules.tenants.permissions import has_permission
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -30,6 +30,46 @@ def _scope(user: CurrentUser):
     if not user.tenant_id:
         raise AppError("TENANT_REQUIRED", "该操作需要租户上下文。", http_status=400)
     return user.tenant_id
+
+
+@router.get("/tenants")
+def admin_tenant_list(
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+):
+    """平台管理员全局只读：租户列表 + 每租户聚合计数（成员数/任务数）。
+
+    ADR-0002 收敛方案：只给"管理租户"入口，不含任何租户业务正文。
+    """
+    if not has_permission(user.roles, "admin:stats"):
+        raise AppError("FORBIDDEN", "权限不足。", http_status=403)
+    if "platform_admin" not in user.roles:
+        # 租户管理员看自己的租户用 /tenant/current，这里只服务平台全局视图
+        raise AppError("FORBIDDEN", "仅平台管理员可查看全局租户列表。", http_status=403)
+
+    tenants = db.query(Tenant).order_by(Tenant.created_at).all()
+    out = []
+    for t in tenants:
+        members = (
+            db.query(func.count(TenantMembership.id))
+            .filter(TenantMembership.tenant_id == t.id, TenantMembership.status == "active")
+            .scalar()
+            or 0
+        )
+        tasks = db.query(func.count(Task.id)).filter(Task.tenant_id == t.id).scalar() or 0
+        out.append(
+            {
+                "id": t.id,
+                "name": t.name,
+                "status": t.status,
+                "province": t.province,
+                "scene_type": t.scene_type,
+                "active_members": members,
+                "task_total": tasks,
+                "created_at": t.created_at.isoformat() if t.created_at else None,
+            }
+        )
+    return ok({"count": len(out), "tenants": out})
 
 
 @router.get("/stats")

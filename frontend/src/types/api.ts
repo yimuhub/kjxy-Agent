@@ -358,14 +358,37 @@ export interface AuditLog {
 
 /** /admin/stats：调用量/失败原因/任务耗时/模型成本概况；字段为约定字段 */
 export interface AdminStats {
-  tasks_total?: number
-  tasks_by_status?: Record<string, number>
-  tasks_failed_by_code?: Record<string, number>
-  avg_task_duration_seconds?: number | null
-  llm_cost_total?: number | null
-  documents_total?: number
-  feedback_total?: number
-  [key: string]: unknown
+  scope?: 'global' | 'tenant'
+  tasks?: {
+    total: number
+    by_status: Record<string, number>
+    top_failure_reasons: { error_code: string; count: number }[]
+  }
+  llm?: {
+    total_calls: number
+    total_input_tokens: number
+    total_output_tokens: number
+    total_estimated_cost: number
+    by_provider: Record<string, number>
+  }
+  knowledge?: { documents_by_status: Record<string, number> }
+  members?: { total: number }
+}
+
+export interface AdminTenant {
+  id: string
+  name: string
+  status: string
+  province?: string | null
+  scene_type?: string | null
+  active_members: number
+  task_total: number
+  created_at?: string | null
+}
+
+export interface AdminTenantList {
+  count: number
+  tenants: AdminTenant[]
 }
 
 // ---------- 政策模块（第三期） ----------

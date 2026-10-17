@@ -48,11 +48,14 @@
         </div>
       </el-header>
       <el-main class="main">
-        <!-- 平台管理员等无租户账号：业务页都需要租户上下文，直接给明确提示而不是让各页报加载失败 -->
-        <div v-if="showNoTenantNotice" class="no-tenant">
+        <!-- 平台管理员等无租户账号：业务页都需要租户上下文。
+             平台管理员给"全局总览"（租户列表/调用量/任务状态，ADR-0002 只读边界）；
+             其他无租户账号给明确指引。 -->
+        <GlobalOverview v-if="showNoTenantNotice && isPlatformAdmin" />
+        <div v-else-if="showNoTenantNotice" class="no-tenant">
           <el-empty>
             <template #description>
-              <p>当前账号未归属任何租户（平台管理员），无法使用业务功能。</p>
+              <p>当前账号未归属任何租户，无法使用业务功能。</p>
               <p>请退出后使用租户账号（演示：tenant_admin / tenant123）登录体验完整流程。</p>
             </template>
             <el-button type="primary" @click="handleLogout">退出登录</el-button>
@@ -82,10 +85,14 @@ import {
   UserFilled,
 } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
+import GlobalOverview from '@/views/GlobalOverview.vue'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+
+/** 平台管理员：无租户但给"全局总览"（租户列表/调用量/任务状态），而非空指引 */
+const isPlatformAdmin = computed(() => auth.roles.includes('platform_admin'))
 
 /** 已登录但确实无租户（如平台管理员）：不渲染业务页，给明确指引 */
 const showNoTenantNotice = computed(

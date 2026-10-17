@@ -7,6 +7,7 @@ import type { Tenant, User } from '@/types/api'
 export const useAuthStore = defineStore('auth', () => {
   const token = ref<string>(localStorage.getItem(TOKEN_KEY) ?? '')
   const user = ref<User | null>(null)
+  const roles = ref<string[]>([])
   const tenant = ref<Tenant | null>(null)
   const tenants = ref<Tenant[]>([])
   /** /auth/me 是否已加载完成（用于区分"未知"和"确实无租户"） */
@@ -23,6 +24,7 @@ export const useAuthStore = defineStore('auth', () => {
   function clear() {
     token.value = ''
     user.value = null
+    roles.value = []
     tenant.value = null
     tenants.value = []
     meLoaded.value = false
@@ -36,12 +38,19 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = res.user
     tenants.value = res.tenants ?? []
     tenant.value = tenants.value.find(t => t.id === tenant_id) ?? tenants.value[0] ?? null
+    // 登录接口不返回 roles，用 /auth/me 补全（同时刷新 user/tenants）
+    try {
+      await fetchMe()
+    } catch {
+      /* me 失败不阻断登录；meLoaded 保持 true，roles 为空按无全局视图处理 */
+    }
     meLoaded.value = true
   }
 
   async function fetchMe() {
     const me = await authApi.me()
     user.value = me.user
+    roles.value = me.roles ?? []
     tenants.value = me.tenants ?? []
     if (!tenant.value) {
       tenant.value = tenants.value[0] ?? null
@@ -62,5 +71,5 @@ export const useAuthStore = defineStore('auth', () => {
     clear()
   }
 
-  return { token, user, tenant, tenants, meLoaded, isLoggedIn, login, fetchMe, fetchTenant, logout, clear }
+  return { token, user, roles, tenant, tenants, meLoaded, isLoggedIn, login, fetchMe, fetchTenant, logout, clear }
 })
