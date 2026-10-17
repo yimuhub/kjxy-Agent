@@ -2,7 +2,7 @@
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
@@ -17,7 +17,6 @@ from app.core.errors import (
 )
 from app.core.logging import configure_logging, get_logger
 from app.core.middleware import RequestIDMiddleware
-from fastapi import Response
 
 log = get_logger(__name__)
 
