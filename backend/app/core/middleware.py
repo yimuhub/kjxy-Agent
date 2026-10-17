@@ -9,9 +9,8 @@ import time
 import uuid
 from contextlib import suppress
 
-from starlette.types import ASGIApp, Message, Receive, Scope, Send
-
 from app.core.context import metrics, request_id_var
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 _HEADER = b"x-request-id"
 

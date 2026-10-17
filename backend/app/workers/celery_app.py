@@ -8,6 +8,8 @@ celery_app = Celery(
     "tech_yard",
     broker=settings.celery_broker_url,
     backend=settings.celery_result_backend,
+    # beat 定时任务所在模块：worker/beat 启动时强制导入以注册任务
+    include=["app.workers.heartbeat_tasks"],
 )
 
 celery_app.conf.update(
@@ -16,6 +18,13 @@ celery_app.conf.update(
     task_reject_on_worker_lost=True,
     timezone="UTC",
     enable_utc=True,
+    # 规范 §7.5：超时回收每 5 分钟；§18.4：worker 心跳每 60 秒
+    beat_schedule={
+        "reap-stale-tasks": {"task": "tasks.reap_stale", "schedule": 300.0},
+        "worker-heartbeat": {"task": "workers.heartbeat", "schedule": 60.0},
+        # 每日检查一次“本月是否已清零”（幂等 Redis 键，见 heartbeat_tasks.quota_monthly_reset）
+        "quota-monthly-reset": {"task": "quota.monthly_reset", "schedule": 86400.0},
+    },
 )
 
 # 自动发现各模块的 celery 任务

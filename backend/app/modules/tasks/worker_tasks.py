@@ -67,6 +67,12 @@ def enqueue_task(task_id: str, timeout: float | None = None) -> bool:
     return False
 
 
+def _cancel_requested(task) -> bool:
+    """input_json.meta 是否已标记取消请求（API 侧取消 running 任务时写入，规范 §7.5）。"""
+    meta = (task.input_json or {}).get("meta") or {}
+    return bool(meta.get("cancel_requested"))
+
+
 def _fail_task(db: Session, task_id: str, error_code: str, error_message: str) -> None:
     """把仍处于 running 的任务置为 failed；已终态的任务不动。"""
     from app.modules.tasks import state_machine as sm
@@ -130,12 +136,31 @@ def run_task_inline(task_id: str) -> None:
     from app.modules.tasks.handlers import TASK_HANDLERS
     from app.modules.tasks.models import Task
     from app.modules.tasks.service import TaskService
+    from app.workers.heartbeat import mark_worker_alive
 
     db = _get_session_factory()()
     try:
+        # worker 领取任务即刷新心跳（规范 §18.4；内部吞异常，不影响任务执行）
+        mark_worker_alive()
+
         task = db.get(Task, task_id)
         if task is None:
             log.warning("execute_task: task %s not found, skip", task_id)
+            return
+        if task.status in sm.TERMINAL_STATUSES:
+            # 已被取消/终态：无需再执行（API 侧取消会先把 running 置为 cancelled）
+            log.info("execute_task: task %s already terminal (%s), skip", task_id, task.status)
+            return
+
+        # 安全点一（规范 §7.5）：执行处理器前已收到取消请求 → 直接取消，不执行处理器
+        if _cancel_requested(task):
+            TaskService.set_status(
+                db,
+                task,
+                sm.STATUS_CANCELLED,
+                event_message="取消在安全点生效，未执行处理器。",
+            )
+            db.commit()
             return
 
         try:
@@ -159,12 +184,40 @@ def run_task_inline(task_id: str) -> None:
             "request_id": f"req_worker_{task.id[:8]}",
         }
         result = handler((task.input_json or {}).get("data", {}), context)
+        result_payload = result if isinstance(result, dict) else {"result": result}
+
+        # 安全点二（规范 §7.5）：处理器执行期间收到取消请求——外部副作用已经发生，
+        # 不丢弃结果、不静默：保留 result 并发事件明确标注。
+        db.refresh(task)
+        if _cancel_requested(task):
+            task.result_json = result_payload
+            message = "任务完成前收到取消请求，外部副作用可能已发生；结果已保留。"
+            if task.status == sm.STATUS_RUNNING:
+                TaskService.set_status(
+                    db,
+                    task,
+                    sm.STATUS_CANCELLED,
+                    event_message=message,
+                    payload={"cancel_after_execution": True},
+                )
+            else:
+                # API 侧已先行取消（状态为终态）：只保留结果并补事件，不动状态机
+                TaskService._add_event(
+                    db,
+                    task,
+                    "cancel_after_execution",
+                    message,
+                    payload={"status": task.status, "cancel_after_execution": True},
+                )
+            db.commit()
+            return
+
         TaskService.set_status(
             db,
             task,
             sm.STATUS_SUCCEEDED,
             event_message="任务执行成功。",
-            result=result if isinstance(result, dict) else {"result": result},
+            result=result_payload,
         )
         db.commit()
     except AppError as e:

@@ -11,8 +11,9 @@ from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
+from app.core.config import WEAK_PLATFORM_ADMIN_USERNAMES, settings
 from app.core.errors import AppError
+from app.core.logging import get_logger
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -31,9 +32,62 @@ from app.modules.auth.schemas import (
 )
 from app.modules.tenants import repository as tenant_repo
 
+log = get_logger(__name__)
+
+#: 弱管理员用户名告警去重：同一进程内每个用户名只 log.warning 一次
+_weak_bootstrap_warned: set[str] = set()
+
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+def _bootstrap_platform_admin(
+    db: Session, user: User, roles: list[str], *, request_id: str
+) -> list[str]:
+    """平台管理员 bootstrap：用户名在配置名单中则追加 platform_admin 角色。
+
+    运行时防御（规范 §5.1）：admin/root 等弱名单用户名在生产环境本应被启动校验
+    阻断；若仍走到此处，拒绝授予并写 denied 审计。非生产允许，但 log.warning
+    一次并写审计，保证可追责。
+    """
+    if user.username not in settings.platform_admin_username_list or "platform_admin" in roles:
+        return roles
+    if user.username.lower() in WEAK_PLATFORM_ADMIN_USERNAMES:
+        if settings.is_production:
+            log_audit(
+                db,
+                tenant_id=None,
+                actor_id=user.id,
+                action="admin_bootstrap_weak_username",
+                resource_type="auth",
+                resource_id=user.id,
+                result="denied",
+                request_id=request_id,
+                metadata={"username": user.username, "reason": "production_weak_admin"},
+            )
+            db.commit()
+            raise AppError(
+                "FORBIDDEN", "生产环境禁止使用弱管理员用户名授予平台管理员权限。", http_status=403
+            )
+        if user.username not in _weak_bootstrap_warned:
+            _weak_bootstrap_warned.add(user.username)
+            log.warning(
+                "已为弱管理员用户名 %s 授予 platform_admin（仅限开发/测试；生产必须改用专有用户名）",  # noqa: E501
+                user.username,
+            )
+        log_audit(
+            db,
+            tenant_id=None,
+            actor_id=user.id,
+            action="admin_bootstrap_weak_username",
+            resource_type="auth",
+            resource_id=user.id,
+            result="success",
+            request_id=request_id,
+            metadata={"username": user.username, "reason": "dev_weak_admin"},
+        )
+    return ["platform_admin", *roles]
 
 
 def _user_out(user: User) -> UserOut:
@@ -125,9 +179,8 @@ def login(
 
     roles = chosen.roles if chosen else []
     chosen_tenant_id = chosen.tenant_id if chosen else None
-    # 平台管理员 bootstrap：用户名在配置名单中则授予 platform_admin
-    if user.username in settings.platform_admin_username_list and "platform_admin" not in roles:
-        roles = ["platform_admin", *roles]
+    # 平台管理员 bootstrap：用户名在配置名单中则授予 platform_admin（含弱名单运行时防御）
+    roles = _bootstrap_platform_admin(db, user, roles, request_id=request_id)
 
     user.last_login_at = _utcnow()
     log_audit(
@@ -166,8 +219,7 @@ def refresh(db: Session, refresh_token: str, *, request_id: str) -> RefreshRespo
         if membership is None:
             raise AppError("TENANT_FORBIDDEN", "您不属于该租户。", http_status=403)
         roles = [membership.role]
-    if user.username in settings.platform_admin_username_list and "platform_admin" not in roles:
-        roles = ["platform_admin", *roles]
+    roles = _bootstrap_platform_admin(db, user, roles, request_id=request_id)
 
     log_audit(
         db,

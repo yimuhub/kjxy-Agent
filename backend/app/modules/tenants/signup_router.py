@@ -5,6 +5,7 @@
 
 from fastapi import APIRouter, Depends, Request
 
+from app.core.config import settings
 from app.core.deps import get_db_session
 from app.core.errors import AppError
 from app.core.rate_limit import RateLimiter
@@ -26,6 +27,9 @@ def tenant_signup(
     db=Depends(get_db_session),
 ):
     ip = request.client.host if request.client else "unknown"
+    # 运营开关：自助注册关闭时公开端点直接 403（规范 §16，试运行/公网部署）
+    if not settings.signup_enabled:
+        raise AppError("SIGNUP_DISABLED", "暂未开放自助注册，请联系管理员开通。", http_status=403)
     if not signup_limiter.is_allowed(ip):
         raise AppError("RATE_LIMITED", "注册过于频繁，请稍后再试。", http_status=429)
     signup_limiter.record_failure(ip)

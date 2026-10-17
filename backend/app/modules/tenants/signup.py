@@ -5,6 +5,7 @@ import re
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.errors import AppError
 from app.core.security import create_access_token
 from app.modules.audit.service import log_audit
@@ -13,6 +14,26 @@ from app.modules.tenants import repository as repo
 from app.modules.tenants.models import Tenant
 
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_]+$")
+
+#: 保留管理员用户名：自助注册一律拒绝（大小写不敏感），防止冒充系统/运维账号。
+RESERVED_ADMIN_USERNAMES = frozenset(
+    {
+        "admin",
+        "root",
+        "system",
+        "administrator",
+        "service_worker",
+        "platform_admin",
+    }
+)
+
+
+def _min_password_length() -> int:
+    """密码最小长度：跟随 settings.password_min_length；生产环境强制不低于 10。"""
+    min_len = settings.password_min_length
+    if settings.is_production:
+        min_len = max(min_len, 10)
+    return min_len
 
 
 def _get_tenant_by_name(db: Session, name: str) -> Tenant | None:
@@ -36,8 +57,13 @@ def signup_tenant(
         raise AppError(
             "INVALID_REQUEST", "管理员账号需为 3-32 位字母、数字或下划线。", http_status=400
         )
-    if len(password) < 6:
-        raise AppError("INVALID_REQUEST", "密码长度不能少于 6 位。", http_status=400)
+    if username.lower() in RESERVED_ADMIN_USERNAMES:
+        raise AppError(
+            "RESERVED_USERNAME", "该用户名为保留管理员名称，不能用于注册。", http_status=400
+        )
+    min_len = _min_password_length()
+    if len(password) < min_len:
+        raise AppError("INVALID_REQUEST", f"密码长度不能少于 {min_len} 位。", http_status=400)
     if _get_tenant_by_name(db, name) is not None:
         raise AppError("TENANT_NAME_TAKEN", "该租户名称已被占用，请换一个名称。", http_status=409)
     if get_by_username(db, username) is not None:

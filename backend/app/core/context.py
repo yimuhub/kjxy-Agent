@@ -59,7 +59,8 @@ class Metrics:
         with self._lock:
             for (route, method, status), count in sorted(self.http_requests.items()):
                 lines.append(
-                    f'http_requests_total{{method="{method}",route="{route}",status="{status}"}} {count}'
+                    f'http_requests_total{{method="{method}",route="{route}",'
+                    f'status="{status}"}} {count}'
                 )
             lines.append("# HELP http_request_duration_seconds HTTP latency histogram")
             lines.append("# TYPE http_request_duration_seconds histogram")
@@ -72,14 +73,18 @@ class Metrics:
                         f"{cumulative}"
                     )
                 total = self.http_latency_count[route]
-                lines.append(f'http_request_duration_seconds_bucket{{le="+Inf",route="{route}"}} {total}')
+                lines.append(
+                    f'http_request_duration_seconds_bucket{{le="+Inf",route="{route}"}} {total}'
+                )
                 lines.append(f'http_request_duration_seconds_count{{route="{route}"}} {total}')
                 sum_val = self.http_latency_sum[route]
                 lines.append(f'http_request_duration_seconds_sum{{route="{route}"}} {sum_val:.6f}')
             lines.append("# HELP llm_calls_total LLM calls by provider and status")
             lines.append("# TYPE llm_calls_total counter")
-            for (provider, status), count in sorted(self.llm_calls.items()):
-                lines.append(f'llm_calls_total{{provider="{provider}",status="{status}"}} {count}')
+            for (provider, llm_status), count in sorted(self.llm_calls.items()):
+                lines.append(
+                    f'llm_calls_total{{provider="{provider}",status="{llm_status}"}} {count}'
+                )
             lines.append("# HELP alerts_sent_total Operational alerts dispatched by level")
             lines.append("# TYPE alerts_sent_total counter")
             for level, count in sorted(self.alerts_sent.items()):

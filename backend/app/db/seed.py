@@ -1,9 +1,15 @@
 """开发环境演示数据。幂等：已存在则跳过。
 
 用法：python -m app.db.seed（需先 alembic upgrade head）
-生产环境禁止执行。
+生产环境禁止执行：非 development 环境必须显式设置 SEED_ALLOW_PRODUCTION=YES。
+开发环境设 SEED_RANDOM_PASSWORDS=YES 时，每个账号生成随机密码并只打印一次。
 """
 
+import os
+import secrets
+import sys
+
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.db.session import SessionLocal
 
@@ -39,7 +45,16 @@ DEMO_DOC_TEXT = """# 水稻分蘖期管理技术要点
 """
 
 
-def seed() -> None:
+def _is_development() -> bool:
+    return settings.app_env.strip().lower() == "development"
+
+
+def _random_password() -> str:
+    """随机演示密码：仅在开发随机模式下使用，明文只打印一次。"""
+    return secrets.token_urlsafe(12)
+
+
+def seed(random_passwords: bool = False) -> None:
     from app.modules.auth.repository import create_user, get_by_username
     from app.modules.knowledge.embedding import MockEmbeddingProvider
     from app.modules.knowledge.models import KnowledgeChunk, KnowledgeDocument
@@ -65,8 +80,11 @@ def seed() -> None:
         log.info("创建演示租户: %s", tenant.id)
 
         users = {}
+        passwords: dict[str, str] = {}
         for username, password, display_name, role in SEED_USERS:
-            user = create_user(db, username=username, password=password, display_name=display_name)
+            plain = _random_password() if random_passwords else password
+            passwords[username] = plain
+            user = create_user(db, username=username, password=plain, display_name=display_name)
             users[username] = user
             if role:
                 add_membership(db, tenant_id=tenant.id, user_id=user.id, role=role)
@@ -108,12 +126,30 @@ def seed() -> None:
             )
         db.commit()
         log.info("seed 完成：租户=%s 用户=%d 文档chunk=%d", tenant.id, len(users), len(chunks))
-        log.info(
-            "演示账号： admin/admin123 tenant_admin/tenant123 expert/expert123 operator/operator123"
-        )
+        if random_passwords:
+            # 随机口令只在此处明文打印一次，日志/数据库均不留副本；请立刻保存
+            print("SEED_RANDOM_PASSWORDS=YES：以下密码仅打印一次，请立即保存：")
+            for username, plain in passwords.items():
+                print(f"{username} {plain}")
+        else:
+            log.info(
+                "演示账号： admin/admin123 tenant_admin/tenant123 expert/expert123 operator/operator123"  # noqa: E501
+            )
     finally:
         db.close()
 
 
+def main() -> None:
+    """入口守卫：非开发环境必须显式 SEED_ALLOW_PRODUCTION=YES 才允许执行。"""
+    if not _is_development() and os.environ.get("SEED_ALLOW_PRODUCTION") != "YES":
+        print(
+            f"拒绝执行 seed：当前环境 app_env={settings.app_env} 非 development。"
+            "如确需执行，请显式设置 SEED_ALLOW_PRODUCTION=YES。",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    seed(random_passwords=os.environ.get("SEED_RANDOM_PASSWORDS") == "YES")
+
+
 if __name__ == "__main__":
-    seed()
+    main()

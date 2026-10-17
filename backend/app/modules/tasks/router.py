@@ -10,6 +10,7 @@ import threading
 from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.config import settings
 from app.core.deps import TenantContext, get_db_session, get_tenant_context
@@ -17,6 +18,7 @@ from app.core.errors import AppError
 from app.core.logging import get_logger
 from app.core.pagination import pagination_params
 from app.core.responses import ok, paged
+from app.modules.tasks.models import Task
 from app.modules.tasks.schemas import TaskCreate, TaskEventOut, TaskOut
 from app.modules.tasks.service import TaskService
 from app.modules.tasks.worker_tasks import enqueue_task, run_task_inline
@@ -26,16 +28,32 @@ router = APIRouter(prefix="/tasks", tags=["tasks"])
 log = get_logger(__name__)
 
 
-def _enqueue_or_inline(task_id: str) -> None:
-    """投递任务到 Celery；broker 不可用且开启本机降级时，在后台线程同步执行。"""
-    if enqueue_task(task_id):
+def _enqueue_or_inline(db: Session, task: Task) -> None:
+    """投递任务到 Celery；broker 不可用且开启本机降级时，在后台线程同步执行。
+
+    投递失败且没有同步兜底：在 input_json.meta 写 enqueue_failed=True 并发事件，
+    该 queued 任务随后可经 retry 复用输入重新入队（若无人处理，超时由 reaper 回收）。
+    """
+    if enqueue_task(task.id):
         return
     if settings.worker_sync_fallback:
-        log.info("Celery 不可用，任务 %s 转本机线程执行", task_id[:8])
+        log.info("Celery 不可用，任务 %s 转本机线程执行", task.id[:8])
         thread = threading.Thread(
-            target=run_task_inline, args=(task_id,), name=f"task-{task_id[:8]}", daemon=True
+            target=run_task_inline, args=(task.id,), name=f"task-{task.id[:8]}", daemon=True
         )
         thread.start()
+        return
+    meta = dict((task.input_json or {}).get("meta") or {})
+    meta["enqueue_failed"] = True
+    task.input_json = {**(task.input_json or {}), "meta": meta}
+    flag_modified(task, "input_json")
+    TaskService._add_event(
+        db,
+        task,
+        "enqueue_failed",
+        "Celery 投递失败且未开启本机兜底；该任务可通过重试重新入队。",
+    )
+    db.commit()
 
 
 def _commit_or_rollback(db: Session, fn):
@@ -78,7 +96,7 @@ def create_task(
 
     task = _commit_or_rollback(db, _do)
     if not is_replay:
-        _enqueue_or_inline(task.id)
+        _enqueue_or_inline(db, task)
     data = TaskOut.model_validate(task).model_dump(mode="json")
     return JSONResponse(content=ok(data, request), status_code=200 if is_replay else 201)
 
@@ -147,7 +165,7 @@ def retry_task(
             db, ctx, task_id, request_id=ctx.request_id, idempotency_key=idempotency_key
         ),
     )
-    _enqueue_or_inline(task.id)
+    _enqueue_or_inline(db, task)
     return JSONResponse(
         content=ok(TaskOut.model_validate(task).model_dump(mode="json"), request),
         status_code=201,

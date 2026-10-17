@@ -118,7 +118,7 @@ class Settings(BaseSettings):
     )
     task_running_timeout_minutes: int = Field(
         default=120,
-        description="执行超时：running 超过该时长且 updated_at 无推进的任务置 failed(RUNNING_TIMEOUT)",
+        description="执行超时：running 超过该时长且 updated_at 无推进的任务置 failed",
     )
 
     @property
@@ -148,7 +148,7 @@ class Settings(BaseSettings):
             ]
             if weak:
                 errors.append(
-                    f"PLATFORM_ADMIN_USERNAMES 含易猜弱名单 {weak}：生产必须改为难以猜测的专有用户名"
+                    f"PLATFORM_ADMIN_USERNAMES 含易猜弱名单 {weak}：生产必须改为专有用户名"
                 )
             if self.signup_enabled:
                 warnings.append(

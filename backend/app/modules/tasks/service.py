@@ -190,9 +190,16 @@ class TaskService:
         request_id: str,
         idempotency_key: str | None = None,
     ) -> Task:
-        """重试任务：仅 failed/cancelled 可重试。生成一条新任务记录，复用原任务输入。"""
+        """重试任务：failed/cancelled 可重试；投递失败的 queued（meta.enqueue_failed=True）
+        也可重试（规范 §7.5：broker 故障场景允许运营补救）。生成一条新任务记录，复用原任务输入。"""
         task = TaskService.get(db, ctx, task_id)
-        if task.status not in (sm.STATUS_FAILED, sm.STATUS_CANCELLED):
+        meta = (task.input_json or {}).get("meta") or {}
+        requeue_enqueue_failed = (
+            task.status == sm.STATUS_QUEUED and meta.get("enqueue_failed") is True
+        )
+        if task.status not in (sm.STATUS_FAILED, sm.STATUS_CANCELLED) and not (
+            requeue_enqueue_failed
+        ):
             raise AppError(
                 "TASK_NOT_RETRYABLE",
                 f"当前状态（{task.status}）不允许重试。",
