@@ -229,6 +229,15 @@ async def probe_upstream(
             ok=False, latency_ms=int((time.perf_counter() - started) * 1000), models=[], note=note
         )
 
+    # SSRF 防护（规范 §15.1）：探测目标禁止指向回环/link-local/云元数据/保留地址
+    from app.core.errors import AppError as _AppError
+    from app.core.net_guard import check_egress_url
+
+    try:
+        check_egress_url(base_url, context="supplier_probe")
+    except _AppError as e:
+        return _fail(e.message)
+
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             models_resp = None

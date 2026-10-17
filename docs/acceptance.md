@@ -35,9 +35,11 @@
 - [x] ✅ 日志与错误响应不含密钥或内部堆栈
   - 证据：统一错误响应只暴露 error-code + request_id；密钥扫描 `.env` 0 命中（2026-10-16 审计）；审计日志只记参数键不记值（`test_success_audits_param_keys_only`）
 - [ ] ⚠️ 自动化测试在 CI 执行，主流程与安全规则通过
-  - CI 工作流 `.github/workflows/ci.yml` 已定义（lint/mypy/全量测试/迁移回环/契约漂移检查）；**GitHub 仓库已创建，首次 CI 运行结果待确认**
+  - CI 工作流 `.github/workflows/ci.yml` 已定义并**真实运行**：run #2 失败（25c9c57）、run #3
+    成功（021ad99）；本整改推送后需保持绿灯方可发布（以 GitHub Actions 最新运行为准）
 - [ ] ⚠️ 数据备份与恢复操作说明已提供
-  - `docs/operations.md` 含备份/恢复/升级/回滚手册；**恢复演练未执行**（规范 §15.5 要求首次发布前至少一次演练），发布前必须补演练记录
+  - `docs/operations.md` 含备份/恢复/升级/回滚手册；备份脚本卷名参数化已修复（生产静默空备份事故）；
+    **恢复演练仍未执行**（规范 §15.5 要求首次发布前至少一次演练），发布前必须补演练记录
 
 ## 测试层级
 
@@ -66,8 +68,11 @@
 | P0-2 | native 模式 knowledge_qa handler 未注册 | ✅ main.py 启动装配 + 回归测试 |
 | P0-3 | OpenAPI 契约漂移（55 路径，重复挂载已修） | ✅ 生成脚本 + CI 漂移检查 |
 | P0-4 | 无版本管理 | ✅ git 仓库 + uv.lock + npm lock + CI |
-| 6 | platform_admin / 供应商密钥边界 ADR | ✅ docs/adr/0002、0003 |
+| 6 | platform_admin / 供应商密钥边界 ADR | ✅ docs/adr/0002（生产 fail-fast）、0003（SSRF 私有网段策略）——实文件已随 2026-10-17 整改推送 |
 | 7 | 审批 TTL + 复用上限 | ✅ 0007 迁移 + service + 6 用例 |
 | 8 | 检索 pgvector 索引路径 + 截断指标 | ✅ 0008 HNSW 迁移 + search() DB 侧排序 + 截断日志 |
-| 9 | 专家评估集 ≥50 条 + 基线报告 | ⚠️ 待试点专家数据 |
-| 10 | 备份恢复演练 + Worker 心跳告警 | ⚠️ 手册就位，演练/告警未执行 |
+| 9 | 专家评估集 ≥50 条 + 基线报告 | ⚠️ qa_eval_v1（≥20 用例，含跨租户/注入类目）已入 CI；≥50 条专家标注版待试点数据 |
+| 10 | 备份恢复演练 + Worker 心跳告警 | ✅ 心跳（Redis 键 + /health/worker + compose healthcheck + beat）与 ALERT_WEBHOOK_URL 告警通道已实现；⚠️ 恢复演练仍未执行 |
+| 11 | 生产接管链（默认密钥/admin 白名单/seed 弱口令） | ✅ ADR-0002：启动 fail-fast + bootstrap 审计 + seed 生产守卫 + 注册保留名/密码策略（见 CHANGELOG） |
+| 12 | 部署链路必败点（web 构建/nginx 1MB/备份空卷/镜像构建顺序/生产 redis 断连） | ✅ 全部修复（compose 实际容器启动验证待有 Docker 环境执行一次留痕） |
+| 13 | 可观测性（metrics/request_id 日志/审计串链） | ✅ /metrics + 日志注入 request_id + LLM/HTTP/告警计数 |

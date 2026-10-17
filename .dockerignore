@@ -1,0 +1,19 @@
+# 根目录构建上下文（web/api/worker 镜像共用仓库根 context）专用忽略清单
+.git/
+.venv/
+**/node_modules/
+**/__pycache__/
+**/*.pyc
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+backend/data/
+*.db
+*.log
+.env
+.DS_Store
+frontend/dist/
+docs/
+contracts/
+plugins/

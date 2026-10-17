@@ -5,6 +5,15 @@ from functools import lru_cache
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# 明文默认占位值：一旦在非 development 环境仍在使用，必须拒绝启动。
+DEFAULT_APP_SECRET_KEY = "replace-with-long-random-secret-min-32-chars"
+# 难以猜测的专有用户名是生产 bootstrap 前提；默认 admin 仅限开发。
+WEAK_PLATFORM_ADMIN_USERNAMES = {"admin", "root", "system", "platform_admin", "administrator"}
+
+
+class StartupSecurityError(RuntimeError):
+    """生产启动期安全校验失败：以异常强制 fail-fast，禁止带着不安全配置上线。"""
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
@@ -84,9 +93,80 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
 
+    # --- 运行安全与运营（整改升级新增） ---
+    signup_enabled: bool = Field(
+        default=True, description="是否开放租户自助注册；试运行/公网部署建议 false（邀请制）"
+    )
+    password_min_length: int = Field(
+        default=8, ge=6, le=64, description="创建/注册场景密码最小长度；生产环境强制不低于 10"
+    )
+    alert_webhook_url: str = Field(
+        default="",
+        description="运维告警 webhook（POST JSON）；为空时通知降级为带 [ALERT] 标记的日志",
+    )
+    metrics_enabled: bool = Field(
+        default=True, description="是否在 /metrics 暴露 Prometheus 文本指标"
+    )
+    enforce_model_egress_guard: bool = Field(
+        default=False,
+        description="true 时模型/供应商端点也执行公网 SSRF 校验（会阻断内网模型服务，"
+        "适用于纯公网 SaaS；内网私有化保持 false，但 link-local/云元数据地址始终阻断）",
+    )
+    task_queued_timeout_minutes: int = Field(
+        default=30,
+        description="排队超时：queued 超过该时长的任务由回收任务置 failed(QUEUED_TIMEOUT)",
+    )
+    task_running_timeout_minutes: int = Field(
+        default=120,
+        description="执行超时：running 超过该时长且 updated_at 无推进的任务置 failed(RUNNING_TIMEOUT)",
+    )
+
     @property
     def platform_admin_username_list(self) -> list[str]:
         return [u.strip() for u in self.platform_admin_usernames.split(",") if u.strip()]
+
+    @property
+    def is_production(self) -> bool:
+        return self.app_env.strip().lower() == "production"
+
+    def validate_for_runtime(self) -> tuple[list[str], list[str]]:
+        """启动期安全校验。返回 (必须拒绝启动的错误, 仅告警的提示)。
+
+        规范 §5.1/§15：密钥与凭证属 L3；生产环境使用公开占位密钥等于任意伪造令牌。
+        """
+        errors: list[str] = []
+        warnings: list[str] = []
+        if self.is_production:
+            if self.app_secret_key == DEFAULT_APP_SECRET_KEY:
+                errors.append("APP_SECRET_KEY 仍为公开占位值，任何人都可伪造令牌，生产环境必须更换")
+            if len(self.app_secret_key) < 32:
+                errors.append("APP_SECRET_KEY 长度不足 32 位，不满足生产最低强度")
+            weak = [
+                u
+                for u in self.platform_admin_username_list
+                if u.lower() in WEAK_PLATFORM_ADMIN_USERNAMES
+            ]
+            if weak:
+                errors.append(
+                    f"PLATFORM_ADMIN_USERNAMES 含易猜弱名单 {weak}：生产必须改为难以猜测的专有用户名"
+                )
+            if self.signup_enabled:
+                warnings.append(
+                    "SELF-SERVICE 注册在生产环境保持开放，建议试运行期设置 SIGNUP_ENABLED=false"
+                )
+            if self.database_url.startswith("sqlite"):
+                errors.append("生产环境禁止使用 SQLite，必须配置 PostgreSQL")
+        else:
+            if self.app_secret_key == DEFAULT_APP_SECRET_KEY:
+                warnings.append("APP_SECRET_KEY 使用默认占位值（仅限开发/测试环境）")
+        return errors, warnings
+
+    def enforce_runtime_safety(self) -> list[str]:
+        """非生产返回告警列表并放行；生产发现阻断项直接抛 StartupSecurityError。"""
+        errors, warnings = self.validate_for_runtime()
+        if errors:
+            raise StartupSecurityError("生产启动安全校验失败: " + "；".join(errors))
+        return warnings
 
 
 @lru_cache

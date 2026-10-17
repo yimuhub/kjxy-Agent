@@ -49,6 +49,11 @@ class OpenAICompatibleProvider:
             )
 
     async def complete(self, request: LLMRequest) -> LLMResponse:
+        # SSRF 出网校验（规范 §15.1）：模型端点不得指向回环/link-local/保留地址；
+        # 私有网段按 enforce_model_egress_guard 策略执行（内网私有化部署默认放行）
+        from app.core.net_guard import check_egress_url
+
+        check_egress_url(f"{self.base_url}/chat/completions", context="llm_chat")
         model = request.model or self.model
         payload: dict = {
             "model": model,

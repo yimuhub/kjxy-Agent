@@ -86,3 +86,15 @@
 |---|---|---|
 | `POLICY_MODULE_DISABLED` | 404 | 政策模块未启用 |
 | `POLICY_NOT_FOUND` | 404 | 政策不存在 |
+
+## 整改升级新增（2026-10-17）
+
+| code | HTTP | 说明 |
+|---|---|---|
+| `SSRF_BLOCKED` | 400 | 出网目标指向回环/link-local/云元数据/保留（或策略禁用私有）地址 |
+| `SIGNUP_DISABLED` | 403 | 自助注册已由部署方关闭（SIGNUP_ENABLED=false） |
+| `RESERVED_USERNAME` | 400 | 使用了系统保留用户名（admin/root/system 等） |
+| `WEAK_PASSWORD` | 400 | 密码长度或强度低于当前环境策略 |
+| `QUEUED_TIMEOUT` | — | 任务 error_code：queued 超时被周期回收（queued→failed） |
+| `RUNNING_TIMEOUT` | — | 任务 error_code：running 超时/卡死被周期回收 |
+| `DOCUMENT_NOT_REPARSABLE` | 409 | 文档当前状态不允许重新解析（仅 failed 可调） |

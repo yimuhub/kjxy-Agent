@@ -47,6 +47,9 @@ def _write_call(
     request_id: str,
     tenant_id: str,
 ) -> None:
+    from app.core.context import metrics
+
+    metrics.observe_llm(status=status, provider=_provider_label(provider))
     db.add(
         LLMCall(
             tenant_id=tenant_id,

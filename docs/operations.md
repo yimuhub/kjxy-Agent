@@ -23,18 +23,29 @@ docker compose down
 
 ## 健康检查
 
-- API：`GET /health/live`（存活）、`GET /health/ready`（数据库+Redis 就绪）。
-- Worker：Celery 心跳；队列堆积通过 `/admin/stats` 观察。
+- API：`GET /health/live`（存活）、`GET /health/ready`（数据库+Redis 就绪）、
+  `GET /health/worker`（Worker 心跳新鲜度，整改后新增）、`GET /metrics`（Prometheus 文本）。
+- Worker：compose 内置 healthcheck（`celery inspect ping`）；`/health/worker` 的 age_seconds
+  超过 180s 视为 stale。周期任务（超时回收/心跳/月度重置）由 scheduler 服务承担，
+  生产 compose 默认启用；开发 compose 需 `COMPOSE_PROFILES=scheduler` 或 `COMPOSE_PROFILES=scheduler make up`。
+- 运维告警：配置 `ALERT_WEBHOOK_URL` 后配额/回收/入库失败等事件主动推送；未配置时以
+  `[ALERT]` 前缀 WARNING 日志呈现。
 
 ## 备份
 
-`deploy/scripts/backup.sh`：
+`deploy/scripts/backup.sh`（生产卷名自动从当前 compose 配置解析，硬编码卷名事故已修复）：
 
 ```bash
+# 开发/默认编排
 ./deploy/scripts/backup.sh /backup/techyard-20261016
+# 生产覆盖编排
+COMPOSE="docker compose -f compose.yaml -f compose.production.yaml" ./deploy/scripts/backup.sh /backup/techyard-20261016
 ```
 
 备份内容：PostgreSQL dump（`pg_dump`）、文件卷（`/data/files` 打包）。备份文件设 600 权限，敏感环境加密存放。
+
+> **上线前必做**：在预发/副本环境完整执行一次 backup→restore 演练并记录耗时（RTO）与数据范围；
+> 未演练的备份不视为可用备份。
 
 ## 恢复
 

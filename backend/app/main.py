@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.v1.router import router as v1_router
 from app.core.config import settings
+from app.core.context import metrics
 from app.core.errors import (
     AppError,
     app_error_handler,
@@ -16,6 +17,7 @@ from app.core.errors import (
 )
 from app.core.logging import configure_logging, get_logger
 from app.core.middleware import RequestIDMiddleware
+from fastapi import Response
 
 log = get_logger(__name__)
 
@@ -54,6 +56,9 @@ def _startup_wiring() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_logging(settings.log_level)
+    # 生产 fail-fast：默认密钥/弱管理员名单/SQLite 等阻断项直接拒绝启动（规范 §5.1/§15）
+    for warning in settings.enforce_runtime_safety():
+        log.warning("startup safety warning: %s", warning)
     log.info("tech-yard-platform starting, env=%s", settings.app_env)
     _startup_wiring()
     yield
@@ -80,6 +85,20 @@ def create_app() -> FastAPI:
             status_code=200 if ready else 503,
             content={"status": "ready" if ready else "not_ready", "checks": checks},
         )
+
+    @app.get("/health/worker", tags=["health"])
+    def worker_health():
+        """Worker 心跳新鲜度（规范 §18.4：不得用 API 健康代替 Worker 健康）。"""
+        from app.workers.heartbeat import worker_heartbeat_status
+
+        return worker_heartbeat_status()
+
+    @app.get("/metrics", include_in_schema=False)
+    def metrics_endpoint():
+        """Prometheus 文本格式最小实现（进程内计数）。"""
+        if not settings.metrics_enabled:
+            return Response(status_code=404)
+        return Response(metrics.exposition(), media_type="text/plain; version=0.0.4; charset=utf-8")
 
     app.include_router(v1_router, prefix="/api/v1", tags=["v1"])
     return app
