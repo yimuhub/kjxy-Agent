@@ -110,6 +110,7 @@
       roles: ['tenant_admin', 'platform_admin', 'expert'],
     },
     { path: '/agents', title: '专业助手', icon: markRaw(Cpu) },
+    { path: '/agents/factory', title: 'Agent 工厂', icon: markRaw(Cpu), roles: ADMIN_ROLES },
     { path: '/policies', title: '政策服务', icon: markRaw(Document) },
     { path: '/evolution', title: '自生长管理', icon: markRaw(Setting), roles: ADMIN_ROLES },
     { path: '/quota', title: '用量额度', icon: markRaw(PieChart), roles: ADMIN_ROLES },

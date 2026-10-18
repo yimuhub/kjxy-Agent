@@ -11,6 +11,7 @@ import ReviewView from '@/views/ReviewView.vue'
 import MembersView from '@/views/MembersView.vue'
 import SettingsView from '@/views/SettingsView.vue'
 import AgentsView from '@/views/AgentsView.vue'
+import AgentFactoryView from '@/views/AgentFactoryView.vue'
 import PolicyView from '@/views/PolicyView.vue'
 import EvolutionView from '@/views/EvolutionView.vue'
 import QuotaView from '@/views/QuotaView.vue'
@@ -50,6 +51,12 @@ const routes: RouteRecordRaw[] = [
       },
       // 专业助手全员可见
       { path: 'agents', name: 'Agents', component: AgentsView, meta: { title: '专业助手' } },
+      {
+        path: 'agents/factory',
+        name: 'AgentFactory',
+        component: AgentFactoryView,
+        meta: { title: 'Agent 工厂', roles: ['tenant_admin', 'platform_admin'] },
+      },
       { path: 'policies', name: 'Policies', component: PolicyView, meta: { title: '政策服务' } },
       {
         path: 'evolution',

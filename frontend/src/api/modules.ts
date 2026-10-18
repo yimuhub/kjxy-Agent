@@ -581,3 +581,113 @@ export const declarativeApi = {
     )
   },
 }
+
+// ---------- Agent 工厂（行业描述 → 蓝图 → 采纳发布，ADR-0005） ----------
+
+export type FactoryRunStatus = 'claimed' | 'planning' | 'generating' | 'completed' | 'failed'
+
+/** 进度里程碑（SSE task-event 的 payload.milestone） */
+export type FactoryMilestone = 'planning' | 'blueprint_ready' | 'generating' | 'completed' | 'failed'
+
+/** 运行列表摘要（GET /agents/factory/runs） */
+export interface FactoryRunSummary {
+  id: string
+  status: FactoryRunStatus
+  industry_brief: string
+  generated_by: string | null
+  error: string | null
+  created_by: string | null
+  approved_by: string | null
+  created_at: string | null
+  updated_at: string | null
+  role_count: number | null
+  needs_knowledge_count: number | null
+}
+
+/** 蓝图内单个角色（blueprint_json.agents 元素） */
+export interface FactoryBlueprintAgent {
+  agent_code: string
+  name: string
+  emoji: string | null
+  description: string | null
+  persona_prompt: string
+  task_prompt_template: string
+  allowed_tools: string[]
+  knowledge_scopes: string[]
+  suggested_questions: string[]
+  agent_id: string | null
+  knowledge_coverage: number
+  needs_knowledge: boolean
+  smoke_questions: string[]
+  risk_level: 'low' | 'high'
+  status: string
+}
+
+/** 蓝图（schema: agent_factory_blueprint.v1） */
+export interface FactoryBlueprint {
+  schema: string
+  industry_brief: string
+  focus: string | null
+  generated_by: string
+  role_count: number
+  agents: FactoryBlueprintAgent[]
+}
+
+/** 运行详情：摘要 + 完整蓝图（未生成时为 null） */
+export interface FactoryRunDetail extends FactoryRunSummary {
+  blueprint_json: FactoryBlueprint | null
+}
+
+/** POST /generate 返回的任务句柄 */
+export interface FactoryGenerateResult {
+  task_id: string
+  run_id: string
+}
+
+/** 采纳逐项结果 */
+export interface FactoryApplyItem {
+  agent_code: string
+  agent_id: string | null
+  ok: boolean
+  status: string | null
+  error?: string
+}
+
+/** 采纳汇总 */
+export interface FactoryApplyResult {
+  run_id: string
+  publish: boolean
+  results: FactoryApplyItem[]
+  requested: number
+  applied: number
+  failed: number
+  published: number
+  pending_review: number
+  draft: number
+}
+
+export const factoryApi = {
+  /** 发起生成（tenant_admin；202 返回任务句柄；超配额 429 QUOTA_EXCEEDED） */
+  generate(payload: { industry_brief: string; focus?: string }): Promise<FactoryGenerateResult> {
+    return unwrap(api.post<ApiResponse<FactoryGenerateResult>>('/agents/factory/generate', payload))
+  },
+  /** 本租户运行列表（新→旧，不含蓝图正文） */
+  runs(): Promise<FactoryRunSummary[]> {
+    return unwrap(
+      api.get<ApiResponse<{ runs: FactoryRunSummary[] }>>('/agents/factory/runs'),
+    ).then(r => r.runs)
+  },
+  /** 运行详情（含 blueprint_json） */
+  run(run_id: string): Promise<FactoryRunDetail> {
+    return unwrap(api.get<ApiResponse<FactoryRunDetail>>(`/agents/factory/runs/${run_id}`))
+  },
+  /** 人工采纳：仅创建者或 tenant_admin；run 非 completed 时 409 */
+  apply(run_id: string, codes: string[], publish: boolean): Promise<FactoryApplyResult> {
+    return unwrap(
+      api.post<ApiResponse<FactoryApplyResult>>(`/agents/factory/runs/${run_id}/apply`, {
+        codes,
+        publish,
+      }),
+    )
+  },
+}
