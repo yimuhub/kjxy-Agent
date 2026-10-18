@@ -27,6 +27,7 @@ from app.core.errors import AppError
 from app.core.responses import ok
 from app.modules.agents import declarative, get_global_registry
 from app.modules.agents.definitions import AGENT_DEFINITIONS
+from app.modules.agents.factory_router import router as factory_router
 from app.modules.agents.schemas import AgentContext, AgentResult
 from app.modules.tools.registry import tool_registry
 
@@ -362,3 +363,11 @@ def reject_agent_review(
         db.rollback()
         raise
     return ok(declarative.to_out(agent), request)
+
+
+# ---------------------------------------------------------------------------
+# Agent 工厂（M3）：/agents/factory*（行业描述 → 蓝图 → 人工采纳 → 分级装配）。
+# 子路由并入本 mount，api/v1 总路由无需感知工厂端点。
+# ---------------------------------------------------------------------------
+
+router.include_router(factory_router)

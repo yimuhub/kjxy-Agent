@@ -454,7 +454,9 @@ def publish_agent(
     if agent.status == STATUS_DEPRECATED:
         raise AppError("AGENT_STATE_CONFLICT", "已停用的 Agent 不可发布。", http_status=409)
     if agent.status == STATUS_PUBLISHED:
-        raise AppError("AGENT_STATE_CONFLICT", "该版本已是发布态。", http_status=409)
+        # 幂等：重复发布（双击/网络重放/view 重试）视为成功返回当前态，不再报错。
+        # 说明：本函数只在"发布"这一业务动作上幂等；已停用仍按冲突拒绝。
+        return agent
 
     is_platform = "platform_admin" in roles
     if agent.risk_level == RISK_HIGH and not is_platform:

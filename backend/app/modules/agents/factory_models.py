@@ -37,9 +37,7 @@ class FactoryRun(Base, TimestampMixin):
     tenant_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     # 行业描述（必填输入），如「农机服务，侧重果园小型农机」
     industry_brief: Mapped[str] = mapped_column(Text, nullable=False)
-    status: Mapped[str] = mapped_column(
-        String(30), nullable=False, default=STATUS_CLAIMED
-    )
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default=STATUS_CLAIMED)
     # 完整蓝图 JSON（含 coverage / needs_knowledge / agent_id 回写）
     blueprint_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     # llm|heuristic；running 期间为 None，completed 必填

@@ -27,7 +27,7 @@ celery_app.conf.update(
     },
 )
 
-# 自动发现各模块的 celery 任务
+# 自动发现各模块的 celery 任务（agents 提供 agent_factory 工厂任务的 handler 注册）
 celery_app.autodiscover_tasks(
-    ["app.modules.tasks", "app.modules.knowledge", "app.modules.agriculture"]
+    ["app.modules.tasks", "app.modules.knowledge", "app.modules.agriculture", "app.modules.agents"]
 )

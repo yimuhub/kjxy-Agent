@@ -2368,6 +2368,121 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agents/factory/generate:
+    post:
+      tags:
+      - v1
+      - agents
+      - agents-factory
+      summary: Generate
+      description: 发起一次工厂生成：建 run + agent_factory 任务，立即返回句柄（202）。
+      operationId: generate_api_v1_agents_factory_generate_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FactoryGenerateRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/agents/factory/runs:
+    get:
+      tags:
+      - v1
+      - agents
+      - agents-factory
+      summary: List Runs
+      description: 本租户工厂运行列表（最新在前；租户成员均可读，便于跟踪进度）。
+      operationId: list_runs_api_v1_agents_factory_runs_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/agents/factory/runs/{run_id}:
+    get:
+      tags:
+      - v1
+      - agents
+      - agents-factory
+      summary: Get Run
+      description: 运行详情：完整 blueprint_json（未生成时为 null）+ 任务句柄反查提示。
+      operationId: get_run_api_v1_agents_factory_runs__run_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Run Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agents/factory/runs/{run_id}/apply:
+    post:
+      tags:
+      - v1
+      - agents
+      - agents-factory
+      summary: Apply Run
+      description: '人工采纳蓝图：逐项结果 + 汇总；publish=true 走 declarative 分级发布。
+
+
+        权限：仅 run 创建者或 tenant_admin（platform_admin 直通）；跨租户 404。'
+      operationId: apply_run_api_v1_agents_factory_runs__run_id__apply_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Run Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FactoryApplyRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
     AddMemberRequest:
@@ -2506,6 +2621,44 @@ components:
       required:
       - action
       title: CandidateReview
+    FactoryApplyRequest:
+      properties:
+        codes:
+          items:
+            type: string
+          type: array
+          maxItems: 20
+          minItems: 1
+          title: Codes
+        publish:
+          type: boolean
+          title: Publish
+          default: true
+      additionalProperties: false
+      type: object
+      required:
+      - codes
+      title: FactoryApplyRequest
+      description: 采纳请求：codes 为蓝图内 agent_code 子集；publish 决定是否触发分级发布。
+    FactoryGenerateRequest:
+      properties:
+        industry_brief:
+          type: string
+          maxLength: 2000
+          minLength: 1
+          title: Industry Brief
+        focus:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Focus
+      additionalProperties: false
+      type: object
+      required:
+      - industry_brief
+      title: FactoryGenerateRequest
+      description: 生成请求：industry_brief 必填非空白；focus 可选侧重方向。
     FeedbackCreate:
       properties:
         task_id:
