@@ -1,0 +1,14 @@
+# Tauri 前端资源（由 frontend 构建产物拷入，勿手改）
+# 注意用 /* 而非目录整体忽略，否则 !.gitkeep 反向豁免不生效
+dist-web/*
+!dist-web/.gitkeep
+!dist-web/index.html
+# sidecar 二进制（CI/script 产物拷入）
+src-tauri/binaries/*
+!src-tauri/binaries/.gitkeep
+src-tauri/frontend-dist/*
+!src-tauri/frontend-dist/.gitkeep
+# Rust 构建产物
+src-tauri/target/
+src-tauri/gen/schemas/
+node_modules/

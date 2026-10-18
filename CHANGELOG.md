@@ -48,6 +48,16 @@
 - 界面去演示密码/去内部术语（租户→使用空间等）、角色化菜单与路由守卫、
   AsyncState 四态、任务 5s 轮询、批量审核、重新解析、新手引导与示例问题、≤900px 响应式。
 
+### 交互赋能与六端客户端（借鉴 agency-orchestrator，Apache-2.0，设计移植）
+- **SSE 任务事件流**：`GET /api/v1/tasks/{id}/events/stream`（stream-init/task-event/task-status/stream-end）；
+  任务详情抽屉实时上屏，断线重连≤3 次自动降级轮询；关页只停"看"不停"跑"（服务端语义显式）。
+- **双层验收预筛**：候选知识机器预检（纯函数断言，why 必引原话）+ 可选 LLM 深检
+  （固定三标准+裁判不可靠兜底改判）；`LLM_PRECHECK_ENABLED` 开关，S1 展示性不阻断审核。
+- **admin doctor 体检**：`GET /api/v1/admin/doctor` 逐项检查+fix_hint 失败即教学；密钥值红线不进响应。
+- **桌面单机模式**：`TASKS_INLINE_MODE`（inline 任务/无 Redis 就绪/inline health ready）+
+  `backend/standalone.py` 本地引擎 + `client/` 六端壳骨架（Tauri 桌面/安卓云端壳/鸿蒙 ArkWeb/iOS 说明）+
+  手动 CI 打包流 `client.yml`；详见 `docs/client.md`。设计决策见 `docs/adr/0004-declarative-workflow-engine.md`。
+
 ### 部署修复
 - `web.Dockerfile` COPY 越出构建上下文的必败构建修复（web 构建上下文改为仓库根）。
 - `api/worker.Dockerfile` editable 安装顺序缺陷修复（源码缺失时 setuptools 构建必败）→ 非 editable。

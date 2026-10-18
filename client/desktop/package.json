@@ -1,0 +1,16 @@
+{
+  "name": "techyard-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "科技小院桌面壳（Tauri 2）：拉起本地引擎 sidecar，指向本地引擎托管的前端",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "prepare-icons": "tauri icon icons-src/app-icon.png"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

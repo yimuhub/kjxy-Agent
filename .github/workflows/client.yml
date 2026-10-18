@@ -1,0 +1,116 @@
+# 桌面/移动客户端打包流——仅手动触发（workflow_dispatch），绝不随 push 自动跑：
+# Rust/PyInstaller 构建昂贵且需要独立迭代，与主 CI（backend/frontend 门禁）完全隔离。
+name: Client Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "构建内容：desktop=桌面三平台，android=安卓云端壳 APK"
+        required: true
+        default: desktop
+        type: choice
+        options: [desktop, android]
+
+jobs:
+  desktop:
+    if: inputs.mode == 'desktop'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install linux system deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+      - name: Build web frontend -> dist-web
+        run: |
+          cd frontend && npm ci && npm run build
+          mkdir -p ../client/desktop/dist-web
+          cp -r dist/* ../client/desktop/dist-web/
+      - name: Build PyInstaller sidecar（本地引擎）
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip pyinstaller
+          bash backend/scripts/build_sidecar.sh
+          ls -la backend/dist
+      - name: Stage sidecar binary (tauri target-triple naming)
+        shell: bash
+        run: |
+          SRC=$(ls backend/dist/techyard-sidecar* | head -1)
+          EXT=$([ "${{ runner.os }}" = "Windows" ] && echo ".exe" || echo "")
+          cp "$SRC" "client/desktop/src-tauri/binaries/techyard-sidecar-${{ matrix.target }}${EXT}"
+      - name: Generate app icons
+        working-directory: client/desktop
+        run: |
+          npm install
+          npx tauri icon icons-src/app-icon.png
+      - name: Tauri build（无证书→未签名内测包；mac ad-hoc）
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 无 Apple 证书：ad-hoc 签名仅供本机/内测运行（AO 同款 strategy）
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        with:
+          projectPath: client/desktop
+          # 内测先出可执行文件即可（bundle 打包器差异大，迭代时再放开）
+          args: --no-bundle
+      - uses: actions/upload-artifact@v4
+        with:
+          name: techyard-desktop-${{ matrix.target }}
+          path: |
+            client/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**
+            client/desktop/src-tauri/target/release/bundle/**
+            client/desktop/src-tauri/target/${{ matrix.target }}/release/techyard-desktop*
+            client/desktop/src-tauri/target/release/techyard-desktop*
+          if-no-files-found: warn
+
+  android:
+    if: inputs.mode == 'android'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: dtolnay/rust-toolchain@stable
+      - run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+      - name: Install Android SDK + Tauri mobile tooling
+        run: npx tauri android init  # 首次生成 gen/android（无仓库内预置时）
+        working-directory: client/desktop
+        continue-on-error: true
+      - name: Build debug APK（内测直装，无需商店账号）
+        run: npx tauri android apk --debug
+        working-directory: client/desktop
+        continue-on-error: true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: techyard-android-debug
+          path: client/desktop/src-tauri/gen/android/app/build/outputs/apk/**
+          if-no-files-found: warn
