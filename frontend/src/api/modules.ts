@@ -516,3 +516,68 @@ export const evolutionApi = {
     return unwrap(api.post(`/plugins/${plugin_id}/disable`, {}))
   },
 }
+
+// ===== 声明式 Agent 与 Agent 工厂（能力中心，ADR-0005） =====
+export interface DeclarativeAgent {
+  id: string
+  tenant_id: string
+  agent_code: string
+  name: string
+  description: string | null
+  emoji: string | null
+  persona_prompt: string
+  task_prompt_template: string
+  allowed_tools: string[]
+  knowledge_scopes: string[]
+  supplier_id: string | null
+  risk_level: 'low' | 'high'
+  status: 'draft' | 'pending_platform_review' | 'published' | 'deprecated'
+  version: string
+  created_from: string
+  created_at: string
+  updated_at: string
+}
+
+export interface DeclarativeAgentCreate {
+  agent_code: string
+  name: string
+  description?: string
+  emoji?: string
+  persona_prompt: string
+  task_prompt_template: string
+  allowed_tools?: string[]
+  knowledge_scopes?: string[]
+  supplier_id?: string | null
+}
+
+export const declarativeApi = {
+  list(): Promise<DeclarativeAgent[]> {
+    return unwrap(
+      api.get<ApiResponse<{ agents: DeclarativeAgent[] }>>('/agents/declarative'),
+    ).then(r => r.agents)
+  },
+  create(payload: DeclarativeAgentCreate): Promise<DeclarativeAgent> {
+    return unwrap(api.post<ApiResponse<DeclarativeAgent>>('/agents/declarative', payload))
+  },
+  update(id: string, payload: Partial<DeclarativeAgentCreate>): Promise<DeclarativeAgent> {
+    return unwrap(api.patch<ApiResponse<DeclarativeAgent>>(`/agents/declarative/${id}`, payload))
+  },
+  publish(id: string): Promise<{ status: string }> {
+    return unwrap(api.post<ApiResponse<{ status: string }>>(`/agents/declarative/${id}/publish`))
+  },
+  deprecate(id: string): Promise<{ status: string }> {
+    return unwrap(api.post<ApiResponse<{ status: string }>>(`/agents/declarative/${id}/deprecate`))
+  },
+  reviewQueue(): Promise<DeclarativeAgent[]> {
+    return unwrap(
+      api.get<ApiResponse<{ agents: DeclarativeAgent[] } | DeclarativeAgent[]>>(
+        '/agents/admin/agent-review-queue',
+      ),
+    ).then(r => (Array.isArray(r) ? r : r.agents))
+  },
+  review(id: string, decision: 'approve' | 'reject'): Promise<{ status: string }> {
+    return unwrap(
+      api.post<ApiResponse<{ status: string }>>(`/agents/admin/agent-review/${id}/${decision}`),
+    )
+  },
+}

@@ -513,14 +513,333 @@
         </el-descriptions-item>
       </el-descriptions>
     </el-dialog>
+
+    <!-- 租户声明式 Agent（能力中心：DB 配置即助手，无需发版） -->
+    <template v-if="auth.isSpaceAdmin()">
+      <div class="da-header">
+        <h3 class="da-title">
+          租户助手（{{ daList.length }}）
+        </h3>
+        <div>
+          <el-button
+            v-if="auth.roles.includes('platform_admin')"
+            size="small"
+            @click="openReviewQueue"
+          >
+            平台审核队列<template v-if="reviewQueue.length">
+              （{{ reviewQueue.length }}）
+            </template>
+          </el-button>
+          <el-button
+            type="primary"
+            size="small"
+            @click="openDaCreate"
+          >
+            新建助手
+          </el-button>
+        </div>
+      </div>
+      <el-table
+        :data="daList"
+        size="small"
+        empty-text="暂无租户助手，点「新建助手」或用行业工厂生成"
+      >
+        <el-table-column
+          label="助手"
+          min-width="180"
+        >
+          <template #default="{ row }">
+            {{ row.emoji || '🤖' }} {{ row.name }}
+            <span class="da-code">{{ row.agent_code }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column
+          label="风险"
+          width="86"
+        >
+          <template #default="{ row }">
+            <el-tag
+              :type="row.risk_level === 'low' ? 'success' : 'danger'"
+              size="small"
+            >
+              {{ row.risk_level === 'low' ? '低' : '高' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column
+          label="状态"
+          width="120"
+        >
+          <template #default="{ row }">
+            <el-tag
+              :type="daStatusType(row.status)"
+              size="small"
+            >
+              {{ daStatusLabel(row.status) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column
+          label="来源"
+          width="80"
+        >
+          <template #default="{ row }">
+            {{ daFromLabel(row.created_from) }}
+          </template>
+        </el-table-column>
+        <el-table-column
+          label="操作"
+          min-width="240"
+        >
+          <template #default="{ row }">
+            <el-button
+              v-if="row.status === 'draft'"
+              size="small"
+              type="success"
+              @click="daPublish(row)"
+            >
+              发布
+            </el-button>
+            <el-button
+              v-if="row.status === 'published'"
+              size="small"
+              @click="openDaRun(row)"
+            >
+              试跑
+            </el-button>
+            <el-button
+              size="small"
+              @click="openDaEdit(row)"
+            >
+              编辑
+            </el-button>
+            <el-button
+              v-if="row.status === 'published'"
+              size="small"
+              type="warning"
+              @click="daDeprecate(row)"
+            >
+              停用
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </template>
+
+    <!-- 新建/编辑租户助手 -->
+    <el-dialog
+      v-model="daDialogVisible"
+      :title="daEditingId ? '编辑租户助手' : '新建租户助手'"
+      width="640px"
+    >
+      <el-form label-width="110px">
+        <el-form-item label="快速模板">
+          <el-radio-group
+            v-model="daTemplate"
+            size="small"
+            @change="applyDaTemplate"
+          >
+            <el-radio-button value="">
+              自定义
+            </el-radio-button>
+            <el-radio-button
+              v-for="t in DA_TEMPLATES"
+              :key="t.key"
+              :value="t.key"
+            >
+              {{ t.name }}
+            </el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="编码">
+          <el-input
+            v-model="decForm.agent_code"
+            :disabled="!!daEditingId"
+            placeholder="小写字母数字下划线，如 miaoqing_reporter"
+          />
+        </el-form-item>
+        <el-form-item label="名称">
+          <el-input
+            v-model="decForm.name"
+            placeholder="苗情测报员"
+          />
+        </el-form-item>
+        <el-form-item label="表情标识">
+          <el-input
+            v-model="decForm.emoji"
+            style="width: 120px"
+            placeholder="🌱"
+          />
+        </el-form-item>
+        <el-form-item label="一句话职责">
+          <el-input
+            v-model="decForm.description"
+            placeholder="解读苗情资料并给出管理建议"
+          />
+        </el-form-item>
+        <el-form-item label="角色人设">
+          <el-input
+            v-model="decForm.persona_prompt"
+            type="textarea"
+            :rows="3"
+            placeholder="你是一名……（角色、语气、边界）"
+          />
+        </el-form-item>
+        <el-form-item label="任务模板">
+          <el-input
+            v-model="decForm.task_prompt_template"
+            type="textarea"
+            :rows="4"
+            placeholder="用 {{question}} 占位放用户问题"
+          />
+        </el-form-item>
+        <el-form-item label="知识范围">
+          <el-checkbox-group v-model="decForm.knowledge_scopes">
+            <el-checkbox value="tenant">
+              本租户知识库
+            </el-checkbox>
+            <el-checkbox value="crop_public">
+              公开作物知识
+            </el-checkbox>
+          </el-checkbox-group>
+        </el-form-item>
+        <el-form-item label="工具">
+          <el-checkbox
+            model-value
+            disabled
+          >
+            knowledge.search（检索）
+          </el-checkbox>
+          <span class="da-note">副作用工具不在自助范围（ADR-0005）</span>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="daDialogVisible = false">
+          取消
+        </el-button>
+        <el-button
+          type="primary"
+          :loading="daSaving"
+          @click="saveDa"
+        >
+          保存草稿
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 试跑抽屉 -->
+    <el-drawer
+      v-model="daRunVisible"
+      :title="`试跑：${daRunTarget?.name ?? ''}`"
+      size="42%"
+    >
+      <el-input
+        v-model="daRunQuestion"
+        placeholder="输入一个测试问题，回车运行"
+        @keyup.enter="runDa"
+      />
+      <el-button
+        class="mt"
+        type="primary"
+        :loading="daRunning"
+        @click="runDa"
+      >
+        运行
+      </el-button>
+      <div
+        v-if="daRunResult"
+        class="da-run-result"
+      >
+        <el-alert
+          :type="daRunResult.status === 'succeeded' ? 'success' : 'error'"
+          :closable="false"
+          :title="`状态：${daRunResult.status}`"
+        />
+        <div class="da-answer">
+          {{ daRunResult.output?.answer || JSON.stringify(daRunResult.output) }}
+        </div>
+        <div
+          v-if="daRunResult.citations?.length"
+          class="mt"
+        >
+          <el-tag
+            v-for="(c, i) in daRunResult.citations"
+            :key="i"
+            size="small"
+            type="info"
+            class="skill-tag"
+          >
+            {{ c.doc_name || c.title || '引用' }}{{ c.page ? ` p.${c.page}` : '' }}
+          </el-tag>
+        </div>
+        <el-alert
+          v-for="(w, i) in daRunResult.warnings || []"
+          :key="`w${i}`"
+          class="mt"
+          type="warning"
+          :closable="false"
+          :title="w"
+        />
+      </div>
+    </el-drawer>
+
+    <!-- 平台审核队列 -->
+    <el-dialog
+      v-model="reviewVisible"
+      title="高风险助手 · 平台审核队列"
+      width="720px"
+    >
+      <el-table
+        :data="reviewQueue"
+        size="small"
+        empty-text="队列为空"
+      >
+        <el-table-column
+          label="助手"
+          min-width="200"
+        >
+          <template #default="{ row }">
+            {{ row.emoji || '🤖' }} {{ row.name }}
+            <span class="da-code">{{ row.agent_code }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column
+          prop="description"
+          label="职责"
+          min-width="180"
+        />
+        <el-table-column
+          label="操作"
+          width="170"
+        >
+          <template #default="{ row }">
+            <el-button
+              size="small"
+              type="success"
+              @click="reviewAction(row, 'approve')"
+            >
+              批准
+            </el-button>
+            <el-button
+              size="small"
+              type="danger"
+              @click="reviewAction(row, 'reject')"
+            >
+              驳回
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
   import { computed, onMounted, ref } from 'vue'
   import { ElMessage } from 'element-plus'
-  import { agentApi } from '@/api/modules'
+  import { agentApi, declarativeApi, type DeclarativeAgent } from '@/api/modules'
   import { extractErrorMessage } from '@/api/client'
+  import { useAuthStore } from '@/stores/auth'
   import AsyncState from '@/components/AsyncState.vue'
   import { classifyError, friendlyErrorMessage, type ViewState } from '@/utils/status'
   import type { AgentDefinition, AgentRunResult, AgentSkill } from '@/types/api'
@@ -720,10 +1039,266 @@
     }
   }
 
-  onMounted(loadAgents)
+  // ===== 租户声明式 Agent（能力中心） =====
+  const auth = useAuthStore()
+  const daList = ref<DeclarativeAgent[]>([])
+  const daDialogVisible = ref(false)
+  const daEditingId = ref('')
+  const daSaving = ref(false)
+  const daTemplate = ref('')
+  const decForm = ref({
+    agent_code: '',
+    name: '',
+    emoji: '',
+    description: '',
+    persona_prompt: '',
+    task_prompt_template: '用户问题：{{question}}\n请依据检索到的资料作答，没有依据时如实说明。',
+    knowledge_scopes: ['tenant'] as string[],
+  })
+  const DA_TEMPLATES = [
+    {
+      key: 'adviser',
+      name: '农技顾问',
+      persona:
+        '你是一名扎根一线的农技顾问，回答基于提供的资料，语言朴实，不确定时如实说明并建议咨询当地农技站。',
+      desc: '回答本领域的生产技术问题',
+    },
+    {
+      key: 'policy',
+      name: '政策解读员',
+      persona:
+        '你是一名政策解读员，只依据提供的政策文本作答，注明政策出处，不臆测补贴金额与资格。',
+      desc: '解读强农惠农政策与申报材料',
+    },
+    {
+      key: 'trainer',
+      name: '培训讲师',
+      persona: '你是一名农民培训讲师，把专业知识拆成步骤化、可操作的要点，多用例子。',
+      desc: '生成培训提纲与操作手册',
+    },
+    {
+      key: 'reporter',
+      name: '数据助理',
+      persona: '你是一名农业数据助理，基于提供的数据整理结论，标注统计口径与假设。',
+      desc: '汇总数据并生成汇报材料',
+    },
+  ]
+
+  function applyDaTemplate(key: string) {
+    const t = DA_TEMPLATES.find(x => x.key === key)
+    if (!t) return
+    decForm.value.persona_prompt = t.persona
+    decForm.value.description = t.desc
+    if (!decForm.value.name) decForm.value.name = t.name
+  }
+
+  function daStatusType(s: string) {
+    return (
+      { draft: 'info', pending_platform_review: 'warning', published: 'success', deprecated: 'info' }[
+        s
+      ] || 'info'
+    )
+  }
+  function daStatusLabel(s: string) {
+    return (
+      {
+        draft: '草稿',
+        pending_platform_review: '平台审核中',
+        published: '已发布',
+        deprecated: '已停用',
+      }[s] || s
+    )
+  }
+  function daFromLabel(f: string) {
+    return { manual: '手工', template: '模板', factory: '工厂' }[f] || f
+  }
+
+  async function loadDa() {
+    if (!auth.isSpaceAdmin()) return
+    try {
+      daList.value = await declarativeApi.list()
+    } catch {
+      daList.value = []
+    }
+  }
+
+  function openDaCreate() {
+    daEditingId.value = ''
+    daTemplate.value = ''
+    decForm.value = {
+      agent_code: '',
+      name: '',
+      emoji: '',
+      description: '',
+      persona_prompt: '',
+      task_prompt_template: '用户问题：{{question}}\n请依据检索到的资料作答，没有依据时如实说明。',
+      knowledge_scopes: ['tenant'],
+    }
+    daDialogVisible.value = true
+  }
+
+  function openDaEdit(row: DeclarativeAgent) {
+    daEditingId.value = row.id
+    daTemplate.value = ''
+    decForm.value = {
+      agent_code: row.agent_code,
+      name: row.name,
+      emoji: row.emoji || '',
+      description: row.description || '',
+      persona_prompt: row.persona_prompt,
+      task_prompt_template: row.task_prompt_template,
+      knowledge_scopes: [...row.knowledge_scopes],
+    }
+    daDialogVisible.value = true
+  }
+
+  async function saveDa() {
+    const f = decForm.value
+    if (!f.agent_code || !f.name || !f.persona_prompt || !f.task_prompt_template) {
+      ElMessage.warning('编码、名称、角色人设、任务模板为必填')
+      return
+    }
+    if (!f.task_prompt_template.includes('{{question}}')) {
+      ElMessage.warning('任务模板必须包含 {{question}} 占位')
+      return
+    }
+    daSaving.value = true
+    try {
+      const payload = {
+        agent_code: f.agent_code,
+        name: f.name,
+        emoji: f.emoji || undefined,
+        description: f.description || undefined,
+        persona_prompt: f.persona_prompt,
+        task_prompt_template: f.task_prompt_template,
+        knowledge_scopes: f.knowledge_scopes,
+      }
+      if (daEditingId.value) {
+        await declarativeApi.update(daEditingId.value, payload)
+        ElMessage.success('已保存（若升级为高风险将自动进入平台审核）')
+      } else {
+        await declarativeApi.create(payload)
+        ElMessage.success('已创建草稿，可点「发布」上线')
+      }
+      daDialogVisible.value = false
+      await loadDa()
+    } catch (e) {
+      ElMessage.error(extractErrorMessage(e).message || '保存失败')
+    } finally {
+      daSaving.value = false
+    }
+  }
+
+  async function daPublish(row: DeclarativeAgent) {
+    try {
+      const r = await declarativeApi.publish(row.id)
+      ElMessage.success(
+        r.status === 'published' ? `「${row.name}」已发布` : `「${row.name}」属高风险，已提交平台审核`,
+      )
+      await loadDa()
+    } catch (e) {
+      ElMessage.error(extractErrorMessage(e).message || '发布失败')
+    }
+  }
+
+  async function daDeprecate(row: DeclarativeAgent) {
+    try {
+      await declarativeApi.deprecate(row.id)
+      ElMessage.success(`「${row.name}」已停用`)
+      await loadDa()
+    } catch (e) {
+      ElMessage.error(extractErrorMessage(e).message || '停用失败')
+    }
+  }
+
+  const daRunVisible = ref(false)
+  const daRunTarget = ref<DeclarativeAgent | null>(null)
+  const daRunQuestion = ref('')
+  const daRunning = ref(false)
+  const daRunResult = ref<AgentRunResult | null>(null)
+
+  function openDaRun(row: DeclarativeAgent) {
+    daRunTarget.value = row
+    daRunQuestion.value = ''
+    daRunResult.value = null
+    daRunVisible.value = true
+  }
+
+  async function runDa() {
+    if (!daRunTarget.value || !daRunQuestion.value) return
+    daRunning.value = true
+    try {
+      daRunResult.value = await agentApi.run(daRunTarget.value.agent_code, {
+        question: daRunQuestion.value,
+      })
+    } catch (e) {
+      ElMessage.error(extractErrorMessage(e).message || '运行失败')
+    } finally {
+      daRunning.value = false
+    }
+  }
+
+  const reviewVisible = ref(false)
+  const reviewQueue = ref<DeclarativeAgent[]>([])
+
+  async function openReviewQueue() {
+    try {
+      reviewQueue.value = await declarativeApi.reviewQueue()
+      reviewVisible.value = true
+    } catch (e) {
+      ElMessage.error(extractErrorMessage(e).message || '获取 queues 失败')
+    }
+  }
+
+  async function reviewAction(row: DeclarativeAgent, decision: 'approve' | 'reject') {
+    try {
+      await declarativeApi.review(row.id, decision)
+      reviewQueue.value = reviewQueue.value.filter(x => x.id !== row.id)
+      ElMessage.success(decision === 'approve' ? '已批准发布' : '已驳回为草稿')
+      await loadDa()
+    } catch (e) {
+      ElMessage.error(extractErrorMessage(e).message || '操作失败')
+    }
+  }
+
+  onMounted(() => {
+    loadAgents()
+    loadDa()
+  })
 </script>
 
 <style scoped>
+.da-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 24px 0 12px;
+}
+.da-title {
+  margin: 0;
+  font-size: 16px;
+}
+.da-code {
+  margin-left: 6px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.da-note {
+  margin-left: 10px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.da-run-result {
+  margin-top: 16px;
+}
+.da-answer {
+  margin-top: 12px;
+  padding: 12px;
+  white-space: pre-wrap;
+  border-radius: 6px;
+  background: var(--el-fill-color-light);
+  line-height: 1.7;
+}
   .page-title {
     margin: 0 0 16px;
     font-size: 20px;
