@@ -2,6 +2,13 @@
 
 本项目遵循《工程开发规范 V3.0》；版本号遵循语义化版本。
 
+## Unreleased（2026-10-18 能力中心与 Agent 工厂）
+
+- **模型供应商管理权下放租户**（ADR-0005）：tenant_admin 可自助接入/切换本租户大模型（Fernet 密文存储、密钥永不回显、SSRF 出网校验、平台全局行只读可选）；写操作全审计。
+- **声明式 Agent**：DB 配置即助手（人设+任务模板+知识范围+工具白名单），租户内免发版创建/发布/试跑；风险自动分级——低风险 tenant_admin 自批，高风险自动进平台审核队列（platform_admin 批准/驳回）。
+- **Agent 工厂**：输入行业描述 → LLM 生成 3-6 角色能力蓝图（失败自动启发式兜底并诚实标注 generated_by）→ 知识库覆盖探测（0 覆盖标记 needs_knowledge）→ SSE 实时里程碑（planning→blueprint_ready→generating→completed）→ 一键装配（逐项走发布分级，人工闸门不放松）。
+- 修复：SUPPLIER_KEY_SECRET 读取支持 .env；发布动作幂等化（双击/重试安全）。
+
 ## Unreleased（2026-10-17 整改升级）
 
 依据《五维测评报告（2026-10-17）》实施的安全与运营整改：
