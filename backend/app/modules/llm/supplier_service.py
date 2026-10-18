@@ -59,6 +59,21 @@ def get_supplier(db: Session, tenant_id: str | None, supplier_id: str) -> Suppli
     return row
 
 
+def _writable_supplier(
+    db: Session, tenant_id: str | None, supplier_id: str, *, is_platform_admin: bool
+) -> Supplier:
+    """写操作专用「角色+归属」双校验（ADR-0005）：
+
+    - 先走可见性查询（全局 + 本租户），跨租户行天然不可见；
+    - 非平台管理员不得改写平台全局行（tenant_id 为 NULL）。
+    越权与不存在统一 404（平台惯例：不向无权方泄露资源存在性）。
+    """
+    row = get_supplier(db, tenant_id, supplier_id)
+    if not is_platform_admin and row.tenant_id is None:
+        raise AppError("SUPPLIER_NOT_FOUND", "供应商不存在。", http_status=404)
+    return row
+
+
 def get_active_supplier_id(db: Session, tenant_id: str) -> str | None:
     row = db.query(TenantActiveSupplier).filter_by(tenant_id=tenant_id).first()
     return row.supplier_id if row else None
@@ -84,7 +99,9 @@ def resolve_active_supplier(db: Session, tenant_id: str) -> Supplier | None:
     )
 
 
-def supplier_to_out(db: Session, row: Supplier, tenant_id: str) -> SupplierOut:
+def supplier_to_out(
+    db: Session, row: Supplier, tenant_id: str, *, is_platform_admin: bool = False
+) -> SupplierOut:
     masked = mask_api_key(decrypt_api_key(row.api_key_enc))
     return SupplierOut(
         id=row.id,
@@ -98,6 +115,8 @@ def supplier_to_out(db: Session, row: Supplier, tenant_id: str) -> SupplierOut:
         priority=row.priority,
         status=row.status,
         is_active=get_active_supplier_id(db, tenant_id) == row.id if tenant_id else False,
+        # 租户管理员视角：全局共享行只读；平台管理员不受限
+        readonly=(not is_platform_admin) and row.tenant_id is None,
         consecutive_failures=row.consecutive_failures or 0,
         test_time=row.test_time.isoformat() if row.test_time else None,
         response_time_ms=row.response_time_ms,
@@ -110,13 +129,17 @@ def supplier_to_out(db: Session, row: Supplier, tenant_id: str) -> SupplierOut:
 # ---------- CRUD ----------
 
 
-def list_suppliers(db: Session, tenant_id: str | None) -> list[SupplierOut]:
+def list_suppliers(
+    db: Session, tenant_id: str | None, *, is_platform_admin: bool = False
+) -> list[SupplierOut]:
     rows = (
         _visible_query(db, tenant_id)
         .order_by(Supplier.priority.desc(), Supplier.created_at.asc())
         .all()
     )
-    return [supplier_to_out(db, r, tenant_id or "") for r in rows]
+    return [
+        supplier_to_out(db, r, tenant_id or "", is_platform_admin=is_platform_admin) for r in rows
+    ]
 
 
 def create_supplier(
@@ -153,9 +176,14 @@ def create_supplier(
 
 
 def update_supplier(
-    db: Session, tenant_id: str | None, supplier_id: str, payload: SupplierUpdate
+    db: Session,
+    tenant_id: str | None,
+    supplier_id: str,
+    payload: SupplierUpdate,
+    *,
+    is_platform_admin: bool = False,
 ) -> SupplierOut:
-    row = get_supplier(db, tenant_id, supplier_id)
+    row = _writable_supplier(db, tenant_id, supplier_id, is_platform_admin=is_platform_admin)
     data = payload.model_dump(exclude_unset=True)
     api_key = data.pop("api_key", None)
     for field in ("name", "provider_type", "base_url", "model_id", "models", "priority"):
@@ -177,8 +205,10 @@ def update_supplier(
     return supplier_to_out(db, row, tenant_id or "")
 
 
-def delete_supplier(db: Session, tenant_id: str | None, supplier_id: str) -> None:
-    row = get_supplier(db, tenant_id, supplier_id)
+def delete_supplier(
+    db: Session, tenant_id: str | None, supplier_id: str, *, is_platform_admin: bool = False
+) -> None:
+    row = _writable_supplier(db, tenant_id, supplier_id, is_platform_admin=is_platform_admin)
     db.query(TenantActiveSupplier).filter(TenantActiveSupplier.supplier_id == row.id).delete()
     db.delete(row)
     db.flush()
@@ -186,9 +216,14 @@ def delete_supplier(db: Session, tenant_id: str | None, supplier_id: str) -> Non
 
 
 def set_supplier_status(
-    db: Session, tenant_id: str | None, supplier_id: str, status: int
+    db: Session,
+    tenant_id: str | None,
+    supplier_id: str,
+    status: int,
+    *,
+    is_platform_admin: bool = False,
 ) -> SupplierOut:
-    row = get_supplier(db, tenant_id, supplier_id)
+    row = _writable_supplier(db, tenant_id, supplier_id, is_platform_admin=is_platform_admin)
     row.status = status
     if status == STATUS_ENABLED:
         row.consecutive_failures = 0
@@ -197,7 +232,10 @@ def set_supplier_status(
     return supplier_to_out(db, row, tenant_id or "")
 
 
-def set_active_supplier(db: Session, tenant_id: str, supplier_id: str) -> SupplierOut:
+def set_active_supplier(
+    db: Session, tenant_id: str, supplier_id: str, *, is_platform_admin: bool = False
+) -> SupplierOut:
+    # 刻意用可见性查询（非 writable）：租户可选用平台全局行作为本租户生效供应商
     row = get_supplier(db, tenant_id, supplier_id)
     if row.status != STATUS_ENABLED:
         raise AppError("SUPPLIER_DISABLED", "该供应商已禁用，请先启用。", http_status=400)
@@ -208,7 +246,7 @@ def set_active_supplier(db: Session, tenant_id: str, supplier_id: str) -> Suppli
         db.add(TenantActiveSupplier(tenant_id=tenant_id, supplier_id=row.id))
     db.flush()
     invalidate_supplier_cache()  # active 映射变更：整体失效，保证解析即时生效
-    out = supplier_to_out(db, row, tenant_id)
+    out = supplier_to_out(db, row, tenant_id, is_platform_admin=is_platform_admin)
     out.is_active = True
     return out
 
@@ -300,11 +338,12 @@ async def probe_upstream(
 
 
 async def test_saved_supplier(
-    db: Session, tenant_id: str | None, supplier_id: str
+    db: Session, tenant_id: str | None, supplier_id: str, *, is_platform_admin: bool = False
 ) -> tuple[SupplierOut, SupplierTestResult]:
     """对已存供应商探测，结果写回 test_time/response_time_ms/last_error；
-    连续失败 3 次自动禁用。"""
-    row = get_supplier(db, tenant_id, supplier_id)
+    连续失败 3 次自动禁用。探测会改写供应商行，故与编辑同权：
+    租户管理员对平台全局行不可探测（404）。"""
+    row = _writable_supplier(db, tenant_id, supplier_id, is_platform_admin=is_platform_admin)
     api_key = decrypt_api_key(row.api_key_enc)
     try:
         result = await probe_upstream(row.base_url, api_key, row.model_id)

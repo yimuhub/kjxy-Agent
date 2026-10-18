@@ -1,13 +1,19 @@
 """模型供应商管理路由：CRUD、启用/禁用、连通性测试、设为当前、预置模板。
 
 挂载到 /api/v1（经 app/modules/llm/router.py 的 /llm 前缀路由并入）。
-所有管理接口仅管理员可操作；返回的 Key 一律打码，绝不返回明文。
+权限模型（ADR-0005）：入口按「角色」放行 platform_admin/admin/tenant_admin，
+数据归属在 service 层双校验——租户管理员只能写 tenant_id=本租户 的行，
+平台全局行对其只读（仅可设为本租户生效）；越权与不存在统一 404。
+所有写操作与 set-active 记审计（action 前缀 supplier_，metadata 不含密钥）。
+返回的 Key 一律打码，绝不返回明文。
 """
 
 from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
 
 from app.core.deps import CurrentUser, get_db_session, require_roles
 from app.core.responses import ok
+from app.modules.audit.service import log_audit
 from app.modules.llm import supplier_service
 from app.modules.llm.supplier_schemas import (
     ProviderTemplate,
@@ -21,7 +27,7 @@ from app.modules.llm.supplier_schemas import (
 
 router = APIRouter(tags=["llm-suppliers"])
 
-_admin_only = require_roles("platform_admin", "admin")
+_admin_only = require_roles("platform_admin", "admin", "tenant_admin")
 
 
 def _key_configured_dep():
@@ -31,32 +37,57 @@ def _key_configured_dep():
     get_fernet()  # 缺失/非法即抛 AppError
 
 
-def _tenant_and_admin(user: CurrentUser = Depends(_admin_only)) -> tuple[str | None, bool]:
-    return user.tenant_id, ("platform_admin" in user.roles)
+def _actor(user: CurrentUser = Depends(_admin_only)) -> tuple[CurrentUser, bool]:
+    """入口上下文：当前用户 + 是否平台管理员（归属双校验下沉 service 层执行）。"""
+    return user, ("platform_admin" in user.roles)
+
+
+def _audit(
+    db: Session, user: CurrentUser, action: str, supplier_id: str | None, meta: dict
+) -> None:
+    """供应商管理审计：metadata 只放 supplier_id/name/provider_type，绝不含密钥材料。"""
+    log_audit(
+        db,
+        tenant_id=user.tenant_id,
+        actor_id=user.user_id,
+        action=action,
+        resource_type="supplier",
+        resource_id=supplier_id,
+        result="success",
+        request_id=user.request_id,
+        metadata=meta,
+    )
+
+
+def _meta_of(out):
+    return {"supplier_id": out.id, "name": out.name, "provider_type": out.provider_type}
 
 
 @router.get("/providers", response_model=None)
 def list_providers(
-    ctx=Depends(_tenant_and_admin),
+    ctx=Depends(_actor),
     db=Depends(get_db_session),
     _key=Depends(_key_configured_dep),
 ):
-    tenant_id, _ = ctx
-    return ok([s.model_dump() for s in supplier_service.list_suppliers(db, tenant_id)])
+    user, is_platform_admin = ctx
+    items = supplier_service.list_suppliers(db, user.tenant_id, is_platform_admin=is_platform_admin)
+    return ok([s.model_dump() for s in items])
 
 
 @router.post("/providers", response_model=None)
 def create_provider(
     payload: SupplierCreate,
-    ctx=Depends(_tenant_and_admin),
+    ctx=Depends(_actor),
     db=Depends(get_db_session),
     _key=Depends(_key_configured_dep),
 ):
-    tenant_id, is_platform_admin = ctx
+    user, is_platform_admin = ctx
     try:
+        # 归属强制取登录租户上下文（scope=global 仅平台管理员，service 层把关）
         out: SupplierOut = supplier_service.create_supplier(
-            db, tenant_id, payload, is_platform_admin=is_platform_admin
+            db, user.tenant_id, payload, is_platform_admin=is_platform_admin
         )
+        _audit(db, user, "supplier_create", out.id, _meta_of(out))
         db.commit()
     except Exception:
         db.rollback()
@@ -68,13 +99,16 @@ def create_provider(
 def update_provider(
     supplier_id: str,
     payload: SupplierUpdate,
-    ctx=Depends(_tenant_and_admin),
+    ctx=Depends(_actor),
     db=Depends(get_db_session),
     _key=Depends(_key_configured_dep),
 ):
-    tenant_id, _ = ctx
+    user, is_platform_admin = ctx
     try:
-        out = supplier_service.update_supplier(db, tenant_id, supplier_id, payload)
+        out = supplier_service.update_supplier(
+            db, user.tenant_id, supplier_id, payload, is_platform_admin=is_platform_admin
+        )
+        _audit(db, user, "supplier_update", out.id, _meta_of(out))
         db.commit()
     except Exception:
         db.rollback()
@@ -85,13 +119,16 @@ def update_provider(
 @router.delete("/providers/{supplier_id}", response_model=None)
 def delete_provider(
     supplier_id: str,
-    ctx=Depends(_tenant_and_admin),
+    ctx=Depends(_actor),
     db=Depends(get_db_session),
     _key=Depends(_key_configured_dep),
 ):
-    tenant_id, _ = ctx
+    user, is_platform_admin = ctx
     try:
-        supplier_service.delete_supplier(db, tenant_id, supplier_id)
+        supplier_service.delete_supplier(
+            db, user.tenant_id, supplier_id, is_platform_admin=is_platform_admin
+        )
+        _audit(db, user, "supplier_delete", supplier_id, {"supplier_id": supplier_id})
         db.commit()
     except Exception:
         db.rollback()
@@ -102,15 +139,18 @@ def delete_provider(
 @router.post("/providers/{supplier_id}/enable", response_model=None)
 def enable_provider(
     supplier_id: str,
-    ctx=Depends(_tenant_and_admin),
+    ctx=Depends(_actor),
     db=Depends(get_db_session),
     _key=Depends(_key_configured_dep),
 ):
     from app.modules.llm.supplier_schemas import STATUS_ENABLED
 
-    tenant_id, _ = ctx
+    user, is_platform_admin = ctx
     try:
-        out = supplier_service.set_supplier_status(db, tenant_id, supplier_id, STATUS_ENABLED)
+        out = supplier_service.set_supplier_status(
+            db, user.tenant_id, supplier_id, STATUS_ENABLED, is_platform_admin=is_platform_admin
+        )
+        _audit(db, user, "supplier_enable", out.id, _meta_of(out))
         db.commit()
     except Exception:
         db.rollback()
@@ -121,15 +161,18 @@ def enable_provider(
 @router.post("/providers/{supplier_id}/disable", response_model=None)
 def disable_provider(
     supplier_id: str,
-    ctx=Depends(_tenant_and_admin),
+    ctx=Depends(_actor),
     db=Depends(get_db_session),
     _key=Depends(_key_configured_dep),
 ):
     from app.modules.llm.supplier_schemas import STATUS_DISABLED
 
-    tenant_id, _ = ctx
+    user, is_platform_admin = ctx
     try:
-        out = supplier_service.set_supplier_status(db, tenant_id, supplier_id, STATUS_DISABLED)
+        out = supplier_service.set_supplier_status(
+            db, user.tenant_id, supplier_id, STATUS_DISABLED, is_platform_admin=is_platform_admin
+        )
+        _audit(db, user, "supplier_disable", out.id, _meta_of(out))
         db.commit()
     except Exception:
         db.rollback()
@@ -142,7 +185,7 @@ async def test_provider_candidate(
     payload: SupplierTestBody,
     _user=Depends(_admin_only),
 ):
-    """未落库候选配置的连通性测试：key 只在内存用一次，不落库、不打日志。"""
+    """未落库候选配置的连通性测试：key 只在内存用一次，不落库、不打审计。"""
     result: SupplierTestResult = await supplier_service.probe_upstream(
         payload.base_url, payload.api_key, payload.model_id
     )
@@ -152,15 +195,18 @@ async def test_provider_candidate(
 @router.post("/providers/{supplier_id}/test", response_model=None)
 async def test_saved_provider(
     supplier_id: str,
-    ctx=Depends(_tenant_and_admin),
+    ctx=Depends(_actor),
     db=Depends(get_db_session),
     _key=Depends(_key_configured_dep),
 ):
-    """对已存供应商测试，结果写回 test_time/response_time_ms/last_error；
-    连续失败 3 次自动禁用。"""
-    tenant_id, _ = ctx
+    """对已存供应商测试（探测写回结果，与编辑同权），
+    结果写回 test_time/response_time_ms/last_error；连续失败 3 次自动禁用。"""
+    user, is_platform_admin = ctx
     try:
-        out, result = await supplier_service.test_saved_supplier(db, tenant_id, supplier_id)
+        out, result = await supplier_service.test_saved_supplier(
+            db, user.tenant_id, supplier_id, is_platform_admin=is_platform_admin
+        )
+        _audit(db, user, "supplier_test", out.id, _meta_of(out))
         db.commit()
     except Exception:
         db.rollback()
@@ -171,18 +217,22 @@ async def test_saved_provider(
 @router.post("/providers/active", response_model=None)
 def set_active_provider(
     payload: SetActiveBody,
-    ctx=Depends(_tenant_and_admin),
+    ctx=Depends(_actor),
     db=Depends(get_db_session),
     _key=Depends(_key_configured_dep),
 ):
-    """设置当前生效供应商（租户级），即时生效、无需重启。"""
-    tenant_id, _ = ctx
-    if not tenant_id:
+    """设置本租户当前生效供应商（租户级），即时生效、无需重启；
+    租户管理员可将平台全局行设为本租户生效。"""
+    user, is_platform_admin = ctx
+    if not user.tenant_id:
         from app.core.errors import AppError
 
         raise AppError("TENANT_REQUIRED", "设置生效供应商需要租户上下文。", http_status=400)
     try:
-        out = supplier_service.set_active_supplier(db, tenant_id, payload.supplier_id)
+        out = supplier_service.set_active_supplier(
+            db, user.tenant_id, payload.supplier_id, is_platform_admin=is_platform_admin
+        )
+        _audit(db, user, "supplier_set_active", out.id, _meta_of(out))
         db.commit()
     except Exception:
         db.rollback()

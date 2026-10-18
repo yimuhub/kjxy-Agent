@@ -316,6 +316,8 @@ export interface LlmSupplier {
   test_time: string | null
   response_time_ms: number | null
   last_error: string | null
+  // 后端权限信号：tenant_admin 视角下平台全局行=true（只可选用不可改）；缺省按非只读兼容
+  readonly?: boolean
   created_at: string
   updated_at: string
 }

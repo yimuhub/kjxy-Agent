@@ -3,6 +3,7 @@
 新增模块模型后，在此追加 import 即可。
 """
 
+from app.modules.agents.models import TenantAgent  # noqa: F401
 from app.modules.audit.models import AuditLog  # noqa: F401
 from app.modules.auth.models import User  # noqa: F401
 from app.modules.evolution.models import (  # noqa: F401

@@ -1391,7 +1391,7 @@ paths:
       - llm
       - llm-suppliers
       summary: Test Provider Candidate
-      description: 未落库候选配置的连通性测试：key 只在内存用一次，不落库、不打日志。
+      description: 未落库候选配置的连通性测试：key 只在内存用一次，不落库、不打审计。
       operationId: test_provider_candidate_api_v1_llm_providers_test_post
       requestBody:
         content:
@@ -1420,9 +1420,9 @@ paths:
       - llm
       - llm-suppliers
       summary: Test Saved Provider
-      description: '对已存供应商测试，结果写回 test_time/response_time_ms/last_error；
+      description: '对已存供应商测试（探测写回结果，与编辑同权），
 
-        连续失败 3 次自动禁用。'
+        结果写回 test_time/response_time_ms/last_error；连续失败 3 次自动禁用。'
       operationId: test_saved_provider_api_v1_llm_providers__supplier_id__test_post
       security:
       - HTTPBearer: []
@@ -1452,7 +1452,9 @@ paths:
       - llm
       - llm-suppliers
       summary: Set Active Provider
-      description: 设置当前生效供应商（租户级），即时生效、无需重启。
+      description: '设置本租户当前生效供应商（租户级），即时生效、无需重启；
+
+        租户管理员可将平台全局行设为本租户生效。'
       operationId: set_active_provider_api_v1_llm_providers_active_post
       requestBody:
         content:
@@ -2123,7 +2125,7 @@ paths:
       - v1
       - agents
       summary: Run Agent
-      description: 同步运行指定 Agent。
+      description: 同步运行指定 Agent：平台注册表优先，miss 则回落本租户已发布声明式 Agent。
       operationId: run_agent_api_v1_agents__code__run_post
       security:
       - HTTPBearer: []
@@ -2140,6 +2142,220 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/AgentRunRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agents/declarative:
+    get:
+      tags:
+      - v1
+      - agents
+      summary: List Declarative Agents
+      description: 本租户声明式 Agent 列表（含 draft）。
+      operationId: list_declarative_agents_api_v1_agents_declarative_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+    post:
+      tags:
+      - v1
+      - agents
+      summary: Create Declarative Agent
+      description: 创建声明式 Agent（一律 draft；返回含服务端计算的 risk_level）。
+      operationId: create_declarative_agent_api_v1_agents_declarative_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              additionalProperties: true
+              type: object
+              title: Body
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/agents/declarative/{agent_id}:
+    patch:
+      tags:
+      - v1
+      - agents
+      summary: Update Declarative Agent
+      description: 编辑声明式 Agent：重算 risk_level，version 不变；跨租户 404。
+      operationId: update_declarative_agent_api_v1_agents_declarative__agent_id__patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: agent_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Agent Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+              title: Body
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agents/declarative/{agent_id}/publish:
+    post:
+      tags:
+      - v1
+      - agents
+      summary: Publish Declarative Agent
+      description: 发布（分级）：低风险自批 published；高风险只能进 pending_platform_review。
+      operationId: publish_declarative_agent_api_v1_agents_declarative__agent_id__publish_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: agent_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Agent Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agents/declarative/{agent_id}/deprecate:
+    post:
+      tags:
+      - v1
+      - agents
+      summary: Deprecate Declarative Agent
+      description: 停用：published 立即退出可运行态。
+      operationId: deprecate_declarative_agent_api_v1_agents_declarative__agent_id__deprecate_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: agent_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Agent Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agents/admin/agent-review-queue:
+    get:
+      tags:
+      - v1
+      - agents
+      summary: Get Agent Review Queue
+      description: 平台审核队列：所有租户 pending_platform_review 的声明式 Agent。
+      operationId: get_agent_review_queue_api_v1_agents_admin_agent_review_queue_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/agents/admin/agent-review/{agent_id}/approve:
+    post:
+      tags:
+      - v1
+      - agents
+      summary: Approve Agent Review
+      description: 平台批准 → published；审核人记入审计 metadata。
+      operationId: approve_agent_review_api_v1_agents_admin_agent_review__agent_id__approve_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: agent_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Agent Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agents/admin/agent-review/{agent_id}/reject:
+    post:
+      tags:
+      - v1
+      - agents
+      summary: Reject Agent Review
+      description: 平台驳回 → 退回 draft（决定与审核人入审计）。
+      operationId: reject_agent_review_api_v1_agents_admin_agent_review__agent_id__reject_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: agent_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Agent Id
       responses:
         '200':
           description: Successful Response
@@ -2708,6 +2924,7 @@ components:
           title: Scope
           description: tenant=仅本租户可见，global=全局共享（仅平台管理员）
           default: tenant
+      additionalProperties: false
       type: object
       required:
       - name
@@ -2803,6 +3020,7 @@ components:
           - type: integer
           - type: 'null'
           title: Priority
+      additionalProperties: false
       type: object
       title: SupplierUpdate
     TaskCreate:

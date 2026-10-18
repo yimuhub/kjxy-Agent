@@ -1,19 +1,31 @@
-"""专业 Agent HTTP 接口（第二期）。
+"""专业 Agent HTTP 接口（第二期）+ 声明式 Agent（M2）。
 
 - GET /agents：列出已启用的 Agent 定义（含 4 个专业 Agent）。
-- POST /agents/{code}/run：同步运行指定 Agent，输入为各 Agent 的 input schema。
+- POST /agents/{code}/run：同步运行指定 Agent；平台注册表 miss 时回落到
+  本租户已发布的声明式 Agent（配置即 Agent，ADR-0005）。
+- /agents/declarative*：租户侧声明式 Agent CRUD/发布/停用。
+- /agents/admin/agent-review*：平台审核队列（platform_admin）。
 
 Agent 实现由各模块的 agent.py 提供并在 import 时注册到 global_registry；
 本路由只做鉴权/参数透传与结果封装，不含业务逻辑。
 """
 
-from fastapi import APIRouter, Depends, Request
+from typing import Any
+
+from fastapi import APIRouter, Body, Depends, Request
 from pydantic import BaseModel, Field
 
-from app.core.deps import TenantContext, get_db_session, get_tenant_context
+from app.core.deps import (
+    CurrentUser,
+    TenantContext,
+    get_current_user,
+    get_db_session,
+    get_tenant_context,
+    require_roles,
+)
 from app.core.errors import AppError
 from app.core.responses import ok
-from app.modules.agents import get_global_registry
+from app.modules.agents import declarative, get_global_registry
 from app.modules.agents.definitions import AGENT_DEFINITIONS
 from app.modules.agents.schemas import AgentContext, AgentResult
 from app.modules.tools.registry import tool_registry
@@ -94,7 +106,7 @@ async def run_agent(
     ctx: TenantContext = Depends(get_tenant_context),
     db=Depends(get_db_session),
 ):
-    """同步运行指定 Agent。"""
+    """同步运行指定 Agent：平台注册表优先，miss 则回落本租户已发布声明式 Agent。"""
     import uuid
 
     _ensure_imported(code)
@@ -102,7 +114,8 @@ async def run_agent(
     try:
         agent = registry.get(code)
     except AppError:
-        raise AppError("AGENT_NOT_FOUND", f"未知的 Agent：{code}。", http_status=404) from None
+        # 声明式回落：只认本租户 status=published 的配置（跨租户一律 404）
+        return await _run_declarative_fallback(db, ctx, request, code, body)
     if not registry.is_enabled(code):
         raise AppError("AGENT_DISABLED", f"Agent 已停用：{code}。", http_status=403)
 
@@ -120,3 +133,232 @@ async def run_agent(
 
     result: AgentResult = await agent.run(dict(body.input or {}), agent_ctx)
     return ok(result.model_dump(), request)
+
+
+async def _run_declarative_fallback(
+    db, ctx: TenantContext, request: Request, code: str, body: AgentRunRequest
+) -> dict[str, Any]:
+    """声明式 Agent 运行分支：记账口径与 knowledge_qa 同步问答一致。
+
+    同步执行只写审计（action=agent_run）+ llm_calls 行（complete_with_logging
+    内部落库并做配额），不建 tasks 行——异步任务不在本次范围。
+    """
+    import uuid
+
+    decl = declarative.get_published_by_code(db, tenant_id=ctx.tenant_id, agent_code=code)
+    if decl is None:
+        raise AppError("AGENT_NOT_FOUND", f"未知的 Agent：{code}。", http_status=404)
+
+    task_id = body.task_id or f"declarative-{uuid.uuid4().hex[:12]}"
+    try:
+        result = await declarative.run_declarative_agent(
+            db, agent=decl, input_data=dict(body.input or {}), ctx=ctx, task_id=task_id
+        )
+    except AppError as e:
+        declarative.log_run_audit(
+            db,
+            tenant_id=ctx.tenant_id,
+            actor_id=ctx.user_id,
+            agent=decl,
+            task_id=task_id,
+            request_id=ctx.request_id,
+            result="failure",
+            metadata={"error_code": e.code},
+        )
+        db.commit()
+        raise
+    declarative.log_run_audit(
+        db,
+        tenant_id=ctx.tenant_id,
+        actor_id=ctx.user_id,
+        agent=decl,
+        task_id=task_id,
+        request_id=ctx.request_id,
+        result="success",
+        metadata={"citations": len(result.citations), "model": result.output.get("model")},
+    )
+    db.commit()
+    return ok(result.model_dump(), request)
+
+
+# ---------------------------------------------------------------------------
+# 声明式 Agent（M2）：租户侧 CRUD/发布 + 平台审核队列
+# ---------------------------------------------------------------------------
+
+# 租户侧闸门：tenant_admin（require_roles 内置 platform_admin 直通）
+_tenant_admin_gate = require_roles("tenant_admin")
+# 平台审核闸门：仅 platform_admin
+_platform_admin_gate = require_roles("platform_admin")
+
+
+def _require_platform_admin(user: CurrentUser) -> None:
+    """平台审核队列：必须是 platform_admin（租户角色一律 403）。"""
+    if "platform_admin" not in user.roles:
+        raise AppError("FORBIDDEN", "需要平台管理员权限。", http_status=403)
+
+
+@router.post("/declarative")
+def create_declarative_agent(
+    request: Request,
+    body: dict[str, Any] = Body(...),
+    ctx: TenantContext = Depends(get_tenant_context),
+    user: CurrentUser = Depends(_tenant_admin_gate),
+    db=Depends(get_db_session),
+):
+    """创建声明式 Agent（一律 draft；返回含服务端计算的 risk_level）。"""
+    req = declarative.parse_create_request(body)
+    try:
+        agent = declarative.create_agent(
+            db, tenant_id=ctx.tenant_id, actor_id=user.user_id, req=req, request_id=ctx.request_id
+        )
+        db.commit()
+    except AppError:
+        db.rollback()
+        raise
+    return ok(declarative.to_out(agent), request)
+
+
+@router.get("/declarative")
+def list_declarative_agents(
+    request: Request,
+    ctx: TenantContext = Depends(get_tenant_context),
+    user: CurrentUser = Depends(_tenant_admin_gate),
+    db=Depends(get_db_session),
+):
+    """本租户声明式 Agent 列表（含 draft）。"""
+    agents = declarative.list_agents(db, tenant_id=ctx.tenant_id)
+    return ok({"agents": [declarative.to_out(a) for a in agents]}, request)
+
+
+@router.patch("/declarative/{agent_id}")
+def update_declarative_agent(
+    agent_id: str,
+    request: Request,
+    body: dict[str, Any] = Body(...),
+    ctx: TenantContext = Depends(get_tenant_context),
+    user: CurrentUser = Depends(_tenant_admin_gate),
+    db=Depends(get_db_session),
+):
+    """编辑声明式 Agent：重算 risk_level，version 不变；跨租户 404。"""
+    req = declarative.parse_update_request(body)
+    try:
+        agent = declarative.update_agent(
+            db,
+            tenant_id=ctx.tenant_id,
+            actor_id=user.user_id,
+            agent_id=agent_id,
+            req=req,
+            request_id=ctx.request_id,
+        )
+        db.commit()
+    except AppError:
+        db.rollback()
+        raise
+    return ok(declarative.to_out(agent), request)
+
+
+@router.post("/declarative/{agent_id}/publish")
+def publish_declarative_agent(
+    agent_id: str,
+    request: Request,
+    ctx: TenantContext = Depends(get_tenant_context),
+    user: CurrentUser = Depends(_tenant_admin_gate),
+    db=Depends(get_db_session),
+):
+    """发布（分级）：低风险自批 published；高风险只能进 pending_platform_review。"""
+    try:
+        agent = declarative.publish_agent(
+            db,
+            tenant_id=ctx.tenant_id,
+            actor_id=user.user_id,
+            agent_id=agent_id,
+            roles=list(user.roles),
+            request_id=ctx.request_id,
+        )
+        db.commit()
+    except AppError:
+        db.rollback()
+        raise
+    return ok(declarative.to_out(agent), request)
+
+
+@router.post("/declarative/{agent_id}/deprecate")
+def deprecate_declarative_agent(
+    agent_id: str,
+    request: Request,
+    ctx: TenantContext = Depends(get_tenant_context),
+    user: CurrentUser = Depends(_tenant_admin_gate),
+    db=Depends(get_db_session),
+):
+    """停用：published 立即退出可运行态。"""
+    try:
+        agent = declarative.deprecate_agent(
+            db,
+            tenant_id=ctx.tenant_id,
+            actor_id=user.user_id,
+            agent_id=agent_id,
+            request_id=ctx.request_id,
+        )
+        db.commit()
+    except AppError:
+        db.rollback()
+        raise
+    return ok(declarative.to_out(agent), request)
+
+
+@router.get("/admin/agent-review-queue")
+def get_agent_review_queue(
+    request: Request,
+    user: CurrentUser = Depends(get_current_user),
+    db=Depends(get_db_session),
+):
+    """平台审核队列：所有租户 pending_platform_review 的声明式 Agent。"""
+    _require_platform_admin(user)
+    agents = declarative.list_pending_review_queue(db)
+    return ok({"agents": [declarative.to_out(a) for a in agents]}, request)
+
+
+@router.post("/admin/agent-review/{agent_id}/approve")
+def approve_agent_review(
+    agent_id: str,
+    request: Request,
+    user: CurrentUser = Depends(_platform_admin_gate),
+    db=Depends(get_db_session),
+):
+    """平台批准 → published；审核人记入审计 metadata。"""
+    _require_platform_admin(user)
+    try:
+        agent = declarative.review_approve(
+            db,
+            actor_id=user.user_id,
+            agent_id=agent_id,
+            request_id=getattr(request.state, "request_id", "req_unknown"),
+        )
+        db.commit()
+    except AppError:
+        db.rollback()
+        raise
+    return ok(declarative.to_out(agent), request)
+
+
+@router.post("/admin/agent-review/{agent_id}/reject")
+def reject_agent_review(
+    agent_id: str,
+    request: Request,
+    user: CurrentUser = Depends(_platform_admin_gate),
+    db=Depends(get_db_session),
+):
+    """平台驳回 → 退回 draft（决定与审核人入审计）。"""
+    _require_platform_admin(user)
+    try:
+        agent = declarative.review_reject(
+            db,
+            actor_id=user.user_id,
+            agent_id=agent_id,
+            request_id=getattr(request.state, "request_id", "req_unknown"),
+        )
+        db.commit()
+    except AppError:
+        db.rollback()
+        raise
+    return ok(declarative.to_out(agent), request)

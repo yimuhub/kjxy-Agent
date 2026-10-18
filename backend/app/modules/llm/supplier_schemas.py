@@ -6,7 +6,7 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 ProviderType = Literal["deepseek", "qwen", "moonshot", "openai", "openai_compatible"]
 
@@ -15,6 +15,9 @@ STATUS_DISABLED = 2
 
 
 class SupplierCreate(BaseModel):
+    # 归属（tenant_id）只能来自登录上下文，请求体出现任何未知字段一律 4xx 拒绝（ADR-0005）
+    model_config = ConfigDict(extra="forbid")
+
     name: str = Field(min_length=1, max_length=40, description="逻辑名，如 deepseek-main")
     provider_type: ProviderType
     base_url: str = Field(min_length=1, max_length=500)
@@ -32,6 +35,9 @@ class SupplierCreate(BaseModel):
 
 
 class SupplierUpdate(BaseModel):
+    # 同 SupplierCreate：禁止通过请求体伪造 tenant_id 等归属字段
+    model_config = ConfigDict(extra="forbid")
+
     name: str | None = Field(default=None, min_length=1, max_length=40)
     provider_type: ProviderType | None = None
     base_url: str | None = Field(default=None, min_length=1, max_length=500)
@@ -55,6 +61,9 @@ class SupplierOut(BaseModel):
     priority: int
     status: int
     is_active: bool = False
+    # 租户管理员视角：平台全局行（tenant_id 为 NULL）只读（不可增删改/探测，仅可设为本租户生效）；
+    # 平台管理员恒为 false。默认 false，兼容未感知该字段的旧前端。
+    readonly: bool = False
     consecutive_failures: int = 0
     test_time: str | None = None
     response_time_ms: int | None = None

@@ -161,6 +161,7 @@
               >
                 <template #default="{ row }">
                   <el-button
+                    v-if="!row.readonly"
                     size="small"
                     @click="testRow(row)"
                   >
@@ -175,7 +176,15 @@
                   >
                     设为当前
                   </el-button>
+                  <el-tag
+                    v-if="row.readonly"
+                    size="small"
+                    type="info"
+                  >
+                    平台共享·只读
+                  </el-tag>
                   <el-button
+                    v-if="!row.readonly"
                     size="small"
                     :type="row.status === 1 ? 'info' : 'success'"
                     @click="toggleRow(row)"
@@ -183,12 +192,14 @@
                     {{ row.status === 1 ? '禁用' : '启用' }}
                   </el-button>
                   <el-button
+                    v-if="!row.readonly"
                     size="small"
                     @click="openEdit(row)"
                   >
                     编辑
                   </el-button>
                   <el-button
+                    v-if="!row.readonly"
                     size="small"
                     type="danger"
                     @click="removeRow(row)"
