@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     llm_provider: str = Field(default="fake", description="fake|openai_compatible")
     llm_base_url: str = ""
     llm_api_key: str = ""
+    # 供应商 API Key 加密主密钥（Fernet key）；建议生产显式配置
+    supplier_key_secret: str = ""
     llm_model: str = ""
     llm_timeout_seconds: int = 60
     llm_max_tokens: int = 2048

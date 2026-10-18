@@ -25,7 +25,12 @@ _fernet = None  # 延迟初始化，类型为 Fernet（懒加载）
 
 
 def _load_secret() -> str:
-    secret = (os.environ.get(SECRET_ENV) or "").strip()
+    # 优先 settings（能读到 .env），兜底 os.environ（容器/systemd 显式注入场景）
+    from app.core.config import settings
+
+    secret = (
+        getattr(settings, "supplier_key_secret", "") or os.environ.get(SECRET_ENV) or ""
+    ).strip()
     if not secret:
         raise AppError("SUPPLIER_KEY_NOT_CONFIGURED", _SECRET_MISSING_HINT, http_status=500)
     return secret

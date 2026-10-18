@@ -73,6 +73,10 @@ def test_mask_only_shows_head_tail():
 
 def test_missing_secret_raises_with_hint(monkeypatch):
     monkeypatch.delenv("SUPPLIER_KEY_SECRET", raising=False)
+    # 新读取顺序：settings（含 .env）优先、os.environ 兜底——两个来源都要清空
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "supplier_key_secret", "", raising=False)
     reset_fernet_cache()
     try:
         with pytest.raises(AppError) as e:
