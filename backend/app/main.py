@@ -77,7 +77,11 @@ def create_app() -> FastAPI:
 
     @app.get("/health/ready", tags=["health"])
     def ready():
-        checks = {"database": _check_db(), "redis": _check_redis()}
+        # 桌面单机模式（TASKS_INLINE_MODE）：任务在 API 进程内执行、不需要 broker，
+        # redis 不属于就绪依赖（standalone 契约，见 backend/standalone.py）
+        checks = {"database": _check_db()}
+        if not settings.tasks_inline_mode:
+            checks["redis"] = _check_redis()
         ready = all(checks.values())
         # 未就绪时返回 503，供编排器/探针判断
         return JSONResponse(

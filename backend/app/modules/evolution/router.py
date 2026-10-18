@@ -1,11 +1,15 @@
 """演进路由：反馈、知识候选审核、Skill 版本管理。"""
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 
+from app.core.config import settings
 from app.core.deps import TenantContext, get_db_session, get_tenant_context
 from app.core.pagination import pagination_params
 from app.core.responses import ok, paged
+from app.modules.evolution import precheck as precheck_service
 from app.modules.evolution import rollout as rollout_service
 from app.modules.evolution import service
 from app.modules.evolution.schemas import (
@@ -77,16 +81,18 @@ def get_candidates(
 ):
     page, page_size = page_page
     items, total = service.list_candidates(db, ctx, page, page_size, status=status)
-    return paged(
-        [CandidateOut.model_validate(i).model_dump(mode="json") for i in items],
-        page,
-        page_size,
-        total,
-    )
+    payloads: list[dict[str, Any]] = []
+    for item in items:
+        payload = CandidateOut.model_validate(item).model_dump(mode="json")
+        # 双层验收第一层：机器预检（纯函数、零 token）。S1 展示性预筛：
+        # 结论只随响应透出供参考，列表/审核行为完全不受影响。
+        payload["machine_precheck"] = precheck_service.precheck_candidate(item)
+        payloads.append(payload)
+    return paged(payloads, page, page_size, total)
 
 
 @router.post("/knowledge/candidates/{candidate_id}/review")
-def review_candidate(
+async def review_candidate(
     candidate_id: str,
     body: CandidateReview,
     ctx: TenantContext = Depends(get_tenant_context),
@@ -101,7 +107,17 @@ def review_candidate(
         db.rollback()
         raise
     # data 中的 ingest_ok/ingest_error 由 CandidateOut 从运行时属性读取（S1）
-    return ok(CandidateOut.model_validate(candidate).model_dump(mode="json"))
+    payload = CandidateOut.model_validate(candidate).model_dump(mode="json")
+    # 双层验收（均为展示性预筛，审核结论本体以 status/ingest_ok 为准）：
+    # 第一层机器预检始终附带；第二层 LLM 深检仅 LLM_PRECHECK_ENABLED=true 时执行。
+    payload["machine_precheck"] = precheck_service.precheck_candidate(candidate)
+    if settings.llm_precheck_enabled:
+        # 深检是审核成功后的附加判定：不占租户配额、不进 llm_calls；
+        # 任何异常都在 deep_precheck 内部降级为 error 说明，禁止反噬审核响应。
+        from app.modules.llm.provider import get_provider
+
+        payload["deep_precheck"] = await precheck_service.deep_precheck(candidate, get_provider())
+    return ok(payload)
 
 
 @router.post("/knowledge/candidates/batch-review")

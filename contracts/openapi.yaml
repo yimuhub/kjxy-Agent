@@ -446,6 +446,37 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/tasks/{task_id}/events/stream:
+    get:
+      tags:
+      - v1
+      - tasks
+      summary: Stream Task Events
+      description: "SSE 任务事件流（text/event-stream）。\n\n- 权限与 GET /{task_id}/events 完全一致：同一 get_tenant_context 依赖 +\n  TaskService.get\
+        \ 可见性检查（阅读本文前先检查，失败按普通 JSON 错误返回）。\n- 本端点不套统一 {data, request_id} 信封：SSE 帧由 event:/data: 行构成，\n  帧协议与命名见 stream.py\
+        \ 模块注释（stream-init/task-event/task-status/stream-end）。\n- 断连仅停止推送，任务继续执行；取消仍须显式调用 POST /{task_id}/cancel。"
+      operationId: stream_task_events_api_v1_tasks__task_id__events_stream_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: task_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Task Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/tasks/{task_id}/cancel:
     post:
       tags:
@@ -2036,6 +2067,27 @@ paths:
       - admin
       summary: Admin Stats
       operationId: admin_stats_api_v1_admin_stats_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/admin/doctor:
+    get:
+      tags:
+      - v1
+      - admin
+      summary: Admin Doctor
+      description: 'Doctor 体检：依赖可用性与配置态自检（仅平台管理员）。
+
+
+        每项 {name, status, detail, fix_hint}；fix_hint 遵循"失败即教学"：
+
+        给一条可直接照做的下一条动作。detail 绝不含密钥值（见 admin/doctor.py 安全红线）。'
+      operationId: admin_doctor_api_v1_admin_doctor_get
       responses:
         '200':
           description: Successful Response

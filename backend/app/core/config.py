@@ -67,6 +67,11 @@ class Settings(BaseSettings):
         default=False,
         description="纯本机模式：Redis/Celery 不可用时在后台线程同步执行任务，不阻塞 API",
     )
+    tasks_inline_mode: bool = Field(
+        default=False,
+        description="桌面单机模式（TASKS_INLINE_MODE）：true 时创建/重试任务跳过 Celery 投递，"
+        "直接走本机后台线程兜底路径执行；语义等同强制开启 worker_sync_fallback 的执行分支",
+    )
 
     use_pgvector: bool = Field(
         default=True, description="PostgreSQL 下使用 pgvector 排序；sqlite/测试自动回退"
@@ -119,6 +124,11 @@ class Settings(BaseSettings):
     task_running_timeout_minutes: int = Field(
         default=120,
         description="执行超时：running 超过该时长且 updated_at 无推进的任务置 failed",
+    )
+    llm_precheck_enabled: bool = Field(
+        default=False,
+        description="候选知识 LLM 深检开关：true 时单条审核响应附带 deep_precheck 判定"
+        "（展示性预筛，不阻断审核；机器预检不受此开关影响，始终执行）",
     )
 
     @property

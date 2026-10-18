@@ -38,3 +38,5 @@ class LLMStatusOut(BaseModel):
     model: str
     configured: bool
     mode: str  # mock|live|unknown；绝不包含密钥
+    # 选择该提供方的可读理由（env 已配 / fake 兜底），供前端展示；不含任何密钥值
+    reason: str = ""

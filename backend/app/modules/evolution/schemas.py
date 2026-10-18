@@ -1,7 +1,7 @@
 """演进模块 Schema。"""
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -53,6 +53,11 @@ class CandidateOut(BaseModel):
     # 入库失败时 ingest_ok=false 且 ingest_error 携带原因，禁止伪报纯成功。
     ingest_ok: bool = True
     ingest_error: str | None = None
+    # 双层验收（借鉴 agency 思想）均为展示性预筛，不影响审核动作与结果本体：
+    # machine_precheck：机器预检结果 {pass, issues:[{criterion, why}]}，每条 why 带原话引用；
+    # deep_precheck：LLM 深检结果，仅单条审核且 LLM_PRECHECK_ENABLED=true 时返回。
+    machine_precheck: dict[str, Any] | None = None
+    deep_precheck: dict[str, Any] | None = None
 
 
 class CandidateReview(BaseModel):

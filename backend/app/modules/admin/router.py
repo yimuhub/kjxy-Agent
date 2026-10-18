@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.deps import CurrentUser, get_current_user, get_db_session
 from app.core.errors import AppError
 from app.core.responses import ok
+from app.modules.admin import doctor
 from app.modules.knowledge.models import KnowledgeDocument
 from app.modules.llm.models import LLMCall
 from app.modules.tasks.models import Task
@@ -146,3 +147,18 @@ def admin_stats(
             "members": {"total": members},
         }
     )
+
+
+@router.get("/doctor")
+def admin_doctor(
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+):
+    """Doctor 体检：依赖可用性与配置态自检（仅平台管理员）。
+
+    每项 {name, status, detail, fix_hint}；fix_hint 遵循"失败即教学"：
+    给一条可直接照做的下一条动作。detail 绝不含密钥值（见 admin/doctor.py 安全红线）。
+    """
+    if "platform_admin" not in user.roles:
+        raise AppError("FORBIDDEN", "仅平台管理员可执行体检诊断。", http_status=403)
+    return ok(doctor.run_doctor(db))

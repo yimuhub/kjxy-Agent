@@ -16,6 +16,32 @@ from app.modules.tenants.quota import check_and_consume
 
 log = get_logger(__name__)
 
+# provider 选择理由只打一次：进程内首次解析成功后 log.info，避免每次调用刷屏
+_choice_logged = False
+
+
+def _provider_choice_reason(provider) -> str:
+    """为什么选中当前 provider 的人类可读理由（只含配置态描述，绝不含密钥值）。"""
+    if getattr(provider, "provider_name", None):
+        return "DB 供应商配置生效（租户/全局 active supplier）"
+    if settings.llm_provider == "fake":
+        return "settings.llm_provider=fake（开发/CI 兜底，不出网）"
+    if settings.llm_provider == "openai_compatible":
+        return "环境变量 LLM_BASE_URL/LLM_API_KEY 已配置"
+    return f"settings.llm_provider={settings.llm_provider}"
+
+
+def _log_provider_choice_once(provider) -> None:
+    global _choice_logged
+    if _choice_logged:
+        return
+    _choice_logged = True
+    log.info(
+        "选择了模型提供方 %s ，因为 %s",
+        _provider_label(provider),
+        _provider_choice_reason(provider),
+    )
+
 
 def _prompt_sha(request: LLMRequest) -> str:
     """只存 prompt 的 sha256 摘要，不存原文。"""
@@ -87,6 +113,7 @@ async def complete_with_logging(db: Session, request: LLMRequest) -> LLMResponse
     # 供应商热更新：注入租户上下文，get_provider() 按 DB 配置解析
     with provider_resolution(tenant_id, db):
         provider = get_provider()
+    _log_provider_choice_once(provider)
     started = time.perf_counter()
     try:
         resp = await provider.complete(request)
@@ -122,7 +149,7 @@ async def complete_with_logging(db: Session, request: LLMRequest) -> LLMResponse
 
 
 def get_status() -> LLMStatusOut:
-    """模型状态：只返回 provider/model/configured/mode，绝不返回密钥。"""
+    """模型状态：只返回 provider/model/configured/mode/reason，绝不返回密钥。"""
     provider_name = settings.llm_provider
     if provider_name == "fake":
         return LLMStatusOut(
@@ -130,12 +157,25 @@ def get_status() -> LLMStatusOut:
             model=settings.llm_model or "fake-mock-1",
             configured=True,
             mode="mock",
+            reason="LLM_PROVIDER=fake（内置 mock，无需密钥，开发/CI 兜底）",
         )
     if provider_name == "openai_compatible":
+        configured = bool(settings.llm_base_url and settings.llm_api_key)
         return LLMStatusOut(
             provider=provider_name,
             model=settings.llm_model or "",
-            configured=bool(settings.llm_base_url and settings.llm_api_key),
+            configured=configured,
             mode="live",
+            reason=(
+                "环境变量 LLM_BASE_URL/LLM_API_KEY 已配置"
+                if configured
+                else "LLM_PROVIDER=openai_compatible 但缺少 LLM_BASE_URL/LLM_API_KEY，调用将报 503"
+            ),
         )
-    return LLMStatusOut(provider=provider_name, model="", configured=False, mode="unknown")
+    return LLMStatusOut(
+        provider=provider_name,
+        model="",
+        configured=False,
+        mode="unknown",
+        reason="未知 LLM_PROVIDER 取值，未选择任何提供方，请检查配置",
+    )

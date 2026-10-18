@@ -183,6 +183,7 @@
       v-model="drawerVisible"
       title="任务详情"
       size="520px"
+      @close="closeDetailStream"
     >
       <AsyncState
         :state="detailState"
@@ -307,6 +308,7 @@
   import AsyncState from '@/components/AsyncState.vue'
   import { classifyError, TASK_STATUS_META, taskStatusMeta, type ViewState } from '@/utils/status'
   import { formatDuration, formatTime } from '@/utils/format'
+  import { openSseStream, type SseHandle } from '@/utils/sse'
   import type { Task, TaskEvent, ToolApproval } from '@/types/api'
 
   const tasks = ref<Task[]>([])
@@ -380,6 +382,7 @@
       window.clearInterval(pollTimer)
       pollTimer = undefined
     }
+    closeDetailStream()
   })
 
   async function loadApprovals() {
@@ -435,8 +438,90 @@
       detail.value = t
       events.value = evts
       detailState.value = 'ready'
+      // 详情打开且任务未进终态 → 订阅 SSE 事件流（借鉴 agency-orchestrator：
+      // 执行过程实时上屏；关闭抽屉只是停止"看"，服务端任务照常 running）
+      if (drawerVisible.value && detail.value?.id === id && !TERMINAL_STATUSES.has(t.status)) {
+        openDetailStream(id)
+      }
     } catch (e) {
       detailState.value = classifyError(e)
+    }
+  }
+
+  // ---------- 详情 SSE 订阅：断连自动重连≤3 次，仍失败降级回详情轮询 ----------
+  const TERMINAL_STATUSES = new Set(['succeeded', 'failed', 'cancelled'])
+  const DETAIL_POLL_MS = 5000
+  let detailStream: SseHandle | null = null
+  let detailPollTimer: number | undefined
+
+  function closeDetailStream() {
+    detailStream?.close()
+    detailStream = null
+    stopDetailPolling()
+  }
+
+  function stopDetailPolling() {
+    if (detailPollTimer !== undefined) {
+      window.clearInterval(detailPollTimer)
+      detailPollTimer = undefined
+    }
+  }
+
+  /** SSE 不可用时的降级：抽屉保持打开时每 5s 静默刷新一次详情 */
+  function startDetailPolling() {
+    if (detailPollTimer !== undefined) return
+    detailPollTimer = window.setInterval(async () => {
+      if (!drawerVisible.value || !detail.value) return stopDetailPolling()
+      try {
+        const [t, evts] = await Promise.all([taskApi.get(detail.value.id), taskApi.events(detail.value.id)])
+        detail.value = t
+        events.value = evts
+        if (TERMINAL_STATUSES.has(t.status)) stopDetailPolling()
+      } catch {
+        /* 静默：下一轮再试 */
+      }
+    }, DETAIL_POLL_MS)
+  }
+
+  function openDetailStream(id: string) {
+    closeDetailStream()
+    const base = import.meta.env.VITE_API_BASE ?? '/api/v1'
+    detailStream = openSseStream({
+      url: `${base}/tasks/${id}/events/stream`,
+      onFrame: frame => {
+        if (frame.event === 'task-event') {
+          try {
+            const e = JSON.parse(frame.data) as TaskEvent
+            if (!events.value.some(x => x.id === e.id)) events.value.push(e)
+          } catch {
+            /* 忽略坏帧 */
+          }
+        } else if (frame.event === 'task-status') {
+          try {
+            const s = JSON.parse(frame.data) as { status: Task['status'] }
+            if (detail.value?.id === id) detail.value = { ...detail.value, status: s.status }
+          } catch {
+            /* 忽略坏帧 */
+          }
+        } else if (frame.event === 'stream-end') {
+          // 服务端已收尾：主动关闭避免 EOF 触发重连，然后静默刷新一次拿终态与输出
+          detailStream?.close()
+          detailStream = null
+          void loadDetailQuiet(id)
+        }
+      },
+      onFallback: startDetailPolling,
+    })
+  }
+
+  async function loadDetailQuiet(id: string) {
+    if (!detail.value || detail.value.id !== id) return
+    try {
+      const [t, evts] = await Promise.all([taskApi.get(id), taskApi.events(id)])
+      detail.value = t
+      events.value = evts
+    } catch {
+      /* 静默 */
     }
   }
 
