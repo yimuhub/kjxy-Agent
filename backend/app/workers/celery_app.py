@@ -24,10 +24,19 @@ celery_app.conf.update(
         "worker-heartbeat": {"task": "workers.heartbeat", "schedule": 60.0},
         # 每日检查一次“本月是否已清零”（幂等 Redis 键，见 heartbeat_tasks.quota_monthly_reset）
         "quota-monthly-reset": {"task": "quota.monthly_reset", "schedule": 86400.0},
+        # 设备连接器轮询：beat 固定 60s 心跳节奏，各设备按自身 interval 判定到期
+        "devices-poll-connectors": {"task": "devices.poll_connectors", "schedule": 60.0},
     },
 )
 
-# 自动发现各模块的 celery 任务（agents 提供 agent_factory 工厂任务的 handler 注册）
+# 自动发现各模块的 celery 任务（agents 提供 agent_factory 工厂任务的 handler 注册；
+# devices 提供连接器轮询任务，桌面 inline 模式见 devices.worker_tasks）
 celery_app.autodiscover_tasks(
-    ["app.modules.tasks", "app.modules.knowledge", "app.modules.agriculture", "app.modules.agents"]
+    [
+        "app.modules.tasks",
+        "app.modules.knowledge",
+        "app.modules.agriculture",
+        "app.modules.agents",
+        "app.modules.devices",
+    ]
 )
