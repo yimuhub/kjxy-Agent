@@ -196,8 +196,8 @@ async def test_output_schema_validation(db_session):
 
 
 def test_seed_builtin_tools_idempotent(db_session):
-    assert seed_builtin_tools(db_session) == 2
-    assert seed_builtin_tools(db_session) == 2  # 第二次幂等
+    assert seed_builtin_tools(db_session) == 3
+    assert seed_builtin_tools(db_session) == 3  # 第二次幂等
     db_session.commit()
     rows = db_session.query(ToolDefinition).filter_by(code="knowledge.search").all()
     assert len(rows) == 1
@@ -206,3 +206,7 @@ def test_seed_builtin_tools_idempotent(db_session):
     workorder_rows = db_session.query(ToolDefinition).filter_by(code="workorder.dispatch").all()
     assert len(workorder_rows) == 1
     assert workorder_rows[0].risk_level == "external_side_effect"
+    sensor_rows = db_session.query(ToolDefinition).filter_by(code="sensor.query").all()
+    assert len(sensor_rows) == 1
+    assert sensor_rows[0].risk_level == "read_only"
+    assert sensor_rows[0].required_permissions_json == []

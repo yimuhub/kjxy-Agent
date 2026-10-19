@@ -883,6 +883,18 @@ export interface DeviceAlert {
   value: number | null
   triggered_at: string
   notified_text: string | null
+  /** 一键工单：tasks 任务 id；null=尚未开工单（workorder_no 为展示编号，当前同值） */
+  workorder_id: string | null
+  workorder_no: string | null
+}
+
+export interface AlertWorkorder {
+  workorder_id: string
+  workorder_no: string
+  status: string
+  created: boolean
+  link: string
+  message: string
 }
 
 export const deviceApi = {
@@ -938,6 +950,12 @@ export const deviceApi = {
   alerts(limit = 50): Promise<DeviceAlert[]> {
     return unwrap(
       api.get<ApiResponse<DeviceAlert[]>>('/devices/alerts', { params: { limit } }),
+    )
+  },
+  /** 告警一键开工单（全员可用；幂等——已开过的返回既有工单号 created=false） */
+  createAlertWorkorder(alert_id: string): Promise<AlertWorkorder> {
+    return unwrap(
+      api.post<ApiResponse<AlertWorkorder>>(`/devices/alerts/${alert_id}/create-workorder`),
     )
   },
 }

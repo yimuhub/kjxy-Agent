@@ -1,4 +1,4 @@
-"""devices 服务层：令牌、读数归一入库、限频、告警比对与查询。
+"""devices 服务层：令牌、读数归一入库、限频、告警比对与查询、告警一键工单。
 
 ingest（设备推送）与 connector（平台拉取）共用本模块的归一化与告警逻辑，
 保证两条通道口径完全一致。任何通道都不写设备控制指令（只读红线）。
@@ -11,10 +11,11 @@ import threading
 import time
 from collections import deque
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.errors import AppError
 from app.core.logging import get_logger
@@ -22,6 +23,10 @@ from app.core.notify import send_alert
 from app.modules.audit.service import log_audit
 from app.modules.devices.metrics import METRICS, OTHER_METRIC, normalize_code
 from app.modules.devices.models import Device, DeviceAlert, DeviceAlertRule, Reading
+
+if TYPE_CHECKING:
+    from app.core.deps import TenantContext
+    from app.modules.tasks.models import Task
 
 log = get_logger(__name__)
 
@@ -453,3 +458,123 @@ def device_to_dict(device: Device, connector_out: dict[str, Any] | None = None) 
         "consecutive_failures": device.consecutive_failures,
         "last_error": device.last_error,
     }
+
+
+# ---------------------------------------------------------------------------
+# 告警一键工单（alert → workorder）
+# ---------------------------------------------------------------------------
+
+
+def workorder_text_for_alert(db: Session, alert: DeviceAlert) -> tuple[str, str]:
+    """告警 → 工单（标题，描述）。
+
+    标题优先用告警原文 notified_text（截断到 200 字符，与 workorder.dispatch
+    工具入参上限一致），缺失时按"设备X 指标Y 超阈值"概括；描述固定包含
+    指标/触发值/阈值/触发时间与"请人工核查"要求。
+    """
+    dev = db.get(Device, alert.device_id)
+    device_name = dev.name if dev else alert.device_id
+    info = METRICS.get(alert.metric)
+    metric_name = info.name if info else alert.metric
+    rule = db.get(DeviceAlertRule, alert.rule_id) if alert.rule_id else None
+    if alert.notified_text:
+        title = alert.notified_text[:200]
+    else:
+        title = f"设备 {device_name} 指标 {metric_name} 超阈值"[:200]
+    if rule is not None:
+        threshold_part = f"{_OP_LABEL.get(rule.op, rule.op)}阈值 {rule.threshold}"
+    else:
+        threshold_part = "无（健康类告警或规则已删除）"
+    lines = [
+        f"【来源】设备告警 {alert.id}",
+        f"【设备】{device_name}",
+        f"【指标】{metric_name}（{alert.metric}）",
+        f"【触发值】{alert.value if alert.value is not None else '无（健康类告警）'}",
+        f"【阈值】{threshold_part}",
+        f"【触发时间】{alert.triggered_at.isoformat()}",
+    ]
+    if rule is not None and rule.notify_note:
+        lines.append(f"【处置提示】{rule.notify_note}")
+    lines.append("请安排人工核查设备读数与阈值设置是否合理，核实后处理本工单。")
+    return title, "\n".join(lines)
+
+
+def _enqueue_alert_workorder(db: Session, task: "Task") -> None:
+    """投递工单任务，口径与 tasks 路由 _enqueue_or_inline 一致：standalone
+    直接本机线程执行；否则投 Celery，失败且无兜底时写 meta.enqueue_failed
+    （可经 retry 重新入队）。执行 workorder.dispatch 时仍会过高危审批闸门
+    （external_side_effect 先产生待批审批单），符合"工单下发须人工确认"红线。
+    """
+    from app.core.config import settings
+    from app.modules.tasks.service import TaskService
+    from app.modules.tasks.worker_tasks import enqueue_task, run_task_inline
+
+    def _local_thread() -> None:
+        threading.Thread(
+            target=run_task_inline, args=(task.id,), name=f"task-{task.id[:8]}", daemon=True
+        ).start()
+
+    if settings.tasks_inline_mode:
+        _local_thread()
+        return
+    if enqueue_task(task.id):
+        return
+    if settings.worker_sync_fallback:
+        _local_thread()
+        return
+    meta = dict((task.input_json or {}).get("meta") or {})
+    meta["enqueue_failed"] = True
+    task.input_json = {**(task.input_json or {}), "meta": meta}
+    flag_modified(task, "input_json")
+    TaskService._add_event(
+        db,
+        task,
+        "enqueue_failed",
+        "Celery 投递失败且未开启本机兜底；该工单可通过任务重试重新入队。",
+    )
+
+
+def create_alert_workorder(db: Session, ctx: "TenantContext", alert: DeviceAlert) -> "Task":
+    """告警一键开工单（幂等）：创建/复用 workorder.dispatch 任务并回填锚点。
+
+    - 工单实体复用 tasks 表（task_type=workorder.dispatch），不新建工单表；
+      直接调 tasks 服务函数（TaskService.create），不走 HTTP 自调。
+    - 幂等双层：alert.workorder_id 已有且任务仍在 → 直接返回；并发/重放再以
+      幂等键 device_alert:<alert_id> 兜底（TaskService.create 内建同键复用）。
+    - 返回任务行（任务 id 即工单号）；不 commit——事务边界由调用方（router）决定。
+    """
+    from app.modules.tasks.models import Task
+    from app.modules.tasks.service import TaskService
+
+    if alert.workorder_id:
+        existing = db.get(Task, alert.workorder_id)
+        if existing is not None and existing.tenant_id == ctx.tenant_id:
+            return existing
+        # 锚点指向的任务已被清理（如任务行删除）：重建并覆盖锚点
+
+    idem_key = f"device_alert:{alert.id}"
+    existing_by_key = TaskService.get_by_idempotency_key(db, ctx.tenant_id, idem_key)
+    if existing_by_key is not None:
+        alert.workorder_id = existing_by_key.id
+        return existing_by_key
+
+    title, description = workorder_text_for_alert(db, alert)
+    task = TaskService.create(
+        db,
+        ctx,
+        "workorder.dispatch",
+        {"title": title, "description": description, "priority": "high"},
+        priority="high",
+        idempotency_key=idem_key,
+        request_id=ctx.request_id,
+    )
+    # 溯源信息放 meta（data 必须严格匹配 workorder.dispatch 工具入参 schema）
+    meta = dict((task.input_json or {}).get("meta") or {})
+    meta["alert_id"] = alert.id
+    meta["device_id"] = alert.device_id
+    task.input_json = {**(task.input_json or {}), "meta": meta}
+    flag_modified(task, "input_json")
+    alert.workorder_id = task.id
+    db.flush()
+    _enqueue_alert_workorder(db, task)
+    return task

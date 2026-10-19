@@ -399,6 +399,61 @@ BUILTIN_TOOLS: list[dict] = [
         "timeout_seconds": 30,
         "enabled": True,
     },
+    {
+        "code": "sensor.query",
+        "version": "1.0.0",
+        "name": "传感器读数查询",
+        "description": (
+            "查询本租户设备读数概况与窗口统计（min/max/avg/样本数），可选规则命中评估。"
+            "实现由设备模块注册。"
+        ),
+        "input_schema_json": {
+            "type": "object",
+            "properties": {
+                "device": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120,
+                    "description": "设备名模糊匹配（仅限本租户设备）；缺省为本租户全部设备",
+                },
+                "metric": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 50,
+                    "description": "指标 code（如 temp）或中文名片段（如“湿度”）反查",
+                },
+                "hours": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 720,
+                    "default": 24,
+                    "description": "统计窗口（小时），1..720，默认 24",
+                },
+                "alert_rule": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "true 时附带窗口内启用规则的命中点数与最近一次触发值",
+                },
+            },
+            "additionalProperties": False,
+        },
+        "output_schema_json": {
+            "type": "object",
+            "properties": {
+                "window_hours": {"type": "integer"},
+                "device_count": {"type": "integer"},
+                "devices": {"type": "array", "items": {"type": "object"}},
+                "summary_text": {"type": "string"},
+            },
+            "required": ["window_hours", "device_count", "devices", "summary_text"],
+        },
+        # 读=租户成员（devices 读接口同口径），不设额外权限点
+        "required_permissions_json": [],
+        "risk_level": "read_only",
+        "side_effect": False,
+        "timeout_seconds": 15,
+        "enabled": True,
+    },
 ]
 
 

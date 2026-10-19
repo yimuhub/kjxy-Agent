@@ -39,6 +39,9 @@ EXPECTED_CODES = {
     "seedling_scout",
 }
 
+#: 数据面三角色（苗情测报/灌溉顾问/棚室管家）额外挂 sensor.query 只读工具
+SENSOR_QUERY_SEEDS = {"seedling_scout", "irrigation_advisor", "greenhouse_keeper"}
+
 
 def _hdr(user_id: str = "u-market-admin", tenant_id: str | None = None, roles=("tenant_admin",)):
     token = create_access_token(user_id=user_id, tenant_id=tenant_id, roles=list(roles))
@@ -74,7 +77,10 @@ def test_seed_package_shape():
         code = s["agent_code"]
         assert code.islower() and code.replace("_", "a").isalnum(), code
         assert s["domain"] in SEED_DOMAINS, code
-        assert s["allowed_tools"] == ["knowledge.search"], code
+        # 全部种子至少挂只读检索；三个数据面角色（苗情/灌溉/棚室）追加 sensor.query
+        assert s["allowed_tools"][0] == "knowledge.search", code
+        expected_extra = ["sensor.query"] if code in SENSOR_QUERY_SEEDS else []
+        assert list(s["allowed_tools"][1:]) == expected_extra, code
         assert s["knowledge_scopes"] == ["tenant"], code
         assert "{{question}}" in s["task_prompt_template"], code
         assert len(s["suggested_questions"]) == 5, code

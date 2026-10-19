@@ -188,6 +188,13 @@
       <el-table-column label="指标" width="120"><template #default="{ row }">{{ row.metric_name || row.metric }}</template></el-table-column>
       <el-table-column label="触发值" width="110"><template #default="{ row }">{{ row.value }}</template></el-table-column>
       <el-table-column prop="notified_text" label="说明" min-width="200" show-overflow-tooltip />
+      <!-- 一键工单：全员可用（工单执行仍走任务中心的人工审批） -->
+      <el-table-column label="工单" width="170">
+        <template #default="{ row }">
+          <span v-if="row.workorder_no" class="wo-no" :title="row.workorder_no">{{ row.workorder_no }}</span>
+          <el-button v-else size="small" type="primary" plain :loading="woBusy === row.id" @click="openWorkorder(row)">开工单</el-button>
+        </template>
+      </el-table-column>
     </el-table>
 
     <!-- 规则对话框 -->
@@ -286,6 +293,26 @@ async function loadAlerts() {
     alerts.value = await deviceApi.alerts(50)
   } catch {
     alerts.value = []
+  }
+}
+
+/* ---------- 告警一键工单（全员可用；幂等，重复点击返回既有号码） ---------- */
+const woBusy = ref('')
+async function openWorkorder(a: DeviceAlert) {
+  await ElMessageBox.confirm(
+    `为该告警创建工单？工单将进入任务中心，下发前仍需人工审批。${a.workorder_no ? '（该告警已有工单）' : ''}`,
+    '开工单',
+    { type: 'info' },
+  )
+  woBusy.value = a.id
+  try {
+    const r = await deviceApi.createAlertWorkorder(a.id)
+    ElMessage.success(r.created ? `工单已创建：${r.workorder_no}` : `已有工单：${r.workorder_no}`)
+    await loadAlerts()
+  } catch (e) {
+    ElMessage.error(extractErrorMessage(e).message || '开工单失败')
+  } finally {
+    woBusy.value = ''
   }
 }
 
@@ -501,6 +528,7 @@ onMounted(loadAll)
 .ml { margin-left: 8px; }
 .mb { margin-bottom: 12px; }
 .note { font-size: 12px; color: var(--el-text-color-secondary); }
+.wo-no { font-family: monospace; font-size: 12px; color: var(--el-text-color-secondary); }
 .token {
   padding: 12px;
   font-family: monospace;

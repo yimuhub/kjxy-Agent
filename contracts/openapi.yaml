@@ -2583,6 +2583,40 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/devices/alerts/{alert_id}/create-workorder:
+    post:
+      tags:
+      - v1
+      - devices
+      summary: Create Alert Workorder
+      description: '告警一键开工单（租户全员可用；工单执行仍过高危审批闸门）。
+
+
+        幂等：已开过工单的告警直接返回既有工单号（created=false），不重复创建。
+
+        跨租户与不存在统一 404（不泄露其他租户告警是否存在）。'
+      operationId: create_alert_workorder_api_v1_devices_alerts__alert_id__create_workorder_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: alert_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Alert Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/devices/alert-rules:
     get:
       tags:

@@ -171,3 +171,7 @@ class AlertOut(BaseModel):
     value: float | None
     triggered_at: str
     notified_text: str | None = None
+    # 一键工单：tasks 表 workorder.dispatch 任务 id；null=尚未开工单。
+    # workorder_no 为展示用编号（当前平台无独立工单序列表，编号即任务 id）。
+    workorder_id: str | None = None
+    workorder_no: str | None = None

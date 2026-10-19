@@ -118,6 +118,9 @@ class DeviceAlert(TimestampMixin, Base):
     )
     # 已发送的告警文案（站内展示即所用文本；也证明通知已走过 send_alert）
     notified_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 一键工单：指向 tasks 表 workorder.dispatch 任务行（本租户）；空=尚未开工单。
+    # 幂等锚点——已有值的告警再次"开工单"直接返回既有工单号，不重复创建。
+    workorder_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
 
 def utcnow() -> datetime:

@@ -138,9 +138,52 @@ def list_alerts(
                 value=a.value,
                 triggered_at=_iso(a.triggered_at),
                 notified_text=a.notified_text,
+                workorder_id=a.workorder_id,
+                # 展示编号=工单任务 id（平台无独立工单序列表）
+                workorder_no=a.workorder_id,
             ).model_dump()
         )
     return ok(items)
+
+
+@router.post("/alerts/{alert_id}/create-workorder", response_model=None)
+def create_alert_workorder(
+    alert_id: str,
+    ctx: TenantContext = Depends(_member),
+    db: Session = Depends(get_db_session),
+):
+    """告警一键开工单（租户全员可用；工单执行仍过高危审批闸门）。
+
+    幂等：已开过工单的告警直接返回既有工单号（created=false），不重复创建。
+    跨租户与不存在统一 404（不泄露其他租户告警是否存在）。
+    """
+    alert = db.get(DeviceAlert, alert_id)
+    if alert is None or alert.tenant_id != ctx.tenant_id:
+        raise AppError("NOT_FOUND", "告警不存在。", http_status=404)
+    existed = bool(alert.workorder_id)
+    task = service.create_alert_workorder(db, ctx, alert)
+    _audit(
+        ctx,
+        db,
+        "alert_create_workorder",
+        alert.id,
+        {"workorder_id": task.id, "existed": existed, "metric": alert.metric},
+    )
+    db.commit()
+    return ok(
+        {
+            "workorder_id": task.id,
+            "workorder_no": task.id,
+            "status": task.status,
+            "created": not existed,
+            "link": "/tasks",
+            "message": (
+                f"工单 {task.id} 已存在，未重复创建。"
+                if existed
+                else f"工单 {task.id} 已创建并进入处理队列。"
+            ),
+        }
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -1,7 +1,8 @@
 """内置农业 Agent 种子包（技能市场 B1）。
 
-14 个中文农业科技 Agent 的只读种子定义：全部只挂 knowledge.search 只读工具、
-知识范围限定 tenant，经 declarative.assess_risk 判定一律低风险（ADR-0005
+14 个中文农业科技 Agent 的只读种子定义：全部只挂只读工具（knowledge.search；
+苗情/灌溉/棚室三个数据面角色额外挂 sensor.query）、知识范围限定 tenant，
+经 declarative.assess_risk 判定一律低风险（ADR-0005
 分级审核：内置种子包全部设计为低风险，tenant_admin 可自批装载发布）。
 
 字段与 declarative 的 DeclarativeAgentCreate 入参对齐；domain 与
@@ -60,8 +61,11 @@ def _seed(
     task_prompt_template: str,
     domain: str,
     suggested_questions: list[str],
+    extra_tools: list[str] | None = None,
 ) -> dict[str, Any]:
-    """组装一条种子：工具白名单与知识范围固定为只读检索（低风险红线统一）。"""
+    """组装一条种子：默认只挂只读检索；extra_tools 仅允许追加已在注册表/
+    BUILTIN 元数据中登记的低风险只读工具（如 sensor.query），由装载时的
+    assess_risk 现场把关——若工具不可识别会自动升为高风险走平台审核。"""
     return {
         "agent_code": agent_code,
         "name": name,
@@ -69,7 +73,7 @@ def _seed(
         "description": description,
         "persona_prompt": persona_prompt,
         "task_prompt_template": task_prompt_template,
-        "allowed_tools": ["knowledge.search"],
+        "allowed_tools": ["knowledge.search", *(extra_tools or [])],
         "knowledge_scopes": ["tenant"],
         "domain": domain,
         "suggested_questions": suggested_questions,
@@ -142,6 +146,8 @@ SEED_AGENTS: list[dict[str, Any]] = [
             "建议的田间核查抽样方法、需要上报或送检的情形。\n" + _EVIDENCE
         ),
         domain="植保",
+        # 苗情测报常需引用虫情/墒情传感器实测读数（sensor.query 只读工具）
+        extra_tools=["sensor.query"],
         suggested_questions=[
             "小麦出苗不齐，怎么统计和描述苗情？",
             "稻田每亩虫量怎么查计数？",
@@ -167,6 +173,8 @@ SEED_AGENTS: list[dict[str, Any]] = [
             "需补充观测的指标、风险提醒。\n" + _EVIDENCE
         ),
         domain="棚室管理",
+        # 棚室环境调控直接消费温光水气传感器读数（sensor.query 只读）
+        extra_tools=["sensor.query"],
         suggested_questions=[
             "冬季大棚湿度长期90%以上怎么办？",
             "连阴天番茄棚补光怎么安排？",
@@ -192,6 +200,8 @@ SEED_AGENTS: list[dict[str, Any]] = [
             "节水方式（滴灌/喷灌/沟灌改进）方向、过量灌溉与干旱的风险提示。\n" + _EVIDENCE
         ),
         domain="种植技术",
+        # 灌溉决策依据"看天看地"：气象/墒情传感器实测读数（sensor.query 只读）
+        extra_tools=["sensor.query"],
         suggested_questions=[
             "春玉米大喇叭口期多久灌一次水合适？",
             "滴灌带土豆一般一次灌多长时间？",
