@@ -12,6 +12,7 @@ import MembersView from '@/views/MembersView.vue'
 import SettingsView from '@/views/SettingsView.vue'
 import AgentsView from '@/views/AgentsView.vue'
 import AgentFactoryView from '@/views/AgentFactoryView.vue'
+import DevicesView from '@/views/DevicesView.vue'
 import MarketView from '@/views/MarketView.vue'
 import PolicyView from '@/views/PolicyView.vue'
 import EvolutionView from '@/views/EvolutionView.vue'
@@ -64,6 +65,7 @@ const routes: RouteRecordRaw[] = [
         component: MarketView,
         meta: { title: 'Agent 市场', roles: ADMIN_ROLES },
       },
+      { path: 'devices', name: 'Devices', component: DevicesView, meta: { title: '设备中心' } },
       { path: 'policies', name: 'Policies', component: PolicyView, meta: { title: '政策服务' } },
       {
         path: 'evolution',

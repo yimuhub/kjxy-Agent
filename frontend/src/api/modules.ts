@@ -738,3 +738,206 @@ export const marketApi = {
     return unwrap(api.post<ApiResponse<MarketInstallResult>>('/market/install', { codes }))
   },
 }
+
+// ---------- 设备中心（物联网接入，A3） ----------
+
+/** 指标字典条目 */
+export interface DeviceMetric {
+  code: string
+  name: string
+  unit: string
+}
+
+/** 通用 value/name 字典项（设备类型、接入方式、阈值方向） */
+export interface DeviceDictItem {
+  value: string
+  name: string
+}
+
+export interface DeviceCapabilities {
+  metrics: DeviceMetric[]
+  device_types: DeviceDictItem[]
+  source_types: DeviceDictItem[]
+  ops?: DeviceDictItem[]
+}
+
+/** 连接器字段映射条目（厂商字段 → 统一指标） */
+export interface DeviceFieldMapEntry {
+  metric: string
+  unit?: string | null
+}
+
+/** 连接器配置（写入形态：headers 为明文，入库加密） */
+export interface DeviceConnectorIn {
+  url: string
+  method: 'GET' | 'POST'
+  headers?: Record<string, string> | null
+  body_template?: Record<string, unknown> | null
+  interval_seconds: number
+  json_path: string
+  field_map: Record<string, DeviceFieldMapEntry>
+  timeout_seconds: number
+  time_field?: string | null
+}
+
+/** 连接器配置（读出形态：headers 一律掩码） */
+export interface DeviceConnectorOut extends Omit<DeviceConnectorIn, 'headers'> {
+  headers_masked: Record<string, string>
+}
+
+/** 每指标最新一条读数（仅 GET /devices/{id} 详情返回；列表接口没有） */
+export interface DeviceLatestItem {
+  metric: string
+  metric_name: string
+  value: number | null
+  text: string | null
+  unit: string | null
+  collected_at: string
+}
+
+export interface Device {
+  id: string
+  tenant_id: string
+  name: string
+  device_type: string
+  source_type: string
+  model_hint: string | null
+  longitude: number | null
+  latitude: number | null
+  location_note: string | null
+  enabled: boolean
+  created_by: string | null
+  created_at: string
+  updated_at: string
+  has_ingest_token: boolean
+  connector: DeviceConnectorOut | null
+  last_polled_at: string | null
+  consecutive_failures: number
+  last_error: string | null
+  /** 仅详情接口返回 */
+  latest?: DeviceLatestItem[]
+}
+
+export interface DeviceCreatePayload {
+  name: string
+  device_type: string
+  source_type: 'webhook' | 'connector'
+  model_hint?: string
+  location_note?: string
+  longitude?: number | null
+  latitude?: number | null
+  connector?: DeviceConnectorIn | null
+}
+
+export interface DevicePatchPayload {
+  name?: string
+  device_type?: string
+  model_hint?: string | null
+  longitude?: number | null
+  latitude?: number | null
+  location_note?: string | null
+  enabled?: boolean
+  connector?: DeviceConnectorIn | null
+}
+
+/** 读数组（GET readings → data[:] 裸数组，时间升序），raw_json 体积大不拉回 */
+export interface DeviceReading {
+  id: string
+  metric: string
+  value: number | null
+  text: string | null
+  unit: string | null
+  collected_at: string
+}
+
+export interface DeviceAlertRule {
+  id: string
+  tenant_id: string
+  device_id: string | null
+  metric: string
+  op: 'lt' | 'gt'
+  threshold: number
+  enabled: boolean
+  notify_note: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface DeviceAlertRuleCreate {
+  metric: string
+  op: 'lt' | 'gt'
+  threshold: number
+  device_id?: string | null
+  enabled?: boolean
+  notify_note?: string | null
+}
+
+export interface DeviceAlert {
+  id: string
+  tenant_id: string
+  rule_id: string | null
+  device_id: string
+  device_name: string | null
+  metric: string
+  metric_name: string | null
+  value: number | null
+  triggered_at: string
+  notified_text: string | null
+}
+
+export const deviceApi = {
+  /** 能力字典：指标 18 项 + 设备类型 + 接入方式 + 阈值方向 */
+  capabilities(): Promise<DeviceCapabilities> {
+    return unwrap(api.get<ApiResponse<DeviceCapabilities>>('/devices/capabilities'))
+  },
+  /** 设备列表（无 latest；最新值需逐台调 detail 补齐） */
+  list(): Promise<Device[]> {
+    return unwrap(api.get<ApiResponse<Device[]>>('/devices'))
+  },
+  /** 设备详情（含 latest + 连接器掩码配置） */
+  detail(device_id: string): Promise<Device> {
+    return unwrap(api.get<ApiResponse<Device>>(`/devices/${device_id}`))
+  },
+  /** 新建：webhook 时 data.device_token 一次性明文，仅本次响应出现 */
+  create(payload: DeviceCreatePayload): Promise<Device & { device_token?: string }> {
+    return unwrap(api.post<ApiResponse<Device & { device_token?: string }>>('/devices', payload))
+  },
+  patch(device_id: string, payload: DevicePatchPayload): Promise<Device> {
+    return unwrap(api.patch<ApiResponse<Device>>(`/devices/${device_id}`, payload))
+  },
+  remove(device_id: string): Promise<void> {
+    return api.delete(`/devices/${device_id}`).then(() => undefined)
+  },
+  /** 重新生成设备令牌：data.device_token 同样只展示这一次 */
+  rotateToken(device_id: string): Promise<{ device_token: string }> {
+    return unwrap(api.post<ApiResponse<{ device_token: string }>>(`/devices/${device_id}/rotate-token`))
+  },
+  /** 读数（时间升序裸数组；limit 上限 1000） */
+  readings(
+    device_id: string,
+    opts: { metric?: string; start?: string; end?: string; limit?: number } = {},
+  ): Promise<DeviceReading[]> {
+    return unwrap(
+      api.get<ApiResponse<DeviceReading[]>>(`/devices/${device_id}/readings`, {
+        params: toParams(opts),
+      }),
+    )
+  },
+  rules(): Promise<DeviceAlertRule[]> {
+    return unwrap(api.get<ApiResponse<DeviceAlertRule[]>>('/devices/alert-rules'))
+  },
+  createRule(payload: DeviceAlertRuleCreate): Promise<DeviceAlertRule> {
+    return unwrap(api.post<ApiResponse<DeviceAlertRule>>('/devices/alert-rules', payload))
+  },
+  patchRule(rule_id: string, payload: Partial<DeviceAlertRuleCreate>): Promise<DeviceAlertRule> {
+    return unwrap(api.patch<ApiResponse<DeviceAlertRule>>(`/devices/alert-rules/${rule_id}`, payload))
+  },
+  removeRule(rule_id: string): Promise<void> {
+    return api.delete(`/devices/alert-rules/${rule_id}`).then(() => undefined)
+  },
+  alerts(limit = 50): Promise<DeviceAlert[]> {
+    return unwrap(
+      api.get<ApiResponse<DeviceAlert[]>>('/devices/alerts', { params: { limit } }),
+    )
+  },
+}
