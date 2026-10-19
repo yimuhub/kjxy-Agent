@@ -10,6 +10,7 @@ from app.modules.auth.router import router as auth_router
 from app.modules.evolution.router import router as evolution_router
 from app.modules.knowledge.router import router as knowledge_router
 from app.modules.llm.router import router as llm_router
+from app.modules.market.router import router as market_router
 from app.modules.plugins.router import router as plugins_router
 from app.modules.policy.router import router as policy_router
 from app.modules.tasks.router import router as tasks_router
@@ -37,6 +38,7 @@ router.include_router(policy_router)
 router.include_router(plugins_router)
 router.include_router(admin_router)
 router.include_router(agents_router)
+router.include_router(market_router)
 
 
 @router.get("/ping", include_in_schema=False)

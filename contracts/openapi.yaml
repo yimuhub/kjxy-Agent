@@ -2483,6 +2483,52 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/market/catalog:
+    get:
+      tags:
+      - v1
+      - market
+      summary: Get Catalog
+      description: 种子包目录：风险服务端现算，installed 只反映本租户（跨租户不可见）。
+      operationId: get_catalog_api_v1_market_catalog_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/market/install:
+    post:
+      tags:
+      - v1
+      - market
+      summary: Install Seeds
+      description: 装载种子包：逐码 创建→发布→审计→提交；已存在同码 skipped 不覆盖。
+      operationId: install_seeds_api_v1_market_install_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              additionalProperties: true
+              type: object
+              title: Body
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
 components:
   schemas:
     AddMemberRequest:

@@ -691,3 +691,50 @@ export const factoryApi = {
     )
   },
 }
+
+// ---------- Agent 市场（平台精选 → 一键装载到本租户） ----------
+
+/** 精选目录的分类域（固定八类） */
+export const MARKET_DOMAINS = [
+  '种植技术',
+  '棚室管理',
+  '植保',
+  '农机',
+  '畜牧水产',
+  '政策惠农',
+  '经营营销',
+  '科研助理',
+] as const
+
+export type MarketDomain = (typeof MARKET_DOMAINS)[number]
+
+/** 目录卡片（GET /market/catalog → data.items 元素） */
+export interface MarketAgent {
+  agent_code: string
+  name: string
+  emoji: string | null
+  description: string | null
+  domain: MarketDomain
+  risk_level: 'low' | 'high'
+  installed: boolean
+}
+
+/** 装载结果（POST /market/install → data） */
+export interface MarketInstallResult {
+  installed: string[]
+  skipped: string[]
+  failed: { code: string; error: string }[]
+}
+
+export const marketApi = {
+  /** 平台精选目录（含本租户 installed 标记） */
+  catalog(): Promise<MarketAgent[]> {
+    return unwrap(api.get<ApiResponse<{ items: MarketAgent[] }>>('/market/catalog')).then(
+      r => r.items,
+    )
+  },
+  /** 批量装载所选助手到本租户 */
+  install(codes: string[]): Promise<MarketInstallResult> {
+    return unwrap(api.post<ApiResponse<MarketInstallResult>>('/market/install', { codes }))
+  },
+}
