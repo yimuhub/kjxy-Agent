@@ -74,7 +74,9 @@ def test_metric_dict_contains_required_codes():
 def test_normalize_code_tolerates_case_but_no_fuzzy_guess():
     assert normalize_code(" Temp ") == "temp"
     # 模糊猜测会把厂商私有字段错映射成标准指标——宁可进 other 保 raw
-    assert normalize_code("temperature") == "other"
+    # 高置信同义词已入白名单；拼写错误等模糊写法仍进 other 保 raw
+    assert normalize_code("temperature") == "temp"
+    assert normalize_code("tempreture") == "other"
 
 
 def test_build_reading_known_other_and_text(db_session):
@@ -382,3 +384,15 @@ def test_readings_are_append_only(db_session):
     db_session.commit()
     rows = db_session.query(Reading).filter(Reading.device_id == dev.id).all()
     assert len(rows) == 2  # 非唯一约束：允许补报
+
+
+def test_normalize_code_synonyms_and_suffix():
+    """同义词白名单与 _cm 后缀宽容：高置信写法归一，未知字段仍进 other。"""
+    from app.modules.devices.metrics import OTHER_METRIC, normalize_code
+
+    assert normalize_code("temperature") == "temp"
+    assert normalize_code("Air_Temperature") == "temp"
+    assert normalize_code("rainfall") == "rain"
+    assert normalize_code("soil_moisture_20cm") == "soil_moisture_20"
+    assert normalize_code("vendor_flag") == OTHER_METRIC
+    assert normalize_code("rainofall") == OTHER_METRIC  # 不做模糊猜测

@@ -60,13 +60,46 @@ def metric_info(code: str) -> MetricInfo | None:
     return METRICS.get(code)
 
 
-def normalize_code(raw: str) -> str:
-    """把上报字段名尽力归一到字典 code：精确命中 > 小写去空格命中 > other。
+#: 高置信度同义词白名单：仅收录厂商报文里几乎无歧义的常见写法。
+#: 刻意不做模糊猜测——错映射比落入 other 更危险（other 保留 raw 可追溯）。
+_SYNONYMS: dict[str, str] = {
+    "temperature": "temp",
+    "air_temperature": "temp",
+    "temp_c": "temp",
+    "air_humidity": "humidity",
+    "rh": "humidity",
+    "rainfall": "rain",
+    "precip": "rain",
+    "precipitation": "rain",
+    "windspeed": "wind_speed",
+    "wind": "wind_speed",
+    "winddir": "wind_dir",
+    "winddirection": "wind_dir",
+    "light_intensity": "light",
+    "illuminance": "light",
+    "solar_radiation": "light",
+    "co2_ppm": "co2",
+    "co2_concentration": "co2",
+    "battery_level": "battery",
+    "pestcount": "pest_count",
+}
 
-    注意：归一仅做大小写/空白宽容，不做模糊猜测（避免把 vendor 私有字段
-    错映射到标准指标——错映射比进 other 更危险，后者原始数据仍在 raw）。
+
+def normalize_code(raw: str) -> str:
+    """把上报字段名尽力归一到字典 code：精确命中 > 单位后缀宽容 > 同义词白名单 > other。
+
+    注意：归一仅做大小写/空白/`_cm` 后缀与白名单同义词的宽容，不做模糊猜测
+    （避免把 vendor 私有字段错映射到标准指标——错映射比进 other 更危险，
+    后者原始数据仍在 raw）。
     """
     key = (raw or "").strip().lower()
     if key in METRICS:
         return key
+    # 单位后缀宽容：soil_moisture_20cm -> soil_moisture_20
+    if key.endswith("cm"):
+        stem = key[:-2].rstrip("_")
+        if stem in METRICS:
+            return stem
+    if key in _SYNONYMS:
+        return _SYNONYMS[key]
     return OTHER_METRIC
