@@ -11,6 +11,7 @@ import ReviewView from '@/views/ReviewView.vue'
 import MembersView from '@/views/MembersView.vue'
 import SettingsView from '@/views/SettingsView.vue'
 import AgentsView from '@/views/AgentsView.vue'
+import TeamsView from '@/views/TeamsView.vue'
 import AgentFactoryView from '@/views/AgentFactoryView.vue'
 import DevicesView from '@/views/DevicesView.vue'
 import MarketView from '@/views/MarketView.vue'
@@ -53,6 +54,8 @@ const routes: RouteRecordRaw[] = [
       },
       // 专业助手全员可见
       { path: 'agents', name: 'Agents', component: AgentsView, meta: { title: '专业助手' } },
+      // 协作班组全员可跑，管理类按钮页内按角色收敛
+      { path: 'teams', name: 'Teams', component: TeamsView, meta: { title: '协作班组' } },
       {
         path: 'agents/factory',
         name: 'AgentFactory',

@@ -133,6 +133,20 @@
         </el-row>
       </el-checkbox-group>
       <div class="apply-bar">
+        <div class="as-team-row">
+          <el-checkbox v-model="asTeam">
+            同时装配为协作班组
+          </el-checkbox>
+          <el-input
+            v-if="asTeam"
+            v-model="asTeamName"
+            size="small"
+            maxlength="100"
+            placeholder="班组成员名（默认＝行业名＋班组）"
+            style="width: 240px"
+          />
+          <span class="note">成员按蓝图顺序接力，末位审核类角色自动担任审核员</span>
+        </div>
         <el-button
           type="primary"
           :disabled="!selectedCodes.length || applying"
@@ -216,6 +230,22 @@
           {{ applyResult.failed }}
         </el-descriptions-item>
       </el-descriptions>
+      <el-alert
+        v-if="applyResult?.team"
+        class="mb"
+        type="success"
+        show-icon
+        :closable="false"
+        :title="`已同步创建协作班组「${applyResult.team.name}」，可在「协作班组」页跑一次`"
+      />
+      <el-alert
+        v-else-if="applyResult?.team_error"
+        class="mb"
+        type="warning"
+        show-icon
+        :closable="false"
+        :title="`助手装配完成，但自动组队失败（${applyResult.team_error}），可前往「协作班组」手动创建`"
+      />
       <el-table
         v-if="applyResult"
         :data="applyResult.results"
@@ -288,6 +318,9 @@ const blueprint = ref<FactoryBlueprint | null>(null)
 const selectedCodes = ref<string[]>([])
 const applyResult = ref<FactoryApplyResult | null>(null)
 const resultVisible = ref(false)
+// W2 装配即组队：勾选后 apply 请求体带 as_team:{name}
+const asTeam = ref(false)
+const asTeamName = ref('')
 
 let stream: SseHandle | null = null
 let pollTimer: number | undefined
@@ -454,13 +487,24 @@ async function onPollDone(d: FactoryRunSummary & { blueprint_json?: FactoryBluep
 }
 
 /* ---------- 采纳 ---------- */
+function defaultTeamName(): string {
+  const brief = (blueprint.value?.industry_brief ?? '新行业').trim().slice(0, 40)
+  return `${brief}班组`
+}
+
 async function apply(publish: boolean) {
   const run = currentRun.value
   if (!run || !selectedCodes.value.length) return
   applying.value = true
+  const asTeamSpec = asTeam.value ? { name: asTeamName.value.trim() || defaultTeamName() } : undefined
   try {
-    applyResult.value = await factoryApi.apply(run.id, selectedCodes.value, publish)
+    applyResult.value = await factoryApi.apply(run.id, selectedCodes.value, publish, asTeamSpec)
     resultVisible.value = true
+    if (applyResult.value.team) {
+      ElMessage.success(`已同步创建协作班组「${applyResult.value.team.name}」`)
+    } else if (applyResult.value.team_error) {
+      ElMessage.warning(`自动组队失败（${applyResult.value.team_error}），助手装配不受影响`)
+    }
     await loadRuns()
   } catch (e) {
     ElMessage.error(extractErrorMessage(e).message || '采纳失败')
@@ -528,6 +572,13 @@ onUnmounted(stopWatch)
   align-items: center;
   gap: 12px;
   margin: 4px 0 24px;
+  flex-wrap: wrap;
+}
+.as-team-row {
+  flex: 1 1 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 .hist-title {
   margin: 8px 0 10px;

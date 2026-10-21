@@ -403,6 +403,18 @@
           />
           <span class="note">越大越优先（全局兜底时）</span>
         </el-form-item>
+        <el-form-item v-if="editingId">
+          <template #label>
+            <el-tooltip
+              content="开启后该供应商的助手运行进入工具调用循环"
+              placement="top"
+            >
+              <span>工具调用能力</span>
+            </el-tooltip>
+          </template>
+          <el-switch v-model="form.supports_tools" />
+          <span class="note">声明「支持 function-calling」，开启后该供应商的助手运行进入工具调用循环</span>
+        </el-form-item>
         <el-form-item
           v-if="!editingId"
           label="可见范围"
@@ -522,6 +534,8 @@ const form = reactive({
   models: '',
   priority: 0,
   scope: 'tenant' as 'tenant' | 'global',
+  // function-calling 能力位：仅编辑时提交（创建接口不接受该字段）
+  supports_tools: false,
 })
 
 function typeLabel(t: string): string {
@@ -567,6 +581,7 @@ function resetForm() {
     models: '',
     priority: 0,
     scope: 'tenant' as const,
+    supports_tools: false,
   })
   templateKey.value = ''
   templateNote.value = ''
@@ -602,6 +617,7 @@ function openEdit(row: LlmSupplier) {
     models: row.models ?? '',
     priority: row.priority,
     scope: 'tenant' as const,
+    supports_tools: row.supports_tools ?? false,
   })
   templateKey.value = ''
   templateNote.value = ''
@@ -628,6 +644,7 @@ async function saveForm() {
         model_id: form.model_id.trim(),
         models: form.models.trim() || null,
         priority: form.priority,
+        supports_tools: form.supports_tools,
       }
       if (form.api_key) payload.api_key = form.api_key
       await llmSupplierApi.update(editingId.value, payload)

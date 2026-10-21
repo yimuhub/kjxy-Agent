@@ -111,6 +111,7 @@
       roles: ['tenant_admin', 'platform_admin', 'expert'],
     },
     { path: '/agents', title: '专业助手', icon: markRaw(Cpu) },
+    { path: '/teams', title: '协作班组', icon: markRaw(UserFilled) },
     { path: '/agents/factory', title: 'Agent 工厂', icon: markRaw(Cpu), roles: ADMIN_ROLES },
     { path: '/market', title: 'Agent 市场', icon: markRaw(Shop), roles: ADMIN_ROLES },
     { path: '/devices', title: '设备中心', icon: markRaw(Cpu) },

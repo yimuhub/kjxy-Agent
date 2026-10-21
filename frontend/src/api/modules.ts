@@ -1,4 +1,4 @@
-import type { AxiosResponse } from 'axios'
+import type { AxiosRequestConfig, AxiosResponse } from 'axios'
 import { api } from './client'
 import type {
   AddMemberPayload,
@@ -312,6 +312,8 @@ export interface LlmSupplier {
   priority: number
   status: number // 1=启用 2=禁用
   is_active: boolean
+  // function-calling 能力位：true 才允许该供应商的助手进入工具调用循环（后端恒返回）
+  supports_tools?: boolean
   consecutive_failures: number
   test_time: string | null
   response_time_ms: number | null
@@ -341,6 +343,8 @@ export interface LlmSupplierUpdate {
   api_key?: string
   models?: string
   priority?: number
+  // function-calling 能力位开关（PUT 语义：传则覆盖）
+  supports_tools?: boolean
 }
 
 export interface LlmTestResult {
@@ -415,6 +419,167 @@ export const adminApi = {
   },
   tenants(): Promise<AdminTenantList> {
     return unwrap(api.get<ApiResponse<AdminTenantList>>('/admin/tenants'))
+  },
+}
+
+// ===== 协作班组（W2 契约，字段以 2026-10-21 实测为准） =====
+
+/** 班组成员定义（有序数组，2..8 个；顺序即接力顺序） */
+export interface TeamMemberSpec {
+  agent_id: string
+  role_name: string
+  instruction: string
+  is_critic: boolean
+}
+
+/** 班组定义（GET/POST/PATCH /agents/teams* 的 data 形状） */
+export interface TeamDefinition {
+  id: string
+  tenant_id: string
+  name: string
+  model_hint: string | null
+  description: string | null
+  members: TeamMemberSpec[]
+  enabled: boolean
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface TeamCreatePayload {
+  name: string
+  members: TeamMemberSpec[]
+  model_hint?: string | null
+  description?: string | null
+  enabled?: boolean
+}
+
+/** PATCH 字段全部可选；members 传则整体替换 */
+export type TeamUpdatePayload = Partial<TeamCreatePayload>
+
+export type TeamRunStatus = 'running' | 'completed' | 'failed'
+export type TeamMemberRunStatus = 'pending' | 'running' | 'ok' | 'error'
+
+/** 成员接力明细（run_out.members 元素；task_id 可二跳内部步骤） */
+export interface TeamRunMember {
+  index: number
+  role_name: string
+  member_agent_id: string
+  /** 该成员声明式 run 的 run_id（无步骤行时 steps 端点 404） */
+  task_id: string | null
+  status: TeamMemberRunStatus
+  input_preview: string | null
+  output: string | null
+  error_text: string | null
+  updated_at: string | null
+}
+
+/** 运行详情（POST run / GET team-runs/{id} / POST retry 的 data 共同形状） */
+export interface TeamRun {
+  id: string
+  team_id: string
+  tenant_id: string
+  input: string
+  status: TeamRunStatus
+  answer: string | null
+  current_member: number
+  last_error: string | null
+  started_at: string | null
+  finished_at: string | null
+  created_at: string | null
+  updated_at: string | null
+  member_count: number
+  /** 详情/运行/续跑响应带成员明细；列表摘要不带 */
+  members?: TeamRunMember[]
+}
+
+/** 运行列表摘要（GET /agents/teams/{id}/runs 元素，无 answer/members） */
+export interface TeamRunSummary {
+  id: string
+  team_id: string
+  status: TeamRunStatus
+  input_preview: string
+  current_member: number
+  member_count: number
+  last_error: string | null
+  started_at: string | null
+  finished_at: string | null
+  created_at: string | null
+}
+
+/** 成员内部步骤（GET /agents/declarative/runs/{task_id}/steps 元素） */
+export interface TeamRunMemberStep {
+  step_index: number
+  step_type: 'llm_call' | 'tool_call' | 'final'
+  status: string
+  tool_code: string | null
+  duration_ms: number | null
+  error_text: string | null
+  /** 后端回 JSON 对象（非字符串），展示时自行截断 */
+  output_json?: unknown
+}
+
+/** SSE member-event 帧 data（GET /agents/team-runs/{run_id}/stream） */
+export interface TeamMemberEvent {
+  member_index: number
+  role_name: string
+  status: TeamMemberRunStatus
+  agent_run_id: string | null
+  error_text: string | null
+}
+
+export const teamApi = {
+  /** 班组列表（租户成员均可读） */
+  list(): Promise<TeamDefinition[]> {
+    return unwrap(api.get<ApiResponse<{ teams: TeamDefinition[] }>>('/agents/teams')).then(
+      r => r.teams,
+    )
+  },
+  /** 创建（tenant_admin；成员 2..8；同租户重名 409） */
+  create(payload: TeamCreatePayload): Promise<TeamDefinition> {
+    return unwrap(api.post<ApiResponse<TeamDefinition>>('/agents/teams', payload))
+  },
+  /** 编辑（tenant_admin；members 传则整体替换） */
+  update(teamId: string, payload: TeamUpdatePayload): Promise<TeamDefinition> {
+    return unwrap(api.patch<ApiResponse<TeamDefinition>>(`/agents/teams/${teamId}`, payload))
+  },
+  /** 删除班组定义（tenant_admin；历史运行台账保留） */
+  remove(teamId: string): Promise<void> {
+    return api.delete(`/agents/teams/${teamId}`).then(() => undefined)
+  },
+  /** 同步跑一次接力（全员可用；失败时 HTTP 抛原始错误、run 停在 failed 断点） */
+  run(teamId: string, input: string): Promise<TeamRun> {
+    return unwrap(api.post<ApiResponse<TeamRun>>(`/agents/teams/${teamId}/run`, { input }))
+  },
+  /** 本班组运行列表（摘要，最新在前） */
+  runs(teamId: string): Promise<TeamRunSummary[]> {
+    return unwrap(
+      api.get<ApiResponse<{ runs: TeamRunSummary[] }>>(`/agents/teams/${teamId}/runs`),
+    ).then(r => r.runs)
+  },
+  /** 运行详情（含成员接力明细） */
+  runDetail(runId: string): Promise<TeamRun> {
+    return unwrap(api.get<ApiResponse<TeamRun>>(`/agents/team-runs/${runId}`))
+  },
+  /** 断点续跑（已 ok 成员不重跑；completed/running 时 409，错误由调用方按码分流提示） */
+  retry(runId: string): Promise<TeamRun> {
+    const cfg: AxiosRequestConfig & { skipErrorToast?: boolean } = { skipErrorToast: true }
+    return unwrap(api.post<ApiResponse<TeamRun>>(`/agents/team-runs/${runId}/retry`, undefined, cfg))
+  },
+  /** 成员内部步骤下钻（单轮无工具成员无步骤行 → 404 RUN_NOT_FOUND，静默处理） */
+  memberSteps(taskId: string): Promise<TeamRunMemberStep[]> {
+    const cfg: AxiosRequestConfig & { skipErrorToast?: boolean } = { skipErrorToast: true }
+    return unwrap(
+      api.get<ApiResponse<{ run_id: string; status: string; steps: TeamRunMemberStep[] }>>(
+        `/agents/declarative/runs/${taskId}/steps`,
+        cfg,
+      ),
+    ).then(r => r.steps)
+  },
+  /** 成员级 SSE 地址（openSseStream 使用） */
+  streamUrl(runId: string): string {
+    const base = import.meta.env.VITE_API_BASE ?? '/api/v1'
+    return `${base}/agents/team-runs/${runId}/stream`
   },
 }
 
@@ -664,6 +829,9 @@ export interface FactoryApplyResult {
   published: number
   pending_review: number
   draft: number
+  // W2 装配即组队：as_team 时后端回传建好的班组；建队失败只回错误码、不回滚采纳结果
+  team?: TeamDefinition | null
+  team_error?: string | null
 }
 
 export const factoryApi = {
@@ -681,12 +849,18 @@ export const factoryApi = {
   run(run_id: string): Promise<FactoryRunDetail> {
     return unwrap(api.get<ApiResponse<FactoryRunDetail>>(`/agents/factory/runs/${run_id}`))
   },
-  /** 人工采纳：仅创建者或 tenant_admin；run 非 completed 时 409 */
-  apply(run_id: string, codes: string[], publish: boolean): Promise<FactoryApplyResult> {
+  /** 人工采纳：仅创建者或 tenant_admin；run 非 completed 时 409；as_team 装配即组队 */
+  apply(
+    run_id: string,
+    codes: string[],
+    publish: boolean,
+    as_team?: { name: string; description?: string; model_hint?: string },
+  ): Promise<FactoryApplyResult> {
     return unwrap(
       api.post<ApiResponse<FactoryApplyResult>>(`/agents/factory/runs/${run_id}/apply`, {
         codes,
         publish,
+        ...(as_team ? { as_team } : {}),
       }),
     )
   },
