@@ -62,6 +62,9 @@ SIDE_EFFECT_TOOL_KEYWORDS = (
 #: 命中即高风险的工具风险档：R3（外部副作用）与可逆写（宁严勿松）一律 high
 HIGH_RISK_TOOL_LEVELS = ("external_side_effect", "write_reversible")
 
+#: MCP 动态工具 wire_name 前缀（mcp__<server_id8>__<tool>；与 mcp.tool_bridge 同字面量）
+MCP_TOOL_PREFIX = "mcp__"
+
 
 # ---------------------------------------------------------------------------
 # 1) 风险判定（纯函数：结果只由入参 + 注入的 tool_lookup 决定，可测试）
@@ -110,6 +113,11 @@ def assess_risk(
         if not code or "*" in code:
             return RISK_HIGH
         lowered = code.lower()
+        if lowered.startswith(MCP_TOOL_PREFIX):
+            # MCP 动态工具（mcp__<server8>__<tool>）：外部服务器行为不可控，
+            # 一律按 external_side_effect 档 → high，发布必进平台审核队列
+            # （与 W5a 拍板口径吻合；运行层另有 registry 审批闸兜底）。
+            return RISK_HIGH
         if any(k in lowered for k in SIDE_EFFECT_TOOL_KEYWORDS):
             return RISK_HIGH
         meta = lookup(code)
@@ -693,12 +701,18 @@ def _wire_name(code: str) -> str:
 
 
 def _build_tool_defs(
-    allowed_tools: list[str], warnings: list[str]
+    allowed_tools: list[str],
+    warnings: list[str],
+    db: Session | None = None,
+    tenant_id: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, str]]:
     """allowed_tools → OpenAI tools 定义 + wire→code 反查表。
 
     未注册/停用的工具从本轮定义剔除并诚实 warning（宁缺勿幻：模型看不到
     的就调用不到；即便模型幻觉出未知函数名，白名单闸也会拒绝执行）。
+
+    W5a：``mcp__`` 前缀工具走**租户作用域回落**（tool_bridge 按连接测试缓存
+    解析，需要 db+tenant_id；缺任一上下文时按未注册剔除，宁严勿松）。
     """
     from app.modules.tools.registry import tool_registry
 
@@ -708,11 +722,17 @@ def _build_tool_defs(
         code = str(raw).strip()
         if not code:
             continue
-        try:
-            tool = tool_registry.get(code)
-        except AppError:
-            warnings.append(f"工具未注册或已停用：{code}，已从本轮工具列表剔除。")
-            continue
+        tool = None
+        if code.startswith(MCP_TOOL_PREFIX) and db is not None and tenant_id:
+            from app.modules.mcp.tool_bridge import lookup_mcp_tool
+
+            tool = lookup_mcp_tool(db, tenant_id, code)
+        if tool is None:
+            try:
+                tool = tool_registry.get(code)
+            except AppError:
+                warnings.append(f"工具未注册或已停用：{code}，已从本轮工具列表剔除。")
+                continue
         wire = _wire_name(code)
         wire_to_code[wire] = code
         payload.append(
@@ -996,7 +1016,9 @@ async def run_declarative_agent(
         next_index = 0
 
     supports = _current_provider_supports_tools(db, ctx.tenant_id)
-    tools_payload, wire_to_code = _build_tool_defs(allowed, warnings if supports else [])
+    tools_payload, wire_to_code = _build_tool_defs(
+        allowed, warnings if supports else [], db=db, tenant_id=ctx.tenant_id
+    )
     if not supports:
         # 未声明 function-calling 能力：不发送 tools，模型响应中的 tool_calls
         # 一并忽略 —— provider 收到的请求与旧路径一致（零回归）。

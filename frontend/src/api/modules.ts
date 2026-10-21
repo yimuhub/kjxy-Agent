@@ -1173,3 +1173,71 @@ export const llmTraceApi = {
       .then(r => (r.data as ApiResponse<{ items: LlmUsageRow[] }>).data.items)
   },
 }
+
+/* ---------- W5a MCP 工具服务器 ---------- */
+
+export interface McpServerItem {
+  id: string
+  tenant_id: string
+  name: string
+  /** 掩码形态 https://host/***，明文永不出接口 */
+  url_masked: string | null
+  /** 鉴权头逐值掩码（同 API Key 口径） */
+  headers_masked: Record<string, string>
+  transport: string
+  enabled: boolean
+  consecutive_failures: number
+  tool_count: number
+  last_test_at: string | null
+  last_error: string | null
+  created_by: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface McpToolItem {
+  name: string
+  description: string
+  cached_at?: string | null
+}
+
+export interface McpTestResult {
+  ok: boolean
+  tools: McpToolItem[]
+  tool_count: number
+  /** 只取一页：true 表示上游还有更多工具未入快照 */
+  has_more: boolean
+}
+
+export interface McpServerCreatePayload {
+  name: string
+  url: string
+  headers?: Record<string, string> | null
+  transport?: string
+  enabled?: boolean
+}
+
+export type McpServerPatchPayload = Partial<McpServerCreatePayload>
+
+export const mcpApi = {
+  list(): Promise<McpServerItem[]> {
+    return unwrap(api.get<ApiResponse<McpServerItem[]>>('/settings/mcp-servers'))
+  },
+  create(payload: McpServerCreatePayload): Promise<McpServerItem> {
+    return unwrap(api.post<ApiResponse<McpServerItem>>('/settings/mcp-servers', payload))
+  },
+  patch(serverId: string, payload: McpServerPatchPayload): Promise<McpServerItem> {
+    return unwrap(api.patch<ApiResponse<McpServerItem>>(`/settings/mcp-servers/${serverId}`, payload))
+  },
+  remove(serverId: string): Promise<void> {
+    return api.delete(`/settings/mcp-servers/${serverId}`).then(() => undefined)
+  },
+  /** 连接测试（initialize + tools/list 一页）：成功刷新工具快照 */
+  test(serverId: string): Promise<McpTestResult> {
+    return unwrap(api.post<ApiResponse<McpTestResult>>(`/settings/mcp-servers/${serverId}/test`))
+  },
+  /** 读取连接测试缓存的工具快照（不发起网络请求） */
+  tools(serverId: string): Promise<{ tools: McpToolItem[]; tool_count: number }> {
+    return unwrap(api.get<ApiResponse<{ tools: McpToolItem[]; tool_count: number }>>(`/settings/mcp-servers/${serverId}/tools`))
+  },
+}

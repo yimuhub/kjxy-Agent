@@ -119,6 +119,27 @@ class ToolRegistry:
             metadata=metadata,
         )
 
+    def _resolve(self, db: Session, code: str, ctx: TenantContext) -> ToolDef:
+        """工具解析：内置内存注册表优先，未命中时回落租户级 MCP 动态工具。
+
+        W5a 改造点（execute 主流程唯一改造）：``mcp__`` 前缀的 wire_name 从不注册
+        进全局注册表，此前一律 TOOL_NOT_FOUND；现在经 tool_bridge 按**调用方租户
+        上下文**作用域解析（enabled + 未熔断 + 连接测试缓存命中才可见）。非 mcp__
+        前缀行为逐字不变——executor/workorder/approvals/qa_agent 等既有调用方
+        零感知（execute 签名未动，ctx/db 本就是既有入参）。
+        """
+        tool = self._tools.get(code)
+        if tool is not None and tool.enabled:
+            return tool
+        if code.startswith("mcp__"):
+            from app.modules.mcp.tool_bridge import lookup_mcp_tool
+
+            # 导入放在分支内：mcp.tool_bridge 反向 import 本模块，避免顶层循环
+            mcp_tool = lookup_mcp_tool(db, ctx.tenant_id, code)
+            if mcp_tool is not None:
+                return mcp_tool
+        raise AppError("TOOL_NOT_FOUND", f"工具不存在或未启用：{code}。", http_status=404)
+
     async def execute(
         self,
         db: Session,
@@ -127,7 +148,7 @@ class ToolRegistry:
         ctx: TenantContext,
         request_id: str,
     ) -> dict:
-        tool = self.get(code)
+        tool = self._resolve(db, code, ctx)
         params = dict(params or {})
         param_keys = sorted(str(k) for k in params.keys())
 

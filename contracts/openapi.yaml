@@ -3603,6 +3603,167 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/settings/mcp-servers:
+    get:
+      tags:
+      - v1
+      - mcp
+      summary: List Servers
+      description: 本租户 MCP 服务器列表（掩码出参 + 已缓存工具数）。
+      operationId: list_servers_api_v1_settings_mcp_servers_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+    post:
+      tags:
+      - v1
+      - mcp
+      summary: Create Server
+      operationId: create_server_api_v1_settings_mcp_servers_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/McpServerCreate'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/settings/mcp-servers/{server_id}:
+    patch:
+      tags:
+      - v1
+      - mcp
+      summary: Update Server
+      operationId: update_server_api_v1_settings_mcp_servers__server_id__patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: server_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Server Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/McpServerUpdate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - v1
+      - mcp
+      summary: Delete Server
+      operationId: delete_server_api_v1_settings_mcp_servers__server_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: server_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Server Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/settings/mcp-servers/{server_id}/test:
+    post:
+      tags:
+      - v1
+      - mcp
+      summary: Test Server
+      description: 连接测试：initialize + tools/list 一页；成功刷新工具快照，失败计熔断。
+      operationId: test_server_api_v1_settings_mcp_servers__server_id__test_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: server_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Server Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/settings/mcp-servers/{server_id}/tools:
+    get:
+      tags:
+      - v1
+      - mcp
+      summary: List Server Tools
+      description: 读取连接测试缓存的工具快照（不发起网络请求）。
+      operationId: list_server_tools_api_v1_settings_mcp_servers__server_id__tools_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: server_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Server Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
     AddMemberRequest:
@@ -4090,6 +4251,73 @@ components:
       - username
       - password
       title: LoginRequest
+    McpServerCreate:
+      properties:
+        name:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Name
+        url:
+          type: string
+          maxLength: 1000
+          minLength: 8
+          title: Url
+        headers:
+          anyOf:
+          - additionalProperties:
+              type: string
+            type: object
+          - type: 'null'
+          title: Headers
+        transport:
+          type: string
+          maxLength: 30
+          title: Transport
+          default: streamable_http
+        enabled:
+          type: boolean
+          title: Enabled
+          default: true
+      additionalProperties: false
+      type: object
+      required:
+      - name
+      - url
+      title: McpServerCreate
+      description: 创建请求：url 必填（提交即 SSRF 校验 + Fernet 加密）；headers 逐值加密存。
+    McpServerUpdate:
+      properties:
+        name:
+          anyOf:
+          - type: string
+            maxLength: 120
+            minLength: 1
+          - type: 'null'
+          title: Name
+        url:
+          anyOf:
+          - type: string
+            maxLength: 1000
+            minLength: 8
+          - type: 'null'
+          title: Url
+        headers:
+          anyOf:
+          - additionalProperties:
+              type: string
+            type: object
+          - type: 'null'
+          title: Headers
+        enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Enabled
+      additionalProperties: false
+      type: object
+      title: McpServerUpdate
+      description: 编辑请求：改名/停用/换 url（重填即换，headers 整体重填即换）；全可选。
     PolicyIngestRequest:
       properties:
         policy_name:
