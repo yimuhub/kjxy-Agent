@@ -95,10 +95,18 @@ def _resolve_blueprint_items(
     focus: str | None,
     request_id: str,
 ) -> tuple[list[dict[str, Any]], str]:
-    """planning 阶段：LLM 蓝图优先，解析/调用失败落启发式；返回 (角色列表, 来源)。"""
+    """planning 阶段：LLM 蓝图优先，解析/调用失败落启发式；返回 (角色列表, 来源)。
+
+    工厂 run 纳入 agent_run_steps 同表 checkpoint（P0 内核）：LLM 蓝图调用
+    落一行 llm_call 步（ok/error），供 GET steps 与 SSE 步骤流统一观察。
+    """
+    import time
+
+    from app.modules.agents import run_steps as rs
     from app.modules.llm.schemas import ChatMessage, LLMMetadata, LLMRequest
     from app.modules.llm.service import complete_with_logging
 
+    started = time.perf_counter()
     try:
         messages = fb.build_blueprint_messages(industry_brief, focus)
         request = LLMRequest(
@@ -113,9 +121,35 @@ def _resolve_blueprint_items(
         raw = asyncio.run(_call())
         items = fb.parse_blueprint(raw)
         generated_by = GENERATED_BY_LLM
+        rs.record_step(
+            db,
+            tenant_id=run.tenant_id,
+            run_id=run.id,
+            step_type=rs.STEP_LLM,
+            status=rs.STEP_OK,
+            input_json={"stage": "blueprint", "task_id": task_id},
+            output_json={
+                "content_chars": len(raw),
+                "roles": len(items),
+                "model": getattr(request, "model", None) or "resolved-by-provider",
+            },
+            duration_ms=int((time.perf_counter() - started) * 1000),
+            commit=False,  # 与紧随其后的 blueprint_ready 里程碑同一事务提交
+        )
         log.info("factory run %s: blueprint from LLM, %d roles", run.id[:8], len(items))
     except Exception as e:
         # 诚实兜底：LLM 不可用或输出不可解析 → 内置启发式蓝图（不伪报为 llm）
+        rs.record_step(
+            db,
+            tenant_id=run.tenant_id,
+            run_id=run.id,
+            step_type=rs.STEP_LLM,
+            status=rs.STEP_ERROR,
+            input_json={"stage": "blueprint", "task_id": task_id},
+            duration_ms=int((time.perf_counter() - started) * 1000),
+            error_text=f"{type(e).__name__}: {e}",
+            commit=False,
+        )
         items = fb.heuristic_blueprint(industry_brief, focus)
         generated_by = GENERATED_BY_HEURISTIC
         log.info(
@@ -274,6 +308,23 @@ def run_agent_factory(input_data: dict[str, Any], context: dict[str, Any]) -> di
         # -- 里程碑 3：completed（蓝图回写收口）------------------------------
         run.blueprint_json = fb.build_blueprint_payload(industry_brief, focus, generated_by, items)
         needs_kb = sum(1 for i in items if i.get("needs_knowledge"))
+        # checkpoint：工厂 run 的 final 步（与 completed 里程碑同事务提交）
+        from app.modules.agents import run_steps as rs
+
+        rs.record_step(
+            db,
+            tenant_id=run.tenant_id,
+            run_id=run.id,
+            step_type=rs.STEP_FINAL,
+            status=rs.STEP_OK,
+            output_json={
+                "generated_by": generated_by,
+                "role_count": len(items),
+                "needs_knowledge_count": needs_kb,
+                "truncated": False,
+            },
+            commit=False,
+        )
         _milestone(
             db,
             run,
@@ -327,6 +378,18 @@ def run_agent_factory(input_data: dict[str, Any], context: dict[str, Any]) -> di
             if run is not None and run.tenant_id == context.get("tenant_id"):
                 run.status = STATUS_FAILED
                 run.error = str(detail)[:2000]
+                # checkpoint：工厂 run 失败终态步（SSE 据此收流）
+                from app.modules.agents import run_steps as rs
+
+                rs.record_step(
+                    db,
+                    tenant_id=run.tenant_id,
+                    run_id=run.id,
+                    step_type=rs.STEP_FINAL,
+                    status=rs.STEP_ERROR,
+                    error_text=str(detail)[:2000],
+                    commit=False,
+                )
             _milestone(
                 db,
                 run if run is not None and run.tenant_id == context.get("tenant_id") else None,

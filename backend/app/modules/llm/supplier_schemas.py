@@ -47,6 +47,8 @@ class SupplierUpdate(BaseModel):
     )
     models: str | None = Field(default=None, max_length=2000)
     priority: int | None = None
+    # function-calling 能力位：true 才允许声明式 Agent 对该供应商启用工具循环
+    supports_tools: bool | None = None
 
 
 class SupplierOut(BaseModel):
@@ -61,6 +63,8 @@ class SupplierOut(BaseModel):
     priority: int
     status: int
     is_active: bool = False
+    # function-calling 能力位（默认 false：未显式声明的供应商不进工具循环）
+    supports_tools: bool = False
     # 租户管理员视角：平台全局行（tenant_id 为 NULL）只读（不可增删改/探测，仅可设为本租户生效）；
     # 平台管理员恒为 false。默认 false，兼容未感知该字段的旧前端。
     readonly: bool = False

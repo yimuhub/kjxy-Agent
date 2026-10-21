@@ -8,7 +8,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin
@@ -29,6 +29,9 @@ class Supplier(Base, TimestampMixin):
     models: Mapped[str | None] = mapped_column(Text, nullable=True)  # 白名单，逗号分隔，空=全量
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # 越大越优先
     status: Mapped[int] = mapped_column(Integer, nullable=False, default=1)  # 1=启用/2=禁用
+    # function-calling 能力位：仅显式声明 true 的供应商才允许进入工具循环
+    # （迁移 0013；默认 false → 旧行为零回归）。后端 PATCH 可设，前端表单 P2 补。
+    supports_tools: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     consecutive_failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     test_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     response_time_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)

@@ -25,10 +25,11 @@ from app.core.deps import (
 )
 from app.core.errors import AppError
 from app.core.responses import ok
-from app.modules.agents import declarative, get_global_registry
+from app.modules.agents import declarative, get_global_registry, run_steps, run_stream
 from app.modules.agents.definitions import AGENT_DEFINITIONS
 from app.modules.agents.factory_router import router as factory_router
 from app.modules.agents.schemas import AgentContext, AgentResult
+from app.modules.audit.service import log_audit
 from app.modules.tools.registry import tool_registry
 
 router = APIRouter(prefix="/agents", tags=["agents"])
@@ -363,6 +364,136 @@ def reject_agent_review(
         db.rollback()
         raise
     return ok(declarative.to_out(agent), request)
+
+
+# ---------------------------------------------------------------------------
+# 声明式 Agent 运行 checkpoint（P0 内核）：步骤列表 / 断点续跑 / SSE 步骤流
+# ---------------------------------------------------------------------------
+
+
+def _derive_run_status(steps: list[Any]) -> str:
+    if any(s.step_type == "final" and s.status == "ok" for s in steps):
+        return "succeeded"
+    if any(s.step_type == "final" for s in steps):
+        return "failed"
+    if any(s.step_type == "llm_call" and s.status != "ok" for s in steps):
+        return "failed"
+    return "running"
+
+
+@router.get("/declarative/runs/{run_id}/steps")
+def get_run_steps(
+    run_id: str,
+    request: Request,
+    ctx: TenantContext = Depends(get_tenant_context),
+    db=Depends(get_db_session),
+):
+    """运行步骤列表（租户成员可读；跨租户/不存在一律 404 防枚举）。"""
+    steps = run_steps.list_steps(db, tenant_id=ctx.tenant_id, run_id=run_id)
+    if not steps:
+        raise AppError("RUN_NOT_FOUND", "运行不存在或无权访问。", http_status=404)
+    return ok(
+        {
+            "run_id": run_id,
+            "status": _derive_run_status(steps),
+            "steps": [run_steps.step_out(s) for s in steps],
+        },
+        request,
+    )
+
+
+@router.get("/declarative/runs/{run_id}/events/stream")
+def stream_run_steps(
+    run_id: str,
+    ctx: TenantContext = Depends(get_tenant_context),
+):
+    """SSE 步骤事件流（追尾 agent_run_steps，帧协议同 tasks/stream）。
+
+    说明：声明式同步运行不建 tasks 行（记账口径），故复用 tasks/stream 的
+    「DB 追尾机制 + 帧协议」而非其 TaskEvent 通道；worker/inline 线程执行时
+    可实时观看，纯同步执行可用 steps GET 端点事后查看全量步骤。
+    """
+    return run_stream.build_stream_response(ctx.tenant_id, run_id)
+
+
+@router.post("/declarative/{agent_code}/runs/{run_id}/retry")
+async def retry_run_from_checkpoint(
+    agent_code: str,
+    run_id: str,
+    request: Request,
+    ctx: TenantContext = Depends(get_tenant_context),
+    user: CurrentUser = Depends(get_current_user),
+    db=Depends(get_db_session),
+):
+    """断点续跑：从失败步继续（幂等防副作用重放）。
+
+    语义边界：
+    - 已 ok 的 tool_call 步 **不重复执行**，直接复用 output_json 回填会话；
+    - 失败的 llm_call 步原位重跑（该步 checkpoint 行被新结果覆盖）；
+    - 已 completed（final ok）的运行拒绝重放（409）；
+    - 审计 action=retry_from_step（记录续跑点与副作用重放保护计数）。
+    """
+    decl = declarative.get_published_by_code(db, tenant_id=ctx.tenant_id, agent_code=agent_code)
+    if decl is None:
+        raise AppError("AGENT_NOT_FOUND", f"未知的 Agent：{agent_code}。", http_status=404)
+    steps = run_steps.list_steps(db, tenant_id=ctx.tenant_id, run_id=run_id)
+    if not steps:
+        raise AppError("RUN_NOT_FOUND", "运行不存在或无权访问。", http_status=404)
+    if run_steps.is_run_completed(steps):
+        raise AppError(
+            "RUN_ALREADY_COMPLETED", "该运行已完成，不允许断点续跑重放。", http_status=409
+        )
+    first_meta = steps[0].input_json or {}
+    if first_meta.get("agent_id") and first_meta["agent_id"] != decl.id:
+        raise AppError(
+            "RUN_CHECKPOINT_INVALID",
+            "该运行属于该编码的另一版本配置，请对原版本发起新运行。",
+            http_status=409,
+        )
+    from_step_index = next(
+        (s.step_index for s in steps if s.step_type == "llm_call" and s.status != "ok"),
+        len(steps),
+    )
+    base_meta: dict[str, Any] = {
+        "run_id": run_id,
+        "agent_code": agent_code,
+        "from_step_index": from_step_index,
+        "replayed_steps": sum(1 for s in steps if s.status == "ok"),
+        "skipped_tool_side_effects": sum(
+            1 for s in steps if s.step_type == "tool_call" and s.status == "ok"
+        ),
+    }
+    try:
+        result = await declarative.run_declarative_agent(
+            db, agent=decl, input_data={}, ctx=ctx, task_id=run_id, resume_run_id=run_id
+        )
+    except AppError as e:
+        log_audit(
+            db,
+            tenant_id=ctx.tenant_id,
+            actor_id=user.user_id,
+            action="retry_from_step",
+            resource_type="tenant_agent",
+            resource_id=decl.id,
+            result="failure",
+            request_id=ctx.request_id,
+            metadata={**base_meta, "error_code": e.code},
+        )
+        db.commit()
+        raise
+    log_audit(
+        db,
+        tenant_id=ctx.tenant_id,
+        actor_id=user.user_id,
+        action="retry_from_step",
+        resource_type="tenant_agent",
+        resource_id=decl.id,
+        result="success",
+        request_id=ctx.request_id,
+        metadata={**base_meta, "truncated": bool(result.output.get("truncated"))},
+    )
+    db.commit()
+    return ok(result.model_dump(), request)
 
 
 # ---------------------------------------------------------------------------

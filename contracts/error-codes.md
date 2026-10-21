@@ -80,6 +80,14 @@
 | `LLM_ERROR` | 502 | 模型调用失败（供应商错误已分类） |
 | `LLM_NOT_CONFIGURED` | 503 | 真实模型未配置 |
 
+## Agent 运行 checkpoint（P0 内核，2026-10-21）
+
+| code | HTTP | 说明 |
+|---|---|---|
+| `RUN_NOT_FOUND` | 404 | 运行步骤不存在或跨租户（防枚举） |
+| `RUN_ALREADY_COMPLETED` | 409 | 运行已完成（final ok），拒绝断点续跑重放 |
+| `RUN_CHECKPOINT_INVALID` | 409 | checkpoint 数据不完整或属于另一版本配置，无法续跑 |
+
 ## 政策模块（P1）
 
 | code | HTTP | 说明 |

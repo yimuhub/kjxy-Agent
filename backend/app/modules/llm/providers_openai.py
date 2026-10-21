@@ -11,7 +11,7 @@ import httpx
 from app.core.config import settings
 from app.core.errors import AppError
 from app.core.logging import get_logger
-from app.modules.llm.schemas import LLMRequest, LLMResponse
+from app.modules.llm.schemas import LLMRequest, LLMResponse, ToolCall
 
 log = get_logger(__name__)
 
@@ -23,12 +23,53 @@ def _llm_error(category: str, message: str) -> AppError:
     return AppError("LLM_ERROR", message, http_status=502, details={"category": category})
 
 
+def _message_payload(m) -> dict:
+    """ChatMessage → OpenAI chat messages 帧（含工具循环扩展字段，按需出现）。"""
+    payload: dict = {"role": m.role, "content": m.content}
+    if m.tool_call_id:
+        payload["tool_call_id"] = m.tool_call_id
+    if m.tool_calls:
+        payload["tool_calls"] = m.tool_calls
+    return payload
+
+
+def _parse_tool_calls(message: dict) -> list[ToolCall] | None:
+    """choices[].message.tool_calls → 结构化 ToolCall 列表（无则 None）。
+
+    字段缺失/形态异常一律宽容降级：arguments 缺失按 ``"{}"``（交给工具层的
+    Schema 校验失败回填，provider 不猜模型意图）；非法条目直接跳过。
+    """
+    raw = message.get("tool_calls")
+    if not isinstance(raw, list) or not raw:
+        return None
+    out: list[ToolCall] = []
+    for i, tc in enumerate(raw):
+        if not isinstance(tc, dict):
+            continue
+        raw_fn = tc.get("function")
+        fn = raw_fn if isinstance(raw_fn, dict) else {}
+        name = str(fn.get("name") or "")
+        if not name:
+            continue
+        args = fn.get("arguments")
+        out.append(
+            ToolCall(
+                id=str(tc.get("id") or f"call_{i}"),
+                name=name,
+                args_json=args if isinstance(args, str) and args else "{}",
+            )
+        )
+    return out or None
+
+
 class OpenAICompatibleProvider:
     PRICE_PER_1K_USD = PRICE_PER_1K_USD
     #: 调用记录标签（llm_calls.provider，最长 50）；由供应商体系构建时注入
     provider_name: str | None = None
     #: 所属供应商行 ID；由供应商体系构建时注入，用于调用成本归属
     supplier_id: str | None = None
+    #: function-calling 能力位：供应商配置显式声明后才走工具循环（默认关闭，零回归）
+    supports_tools: bool = False
 
     def __init__(
         self,
@@ -57,12 +98,15 @@ class OpenAICompatibleProvider:
         model = request.model or self.model
         payload: dict = {
             "model": model,
-            "messages": [{"role": m.role, "content": m.content} for m in request.messages],
+            "messages": [_message_payload(m) for m in request.messages],
         }
         if request.max_tokens:
             payload["max_tokens"] = request.max_tokens
         if request.temperature is not None:
             payload["temperature"] = request.temperature
+        # function-calling：仅在调用方显式携带工具定义时透传（旧路径 payload 不变）
+        if request.tools:
+            payload["tools"] = request.tools
 
         started = time.perf_counter()
         try:
@@ -104,4 +148,5 @@ class OpenAICompatibleProvider:
             model=data.get("model") or model,
             latency_ms=latency_ms,
             finish_reason=choice.get("finish_reason"),
+            tool_calls=_parse_tool_calls(message),
         )

@@ -121,6 +121,7 @@ def supplier_to_out(
         test_time=row.test_time.isoformat() if row.test_time else None,
         response_time_ms=row.response_time_ms,
         last_error=row.last_error,
+        supports_tools=bool(row.supports_tools),
         created_at=row.created_at.isoformat(),
         updated_at=row.updated_at.isoformat(),
     )
@@ -200,6 +201,9 @@ def update_supplier(
         row.api_key_enc = encrypt_api_key(api_key)  # 密钥轮换
         row.consecutive_failures = 0
         row.last_error = None
+    # function-calling 能力位（布尔位单独处理：不走上方字符串 strip 分支）
+    if data.get("supports_tools") is not None:
+        row.supports_tools = bool(data["supports_tools"])
     db.flush()
     invalidate_supplier_cache(supplier_id=row.id)
     return supplier_to_out(db, row, tenant_id or "")
@@ -386,6 +390,8 @@ def build_provider_from_supplier(row: "Supplier") -> "OpenAICompatibleProvider":
     # 调用记录中的 provider 标签（llm_calls.provider 列最长 50）
     provider.provider_name = f"supplier:{row.name}"[:50]
     provider.supplier_id = row.id
+    # function-calling 能力位由供应商行声明（默认 false → 工具循环关闭，零回归）
+    provider.supports_tools = bool(getattr(row, "supports_tools", False))
     return provider
 
 

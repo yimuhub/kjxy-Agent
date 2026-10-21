@@ -133,6 +133,23 @@ class Settings(BaseSettings):
         "（展示性预筛，不阻断审核；机器预检不受此开关影响，始终执行）",
     )
 
+    # --- 声明式 Agent 工具循环护栏（P0 内核） ---
+    agent_tool_loop_max_iterations: int = Field(
+        default=6,
+        ge=1,
+        description="单次 run 的工具循环 LLM 调用轮数上限；超限诚实标注 truncated=true",
+    )
+    agent_tool_loop_max_tokens: int = Field(
+        default=60000,
+        ge=1000,
+        description="单次 run 的输入+输出 token 预算（跨 checkpoint 续跑累计）；超限标注 truncated",
+    )
+    agent_tool_loop_max_seconds: int = Field(
+        default=180,
+        ge=5,
+        description="单次 run 的墙钟时长预算（步耗时累计）；超限标注 truncated",
+    )
+
     @property
     def platform_admin_username_list(self) -> list[str]:
         return [u.strip() for u in self.platform_admin_usernames.split(",") if u.strip()]
