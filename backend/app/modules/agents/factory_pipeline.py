@@ -111,7 +111,13 @@ def _resolve_blueprint_items(
         messages = fb.build_blueprint_messages(industry_brief, focus)
         request = LLMRequest(
             messages=[ChatMessage(role=m["role"], content=m["content"]) for m in messages],
-            metadata=LLMMetadata(tenant_id=run.tenant_id, task_id=task_id, request_id=request_id),
+            metadata=LLMMetadata(
+                tenant_id=run.tenant_id,
+                task_id=task_id,
+                request_id=request_id,
+                purpose="factory",  # W4 观测：工厂蓝图调用打标，agent_ref=工厂 run id
+                agent_ref=run.id,
+            ),
         )
 
         async def _call() -> str:

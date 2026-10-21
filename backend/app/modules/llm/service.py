@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.errors import AppError
 from app.core.logging import get_logger
-from app.modules.llm.models import LLMCall
+from app.modules.llm.models import LLMCall, LLMTrace
 from app.modules.llm.provider import get_provider, provider_resolution
 from app.modules.llm.schemas import LLMRequest, LLMResponse, LLMStatusOut
 from app.modules.tenants.quota import check_and_consume
@@ -49,6 +49,17 @@ def _prompt_sha(request: LLMRequest) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _prompt_digest(request: LLMRequest) -> str:
+    """观测轨迹的提示词摘要（W4 隐私口径）：``sha256 前 12 位|前 200 字``。
+
+    全文绝不入库——200 字之外的内容被截断丢弃，sha 前缀仍可跨行对账
+    （同一 prompt 的 digest 稳定可比）。
+    """
+    text = "\n".join(f"{m.role}:{m.content or ''}" for m in request.messages)
+    sha12 = hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+    return f"{sha12}|{text[:200]}"
+
+
 def _estimate_cost(provider, input_tokens: int | None, output_tokens: int | None) -> float:
     """(in+out)/1000 * 单价；单价取 provider 常量（fake 为 0）。"""
     unit_price = float(getattr(provider, "PRICE_PER_1K_USD", 0.0) or 0.0)
@@ -72,6 +83,7 @@ def _write_call(
     latency_ms: int,
     request_id: str,
     tenant_id: str,
+    error_text: str | None = None,
 ) -> None:
     from app.core.context import metrics
 
@@ -96,6 +108,28 @@ def _write_call(
             latency_ms=latency_ms,
             request_id=request_id,
             prompt_sha=_prompt_sha(request),
+        )
+    )
+    # ⚑ observe_llm 指标点旁挂观测轨迹（W4）：fake provider 也落；purpose 由调用方
+    # 经 LLMMetadata 透传，拿不到按 "platform"；token 取不到就 null，绝不编造。
+    db.add(
+        LLMTrace(
+            tenant_id=tenant_id,
+            provider_id=getattr(provider, "supplier_id", None),
+            model=(
+                resp.model
+                if resp
+                else (request.model or getattr(provider, "model", "") or "unknown")
+            ),
+            purpose=request.metadata.purpose or "platform",
+            agent_ref=request.metadata.agent_ref,
+            run_id=request.metadata.task_id,
+            status="ok" if status == "success" else "error",
+            input_tokens=resp.input_tokens if resp else None,
+            output_tokens=resp.output_tokens if resp else None,
+            latency_ms=latency_ms,
+            prompt_digest=_prompt_digest(request),
+            error_text=error_text[:300] if error_text else None,
         )
     )
     db.flush()
@@ -130,6 +164,7 @@ async def complete_with_logging(db: Session, request: LLMRequest) -> LLMResponse
             latency_ms=latency_ms,
             request_id=request_id,
             tenant_id=tenant_id,
+            error_text=f"{e.code}: {e.message}",
         )
         raise
 

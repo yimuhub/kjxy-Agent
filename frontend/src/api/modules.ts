@@ -1133,3 +1133,43 @@ export const deviceApi = {
     )
   },
 }
+
+/* ---------- W4 模型调用观测 ---------- */
+
+export interface LlmTraceItem {
+  id: string
+  created_at: string
+  provider_id: string | null
+  model: string
+  purpose: string
+  agent_ref: string | null
+  run_id: string | null
+  status: string
+  input_tokens: number | null
+  output_tokens: number | null
+  latency_ms: number | null
+  prompt_digest: string | null
+  error_text: string | null
+}
+
+export interface LlmUsageRow {
+  day: string
+  model: string
+  calls: number
+  tokens: number
+  avg_latency_ms: number
+  errors: number
+}
+
+export const llmTraceApi = {
+  traces(params: { purpose?: string; days?: number; limit?: number }): Promise<LlmTraceItem[]> {
+    return api
+      .get<ApiResponse<{ items: LlmTraceItem[] }>>('/llm/traces', { params })
+      .then(r => (r.data as ApiResponse<{ items: LlmTraceItem[] }>).data.items)
+  },
+  summary(days = 30): Promise<LlmUsageRow[]> {
+    return api
+      .get<ApiResponse<{ items: LlmUsageRow[] }>>('/llm/usage/summary', { params: { days } })
+      .then(r => (r.data as ApiResponse<{ items: LlmUsageRow[] }>).data.items)
+  },
+}

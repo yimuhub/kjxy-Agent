@@ -625,6 +625,24 @@ def _mark_member_failed(db: Session, run: TeamRun, row: TeamRunMember, detail: s
     run.last_error = detail[:2000]
     run.finished_at = _utcnow()
     db.commit()
+    # W4 事件推送：班组名+断点成员（账本已 commit，推送失败不回滚不拖累重试）
+    from app.modules.push import service as push_service
+
+    team = db.get(AgentTeam, run.team_id)
+    team_name = team.name if team is not None else run.team_id
+    push_service.dispatch(
+        db,
+        tenant_id=run.tenant_id,
+        event_type="team_run_failed",
+        payload={
+            "title": f"班组「{team_name}」运行失败",
+            "team_name": team_name,
+            "member": row.role_name,
+            "error": detail[:200],
+        },
+        request_id="",
+    )
+    db.commit()
 
 
 def _wrap_member_error(run: TeamRun, row: TeamRunMember, exc: AppError) -> AppError:

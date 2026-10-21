@@ -332,6 +332,21 @@ def evaluate_alerts(
                 metadata={"rule_id": rule.id, "metric": reading.metric, "value": reading.value},
             )
             send_alert(title="device_alert", message=text)
+            # W4 事件推送（tenant_admin 配置的通道；dispatch 自带异常护栏）
+            from app.modules.push import service as push_service
+
+            push_service.dispatch(
+                db,
+                tenant_id=tenant_id,
+                event_type="device_alert",
+                payload={
+                    "title": text[:200],
+                    "device_id": reading.device_id,
+                    "metric": reading.metric,
+                    "value": reading.value,
+                },
+                request_id=request_id,
+            )
     return created
 
 
@@ -430,6 +445,16 @@ def record_health_alert(
         metadata={"text": text},
     )
     send_alert(title="device_health", message=text)
+    # W4 事件推送：健康类告警（连接器自动停用等）同样进订阅通道
+    from app.modules.push import service as push_service
+
+    push_service.dispatch(
+        db,
+        tenant_id=device.tenant_id,
+        event_type="device_alert",
+        payload={"title": text[:200], "device_id": device.id, "metric": "_health", "value": None},
+        request_id=request_id,
+    )
 
 
 def device_to_dict(device: Device, connector_out: dict[str, Any] | None = None) -> dict[str, Any]:

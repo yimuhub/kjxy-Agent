@@ -1493,6 +1493,95 @@ paths:
               schema: {}
       security:
       - HTTPBearer: []
+  /api/v1/llm/traces:
+    get:
+      tags:
+      - v1
+      - llm
+      summary: List Traces
+      description: 本租户近 N 天调用轨迹（最新在前；limit 上限 200）。
+      operationId: list_traces_api_v1_llm_traces_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: purpose
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Purpose
+      - name: days
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 90
+          minimum: 1
+          default: 7
+          title: Days
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 50
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/llm/usage/summary:
+    get:
+      tags:
+      - v1
+      - llm
+      summary: Usage Summary
+      description: 按日×模型聚合：次数 / tokens 和 / 平均延迟 / 错误数（日期为 UTC 口径）。
+      operationId: usage_summary_api_v1_llm_usage_summary_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: purpose
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Purpose
+      - name: days
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 180
+          minimum: 1
+          default: 30
+          title: Days
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/llm/status:
     get:
       tags:
@@ -3412,6 +3501,108 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/settings/push-channels:
+    get:
+      tags:
+      - v1
+      - push
+      summary: List Channels
+      operationId: list_channels_api_v1_settings_push_channels_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+    post:
+      tags:
+      - v1
+      - push
+      summary: Create Channel
+      operationId: create_channel_api_v1_settings_push_channels_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PushChannelCreate'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/settings/push-channels/{channel_id}:
+    patch:
+      tags:
+      - v1
+      - push
+      summary: Update Channel
+      operationId: update_channel_api_v1_settings_push_channels__channel_id__patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: channel_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Channel Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PushChannelUpdate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - v1
+      - push
+      summary: Delete Channel
+      operationId: delete_channel_api_v1_settings_push_channels__channel_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: channel_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Channel Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
     AddMemberRequest:
@@ -4021,6 +4212,79 @@ components:
       type: object
       title: PolicyProfile
       description: 待匹配画像：任一字段都可缺省，缺省导致对应条件无法判断。
+    PushChannelCreate:
+      properties:
+        name:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Name
+        kind:
+          type: string
+          maxLength: 30
+          minLength: 1
+          title: Kind
+        url:
+          anyOf:
+          - type: string
+            maxLength: 1000
+          - type: 'null'
+          title: Url
+        events:
+          items:
+            type: string
+          type: array
+          title: Events
+        enabled:
+          type: boolean
+          title: Enabled
+          default: true
+      additionalProperties: false
+      type: object
+      required:
+      - name
+      - kind
+      title: PushChannelCreate
+      description: 创建请求。URL 可先缺省（建好通道后 PATCH 补录），提交即 SSRF 校验 + 加密。
+    PushChannelUpdate:
+      properties:
+        name:
+          anyOf:
+          - type: string
+            maxLength: 120
+            minLength: 1
+          - type: 'null'
+          title: Name
+        kind:
+          anyOf:
+          - type: string
+            maxLength: 30
+            minLength: 1
+          - type: 'null'
+          title: Kind
+        url:
+          anyOf:
+          - type: string
+            maxLength: 1000
+            minLength: 1
+          - type: 'null'
+          title: Url
+        events:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Events
+        enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Enabled
+      additionalProperties: false
+      type: object
+      title: PushChannelUpdate
+      description: 编辑请求：全部可选；提交 url = 重填即换（无独立轮换端点），同时清零失败计数。
     QAInput:
       properties:
         question:

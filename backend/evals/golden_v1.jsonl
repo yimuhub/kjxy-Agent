@@ -1,0 +1,6 @@
+{"id": "g-001", "agent_code": "demo_greenhouse_reader", "question": "棚室当前各传感器读数情况如何？给出关键读数要点。", "expect_keywords": ["读数", "棚室"], "note": "sensor 概况：解读员应复述传感器读数事实（fake 模型不命中属预期，验证管道通）"}
+{"id": "g-002", "agent_code": "demo_greenhouse_diagnoser", "question": "棚室白天温度持续超过 35 摄氏度，应该如何通风处置？", "expect_keywords": ["通风", "建议"], "note": "棚室通风：诊断员应给出通风处置建议"}
+{"id": "g-003", "agent_code": "seed_greenhouse_keeper", "question": "番茄开花期棚室灌溉怎么安排？", "expect_keywords": ["灌溉", "水分"], "note": "灌溉：装载市场助手（棚室环境管家），关注灌溉/水分口径"}
+{"id": "g-004", "agent_code": "demo_greenhouse_critic", "question": "请以审核员视角处理下面的班组接力内容：解读员称温度 38 度，诊断员建议强通风。", "expect_keywords": ["审核", "结论"], "note": "审核类：critic 成员应输出审慎的最终结论"}
+{"id": "g-005", "agent_code": "seed_plant_doctor", "question": "叶片背面出现白色粉状物，疑似白粉病，如何初诊与处置？", "expect_keywords": ["病害"], "note": "病虫害初诊：装载市场助手 plant_doctor"}
+{"id": "g-006", "agent_code": "seed_policy_matcher", "question": "种植大棚的新型农业经营主体有哪些补贴政策可以匹配？", "expect_keywords": ["政策"], "note": "政策类：装载市场助手 policy_matcher"}

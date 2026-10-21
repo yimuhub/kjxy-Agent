@@ -22,8 +22,9 @@ from app.modules.evolution.models import (  # noqa: F401
     SkillRollout,
 )
 from app.modules.knowledge.models import KnowledgeChunk, KnowledgeDocument  # noqa: F401
-from app.modules.llm.models import LLMCall  # noqa: F401
+from app.modules.llm.models import LLMCall, LLMTrace  # noqa: F401
 from app.modules.policy.models import Policy, PolicyApplication  # noqa: F401
+from app.modules.push.models import PushChannel  # noqa: F401
 from app.modules.tasks.models import Task, TaskEvent  # noqa: F401
 from app.modules.tenants.models import Tenant, TenantMembership  # noqa: F401
 from app.modules.tools.models import ToolApproval, ToolDefinition  # noqa: F401

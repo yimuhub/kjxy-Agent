@@ -38,6 +38,10 @@ class LLMMetadata(BaseModel):
     tenant_id: str | None = None
     task_id: str | None = None
     request_id: str | None = None
+    # W4 观测透传：调用用途（declarative|factory|eval|…，缺省 platform）与调用方引用
+    # （声明式=agent_code，工厂=factory run id）。只进 llm_traces，不影响 provider 行为。
+    purpose: str | None = None
+    agent_ref: str | None = None
 
     model_config = {"extra": "ignore"}
 

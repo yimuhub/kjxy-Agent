@@ -865,12 +865,16 @@ async def run_declarative_agent(
     ctx: TenantContext,
     task_id: str,
     resume_run_id: str | None = None,
+    llm_purpose: str = "declarative",
 ) -> AgentResult:
     """运行一个已发布的声明式 Agent，返回与平台 Agent 相同的 AgentResult schema。
 
     记账说明：与 knowledge_qa 同步问答口径一致——同步执行只写审计
     （路由层 action=agent_run）+ llm_calls 行（complete_with_logging 落库），
     不建 tasks 行；异步任务队列不在本次范围。
+
+    ``llm_purpose``：进 llm_traces 的用途标签（默认 declarative；评估集传
+    eval）。agent_ref 固定为本 Agent 的 agent_code（观测口径统一）。
 
     ``resume_run_id``：断点续跑模式——从该 run 的最后失败步继续；已提交的
     工具步不重放（防副作用重复），失败的 LLM 步原位重跑。
@@ -913,7 +917,11 @@ async def run_declarative_agent(
                 ),
             ],
             metadata=LLMMetadata(
-                tenant_id=ctx.tenant_id, task_id=task_id, request_id=ctx.request_id
+                tenant_id=ctx.tenant_id,
+                task_id=task_id,
+                request_id=ctx.request_id,
+                purpose=llm_purpose,
+                agent_ref=agent.agent_code,
             ),
         )
         resp = await complete_with_logging(db, request)
@@ -1216,7 +1224,11 @@ async def run_declarative_agent(
             messages=list(history),
             tools=tools_payload or None,
             metadata=LLMMetadata(
-                tenant_id=ctx.tenant_id, task_id=run_id, request_id=ctx.request_id
+                tenant_id=ctx.tenant_id,
+                task_id=run_id,
+                request_id=ctx.request_id,
+                purpose=llm_purpose,
+                agent_ref=agent.agent_code,
             ),
         )
         call_started = time.perf_counter()

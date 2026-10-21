@@ -169,6 +169,21 @@ def create_alert_workorder(
         alert.id,
         {"workorder_id": task.id, "existed": existed, "metric": alert.metric},
     )
+    if not existed:
+        # W4 事件推送：新开工单才推（幂等重放不轰炸）；dispatch 自带异常护栏
+        from app.modules.push import service as push_service
+
+        push_service.dispatch(
+            db,
+            tenant_id=ctx.tenant_id,
+            event_type="workorder_created",
+            payload={
+                "title": f"工单 {task.id} 已创建并进入处理队列",
+                "workorder_no": task.id,
+                "alert_id": alert.id,
+            },
+            request_id=ctx.request_id,
+        )
     db.commit()
     return ok(
         {

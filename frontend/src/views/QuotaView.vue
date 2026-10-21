@@ -13,6 +13,50 @@
     />
     <el-card class="section">
       <template #header>
+        <span class="card-title">模型调用观测（近 7 天）</span>
+      </template>
+      <el-table :data="usageRows" size="small" empty-text="暂无调用记录">
+        <el-table-column prop="day" label="日期" width="110" />
+        <el-table-column prop="model" label="模型" min-width="140" show-overflow-tooltip />
+        <el-table-column prop="calls" label="次数" width="70" />
+        <el-table-column prop="tokens" label="总 tokens" width="100" />
+        <el-table-column label="平均延迟" width="100">
+          <template #default="{ row }">{{ row.avg_latency_ms }} ms</template>
+        </el-table-column>
+        <el-table-column prop="errors" label="错误" width="70">
+          <template #default="{ row }">
+            <span :class="{ err: row.errors > 0 }">{{ row.errors }}</span>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div class="trace-title">最近调用</div>
+      <el-table :data="traceRows" size="small" empty-text="暂无">
+        <el-table-column label="时间" width="150">
+          <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
+        </el-table-column>
+        <el-table-column prop="purpose" label="用途" width="100" />
+        <el-table-column prop="agent_ref" label="来源" min-width="120" show-overflow-tooltip />
+        <el-table-column prop="model" label="模型" min-width="110" show-overflow-tooltip />
+        <el-table-column label="tokens" width="100">
+          <template #default="{ row }">{{ (row.input_tokens ?? 0) + (row.output_tokens ?? 0) }}</template>
+        </el-table-column>
+        <el-table-column label="状态" width="80">
+          <template #default="{ row }">
+            <el-tooltip v-if="row.prompt_digest" :content="row.prompt_digest" placement="top">
+              <el-tag :type="row.status === 'ok' ? 'success' : 'danger'" size="small">
+                {{ row.status === 'ok' ? '成功' : '失败' }}
+              </el-tag>
+            </el-tooltip>
+            <el-tag v-else :type="row.status === 'ok' ? 'success' : 'danger'" size="small">
+              {{ row.status === 'ok' ? '成功' : '失败' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
+    <el-card class="section">
+      <template #header>
         用量额度（{{ unitsName }}）
       </template>
       <AsyncState
@@ -80,7 +124,8 @@
 </template>
 <script setup lang="ts">
   import { computed, onMounted, reactive, ref } from 'vue'
-  import { tenantApi } from '@/api/modules'
+  import { tenantApi, llmTraceApi, type LlmTraceItem, type LlmUsageRow } from '@/api/modules'
+  import { formatTime } from '@/utils/format'
   import AsyncState from '@/components/AsyncState.vue'
   import { classifyError, type ViewState } from '@/utils/status'
   import { useAuthStore } from '@/stores/auth'
@@ -142,9 +187,33 @@
       quotaState.value = classifyError(e)
     }
   }
-  onMounted(loadQuota)
+  /* ---------- 模型调用观测 ---------- */
+  const usageRows = ref<LlmUsageRow[]>([])
+  const traceRows = ref<LlmTraceItem[]>([])
+  async function loadTraces() {
+    try {
+      const [s, t] = await Promise.all([
+        llmTraceApi.summary(7),
+        llmTraceApi.traces({ days: 7, limit: 20 }),
+      ])
+      usageRows.value = s
+      traceRows.value = t
+    } catch {
+      // 观测是辅助信息：失败静默空表，不打扰额度主功能
+      usageRows.value = []
+      traceRows.value = []
+    }
+  }
+
+  onMounted(() => {
+    void loadQuota()
+    void loadTraces()
+  })
 </script>
 <style scoped>
+  .card-title { font-weight: 600; }
+  .trace-title { margin: 12px 0 6px; font-size: 13px; color: var(--el-text-color-secondary); }
+  .err { color: var(--el-color-danger); font-weight: 600; }
   .quota {
     padding: 4px;
     max-width: 960px;
