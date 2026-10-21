@@ -2594,6 +2594,313 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agents/teams:
+    get:
+      tags:
+      - v1
+      - agents
+      - agent-teams
+      summary: List Teams
+      description: 本租户班组列表（租户成员均可读）。
+      operationId: list_teams_api_v1_agents_teams_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+    post:
+      tags:
+      - v1
+      - agents
+      - agent-teams
+      summary: Create Team
+      description: 创建班组（成员 2..8、同租户重名 409、跨租户成员 404）。
+      operationId: create_team_api_v1_agents_teams_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeamCreateRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/agents/teams/{team_id}:
+    get:
+      tags:
+      - v1
+      - agents
+      - agent-teams
+      summary: Get Team
+      description: 班组详情（含成员定义与成员 Agent 摘要）。
+      operationId: get_team_api_v1_agents_teams__team_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: team_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Team Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    patch:
+      tags:
+      - v1
+      - agents
+      - agent-teams
+      summary: Update Team
+      description: 编辑班组（字段子集；members 传则整单重校验）。
+      operationId: update_team_api_v1_agents_teams__team_id__patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: team_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Team Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeamUpdateRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - v1
+      - agents
+      - agent-teams
+      summary: Delete Team
+      description: 删除班组定义（历史运行台账保留）。
+      operationId: delete_team_api_v1_agents_teams__team_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: team_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Team Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agents/teams/{team_id}/run:
+    post:
+      tags:
+      - v1
+      - agents
+      - agent-teams
+      summary: Run Team
+      description: '同步跑一次班组接力：全员预检 → 按序执行 → 返回 run（含成员明细）。
+
+
+        任一成员失败：HTTP 抛原始错误（run 已置 failed 停在断点，可 retry），
+
+        与声明式运行失败 502 的口径一致。'
+      operationId: run_team_api_v1_agents_teams__team_id__run_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: team_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Team Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeamRunRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agents/teams/{team_id}/runs:
+    get:
+      tags:
+      - v1
+      - agents
+      - agent-teams
+      summary: List Team Runs
+      description: 本班组运行列表（摘要，最新在前）。
+      operationId: list_team_runs_api_v1_agents_teams__team_id__runs_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: team_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Team Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agents/team-runs/{run_id}:
+    get:
+      tags:
+      - v1
+      - agents
+      - agent-teams
+      summary: Get Team Run
+      description: 运行详情：team_runs 主行 + 全部成员接力明细（含 task_id 供二跳）。
+      operationId: get_team_run_api_v1_agents_team_runs__run_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Run Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agents/team-runs/{run_id}/retry:
+    post:
+      tags:
+      - v1
+      - agents
+      - agent-teams
+      summary: Retry Team Run
+      description: '成员级断点续跑：已 ok 成员绝不重跑（复用 output），从首个非 ok 成员续。
+
+
+        有 checkpoint 步骤的成员以其存量 task_id 走 W1 resume（副作用工具不重放、
+
+        失败 LLM 步原位重跑）；无步骤成员整段重跑（该路径无副作用工具）。
+
+        审计 action=team_run_retry（记 skipped_ok 与续跑起点）。'
+      operationId: retry_team_run_api_v1_agents_team_runs__run_id__retry_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Run Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agents/team-runs/{run_id}/stream:
+    get:
+      tags:
+      - v1
+      - agents
+      - agent-teams
+      summary: Stream Team Run
+      description: 成员级 SSE（复用 run_stream 帧协议；内部步经 agent_run_id 二跳，见 stream.py）。
+      operationId: stream_team_run_api_v1_agents_team_runs__run_id__stream_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Run Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/market/catalog:
     get:
       tags:
@@ -3436,12 +3743,41 @@ components:
           type: boolean
           title: Publish
           default: true
+        as_team:
+          anyOf:
+          - $ref: '#/components/schemas/FactoryAsTeamSpec'
+          - type: 'null'
       additionalProperties: false
       type: object
       required:
       - codes
       title: FactoryApplyRequest
       description: 采纳请求：codes 为蓝图内 agent_code 子集；publish 决定是否触发分级发布。
+    FactoryAsTeamSpec:
+      properties:
+        name:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Name
+        description:
+          anyOf:
+          - type: string
+            maxLength: 4000
+          - type: 'null'
+          title: Description
+        model_hint:
+          anyOf:
+          - type: string
+            maxLength: 100
+          - type: 'null'
+          title: Model Hint
+      additionalProperties: false
+      type: object
+      required:
+      - name
+      title: FactoryAsTeamSpec
+      description: 装配即组队（W2）：采纳成功后把本次装配出的助手按蓝图顺序编成班组。
     FactoryGenerateRequest:
       properties:
         industry_brief:
@@ -4120,6 +4456,93 @@ components:
       required:
       - task_type
       title: TaskCreate
+    TeamCreateRequest:
+      properties:
+        name:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Name
+        members:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Members
+        model_hint:
+          anyOf:
+          - type: string
+            maxLength: 100
+          - type: 'null'
+          title: Model Hint
+        description:
+          anyOf:
+          - type: string
+            maxLength: 4000
+          - type: 'null'
+          title: Description
+        enabled:
+          type: boolean
+          title: Enabled
+          default: true
+      additionalProperties: false
+      type: object
+      required:
+      - name
+      - members
+      title: TeamCreateRequest
+      description: 创建班组：members 为有序数组（数量/字段校验在 service 层，报错更友好）。
+    TeamRunRequest:
+      properties:
+        input:
+          type: string
+          maxLength: 8000
+          minLength: 1
+          title: Input
+      additionalProperties: false
+      type: object
+      required:
+      - input
+      title: TeamRunRequest
+      description: 班组运行请求：input 为原始问题（各成员接力输入的公共前缀）。
+    TeamUpdateRequest:
+      properties:
+        name:
+          anyOf:
+          - type: string
+            maxLength: 100
+            minLength: 1
+          - type: 'null'
+          title: Name
+        members:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          title: Members
+        model_hint:
+          anyOf:
+          - type: string
+            maxLength: 100
+          - type: 'null'
+          title: Model Hint
+        description:
+          anyOf:
+          - type: string
+            maxLength: 4000
+          - type: 'null'
+          title: Description
+        enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Enabled
+      additionalProperties: false
+      type: object
+      title: TeamUpdateRequest
+      description: 编辑班组：全部可选；members 传则整体替换（保持顺序语义简单）。
     TenantSignupRequest:
       properties:
         tenant_name:

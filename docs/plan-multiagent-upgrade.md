@@ -6,9 +6,9 @@
 ## 进度看板
 | 波次 | 范围 | 状态 |
 |---|---|---|
-| W1 | P0 内核：LLM function-call 工具循环 + `agent_run_steps` checkpoint + 断点续跑 + SSE 步骤事件 | 🔄 施工中 |
-| W2 | P0 班组：`agent_teams`（蓝图角色→协作班组，DB 消息接力，每步过风险闸）+ 工厂"装配为协作班组" + Critic 审校场景 | ⏳ 待 W1 |
-| W3 | 前端：班组管理页 + 运行步骤时间线（复用纯 CSS 风格）+ 供应商 supports_tools 开关 | ⏳ 待 W2 |
+| W1 | P0 内核：LLM function-call 工具循环 + `agent_run_steps` checkpoint + 断点续跑 + SSE 步骤事件 | ✅ 已合拢 e340f7c（506 测试） |
+| W2 | P0 班组：`agent_teams` 接力协作 + Critic 审校 + 成员级断点续跑 + 工厂 as_team 装配 | ✅ 已合拢（524 测试；真机三成员接力通过） |
+| W3 | 前端：班组管理页 + 运行步骤时间线（复用纯 CSS 风格）+ 供应商 supports_tools 开关 | 🔄 施工中 |
 | W4 | P1 观测评估：`llm_traces` 逐调用追踪（token/成本/延迟）+ 每领域助手 20 题评估集（slow 标记，CI artifact）+ 告警/工单推送通道（企业微信机器人 webhook，复用连接器安全模型） | ⏳ |
 | W5 | P2 生态：MCP 工具连接器（streamable-HTTP，SSRF/key 加密/熔断复用）+ supervisor 统一问答入口（规则+小模型选人设） | ⏳ |
 | 远期 | SkillHub（兼容 MCP 工具描述格式）、可视化编排画布（评估后再定） | 📌 |

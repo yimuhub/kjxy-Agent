@@ -36,6 +36,7 @@ from app.core.responses import ok
 from app.modules.agents import declarative
 from app.modules.agents import factory_pipeline as pipeline  # noqa: F401 - 注册任务 handler
 from app.modules.agents.factory_models import STATUS_COMPLETED, FactoryRun
+from app.modules.agents.teams import service as teams_service
 from app.modules.audit.service import log_audit
 from app.modules.tasks.router import _enqueue_or_inline
 from app.modules.tasks.service import TaskService
@@ -70,6 +71,23 @@ class FactoryGenerateRequest(BaseModel):
         return v.strip() if v and v.strip() else None
 
 
+class FactoryAsTeamSpec(BaseModel):
+    """装配即组队（W2）：采纳成功后把本次装配出的助手按蓝图顺序编成班组。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=100)
+    description: str | None = Field(default=None, max_length=4000)
+    model_hint: str | None = Field(default=None, max_length=100)
+
+    @field_validator("name")
+    @classmethod
+    def _name_not_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("as_team.name 不能为空白")
+        return v.strip()
+
+
 class FactoryApplyRequest(BaseModel):
     """采纳请求：codes 为蓝图内 agent_code 子集；publish 决定是否触发分级发布。"""
 
@@ -77,6 +95,8 @@ class FactoryApplyRequest(BaseModel):
 
     codes: list[str] = Field(min_length=1, max_length=20)
     publish: bool = True
+    #: 可选：装配完成后自动创建协作班组（成员=装配出的助手，蓝图顺序）
+    as_team: FactoryAsTeamSpec | None = None
 
     @field_validator("codes")
     @classmethod
@@ -307,6 +327,42 @@ def apply_run(
         metadata={"publish": payload.publish, "codes": payload.codes, **summary},
     )
     db.commit()
+
+    # -- 装配即组队（W2 as_team）：装配流程原样完成后自动建协作班组 ----------
+    # 成员=本次采纳成功的助手，按**蓝图顺序**（非 codes 顺序）；
+    # role_name=蓝图角色名，instruction=角色 goal/backstory 摘要，
+    # 末位角色若命中审核类关键词自动 is_critic=true（service.members_from_blueprint）。
+    # 建队失败不回滚已提交的采纳结果：以 team/team_error 如实回给调用方。
+    team_payload: dict[str, Any] | None = None
+    team_error: str | None = None
+    if payload.as_team is not None and summary["applied"] > 0:
+        ok_codes = {str(r["agent_code"]) for r in results if r["ok"]}
+        members = teams_service.members_from_blueprint(items, ok_codes)
+        try:
+            team = teams_service.create_team(
+                db,
+                tenant_id=ctx.tenant_id,
+                actor_id=user.user_id,
+                name=payload.as_team.name,
+                members=members,
+                model_hint=payload.as_team.model_hint,
+                description=payload.as_team.description,
+                request_id=ctx.request_id,
+            )
+            team_payload = teams_service.team_out(team)
+            db.commit()
+        except AppError as e:
+            db.rollback()
+            team_error = e.code
+
     return ok(
-        {"run_id": run.id, "publish": payload.publish, "results": results, **summary}, request
+        {
+            "run_id": run.id,
+            "publish": payload.publish,
+            "results": results,
+            "team": team_payload,
+            "team_error": team_error,
+            **summary,
+        },
+        request,
     )

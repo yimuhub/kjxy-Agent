@@ -29,6 +29,8 @@ from app.modules.agents import declarative, get_global_registry, run_steps, run_
 from app.modules.agents.definitions import AGENT_DEFINITIONS
 from app.modules.agents.factory_router import router as factory_router
 from app.modules.agents.schemas import AgentContext, AgentResult
+from app.modules.agents.teams.router import router as teams_router
+from app.modules.agents.teams.router import runs_router as team_runs_router
 from app.modules.audit.service import log_audit
 from app.modules.tools.registry import tool_registry
 
@@ -502,3 +504,11 @@ async def retry_run_from_checkpoint(
 # ---------------------------------------------------------------------------
 
 router.include_router(factory_router)
+
+# ---------------------------------------------------------------------------
+# 班组协作（W2）：/agents/teams* 与 /agents/team-runs*（顺序接力 + critic
+# 审校 + 成员级断点续跑）。同属 agents 域，随本 mount 一并暴露。
+# ---------------------------------------------------------------------------
+
+router.include_router(teams_router)
+router.include_router(team_runs_router)
