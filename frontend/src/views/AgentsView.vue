@@ -4,6 +4,33 @@
       专业助手
     </h2>
 
+    <!-- 问总控（W5b）：一个入口，自动路由到最合适的助手/班组 -->
+    <el-card class="supervisor-bar" shadow="never">
+      <div class="sup-row">
+        <el-input
+          v-model="supQuestion"
+          placeholder="问总控：直接说事，自动派给最合适的助手或班组"
+          :disabled="supBusy"
+          @keyup.enter="askSupervisor"
+        />
+        <el-button type="primary" :loading="supBusy" @click="askSupervisor">
+          问总控
+        </el-button>
+      </div>
+      <div v-if="supResult" class="sup-answer">
+        <div class="sup-meta">
+          <el-tag size="small" :type="supRouteType">
+            {{ supRouteLabel }}
+          </el-tag>
+          <span class="sup-by">由「{{ supResult.choice.name }}」回答</span>
+          <el-tooltip v-if="supResult.reason" :content="supResult.reason" placement="top">
+            <span class="sup-reason">理由</span>
+          </el-tooltip>
+        </div>
+        <pre class="sup-text">{{ supResult.result.answer || '（无文本回答）' }}</pre>
+      </div>
+    </el-card>
+
     <!-- 列表区四态：加载 / 空 / 失败重试 / 无权限 -->
     <AsyncState
       :state="listState"
@@ -842,7 +869,33 @@
   import { useAuthStore } from '@/stores/auth'
   import AsyncState from '@/components/AsyncState.vue'
   import { classifyError, friendlyErrorMessage, type ViewState } from '@/utils/status'
+  import { supervisorApi, type SupervisorAskResult } from '@/api/modules'
   import type { AgentDefinition, AgentRunResult, AgentSkill } from '@/types/api'
+
+  /* ---------- 问总控（W5b） ---------- */
+  const supQuestion = ref('')
+  const supBusy = ref(false)
+  const supResult = ref<SupervisorAskResult | null>(null)
+  const routeLabels: Record<string, string> = { rules: '规则命中', llm: '智能分类', fallback: '兜底路由' }
+  const routeTypes: Record<string, 'success' | 'primary' | 'warning'> = {
+    rules: 'success',
+    llm: 'primary',
+    fallback: 'warning',
+  }
+  const supRouteLabel = computed(() => routeLabels[supResult.value?.routed_by ?? ''] ?? '')
+  const supRouteType = computed(() => routeTypes[supResult.value?.routed_by ?? ''] ?? 'info')
+  async function askSupervisor() {
+    const q = supQuestion.value.trim()
+    if (!q || supBusy.value) return
+    supBusy.value = true
+    try {
+      supResult.value = await supervisorApi.ask(q)
+    } catch (e) {
+      ElMessage.error(extractErrorMessage(e))
+    } finally {
+      supBusy.value = false
+    }
+  }
 
   const agents = ref<AgentDefinition[]>([])
   const listState = ref<ViewState>('loading')
@@ -1268,6 +1321,23 @@
 </script>
 
 <style scoped>
+  .supervisor-bar { margin-bottom: 16px; }
+  .sup-row { display: flex; gap: 8px; }
+  .sup-answer { margin-top: 12px; }
+  .sup-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .sup-by { font-size: 13px; font-weight: 600; }
+  .sup-reason { font-size: 12px; color: var(--el-text-color-secondary); cursor: help; }
+  .sup-text {
+    margin: 0;
+    padding: 10px 12px;
+    background: var(--el-fill-color-light);
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 13px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
 .da-header {
   display: flex;
   align-items: center;

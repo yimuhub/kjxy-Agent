@@ -13,7 +13,7 @@ Agent 实现由各模块的 agent.py 提供并在 import 时注册到 global_reg
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.deps import (
     CurrentUser,
@@ -25,7 +25,7 @@ from app.core.deps import (
 )
 from app.core.errors import AppError
 from app.core.responses import ok
-from app.modules.agents import declarative, get_global_registry, run_steps, run_stream
+from app.modules.agents import declarative, get_global_registry, run_steps, run_stream, supervisor
 from app.modules.agents.definitions import AGENT_DEFINITIONS
 from app.modules.agents.factory_router import router as factory_router
 from app.modules.agents.schemas import AgentContext, AgentResult
@@ -504,6 +504,53 @@ async def retry_run_from_checkpoint(
 # ---------------------------------------------------------------------------
 
 router.include_router(factory_router)
+
+# ---------------------------------------------------------------------------
+# 总控问答入口（W5b）：/agents/supervisor/{ask,candidates}
+# 字面路径先于 /teams* 与 /{code}/run 注册，避免路径歧义。
+# ---------------------------------------------------------------------------
+
+
+class SupervisorAskRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question: str = Field(min_length=1, max_length=2000)
+
+
+@router.post("/supervisor/ask")
+async def supervisor_ask(
+    body: SupervisorAskRequest,
+    request: Request,
+    ctx: TenantContext = Depends(get_tenant_context),
+    db=Depends(get_db_session),
+):
+    """问总控：规则→LLM→兜底三级路由到本租户最合适的助手/班组并执行。"""
+    data = await supervisor.ask(db, ctx=ctx, question=body.question)
+    return ok(data, request)
+
+
+@router.get("/supervisor/candidates")
+def supervisor_candidates(
+    request: Request,
+    ctx: TenantContext = Depends(get_tenant_context),
+    db=Depends(get_db_session),
+):
+    """当前候选集与各候选近 7 天调用数（调试/前端展示）。"""
+    cands = supervisor.list_candidates(db, ctx.tenant_id)
+    counts = supervisor._recent_call_counts(db, ctx.tenant_id, cands)
+    items = [
+        {
+            "kind": c["kind"],
+            "id": c["id"],
+            "code": c["code"],
+            "name": c["name"],
+            "blurb": c["blurb"],
+            "recent_calls": counts.get(c["code"] or c["id"], 0),
+        }
+        for c in cands
+    ]
+    return ok({"candidates": items}, request)
+
 
 # ---------------------------------------------------------------------------
 # 班组协作（W2）：/agents/teams* 与 /agents/team-runs*（顺序接力 + critic

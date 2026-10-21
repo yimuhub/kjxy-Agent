@@ -1241,3 +1241,33 @@ export const mcpApi = {
     return unwrap(api.get<ApiResponse<{ tools: McpToolItem[]; tool_count: number }>>(`/settings/mcp-servers/${serverId}/tools`))
   },
 }
+
+/* ---------- 总控问答（W5b） ---------- */
+export interface SupervisorChoice {
+  kind: 'agent' | 'team'
+  id: string
+  code: string | null
+  name: string
+}
+export interface SupervisorAskResult {
+  choice: SupervisorChoice
+  routed_by: 'rules' | 'llm' | 'fallback'
+  reason: string
+  result: { kind: string; answer?: string; status?: string; run_id?: string }
+}
+export interface SupervisorCandidate {
+  kind: 'agent' | 'team'
+  id: string
+  code: string | null
+  name: string
+  blurb: string
+  recent_calls: number
+}
+export const supervisorApi = {
+  ask(question: string): Promise<SupervisorAskResult> {
+    return unwrap(api.post<ApiResponse<SupervisorAskResult>>('/agents/supervisor/ask', { question }))
+  },
+  candidates(): Promise<{ candidates: SupervisorCandidate[] }> {
+    return unwrap(api.get<ApiResponse<{ candidates: SupervisorCandidate[] }>>('/agents/supervisor/candidates'))
+  },
+}

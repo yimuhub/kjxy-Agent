@@ -2683,6 +2683,50 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agents/supervisor/ask:
+    post:
+      tags:
+      - v1
+      - agents
+      summary: Supervisor Ask
+      description: 问总控：规则→LLM→兜底三级路由到本租户最合适的助手/班组并执行。
+      operationId: supervisor_ask_api_v1_agents_supervisor_ask_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SupervisorAskRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/agents/supervisor/candidates:
+    get:
+      tags:
+      - v1
+      - agents
+      summary: Supervisor Candidates
+      description: 当前候选集与各候选近 7 天调用数（调试/前端展示）。
+      operationId: supervisor_candidates_api_v1_agents_supervisor_candidates_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
   /api/v1/agents/teams:
     get:
       tags:
@@ -4769,6 +4813,18 @@ components:
       required:
       - action
       title: SkillReview
+    SupervisorAskRequest:
+      properties:
+        question:
+          type: string
+          maxLength: 2000
+          minLength: 1
+          title: Question
+      additionalProperties: false
+      type: object
+      required:
+      - question
+      title: SupervisorAskRequest
     SupplierCreate:
       properties:
         name:

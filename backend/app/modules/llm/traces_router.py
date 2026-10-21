@@ -24,8 +24,8 @@ router = APIRouter()
 
 _ADMIN_ROLES = {"platform_admin", "admin", "tenant_admin"}
 
-#: purpose 合法取值（tool/embedding 为预留档，当前写入方只有前三档 + platform）
-VALID_PURPOSES = ("declarative", "factory", "eval", "tool", "embedding", "platform")
+#: purpose 合法取值（tool/embedding 为预留档；supervisor 为 W5b 总控分类调用）
+VALID_PURPOSES = ("declarative", "factory", "eval", "tool", "embedding", "supervisor", "platform")
 
 
 def _admin(ctx: TenantContext = Depends(get_tenant_context)) -> TenantContext:
