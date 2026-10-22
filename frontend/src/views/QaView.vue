@@ -409,12 +409,9 @@
     padding: 4px;
     max-width: 960px;
   }
-  .page-title {
-    margin: 0 0 16px;
-  }
   .hint {
     font-size: 12px;
-    color: #909399;
+    color: var(--ds-text-3);
     line-height: 1.6;
   }
   .hint.inline {
@@ -451,7 +448,7 @@
   .history-time {
     margin-left: 8px;
     font-size: 12px;
-    color: #909399;
+    color: var(--ds-text-3);
   }
   .answer-card {
     margin-top: 16px;
@@ -480,14 +477,16 @@
   }
   .cite-page {
     margin-left: 8px;
-    color: #909399;
+    color: var(--ds-text-3);
     font-size: 12px;
   }
   .quote {
-    border-left: 3px solid #409eff;
+    border-left: 3px solid var(--ds-accent);
     margin: 8px 0;
     padding: 8px 12px;
-    background: #f5f7fa;
+    background: var(--ds-glass);
+    border-radius: 0 var(--ds-radius-control) var(--ds-radius-control) 0;
+    color: var(--ds-text-2);
     white-space: pre-wrap;
   }
   .debug-collapse {
@@ -495,7 +494,7 @@
   }
   .cite-meta {
     font-size: 12px;
-    color: #909399;
+    color: var(--ds-text-3);
     word-break: break-all;
   }
   @media (max-width: 900px) {

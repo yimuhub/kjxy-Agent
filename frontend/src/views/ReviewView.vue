@@ -132,7 +132,19 @@
                 width="130"
               >
                 <template #default="{ row }">
-                  <el-tag>{{ row.status }}</el-tag>
+                  <el-tag
+                    :type="
+                      row.status === 'published'
+                        ? 'success'
+                        : row.status === 'pending_review'
+                          ? 'warning'
+                          : row.status === 'rejected'
+                            ? 'danger'
+                            : 'info'
+                    "
+                  >
+                    {{ row.status }}
+                  </el-tag>
                 </template>
               </el-table-column>
               <el-table-column
@@ -520,9 +532,6 @@
 <style scoped>
   .review {
     padding: 4px;
-  }
-  .page-title {
-    margin: 0 0 16px;
   }
   .toolbar {
     margin-bottom: 16px;

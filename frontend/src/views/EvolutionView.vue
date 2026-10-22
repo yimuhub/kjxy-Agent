@@ -1,8 +1,18 @@
 <template>
   <div class="evolution">
-    <h2 class="page-title">
-      自生长管理
-    </h2>
+    <div class="page-header">
+      <h2 class="page-title">
+        自生长管理
+      </h2>
+      <div class="page-actions">
+        <el-button
+          :loading="scanning"
+          @click="scanPlugins"
+        >
+          重新扫描
+        </el-button>
+      </div>
+    </div>
     <el-tabs v-model="activeTab">
       <el-tab-pane
         label="Skill 列表"
@@ -83,13 +93,6 @@
         label="插件"
         name="plugins"
       >
-        <el-button
-          :loading="scanning"
-          class="mb"
-          @click="scanPlugins"
-        >
-          重新扫描
-        </el-button>
         <AsyncState
           :state="pluginsState"
           empty-text="暂未发现插件"
@@ -406,11 +409,13 @@
   })
 </script>
 <style scoped>
-  .page-title {
-    margin: 0 0 16px;
-    font-size: 20px;
+  /* 设计系统 v2：.page-title/.page-actions 由全局提供，这里只做头部排布微调 */
+  .page-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 16px;
   }
-  .mb {
-    margin-bottom: 12px;
+  .page-header .page-title {
+    margin-bottom: 0;
   }
 </style>

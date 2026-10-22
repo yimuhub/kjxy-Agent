@@ -1,12 +1,16 @@
 <template>
   <div class="devices">
-    <h2 class="page-title">设备中心</h2>
+    <div class="page-head">
+      <h2 class="page-title">设备中心</h2>
+      <div class="page-actions">
+        <el-button v-if="canManage" type="primary" size="small" @click="openCreate">新建设备</el-button>
+      </div>
+    </div>
     <p class="sub">接入气象站 / 墒情 / 虫情 / 棚室等智慧农业设施：设备推送（Webhook）或平台定时拉取（自定义连接器）。平台只读取数据与建议，不会自动控制设备。</p>
 
     <AsyncState :state="listState" empty-text="还没有设备，点击右上角「新建设备」接入第一台" @retry="loadAll">
       <div class="bar">
         <span class="note">共 {{ devices.length }} 台</span>
-        <el-button v-if="canManage" type="primary" size="small" @click="openCreate">新建设备</el-button>
       </div>
       <el-row :gutter="16">
         <el-col v-for="d in devices" :key="d.id" :xs="24" :sm="12" :md="8">
@@ -512,43 +516,49 @@ async function removeRule(id: string) {
 onMounted(loadAll)
 </script>
 <style scoped>
-.page-title { margin: 0 0 6px; font-size: 20px; }
-.sub { margin: 0 0 16px; font-size: 13px; color: var(--el-text-color-secondary); }
+.page-head {
+  display: flex;
+  align-items: center;
+}
+.page-title { margin: 0 0 6px; }
+.sub { margin: 0 0 16px; font-size: 13px; color: var(--ds-text-2); }
 .bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-.sec-title { margin: 0; font-size: 16px; }
+.sec-title { margin: 0; font-size: 16px; font-weight: 600; color: var(--ds-text-1); }
 .dev-card { margin-bottom: 16px; }
 .dev-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.dev-name { font-weight: 600; }
-.dev-meta { margin-top: 4px; font-size: 12px; color: var(--el-text-color-secondary); }
-.off { color: var(--el-text-color-disabled); }
-.fail { margin-left: 8px; color: var(--el-color-danger); }
+.dev-name { font-weight: 600; color: var(--ds-text-1); }
+.dev-meta { margin-top: 4px; font-size: 12px; color: var(--ds-text-2); }
+.off { color: var(--ds-text-3); }
+.fail { margin-left: 8px; color: var(--ds-danger); }
 .dev-ops { display: flex; align-items: center; flex-wrap: wrap; }
 .mt8 { margin-top: 8px; }
 .mt { margin-top: 16px; }
 .ml { margin-left: 8px; }
 .mb { margin-bottom: 12px; }
-.note { font-size: 12px; color: var(--el-text-color-secondary); }
-.wo-no { font-family: monospace; font-size: 12px; color: var(--el-text-color-secondary); }
+.note { font-size: 12px; color: var(--ds-text-2); }
+.wo-no { font-family: ui-monospace, monospace; font-size: 12px; color: var(--ds-text-3); }
 .token {
   padding: 12px;
-  font-family: monospace;
+  font-family: ui-monospace, monospace;
   font-size: 15px;
   word-break: break-all;
-  border-radius: 6px;
-  background: var(--el-fill-color-light);
+  color: var(--ds-text-1);
+  border-radius: var(--ds-radius-control);
+  background: var(--ds-glass);
+  border: 1px solid var(--ds-border);
 }
-.hint { font-size: 12px; color: var(--el-text-color-secondary); line-height: 1.7; }
+.hint { font-size: 12px; color: var(--ds-text-2); line-height: 1.7; }
 .coord { width: 150px; }
 .full { width: 100%; }
 .row { display: flex; align-items: center; margin-bottom: 6px; }
 .half { width: 42%; }
 .third { width: 30%; }
-.big-num { font-size: 34px; font-weight: 700; }
-.big-num .unit { font-size: 16px; font-weight: 400; }
+.big-num { font-size: 34px; font-weight: 700; color: var(--ds-text-1); font-variant-numeric: tabular-nums; }
+.big-num .unit { font-size: 16px; font-weight: 400; color: var(--ds-text-2); }
 .chart { max-height: 320px; overflow-y: auto; }
 .bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
-.bar-time { width: 92px; font-size: 11px; color: var(--el-text-color-secondary); }
-.bar-track { flex: 1; height: 12px; border-radius: 6px; background: var(--el-fill-color-lighter); }
-.bar-fill { height: 100%; border-radius: 6px; background: var(--el-color-success-light-3); min-width: 2px; }
-.bar-val { width: 64px; font-size: 12px; text-align: right; }
+.bar-time { width: 92px; font-size: 11px; color: var(--ds-text-3); font-variant-numeric: tabular-nums; }
+.bar-track { flex: 1; height: 12px; border-radius: var(--ds-radius-pill); background: var(--ds-glass-strong); }
+.bar-fill { height: 100%; border-radius: var(--ds-radius-pill); background: var(--ds-accent); min-width: 2px; }
+.bar-val { width: 64px; font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
 </style>

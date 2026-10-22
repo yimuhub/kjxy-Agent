@@ -527,12 +527,11 @@ onUnmounted(stopWatch)
 <style scoped>
 .page-title {
   margin: 0 0 6px;
-  font-size: 20px;
 }
 .sub {
   margin: 0 0 16px;
   font-size: 13px;
-  color: var(--el-text-color-secondary);
+  color: var(--ds-text-2);
 }
 .gen-card {
   margin-bottom: 20px;
@@ -546,17 +545,20 @@ onUnmounted(stopWatch)
 .bp-title {
   margin: 0;
   font-size: 16px;
+  font-weight: 600;
+  color: var(--ds-text-1);
 }
 .role-card {
   margin-bottom: 16px;
 }
 .role-name {
   font-weight: 600;
+  color: var(--ds-text-1);
 }
 .role-desc {
   margin: 6px 0 8px;
   font-size: 13px;
-  color: var(--el-text-color-regular);
+  color: var(--ds-text-2);
 }
 .role-tags {
   display: flex;
@@ -565,7 +567,7 @@ onUnmounted(stopWatch)
 }
 .q {
   font-size: 12px;
-  color: var(--el-text-color-secondary);
+  color: var(--ds-text-3);
 }
 .apply-bar {
   display: flex;
@@ -583,6 +585,8 @@ onUnmounted(stopWatch)
 .hist-title {
   margin: 8px 0 10px;
   font-size: 16px;
+  font-weight: 600;
+  color: var(--ds-text-1);
 }
 .pointer :deep(tbody tr) {
   cursor: pointer;
@@ -595,6 +599,6 @@ onUnmounted(stopWatch)
 }
 .note {
   font-size: 12px;
-  color: var(--el-text-color-secondary);
+  color: var(--ds-text-2);
 }
 </style>

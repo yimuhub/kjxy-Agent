@@ -1,8 +1,31 @@
 <template>
   <div class="agents">
-    <h2 class="page-title">
-      专业助手
-    </h2>
+    <div class="page-head">
+      <h2 class="page-title">
+        专业助手
+      </h2>
+      <div
+        v-if="auth.isSpaceAdmin()"
+        class="page-actions"
+      >
+        <el-button
+          v-if="auth.roles.includes('platform_admin')"
+          size="small"
+          @click="openReviewQueue"
+        >
+          平台审核队列<template v-if="reviewQueue.length">
+            （{{ reviewQueue.length }}）
+          </template>
+        </el-button>
+        <el-button
+          type="primary"
+          size="small"
+          @click="openDaCreate"
+        >
+          新建助手
+        </el-button>
+      </div>
+    </div>
 
     <!-- 问总控（W5b）：一个入口，自动路由到最合适的助手/班组 -->
     <el-card class="supervisor-bar" shadow="never">
@@ -547,24 +570,6 @@
         <h3 class="da-title">
           租户助手（{{ daList.length }}）
         </h3>
-        <div>
-          <el-button
-            v-if="auth.roles.includes('platform_admin')"
-            size="small"
-            @click="openReviewQueue"
-          >
-            平台审核队列<template v-if="reviewQueue.length">
-              （{{ reviewQueue.length }}）
-            </template>
-          </el-button>
-          <el-button
-            type="primary"
-            size="small"
-            @click="openDaCreate"
-          >
-            新建助手
-          </el-button>
-        </div>
       </div>
       <el-table
         :data="daList"
@@ -1321,57 +1326,82 @@
 </script>
 
 <style scoped>
-  .supervisor-bar { margin-bottom: 16px; }
-  .sup-row { display: flex; gap: 8px; }
-  .sup-answer { margin-top: 12px; }
-  .sup-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-  .sup-by { font-size: 13px; font-weight: 600; }
-  .sup-reason { font-size: 12px; color: var(--el-text-color-secondary); cursor: help; }
+  /* 页面骨架：头部左标题右操作区；标题/玻璃卡/tag/表格样式由 design-system 全局类提供 */
+  .page-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .supervisor-bar {
+    margin-bottom: 16px;
+  }
+  .sup-row {
+    display: flex;
+    gap: 8px;
+  }
+  .sup-answer {
+    margin-top: 12px;
+  }
+  .sup-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .sup-by {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ds-text-1);
+  }
+  .sup-reason {
+    font-size: 12px;
+    color: var(--ds-text-3);
+    cursor: help;
+  }
   .sup-text {
     margin: 0;
     padding: 10px 12px;
-    background: var(--el-fill-color-light);
-    border-radius: 6px;
+    background: var(--ds-glass-strong);
+    border-radius: var(--ds-radius-control);
+    color: var(--ds-text-1);
     font-family: inherit;
     font-size: 13px;
     line-height: 1.7;
     white-space: pre-wrap;
     word-break: break-word;
   }
-.da-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin: 24px 0 12px;
-}
-.da-title {
-  margin: 0;
-  font-size: 16px;
-}
-.da-code {
-  margin-left: 6px;
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-}
-.da-note {
-  margin-left: 10px;
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-}
-.da-run-result {
-  margin-top: 16px;
-}
-.da-answer {
-  margin-top: 12px;
-  padding: 12px;
-  white-space: pre-wrap;
-  border-radius: 6px;
-  background: var(--el-fill-color-light);
-  line-height: 1.7;
-}
-  .page-title {
-    margin: 0 0 16px;
-    font-size: 20px;
+  .da-header {
+    display: flex;
+    align-items: center;
+    margin: 24px 0 12px;
+  }
+  .da-title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--ds-text-1);
+  }
+  .da-code {
+    margin-left: 6px;
+    font-size: 12px;
+    color: var(--ds-text-3);
+  }
+  .da-note {
+    margin-left: 10px;
+    font-size: 12px;
+    color: var(--ds-text-2);
+  }
+  .da-run-result {
+    margin-top: 16px;
+  }
+  .da-answer {
+    margin-top: 12px;
+    padding: 12px;
+    white-space: pre-wrap;
+    border-radius: var(--ds-radius-control);
+    background: var(--ds-glass-strong);
+    color: var(--ds-text-1);
+    line-height: 1.7;
   }
   .cards {
     margin-bottom: 16px;
@@ -1380,16 +1410,23 @@
     cursor: pointer;
     min-height: 150px;
   }
+  /* 可点玻璃卡 hover：边框发光 + 轻浮起（DESIGN-v2 §3） */
+  .agent-card:hover {
+    border-color: var(--ds-border-strong);
+    background: var(--ds-glass-strong);
+    transform: translateY(-2px);
+  }
   .agent-card.active {
-    border-color: var(--el-color-primary);
-    box-shadow: 0 0 0 1px var(--el-color-primary);
+    border-color: var(--ds-accent);
+    box-shadow: 0 0 0 1px var(--ds-accent);
   }
   .agent-name {
     font-weight: 600;
     margin-bottom: 8px;
+    color: var(--ds-text-1);
   }
   .agent-desc {
-    color: var(--el-text-color-secondary);
+    color: var(--ds-text-2);
     font-size: 13px;
     min-height: 60px;
   }
@@ -1402,7 +1439,7 @@
   }
   .skills-title {
     font-size: 12px;
-    color: var(--el-text-color-secondary);
+    color: var(--ds-text-3);
     width: 100%;
   }
   .skill-tag {
@@ -1410,7 +1447,7 @@
   }
   .no-skills {
     font-size: 12px;
-    color: var(--el-text-color-placeholder);
+    color: var(--ds-text-3);
   }
   .mt {
     margin-top: 8px;
@@ -1428,33 +1465,35 @@
     align-items: center;
   }
   .hint {
-    color: var(--el-text-color-secondary);
+    color: var(--ds-text-3);
     font-size: 12px;
     margin-left: 8px;
   }
   .json {
-    background: var(--el-fill-color-light);
+    background: var(--ds-glass-strong);
     padding: 12px;
-    border-radius: 4px;
+    border-radius: var(--ds-radius-control);
+    color: var(--ds-text-2);
     font-size: 12px;
     overflow: auto;
     max-height: 400px;
   }
   .disclaimer {
-    color: var(--el-text-color-secondary);
+    color: var(--ds-text-2);
     font-size: 13px;
   }
   .meta {
-    color: var(--el-text-color-secondary);
+    color: var(--ds-text-2);
     font-size: 13px;
   }
   .trace {
-    color: var(--el-color-primary);
+    color: var(--ds-accent);
     cursor: help;
     text-decoration: underline dotted;
   }
   h4 {
     margin: 16px 0 8px;
+    color: var(--ds-text-1);
   }
   ul {
     margin: 0 0 8px 20px;

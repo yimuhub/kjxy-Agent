@@ -619,9 +619,6 @@ watch(activeTab, tab => {
 </script>
 
 <style scoped>
-.page-title {
-  margin: 0 0 16px;
-}
 .mb {
   margin-bottom: 16px;
 }
@@ -637,16 +634,25 @@ watch(activeTab, tab => {
 .pre {
   white-space: pre-wrap;
   word-break: break-word;
+  color: var(--ds-text-1);
 }
 .json {
-  background: #f6f8fa;
-  border-radius: 6px;
+  background: var(--ds-glass);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-control);
   padding: 12px;
   font-size: 12px;
+  color: var(--ds-text-2);
   overflow-x: auto;
 }
 .danger {
-  color: #f56c6c;
+  color: var(--ds-danger);
+}
+h4 {
+  margin: 16px 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ds-text-1);
 }
 .draft-header {
   display: flex;

@@ -1,8 +1,32 @@
 <template>
   <div class="tasks">
-    <h2 class="page-title">
-      任务中心
-    </h2>
+    <div class="page-head">
+      <h2 class="page-title">
+        任务中心
+      </h2>
+      <div class="page-actions">
+        <el-select
+          v-model="statusFilter"
+          placeholder="全部状态"
+          clearable
+          style="width: 160px"
+          @change="() => loadTasks()"
+        >
+          <el-option
+            v-for="(meta, key) in TASK_STATUS_META"
+            :key="key"
+            :label="meta.label"
+            :value="key"
+          />
+        </el-select>
+        <el-button
+          type="primary"
+          @click="() => loadTasks()"
+        >
+          刷新
+        </el-button>
+      </div>
+    </div>
 
     <!-- 高风险工具待审批 -->
     <el-card
@@ -63,28 +87,6 @@
     </el-card>
 
     <el-card>
-      <div class="toolbar">
-        <el-select
-          v-model="statusFilter"
-          placeholder="全部状态"
-          clearable
-          style="width: 160px"
-          @change="() => loadTasks()"
-        >
-          <el-option
-            v-for="(meta, key) in TASK_STATUS_META"
-            :key="key"
-            :label="meta.label"
-            :value="key"
-          />
-        </el-select>
-        <el-button
-          type="primary"
-          @click="() => loadTasks()"
-        >
-          刷新
-        </el-button>
-      </div>
       <AsyncState
         :state="listState"
         empty-text="暂无任务"
@@ -559,22 +561,24 @@
   .tasks {
     padding: 4px;
   }
-  .page-title {
-    margin: 0 0 16px;
-  }
-  .toolbar {
+  .page-head {
     display: flex;
-    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
     margin-bottom: 16px;
+  }
+  .page-head .page-title {
+    margin-bottom: 0;
   }
   .pager {
     margin-top: 16px;
     justify-content: flex-end;
   }
   .json {
-    background: #f5f7fa;
-    border: 1px solid #ebeef5;
-    border-radius: 4px;
+    background: var(--ds-glass);
+    border: 1px solid var(--ds-border);
+    border-radius: var(--ds-radius-control);
     padding: 12px;
     font-size: 12px;
     max-height: 240px;
@@ -586,8 +590,8 @@
     margin-bottom: 16px;
   }
   .json-inline {
-    background: #f5f7fa;
-    border-radius: 4px;
+    background: var(--ds-glass);
+    border-radius: var(--ds-radius-control);
     padding: 8px;
     font-size: 12px;
     max-height: 120px;

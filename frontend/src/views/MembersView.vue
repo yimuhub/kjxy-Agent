@@ -1,10 +1,10 @@
 <template>
   <div class="members">
-    <h2 class="page-title">
-      成员管理
-    </h2>
-    <el-card>
-      <div class="toolbar">
+    <div class="page-head">
+      <h2 class="page-title">
+        成员管理
+      </h2>
+      <div class="page-actions">
         <el-button
           type="primary"
           @click="addDialog = true"
@@ -19,6 +19,8 @@
           刷新
         </el-button>
       </div>
+    </div>
+    <el-card>
       <AsyncState
         :state="listState"
         empty-text="暂无成员"
@@ -237,13 +239,17 @@
   .members {
     padding: 4px;
   }
-  .page-title {
-    margin: 0 0 16px;
-  }
-  .toolbar {
+  .page-head {
     display: flex;
-    gap: 8px;
     align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
     margin-bottom: 16px;
+  }
+  .page-head .page-title {
+    margin-bottom: 0;
+  }
+  .page-actions .el-button + .el-button {
+    margin-left: 0;
   }
 </style>

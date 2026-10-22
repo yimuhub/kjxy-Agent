@@ -62,7 +62,7 @@
           <template #header>
             <div class="card-header">
               <span>模型供应商（{{ suppliers.length }}）</span>
-              <div>
+              <div class="page-actions">
                 <el-button
                   size="small"
                   @click="loadSuppliers"
@@ -145,7 +145,7 @@
                 <template #default="{ row }">
                   <el-tag
                     v-if="row.is_active"
-                    type="warning"
+                    type="primary"
                   >
                     生效中
                   </el-tag>
@@ -237,7 +237,7 @@
           <template #header>
             <div class="card-header">
               <span>MCP 工具服务器（{{ mcpServers.length }}）</span>
-              <div>
+              <div class="page-actions">
                 <el-button
                   size="small"
                   @click="loadMcp"
@@ -1104,9 +1104,6 @@ onMounted(() => {
   padding: 4px;
   max-width: 1080px;
 }
-.page-title {
-  margin: 0 0 16px;
-}
 .section {
   margin-bottom: 16px;
 }
@@ -1120,17 +1117,22 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   margin-top: 16px;
-  color: #909399;
+  color: var(--ds-text-2);
   font-size: 13px;
 }
 .note {
-  color: #909399;
+  color: var(--ds-text-2);
   font-size: 12px;
   margin-left: 8px;
 }
 .masked-key {
   font-family: ui-monospace, monospace;
   font-size: 12px;
+  color: var(--ds-text-2);
+  background: var(--ds-glass);
+  border: 1px solid var(--ds-border);
+  border-radius: 6px;
+  padding: 1px 6px;
 }
 .test-result {
   margin-top: 12px;
@@ -1153,6 +1155,7 @@ onMounted(() => {
 }
 .mcp-name {
   font-weight: 600;
+  color: var(--ds-text-1);
 }
 .mcp-meta {
   display: flex;

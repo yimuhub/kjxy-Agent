@@ -63,7 +63,6 @@
             <el-card
               class="agent-card"
               :class="{ 'is-installed': a.installed }"
-              shadow="hover"
             >
               <el-tag
                 v-if="a.installed"
@@ -265,14 +264,14 @@
 </script>
 
 <style scoped>
+  /* 设计系统 v2：.page-title 由全局提供，颜色一律走 --ds-* token */
   .page-title {
-    margin: 0 0 6px;
-    font-size: 20px;
+    margin-bottom: 6px;
   }
   .sub {
     margin: 0 0 16px;
     font-size: 13px;
-    color: var(--el-text-color-secondary);
+    color: var(--ds-text-2);
   }
   .filter-card {
     margin-bottom: 16px;
@@ -296,6 +295,12 @@
     position: relative;
     margin-bottom: 16px;
   }
+  /* 玻璃 hover 配方：边框提亮 + hover 玻璃底 + 上浮 2px，不加阴影 */
+  .agent-card:hover {
+    border-color: var(--ds-border-strong);
+    background: var(--ds-glass-strong);
+    transform: translateY(-2px);
+  }
   .agent-card.is-installed {
     opacity: 0.85;
   }
@@ -317,7 +322,7 @@
   .agent-desc {
     margin: 6px 0 10px;
     font-size: 13px;
-    color: var(--el-text-color-regular);
+    color: var(--ds-text-2);
     min-height: 36px;
   }
   .agent-tags {
@@ -335,13 +340,15 @@
     gap: 12px;
     margin-top: 8px;
     padding: 12px 16px;
-    background: #fff;
-    border: 1px solid #ebeef5;
-    border-radius: 8px;
-    box-shadow: 0 -2px 8px rgb(0 0 0 / 4%);
+    background: var(--ds-glass-strong);
+    backdrop-filter: blur(18px) saturate(1.2);
+    -webkit-backdrop-filter: blur(18px) saturate(1.2);
+    border: 1px solid var(--ds-border);
+    border-radius: var(--ds-radius-card);
   }
   .note {
     font-size: 12px;
-    color: var(--el-text-color-secondary);
+    color: var(--ds-text-3);
+    font-variant-numeric: tabular-nums;
   }
 </style>

@@ -13,7 +13,7 @@
     />
     <el-card class="section">
       <template #header>
-        <span class="card-title">模型调用观测（近 7 天）</span>
+        模型调用观测（近 7 天）
       </template>
       <el-table :data="usageRows" size="small" empty-text="暂无调用记录">
         <el-table-column prop="day" label="日期" width="110" />
@@ -211,15 +211,22 @@
   })
 </script>
 <style scoped>
-  .card-title { font-weight: 600; }
-  .trace-title { margin: 12px 0 6px; font-size: 13px; color: var(--el-text-color-secondary); }
-  .err { color: var(--el-color-danger); font-weight: 600; }
+  /* 设计系统 v2：颜色一律走 --ds-* token */
+  .trace-title {
+    margin: 12px 0 6px;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--ds-text-2);
+  }
+  .err {
+    color: var(--ds-danger);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
   .quota {
     padding: 4px;
     max-width: 960px;
-  }
-  .page-title {
-    margin: 0 0 16px;
   }
   .warn {
     margin-bottom: 12px;

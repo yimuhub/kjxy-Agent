@@ -1,8 +1,19 @@
 <template>
   <div class="kb">
-    <h2 class="page-title">
-      知识库
-    </h2>
+    <div class="page-head">
+      <h2 class="page-title">
+        知识库
+      </h2>
+      <div class="page-actions">
+        <el-button
+          link
+          type="primary"
+          @click="loadDocs"
+        >
+          刷新
+        </el-button>
+      </div>
+    </div>
 
     <!-- 上传 -->
     <el-card class="section">
@@ -127,16 +138,7 @@
     <!-- 文档列表 -->
     <el-card class="section">
       <template #header>
-        <div class="card-head">
-          <span>文档列表</span>
-          <el-button
-            link
-            type="primary"
-            @click="loadDocs"
-          >
-            刷新
-          </el-button>
-        </div>
+        文档列表
       </template>
       <AsyncState
         :state="docState"
@@ -362,21 +364,23 @@
     padding: 4px;
     max-width: 1100px;
   }
-  .page-title {
-    margin: 0 0 16px;
+  .page-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .page-head .page-title {
+    margin-bottom: 0;
   }
   .section {
     margin-bottom: 16px;
   }
-  .card-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
   .upload-hint {
     margin: 0;
     font-size: 12px;
-    color: #909399;
+    color: var(--ds-text-3);
   }
   .pager {
     margin-top: 16px;

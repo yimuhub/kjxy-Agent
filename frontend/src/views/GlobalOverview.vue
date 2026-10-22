@@ -1,5 +1,8 @@
 <template>
   <div class="global-overview">
+    <h2 class="page-title">
+      全局总览
+    </h2>
     <el-alert
       type="info"
       show-icon
@@ -36,7 +39,10 @@
           <AsyncState :state="statsState" empty-text="暂无任务" @retry="loadAll">
             <ul class="mini-list">
               <li v-for="(count, status) in stats.tasks?.by_status || {}" :key="status">
-                <el-tag :type="status === 'failed' ? 'danger' : 'info'" size="small">
+                <el-tag
+                  :type="status === 'failed' ? 'danger' : status === 'succeeded' ? 'success' : status === 'running' ? 'primary' : 'info'"
+                  size="small"
+                >
                   {{ taskStatusLabel(String(status)) }}
                 </el-tag>
                 <span class="mini-title">{{ count }} 个</span>
@@ -157,6 +163,7 @@ onMounted(loadAll)
 </script>
 
 <style scoped>
+/* 设计系统 v2：颜色一律走 --ds-* token */
 .global-overview {
   padding: 4px;
 }
@@ -169,10 +176,11 @@ onMounted(loadAll)
 .stat-number {
   font-size: 36px;
   font-weight: 700;
-  color: #409eff;
+  color: var(--ds-accent);
+  font-variant-numeric: tabular-nums;
 }
 .stat-desc {
-  color: #909399;
+  color: var(--ds-text-3);
   font-size: 13px;
   margin-top: 4px;
 }
@@ -190,7 +198,8 @@ onMounted(loadAll)
 .mini-title {
   margin-left: 8px;
   font-size: 13px;
-  color: #606266;
+  color: var(--ds-text-2);
+  font-variant-numeric: tabular-nums;
 }
 .switch-card {
   margin-top: 4px;
@@ -202,8 +211,10 @@ onMounted(loadAll)
   padding: 8px 0;
 }
 .switch-row code {
-  background: #f5f7fa;
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-control);
+  background: var(--ds-glass-strong);
+  border: 1px solid var(--ds-border);
+  color: var(--ds-text-1);
 }
 </style>

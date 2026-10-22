@@ -4,14 +4,16 @@
       <h2 class="page-title">
         协作班组
       </h2>
-      <el-button
-        v-if="canManage"
-        type="primary"
-        size="small"
-        @click="openCreate"
-      >
-        新建班组
-      </el-button>
+      <div class="page-actions">
+        <el-button
+          v-if="canManage"
+          type="primary"
+          size="small"
+          @click="openCreate"
+        >
+          新建班组
+        </el-button>
+      </div>
     </div>
     <p class="page-sub">
       多个专业助手按角色接力：前序成员输出作为后序成员的上下文，审核员负责把关最终结论。
@@ -900,21 +902,26 @@ onUnmounted(() => {
 })
 </script>
 <style scoped>
+/* 头部：左标题右操作区（.page-title/.page-actions 由 design-system 全局定义），此处仅页面微调 */
 .page-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 .page-title {
-  margin: 0 0 4px;
+  margin: 0 0 4px; /* 有副标题，收紧下边距 */
 }
 .page-sub {
   margin: 0 0 16px;
-  color: #909399;
+  color: var(--ds-text-3);
   font-size: 13px;
 }
 .team-card {
   margin-bottom: 16px;
+}
+.team-card:hover {
+  border-color: var(--ds-border-strong);
+  background: var(--ds-glass-strong);
 }
 .tc-head {
   display: flex;
@@ -931,7 +938,7 @@ onUnmounted(() => {
 .tc-desc {
   margin: 0 0 10px;
   min-height: 36px;
-  color: #606266;
+  color: var(--ds-text-2);
   font-size: 13px;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -946,7 +953,7 @@ onUnmounted(() => {
   margin-bottom: 12px;
 }
 .role-arr {
-  color: #c0c4cc;
+  color: var(--ds-text-3);
 }
 .tc-foot {
   display: flex;
@@ -962,12 +969,12 @@ onUnmounted(() => {
   gap: 8px;
   padding: 8px;
   margin-bottom: 8px;
-  border: 1px solid #ebeef5;
-  border-radius: 6px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-control);
 }
 .me-idx {
   width: 20px;
-  color: #909399;
+  color: var(--ds-text-3);
   text-align: center;
 }
 .me-agent {
@@ -991,14 +998,15 @@ onUnmounted(() => {
   width: 220px;
 }
 .q-box {
-  background: #f5f7fa;
-  border-radius: 6px;
+  background: var(--ds-glass);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-control);
   padding: 8px 12px;
   margin-bottom: 16px;
 }
 .q-label {
   font-size: 12px;
-  color: #909399;
+  color: var(--ds-text-3);
 }
 .q-text,
 .pv,
@@ -1008,6 +1016,7 @@ onUnmounted(() => {
   margin: 4px 0 0;
   font-family: inherit;
   font-size: 13px;
+  color: var(--ds-text-1);
 }
 
 /* 纯 CSS 横向步骤条：圆点 + 连线（照 DevicesView bar 思路，零依赖） */
@@ -1022,11 +1031,11 @@ onUnmounted(() => {
   height: 2px;
   width: 44px;
   margin-top: 8px;
-  background: #dcdfe6;
+  background: var(--ds-border-strong);
   flex: none;
 }
 .s-line.done {
-  background: #67c23a;
+  background: var(--ds-success);
 }
 .s-node {
   border: none;
@@ -1046,33 +1055,33 @@ onUnmounted(() => {
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background: #c0c4cc;
+  background: var(--ds-text-3);
   display: inline-block;
 }
 .n-ok .s-dot {
-  background: #67c23a;
+  background: var(--ds-success);
 }
 .n-error .s-dot {
-  background: #f56c6c;
+  background: var(--ds-danger);
 }
 .n-running .s-dot {
-  background: #e6a23c;
+  background: var(--ds-warning);
   animation: team-pulse 1s ease-in-out infinite;
 }
 .n-pending .s-dot {
-  background: #c0c4cc;
+  background: var(--ds-text-3);
 }
 .n-ok .s-name {
-  color: #67c23a;
+  color: var(--ds-success);
 }
 .n-error .s-name {
-  color: #f56c6c;
+  color: var(--ds-danger);
 }
 .n-running .s-name {
-  color: #e6a23c;
+  color: var(--ds-warning);
 }
 .n-pending .s-name {
-  color: #909399;
+  color: var(--ds-text-3);
 }
 .s-name {
   font-size: 12px;
@@ -1080,10 +1089,10 @@ onUnmounted(() => {
 @keyframes team-pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgba(230, 162, 60, 0.5);
+    box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.5);
   }
   50% {
-    box-shadow: 0 0 0 7px rgba(230, 162, 60, 0);
+    box-shadow: 0 0 0 7px rgba(251, 191, 36, 0);
   }
 }
 
@@ -1093,19 +1102,20 @@ onUnmounted(() => {
   gap: 10px;
 }
 .member-card {
-  border: 1px solid #ebeef5;
-  border-left: 3px solid #c0c4cc;
-  border-radius: 6px;
+  background: var(--ds-glass);
+  border: 1px solid var(--ds-border);
+  border-left: 3px solid var(--ds-border-strong);
+  border-radius: var(--ds-radius-control);
   padding: 0 12px;
 }
 .mc-ok {
-  border-left-color: #67c23a;
+  border-left-color: var(--ds-success);
 }
 .mc-error {
-  border-left-color: #f56c6c;
+  border-left-color: var(--ds-danger);
 }
 .mc-running {
-  border-left-color: #e6a23c;
+  border-left-color: var(--ds-warning);
 }
 .mc-head {
   display: flex;
@@ -1119,33 +1129,34 @@ onUnmounted(() => {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #c0c4cc;
+  background: var(--ds-text-3);
   flex: none;
 }
 .mc-ok .mc-dot {
-  background: #67c23a;
+  background: var(--ds-success);
 }
 .mc-error .mc-dot {
-  background: #f56c6c;
+  background: var(--ds-danger);
 }
 .mc-running .mc-dot {
-  background: #e6a23c;
+  background: var(--ds-warning);
   animation: team-pulse 1s ease-in-out infinite;
 }
 .mc-dur {
-  color: #909399;
+  color: var(--ds-text-3);
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 .mc-flex {
   flex: 1;
 }
 .mc-body {
-  border-top: 1px dashed #ebeef5;
+  border-top: 1px dashed var(--ds-border);
   padding: 8px 0 12px;
 }
 .sec-label {
   font-size: 12px;
-  color: #909399;
+  color: var(--ds-text-3);
   margin: 8px 0 2px;
 }
 .mc-error,
@@ -1153,22 +1164,22 @@ onUnmounted(() => {
   margin-top: 8px;
 }
 .mc-body .mc-error {
-  color: #f56c6c;
-  background: #fef0f0;
-  border-radius: 4px;
+  color: var(--ds-danger);
+  background: rgba(248, 113, 113, 0.12);
+  border-radius: var(--ds-radius-control);
   padding: 6px 8px;
   font-size: 13px;
 }
 .pv {
-  color: #606266;
+  color: var(--ds-text-2);
   max-height: 200px;
   overflow: auto;
-  background: #fafafa;
-  border-radius: 4px;
+  background: var(--ds-glass);
+  border-radius: var(--ds-radius-control);
   padding: 8px;
 }
 .note {
-  color: #909399;
+  color: var(--ds-text-3);
   font-size: 12px;
 }
 
@@ -1177,33 +1188,34 @@ onUnmounted(() => {
   width: 100%;
   border-collapse: collapse;
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 .steps-table th,
 .steps-table td {
-  border: 1px solid #ebeef5;
+  border: 1px solid var(--ds-border);
   padding: 4px 6px;
   text-align: left;
   vertical-align: top;
 }
 .steps-table th {
-  background: #f5f7fa;
-  color: #606266;
+  background: var(--ds-glass);
+  color: var(--ds-text-2);
   white-space: nowrap;
 }
 .steps-table .row-error {
-  background: #fef0f0;
-  color: #c45656;
+  background: rgba(248, 113, 113, 0.12);
+  color: var(--ds-danger);
 }
 .st-out {
   word-break: break-all;
   max-width: 260px;
-  color: #606266;
+  color: var(--ds-text-2);
 }
 .answer-card :deep(.el-card__header) {
   font-weight: 600;
 }
 .answer-text {
-  color: #303133;
+  color: var(--ds-text-1);
 }
 .mt {
   margin-top: 12px;

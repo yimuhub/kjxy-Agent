@@ -289,9 +289,6 @@
   .dashboard {
     padding: 4px;
   }
-  .page-title {
-    margin: 0 0 16px;
-  }
   .guide-card {
     margin-bottom: 16px;
   }
@@ -306,15 +303,16 @@
   }
   .guide-examples-label {
     font-size: 13px;
-    color: #606266;
+    color: var(--ds-text-2);
   }
   .stat-number {
     font-size: 36px;
     font-weight: 700;
-    color: #409eff;
+    color: var(--ds-accent);
+    font-variant-numeric: tabular-nums;
   }
   .stat-desc {
-    color: #909399;
+    color: var(--ds-text-3);
     font-size: 13px;
     margin-top: 4px;
   }
@@ -329,7 +327,7 @@
   .mini-title {
     margin-left: 8px;
     font-size: 13px;
-    color: #606266;
+    color: var(--ds-text-2);
   }
   .admin-card {
     margin-top: 16px;
