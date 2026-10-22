@@ -3808,6 +3808,212 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/chat/sessions:
+    get:
+      tags:
+      - v1
+      - chat
+      summary: List Sessions
+      description: 本人会话列表（最近更新在前，含消息数）。契约 §10：{items:[...]}。
+      operationId: list_sessions_api_v1_chat_sessions_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+    post:
+      tags:
+      - v1
+      - chat
+      summary: Create Session
+      description: 创建会话（可空标题）。
+      operationId: create_session_api_v1_chat_sessions_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionCreateRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/chat/sessions/{session_id}:
+    get:
+      tags:
+      - v1
+      - chat
+      summary: Get Session
+      description: 会话详情（含消息数）。
+      operationId: get_session_api_v1_chat_sessions__session_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    patch:
+      tags:
+      - v1
+      - chat
+      summary: Rename Session
+      description: 改会话标题。
+      operationId: rename_session_api_v1_chat_sessions__session_id__patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionUpdateRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - v1
+      - chat
+      summary: Delete Session
+      description: 删会话（连带删除全部消息）。
+      operationId: delete_session_api_v1_chat_sessions__session_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/chat/sessions/{session_id}/messages:
+    get:
+      tags:
+      - v1
+      - chat
+      summary: List Messages
+      description: 会话历史（seq 升序；assistant 行含路由存证字段）。
+      operationId: list_messages_api_v1_chat_sessions__session_id__messages_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 500
+          minimum: 1
+          default: 200
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - v1
+      - chat
+      summary: Send Message
+      description: 发消息并取回回复：supervisor 三级路由选助手/班组执行（同步请求内完成）。
+      operationId: send_message_api_v1_chat_sessions__session_id__messages_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MessageSendRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
     AddMemberRequest:
@@ -4362,6 +4568,19 @@ components:
       type: object
       title: McpServerUpdate
       description: 编辑请求：改名/停用/换 url（重填即换，headers 整体重填即换）；全可选。
+    MessageSendRequest:
+      properties:
+        content:
+          type: string
+          maxLength: 8000
+          minLength: 1
+          title: Content
+      additionalProperties: false
+      type: object
+      required:
+      - content
+      title: MessageSendRequest
+      description: 发消息：content 为问题原文（转发给 supervisor 三级路由执行）。
     PolicyIngestRequest:
       properties:
         policy_name:
@@ -4754,6 +4973,31 @@ components:
       required:
       - query
       title: SearchRequest
+    SessionCreateRequest:
+      properties:
+        title:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Title
+      additionalProperties: false
+      type: object
+      title: SessionCreateRequest
+      description: 建会话：title 可空（首条消息自动继承标题）。
+    SessionUpdateRequest:
+      properties:
+        title:
+          type: string
+          maxLength: 200
+          minLength: 1
+          title: Title
+      additionalProperties: false
+      type: object
+      required:
+      - title
+      title: SessionUpdateRequest
+      description: 改会话标题（非空）。
     SetActiveBody:
       properties:
         supplier_id:

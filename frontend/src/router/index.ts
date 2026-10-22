@@ -4,6 +4,7 @@ import { useAuthStore } from '@/stores/auth'
 import MainLayout from '@/layouts/MainLayout.vue'
 import Login from '@/views/Login.vue'
 import Dashboard from '@/views/Dashboard.vue'
+import ChatView from '@/views/ChatView.vue'
 import QaView from '@/views/QaView.vue'
 import KnowledgeView from '@/views/KnowledgeView.vue'
 import TasksView from '@/views/TasksView.vue'
@@ -43,6 +44,8 @@ const routes: RouteRecordRaw[] = [
     component: MainLayout,
     children: [
       { path: '', name: 'Dashboard', component: Dashboard, meta: { title: '工作台' } },
+      // 对话模式：全员可用（§10 契约：全部登录可用，成员级）
+      { path: 'chat', name: 'Chat', component: ChatView, meta: { title: '对话' } },
       { path: 'qa', name: 'QA', component: QaView, meta: { title: '知识问答' } },
       { path: 'knowledge', name: 'Knowledge', component: KnowledgeView, meta: { title: '知识库' } },
       { path: 'tasks', name: 'Tasks', component: TasksView, meta: { title: '任务中心' } },

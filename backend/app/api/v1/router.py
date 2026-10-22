@@ -7,6 +7,7 @@ from app.modules.agents.router import router as agents_router
 from app.modules.agriculture.router import router as agriculture_router
 from app.modules.audit.router import router as audit_router
 from app.modules.auth.router import router as auth_router
+from app.modules.chat.router import router as chat_router
 from app.modules.devices.router import router as devices_router
 from app.modules.evolution.router import router as evolution_router
 from app.modules.knowledge.router import router as knowledge_router
@@ -45,6 +46,7 @@ router.include_router(market_router)
 router.include_router(devices_router)
 router.include_router(push_router)  # /settings/push-channels（W4 事件推送通道）
 router.include_router(mcp_router)  # /settings/mcp-servers（W5a MCP 工具服务器）
+router.include_router(chat_router)  # /chat/sessions（对话模式：会话+消息，执行复用 supervisor）
 
 
 @router.get("/ping", include_in_schema=False)

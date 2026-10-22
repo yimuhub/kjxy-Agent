@@ -1,16 +1,16 @@
 <template>
   <div class="login-page">
-    <el-card class="login-card">
-      <template #header>
-        <div class="card-title">
-          科技小院 · 登录
-        </div>
-      </template>
+    <div class="auth-card">
+      <div class="brand">
+        <div class="logo-block">阗</div>
+        <h1 class="wordmark">阗策 · 科技小院</h1>
+        <p class="slogan">多智能体自生长开发平台</p>
+      </div>
       <el-form
         ref="formRef"
         :model="form"
         :rules="rules"
-        label-width="80px"
+        label-position="top"
         @submit.prevent
       >
         <el-form-item
@@ -21,6 +21,7 @@
             v-model="form.username"
             autocomplete="username"
             placeholder="请输入用户名"
+            size="large"
           />
         </el-form-item>
         <el-form-item
@@ -33,6 +34,7 @@
             show-password
             autocomplete="current-password"
             placeholder="请输入密码"
+            size="large"
             @keyup.enter="handleLogin"
           />
         </el-form-item>
@@ -44,6 +46,7 @@
           <el-select
             v-model="form.tenant_id"
             placeholder="请选择使用空间"
+            size="large"
             style="width: 100%"
           >
             <el-option
@@ -57,16 +60,15 @@
             该账号归属多个使用空间，登录时需指定一个。
           </div>
         </el-form-item>
-        <el-form-item>
-          <el-button
-            type="primary"
-            :loading="loading"
-            style="width: 100%"
-            @click="handleLogin"
-          >
-            登录
-          </el-button>
-        </el-form-item>
+        <el-button
+          type="primary"
+          size="large"
+          class="submit-btn"
+          :loading="loading"
+          @click="handleLogin"
+        >
+          登录
+        </el-button>
         <el-alert
           v-if="errorMsg"
           :title="errorMsg"
@@ -76,7 +78,16 @@
           class="error-alert"
         />
       </el-form>
-    </el-card>
+      <div class="foot">
+        <router-link
+          class="foot-link"
+          to="/signup"
+        >
+          开通新的使用空间
+        </router-link>
+        <span class="demo-hint">演示环境账号见 README</span>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -138,27 +149,90 @@
 </script>
 
 <style scoped>
+  /* 设计系统 v2 §8：全屏居中玻璃卡（420px），背景光斑由全局 body::before 提供 */
   .login-page {
     height: 100%;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: #f5f7fa;
+    padding: 24px 0;
+    box-sizing: border-box;
   }
-  .login-card {
+  .auth-card {
     width: min(420px, 92vw);
+    padding: 36px 32px 26px;
+    background: var(--ds-glass);
+    backdrop-filter: blur(18px) saturate(1.2);
+    -webkit-backdrop-filter: blur(18px) saturate(1.2);
+    border: 1px solid var(--ds-border);
+    border-radius: var(--ds-radius-card);
+    transition: border-color 0.2s, background 0.2s;
   }
-  .card-title {
+  .auth-card:hover {
+    border-color: var(--ds-border-strong);
+  }
+  .brand {
     text-align: center;
-    font-size: 18px;
+    margin-bottom: 26px;
+  }
+  .logo-block {
+    width: 44px;
+    height: 44px;
+    margin: 0 auto 14px;
+    border-radius: 12px;
+    background: var(--ds-grad-brand);
+    color: #fff;
+    font-size: 22px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
+  }
+  .wordmark {
+    margin: 0;
+    font-size: 20px;
     font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--ds-text-1);
+  }
+  .slogan {
+    margin: 6px 0 0;
+    font-size: 13px;
+    color: var(--ds-text-3);
+  }
+  .submit-btn {
+    width: 100%;
+    margin-top: 4px;
   }
   .hint {
     font-size: 12px;
-    color: #909399;
+    color: var(--ds-text-3);
     margin-top: 4px;
+    line-height: 1.5;
   }
   .error-alert {
-    margin-top: 8px;
+    margin-top: 12px;
+  }
+  .foot {
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--ds-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .foot-link {
+    font-size: 13px;
+    color: var(--ds-accent);
+    text-decoration: none;
+  }
+  .foot-link:hover {
+    text-decoration: underline;
+  }
+  .demo-hint {
+    font-size: 12px;
+    color: var(--ds-text-3);
   }
 </style>

@@ -1,16 +1,16 @@
 <template>
   <div class="signup-page">
-    <el-card class="signup-card">
-      <template #header>
-        <div class="card-title">
-          科技小院 · 使用空间注册
-        </div>
-      </template>
+    <div class="auth-card">
+      <div class="brand">
+        <div class="logo-block">阗</div>
+        <h1 class="wordmark">开通使用空间</h1>
+        <p class="slogan">阗策 · 科技小院多租户注册</p>
+      </div>
       <el-form
         ref="formRef"
         :model="form"
         :rules="rules"
-        label-width="100px"
+        label-position="top"
         @submit.prevent
       >
         <el-form-item
@@ -66,24 +66,15 @@
             placeholder="手机号或邮箱（可选）"
           />
         </el-form-item>
-        <el-form-item>
-          <el-button
-            type="primary"
-            :loading="loading"
-            style="width: 100%"
-            @click="handleSignup"
-          >
-            注册并进入
-          </el-button>
-        </el-form-item>
-        <el-form-item>
-          <el-button
-            style="width: 100%"
-            @click="router.push('/login')"
-          >
-            已有账号？去登录
-          </el-button>
-        </el-form-item>
+        <el-button
+          type="primary"
+          size="large"
+          class="submit-btn"
+          :loading="loading"
+          @click="handleSignup"
+        >
+          注册并进入
+        </el-button>
         <el-alert
           v-if="errorMsg"
           :title="errorMsg"
@@ -93,7 +84,15 @@
           class="error-alert"
         />
       </el-form>
-    </el-card>
+      <div class="foot">
+        <span class="demo-hint">注册后自动以空间管理员身份登录</span>
+        <a
+          class="foot-link"
+          href="javascript:void(0)"
+          @click="router.push('/login')"
+        >已有账号？去登录</a>
+      </div>
+    </div>
   </div>
 </template>
 <script setup lang="ts">
@@ -166,22 +165,84 @@
   }
 </script>
 <style scoped>
+  /* 设计系统 v2 §8：全屏居中玻璃卡，背景光斑由全局 body::before 提供 */
   .signup-page {
     height: 100%;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: #f5f7fa;
+    padding: 24px 0;
+    box-sizing: border-box;
   }
-  .signup-card {
-    width: 440px;
+  .auth-card {
+    width: min(460px, 92vw);
+    padding: 34px 32px 22px;
+    background: var(--ds-glass);
+    backdrop-filter: blur(18px) saturate(1.2);
+    -webkit-backdrop-filter: blur(18px) saturate(1.2);
+    border: 1px solid var(--ds-border);
+    border-radius: var(--ds-radius-card);
+    transition: border-color 0.2s, background 0.2s;
   }
-  .card-title {
+  .auth-card:hover {
+    border-color: var(--ds-border-strong);
+  }
+  .brand {
     text-align: center;
-    font-size: 18px;
+    margin-bottom: 22px;
+  }
+  .logo-block {
+    width: 40px;
+    height: 40px;
+    margin: 0 auto 12px;
+    border-radius: 12px;
+    background: var(--ds-grad-brand);
+    color: #fff;
+    font-size: 20px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
+  }
+  .wordmark {
+    margin: 0;
+    font-size: 20px;
     font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--ds-text-1);
+  }
+  .slogan {
+    margin: 6px 0 0;
+    font-size: 13px;
+    color: var(--ds-text-3);
+  }
+  .submit-btn {
+    width: 100%;
+    margin-top: 2px;
   }
   .error-alert {
-    margin-top: 8px;
+    margin-top: 12px;
+  }
+  .foot {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--ds-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .foot-link {
+    font-size: 13px;
+    color: var(--ds-accent);
+    text-decoration: none;
+  }
+  .foot-link:hover {
+    text-decoration: underline;
+  }
+  .demo-hint {
+    font-size: 12px;
+    color: var(--ds-text-3);
   }
 </style>

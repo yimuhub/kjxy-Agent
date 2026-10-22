@@ -8,6 +8,7 @@ from app.modules.agents.run_steps import AgentRunStep  # noqa: F401
 from app.modules.agents.teams.models import AgentTeam, TeamRun, TeamRunMember  # noqa: F401
 from app.modules.audit.models import AuditLog  # noqa: F401
 from app.modules.auth.models import User  # noqa: F401
+from app.modules.chat.models import ChatMessage, ChatSession  # noqa: F401
 from app.modules.devices.models import (  # noqa: F401
     Device,
     DeviceAlert,
