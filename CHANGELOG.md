@@ -2,6 +2,33 @@
 
 本项目遵循《工程开发规范 V3.0》；版本号遵循语义化版本。
 
+## [1.2.0] - 2026-10-22
+
+大版本 UI 升级 + 全新对话模式。
+
+### 设计系统 v2「静夜玻璃」（全站换装）
+- 设计唯一事实源 `docs/DESIGN-v2.md`：深色玻璃拟态、靛紫→青品牌渐变（全站唯一渐变处）、圆角/控件/阴影各三档协调律。
+- `styles/design-system.css`：--ds-* token + Element Plus 暗色变量桥接，覆盖 card/table/dialog/button/input/tag/menu/message/select/pagination/switch/tabs/descriptions/empty/drawer/dropdown/popconfirm 全组件；页面背景双光斑、玻璃卡片 hover、渐变主按钮。
+- MainLayout 重造：232px 玻璃侧栏（可折叠 64px、分组导航小标、渐变激活条）+ 56px 顶栏（面包屑 + 用户胶囊角色徽章）；登录/注册全屏玻璃卡。
+- 15 个业务页面全部套新装：旧 EP 硬编码色值清零（grep 验证 0 残留）、页头统一 .page-title/.page-actions、状态 tag 四态口径统一；顺带修复设备页空态时「新建设备」按钮被隐藏与空态文案矛盾的旧问题。
+
+### 对话模式（新）
+- `ChatView` 三段式：会话列表（自动标题/删除）→ 消息流（用户/助手气泡 + 「↳ 由 X 回答 · 规则命中/智能分类/兜底」诚实路由徽章）→ 粘性输入（Enter 发送）。
+- 后端 `app/modules/chat`（迁移 0017）：会话/消息持久化（seq 序号、失败诚实落 failed 行）、复用 supervisor 三级路由或指定 agent/team 直跑、会话对创建者私有、跨用户/跨租户统一 404 防枚举。
+- 乐观上屏 + 失败撤回 + 自动标题；全部门禁绿（后端 589 测试）。
+
+## [1.1.0] - 2026-10-22
+
+多 Agent 协作版（对标开源编排框架的系统性升级，发布见 GitHub Release v1.1.0）。
+
+- **P0 协作内核**：LLM function-call 工具循环（风险闸/审计/护栏全复用）+ `agent_run_steps` checkpoint 断点续跑（副作用不重放）+ SSE 步骤流；迁移 0013。
+- **P0 班组协作**：`agent_teams` 顺序接力 + Critic 审校 + 答案拼接策略；成员级断点续跑与成员级 SSE；工厂 as_team 一键装配；前端班组页（步骤条/实时流/失败续跑/成员下钻）。
+- **观测与通道**：`llm_traces` 逐调用观测（prompt 只存 sha12+200 字隐私摘要）+ 企微/钉钉/通用 webhook 推送（SSRF 双检、Fernet、熔断、限频）+ 评估集骨架 `run_evals.py`。
+- **MCP 工具连接器**：手写 streamable-HTTP JSON-RPC 客户端（SSE/JSON 双解析、1MB 限制、SSRF 每次外呼复检）+ 租户动态工具 `mcp__` 回落 + 高风险双闸（发布必平台审核 + 运行审批）+ 5 连败熔断。
+- **总控问答**：`/agents/supervisor/ask` 三级路由（农业域关键词计分 → LLM 分类 → 近 7 天频率兜底，routed_by 诚实标记）+「问总控」条。
+- **稳定性**：SSE 观测流 DB 异常统一 snapshot_error 帧收尾；CI 迁移前置 + 可逆链校验（根治 PG 无表红灯历史）。
+- 测试 513 → 576；迁移链 0011→0016 可逆（SQLite + PostgreSQL 双环境实测）。
+
 ## [1.0.0] - 2026-10-19
 
 首个正式版本。整合 10-17 安全整改、10-18 能力中心与 10-19 设施接入/Agent 市场/Agent 工厂三波迭代。
