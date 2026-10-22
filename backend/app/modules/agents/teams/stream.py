@@ -25,6 +25,7 @@ from typing import Any
 
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
@@ -147,6 +148,10 @@ async def _stream_frames(tenant_id: str, run_id: str) -> AsyncIterator[str]:
         # 断开只是停止"看"：班组 run 由服务端继续执行（与 tasks/stream 一致）
         log.info("SSE 订阅者断开，team run %s 成员流停止推送（运行不受影响）", run_id[:8])
         raise
+    except SQLAlchemyError as e:
+        # 观测流绝不 500 中断语义：DB 抖动降级为一帧错误收尾（运行本身不受影响）
+        log.warning("team run %s 追尾读快照失败：%s", run_id[:8], e)
+        yield _sse_frame("team-end", {"status": "error", "reason": "snapshot_error"})
 
 
 def build_stream_response(tenant_id: str, run_id: str) -> StreamingResponse:

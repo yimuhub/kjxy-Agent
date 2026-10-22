@@ -24,6 +24,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from fastapi.responses import StreamingResponse
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
@@ -121,6 +122,10 @@ async def _stream_frames(tenant_id: str, run_id: str) -> AsyncIterator[str]:
         # 客户端断开只是停止"看"：run 本身由服务端继续执行（与 tasks/stream 一致）
         log.info("SSE 订阅者断开，run %s 步骤流停止推送（运行本身不受影响）", run_id[:8])
         raise
+    except SQLAlchemyError as e:
+        # DB 抖动降级为一帧错误收尾：观测流绝不静默空流或 500（运行不受影响）
+        log.warning("run %s 追尾读快照失败：%s", run_id[:8], e)
+        yield _sse_frame("steps-end", {"status": "error", "reason": "snapshot_error"})
 
 
 def build_stream_response(tenant_id: str, run_id: str) -> StreamingResponse:

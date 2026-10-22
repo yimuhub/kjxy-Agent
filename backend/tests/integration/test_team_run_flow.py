@@ -494,6 +494,8 @@ def test_team_stream_replays_member_events(client, db_session, tenant):
     worker_tasks._session_factory = sessionmaker(bind=db_session.get_bind(), autoflush=False)
     try:
         resp = client.get(f"{TEAM_RUNS}/{run['id']}/stream", headers=_hdr(tenant_id=tenant.id))
+        # 未知 run 也在注入窗内：SSE 生成器走全局 sessionmaker，须与测试库同源
+        ghost = client.get(f"{TEAM_RUNS}/no-such-run/stream", headers=_hdr(tenant_id=tenant.id))
     finally:
         worker_tasks._session_factory = None
     assert resp.status_code == 200
@@ -505,5 +507,4 @@ def test_team_stream_replays_member_events(client, db_session, tenant):
     assert '"status": "completed"' in body and '"reason": "run_terminal"' in body
 
     # 未知 run：SSE 语义不 404，一帧 not_found 收流
-    ghost = client.get(f"{TEAM_RUNS}/no-such-run/stream", headers=_hdr(tenant_id=tenant.id))
     assert "run_not_found" in ghost.text
