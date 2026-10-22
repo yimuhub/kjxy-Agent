@@ -12,6 +12,7 @@ from app.core.responses import ok, paged
 from app.modules.evolution import precheck as precheck_service
 from app.modules.evolution import rollout as rollout_service
 from app.modules.evolution import service
+from app.modules.evolution import suggest as suggest_service
 from app.modules.evolution.schemas import (
     CandidateBatchFailure,
     CandidateBatchReview,
@@ -26,6 +27,7 @@ from app.modules.evolution.schemas import (
     SkillCreate,
     SkillOut,
     SkillReview,
+    SkillSuggest,
 )
 
 router = APIRouter(tags=["evolution"])
@@ -193,6 +195,40 @@ def create_skill(
     return JSONResponse(
         status_code=201,
         content=ok(SkillOut.model_validate(skill).model_dump(mode="json", by_alias=True)),
+    )
+
+
+@router.post("/skills/suggest", status_code=201)
+async def suggest_skills(
+    body: SkillSuggest,
+    ctx: TenantContext = Depends(get_tenant_context),
+    db=Depends(get_db_session),
+):
+    """AI 技能总结（v1.3-B C1，tenant_admin）：近 7 天证据 → 候选卡 → 审核队列。
+
+    路径说明：DESIGN C1 写作 /evolution/skills/suggest，但本仓库 evolution 路由
+    挂载在 /api/v1 根下（现有 /skills、/feedback 均无 /evolution 前缀，FE 零改造），
+    故实际形状为 POST /api/v1/skills/suggest，与兄弟端点保持一致。
+    """
+    skills = await suggest_service.suggest_skills(
+        db, ctx, focus_hint=body.focus_hint, request_id=ctx.request_id
+    )
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return JSONResponse(
+        status_code=201,
+        content=ok(
+            {
+                "created": len(skills),
+                "skills": [
+                    SkillOut.model_validate(s).model_dump(mode="json", by_alias=True)
+                    for s in skills
+                ],
+            }
+        ),
     )
 
 

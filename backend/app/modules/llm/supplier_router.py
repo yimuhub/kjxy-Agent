@@ -15,11 +15,13 @@ from app.core.deps import CurrentUser, get_db_session, require_roles
 from app.core.responses import ok
 from app.modules.audit.service import log_audit
 from app.modules.llm import supplier_service
+from app.modules.llm.supplier_crypto import decrypt_api_key
 from app.modules.llm.supplier_schemas import (
     ProviderTemplate,
     SetActiveBody,
     SupplierCreate,
     SupplierOut,
+    SupplierProbeModelsBody,
     SupplierTestBody,
     SupplierTestResult,
     SupplierUpdate,
@@ -188,6 +190,31 @@ async def test_provider_candidate(
     """未落库候选配置的连通性测试：key 只在内存用一次，不落库、不打审计。"""
     result: SupplierTestResult = await supplier_service.probe_upstream(
         payload.base_url, payload.api_key, payload.model_id
+    )
+    return ok(result.model_dump())
+
+
+@router.post("/providers/probe-models", response_model=None)
+async def probe_provider_models(
+    payload: SupplierProbeModelsBody,
+    ctx=Depends(_actor),
+    db=Depends(get_db_session),
+):
+    """探测上游模型列表（DESIGN-v3 §A）。
+
+    - api_key 优先用请求体传入（只在本请求内存中瞬时使用，不落库/日志/审计）；
+    - 缺省时若给了 supplier_id 则用该供应商已存密钥（需在调用者可见范围内）；
+    - 两者都没有则不带鉴权头探测（本机 Ollama / LM Studio 常见）。
+    """
+    user, _is_platform_admin = ctx
+    api_key = payload.api_key
+    if not api_key and payload.supplier_id:
+        row = supplier_service.get_supplier(db, user.tenant_id, payload.supplier_id)
+        api_key = decrypt_api_key(row.api_key_enc)
+    result = await supplier_service.probe_models(
+        provider_type=payload.provider_type,
+        base_url=payload.base_url,
+        api_key=api_key,
     )
     return ok(result.model_dump())
 

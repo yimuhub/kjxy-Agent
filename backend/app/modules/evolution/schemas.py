@@ -123,6 +123,14 @@ class SkillReview(BaseModel):
     note: str | None = Field(default=None, max_length=2000)
 
 
+class SkillSuggest(BaseModel):
+    """AI 技能总结请求（v1.3-B C1）：可选关注点提示，纯文本 ≤200 字。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    focus_hint: str | None = Field(default=None, max_length=200)
+
+
 class EvalRunOut(BaseModel):
     """评测门禁运行记录（第四期 4.2）。"""
 

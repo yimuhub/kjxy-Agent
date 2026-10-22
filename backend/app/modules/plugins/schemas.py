@@ -6,7 +6,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 PluginType = Literal["workflow", "knowledge_pack", "domain_pack"]
-PluginStatus = Literal["enabled", "disabled"]
+# workflow 型（v1.3-B C2）扩展状态：pending_review|rejected 只出现在租户级 workflow 插件上
+PluginStatus = Literal["enabled", "disabled", "pending_review", "rejected"]
 
 
 class PluginOut(BaseModel):
@@ -23,6 +24,8 @@ class PluginOut(BaseModel):
     checksum_ok: bool
     installed_at: datetime | None
     created_at: datetime
+    # v1.3-B：auto=自动挖掘草稿（manifest._auto），manual=人工注册/文件插件
+    created_from: str = "manual"
 
 
 class ScanError(BaseModel):
@@ -50,3 +53,29 @@ class PluginListQuery(BaseModel):
 
     type: PluginType | None = None
     status: PluginStatus | None = None
+
+
+# ---------------------------------------------------------------- v1.3-B workflow 声明式插件
+class PluginRegister(BaseModel):
+    """workflow 插件注册请求：body 只带 manifest 本体，服务端补全溯源字段。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    manifest: dict
+
+
+class PluginReviewIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    decision: Literal["approve", "reject"]
+
+
+class PluginRunIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    params: dict = Field(default_factory=dict)
+
+
+class PluginRunOut(BaseModel):
+    outputs: dict = Field(default_factory=dict)
+    final: str = ""

@@ -98,6 +98,50 @@ class SetActiveBody(BaseModel):
     supplier_id: str = Field(min_length=1)
 
 
+# ---------- 模型列表探测（v1.3 §A） ----------
+
+#: 探测接口可接受的类型：供应商域既有类型 + custom（等价 openai_compatible）
+#: + anthropic/gemini（无统一列表端点，探测恒返回 unsupported）
+ProbeProviderType = Literal[
+    "deepseek",
+    "qwen",
+    "moonshot",
+    "openai",
+    "openai_compatible",
+    "custom",
+    "anthropic",
+    "gemini",
+]
+
+
+class SupplierProbeModelsBody(BaseModel):
+    """模型列表探测入参：api_key 只在本次请求内存中瞬时使用，绝不落库/日志/审计。
+
+    api_key 缺省时：若传了 supplier_id 则用该供应商已存密钥（租户可见范围内）；
+    两者都没有则不带鉴权头探测（本机 Ollama / LM Studio 通常无需 Key）。
+    """
+
+    provider_type: ProbeProviderType
+    base_url: str = Field(min_length=1, max_length=500)
+    api_key: str | None = Field(default=None, max_length=2000)
+    supplier_id: str | None = Field(default=None, max_length=64)
+
+
+class ProbeModelItem(BaseModel):
+    """上游模型条目：id=提交给上游的物理模型名与其一致；label=下拉展示名。"""
+
+    id: str
+    label: str
+
+
+class ProbeModelsResult(BaseModel):
+    """探测结果：source 三态，error/unsupported 时 message 给出诚实原因。"""
+
+    models: list[ProbeModelItem] = Field(default_factory=list)
+    source: Literal["remote", "unsupported", "error"]
+    message: str | None = None
+
+
 class ProviderTemplate(BaseModel):
     provider_type: str
     label: str

@@ -7,6 +7,7 @@
 import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
+from urllib.parse import urlparse
 
 import httpx
 from sqlalchemy import or_
@@ -24,6 +25,8 @@ from app.modules.llm.supplier_models import Supplier, TenantActiveSupplier
 from app.modules.llm.supplier_schemas import (
     STATUS_DISABLED,
     STATUS_ENABLED,
+    ProbeModelItem,
+    ProbeModelsResult,
     ProviderTemplate,
     SupplierCreate,
     SupplierOut,
@@ -38,6 +41,43 @@ log = get_logger(__name__)
 
 PROBE_TIMEOUT_SECONDS = 10
 AUTO_DISABLE_FAILURES = 3  # 连续失败 3 次自动禁用
+
+#: §A 模型列表探测：单次超时 8 秒、响应体硬上限 1MB（与 MCP 客户端同口径）
+MODELS_PROBE_TIMEOUT_SECONDS = 8
+MODELS_PROBE_MAX_BYTES = 1024 * 1024
+#: 返回给前端的模型条目上限（诚实提示：上游再多也先截断）
+MODELS_PROBE_MAX_ITEMS = 500
+#: 无统一模型列表端点的类型（§A：直接 unsupported，不发外呼）
+NO_MODEL_LIST_PROVIDERS = {"anthropic", "gemini"}
+
+#: 测试注入口：httpx.MockTransport 假扮上游 /models（全离线纪律，生产恒为 None）
+_transport_override: httpx.AsyncBaseTransport | None = None
+
+
+def set_test_transport(transport: httpx.AsyncBaseTransport | None) -> None:
+    """测试专用：注入/清除 MockTransport（模块级单点，杜绝真实出网）。"""
+    global _transport_override
+    _transport_override = transport
+
+
+def _validated_base_url(raw: str) -> str:
+    """规范化并校验供应商 base_url。
+
+    规则：必填、http(s) 协议、去掉尾部斜杠与空白；**不做 SSRF 判定**——
+    出网校验统一由 check_egress_url 在探测/调用时执行（allow_local=True，
+    放行本机与内网私有化部署，但元数据地址永远封死）。
+    """
+    url = (raw or "").strip().rstrip("/")
+    if not url:
+        raise AppError("INVALID_REQUEST", "基础地址不能为空。", http_status=400)
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise AppError(
+            "INVALID_REQUEST",
+            "基础地址必须是 http(s) 形式的完整 URL。",
+            http_status=400,
+        )
+    return url
 
 
 # ---------- 查询 ----------
@@ -163,7 +203,7 @@ def create_supplier(
         tenant_id=scope_tenant_id,
         name=payload.name.strip(),
         provider_type=payload.provider_type,
-        base_url=payload.base_url.strip().rstrip("/"),
+        base_url=_validated_base_url(payload.base_url),
         model_id=payload.model_id.strip(),
         api_key_enc=encrypt_api_key(payload.api_key),
         models=(payload.models.strip() or None) if payload.models else None,
@@ -258,6 +298,79 @@ def set_active_supplier(
 # ---------- 连通性探测 ----------
 
 
+async def probe_models(
+    *,
+    provider_type: str,
+    base_url: str,
+    api_key: str | None = None,
+) -> ProbeModelsResult:
+    """探测上游模型列表（DESIGN-v3 §A）。
+
+    - openai 兼容族（openai/deepseek/moonshot/qwen/custom）→ GET {base}/models；
+    - anthropic/gemini 无统一列表端点 → source='unsupported'（不发外呼，诚实说明）；
+    - 失败 → source='error' + 中文原因，**不抛错**（前端据此给「手动输入」兜底）。
+
+    api_key 只在本次调用内存中使用，绝不落库/日志/审计。
+    """
+    if provider_type in NO_MODEL_LIST_PROVIDERS:
+        return ProbeModelsResult(
+            models=[],
+            source="unsupported",
+            message=f"{provider_type} 没有统一的模型列表接口，请手动填写模型名。",
+        )
+    url = _validated_base_url(base_url)
+    headers = {"Accept": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    from app.core.net_guard import check_egress_url
+
+    try:
+        check_egress_url(url, context="supplier_probe_models", allow_local=True)
+    except AppError as e:
+        return ProbeModelsResult(models=[], source="error", message=e.message)
+
+    try:
+        client_kwargs: dict = {"timeout": MODELS_PROBE_TIMEOUT_SECONDS}
+        if _transport_override is not None:
+            client_kwargs["transport"] = _transport_override
+        async with httpx.AsyncClient(**client_kwargs) as client:
+            resp = await client.get(f"{url}/models", headers=headers)
+            if resp.status_code >= 400:
+                return ProbeModelsResult(
+                    models=[],
+                    source="error",
+                    message=f"上游返回 {resp.status_code}，请检查地址与密钥。",
+                )
+            if len(resp.content) > MODELS_PROBE_MAX_BYTES:
+                return ProbeModelsResult(
+                    models=[], source="error", message="上游响应过大，已中止解析。"
+                )
+            data = resp.json()
+    except httpx.TimeoutException:
+        return ProbeModelsResult(models=[], source="error", message="连接上游超时（8 秒）。")
+    except httpx.HTTPError:
+        return ProbeModelsResult(models=[], source="error", message="无法连接上游地址。")
+    except ValueError:
+        return ProbeModelsResult(models=[], source="error", message="上游返回的不是合法 JSON。")
+
+    items = data.get("data") if isinstance(data, dict) else None
+    if not isinstance(items, list):
+        return ProbeModelsResult(
+            models=[], source="error", message="上游响应结构不符合 OpenAI 兼容格式。"
+        )
+    models: list[ProbeModelItem] = []
+    for entry in items[:MODELS_PROBE_MAX_ITEMS]:
+        if isinstance(entry, dict) and entry.get("id"):
+            mid = str(entry["id"])
+            models.append(ProbeModelItem(id=mid, label=mid))
+        elif isinstance(entry, str) and entry:
+            models.append(ProbeModelItem(id=entry, label=entry))
+    if not models:
+        return ProbeModelsResult(models=[], source="error", message="上游未返回任何模型。")
+    return ProbeModelsResult(models=models, source="remote")
+
+
 async def probe_upstream(
     base_url: str, api_key: str, model_id: str, timeout: int = PROBE_TIMEOUT_SECONDS
 ) -> SupplierTestResult:
@@ -276,7 +389,7 @@ async def probe_upstream(
     from app.core.net_guard import check_egress_url
 
     try:
-        check_egress_url(base_url, context="supplier_probe")
+        check_egress_url(base_url, context="supplier_probe", allow_local=True)
     except _AppError as e:
         return _fail(e.message)
 

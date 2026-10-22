@@ -1019,6 +1019,41 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/skills/suggest:
+    post:
+      tags:
+      - v1
+      - evolution
+      summary: Suggest Skills
+      description: 'AI 技能总结（v1.3-B C1，tenant_admin）：近 7 天证据 → 候选卡 → 审核队列。
+
+
+        路径说明：DESIGN C1 写作 /evolution/skills/suggest，但本仓库 evolution 路由
+
+        挂载在 /api/v1 根下（现有 /skills、/feedback 均无 /evolution 前缀，FE 零改造），
+
+        故实际形状为 POST /api/v1/skills/suggest，与兄弟端点保持一致。'
+      operationId: suggest_skills_api_v1_skills_suggest_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SkillSuggest'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
   /api/v1/skills/{skill_id}/review:
     post:
       tags:
@@ -1398,6 +1433,42 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/SupplierTestBody'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/llm/providers/probe-models:
+    post:
+      tags:
+      - v1
+      - llm
+      - llm-suppliers
+      summary: Probe Provider Models
+      description: '探测上游模型列表（DESIGN-v3 §A）。
+
+
+        - api_key 优先用请求体传入（只在本请求内存中瞬时使用，不落库/日志/审计）；
+
+        - 缺省时若给了 supplier_id 则用该供应商已存密钥（需在调用者可见范围内）；
+
+        - 两者都没有则不带鉴权头探测（本机 Ollama / LM Studio 常见）。'
+      operationId: probe_provider_models_api_v1_llm_providers_probe_models_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SupplierProbeModelsBody'
         required: true
       responses:
         '200':
@@ -2046,9 +2117,43 @@ paths:
           anyOf:
           - type: string
           - type: 'null'
-          description: enabled|disabled
+          description: enabled|disabled|pending_review|rejected
           title: Status
-        description: enabled|disabled
+        description: enabled|disabled|pending_review|rejected
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/plugins/{plugin_id}:
+    get:
+      tags:
+      - v1
+      - plugins
+      summary: Get Plugin Detail
+      description: '插件详情（含 manifest 正文，审核人看 steps 用）。
+
+
+        解析顺序：先按当前租户找 workflow 记录，未命中回落全局插件；
+
+        租户级记录仅本租户/平台管理员可见（跨租户与不存在同样 404，防枚举）。'
+      operationId: get_plugin_detail_api_v1_plugins__plugin_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: plugin_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Plugin Id
       responses:
         '200':
           description: Successful Response
@@ -2120,6 +2225,120 @@ paths:
         schema:
           type: string
           title: Plugin Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/plugins/register:
+    post:
+      tags:
+      - v1
+      - plugins
+      summary: Register Workflow Plugin
+      description: 注册声明式 workflow（tenant_admin）：校验步骤/工具 → pending_review 草稿。
+      operationId: register_workflow_plugin_api_v1_plugins_register_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PluginRegister'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/plugins/suggest:
+    post:
+      tags:
+      - v1
+      - plugins
+      summary: Suggest Plugins
+      description: 挖掘近 7 天重复工具序列 → 自动 workflow 草稿（只走审核，绝不自动启用）。
+      operationId: suggest_plugins_api_v1_plugins_suggest_post
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/plugins/{plugin_id}/review:
+    post:
+      tags:
+      - v1
+      - plugins
+      summary: Review Workflow Plugin
+      description: 发布闸：approve → enabled；reject → rejected（tenant_admin/manual 审核）。
+      operationId: review_workflow_plugin_api_v1_plugins__plugin_id__review_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: plugin_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Plugin Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PluginReviewIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/plugins/{plugin_id}/run:
+    post:
+      tags:
+      - v1
+      - plugins
+      summary: Run Workflow Plugin
+      description: 同步解释执行（enabled 才可跑）→ {outputs, final}；租户成员可跑，风险由工具闸兜底。
+      operationId: run_workflow_plugin_api_v1_plugins__plugin_id__run_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: plugin_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Plugin Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PluginRunIn'
       responses:
         '200':
           description: Successful Response
@@ -4581,6 +4800,37 @@ components:
       - content
       title: MessageSendRequest
       description: 发消息：content 为问题原文（转发给 supervisor 三级路由执行）。
+    PluginRegister:
+      properties:
+        manifest:
+          additionalProperties: true
+          type: object
+          title: Manifest
+      type: object
+      required:
+      - manifest
+      title: PluginRegister
+      description: workflow 插件注册请求：body 只带 manifest 本体，服务端补全溯源字段。
+    PluginReviewIn:
+      properties:
+        decision:
+          type: string
+          enum:
+          - approve
+          - reject
+          title: Decision
+      type: object
+      required:
+      - decision
+      title: PluginReviewIn
+    PluginRunIn:
+      properties:
+        params:
+          additionalProperties: true
+          type: object
+          title: Params
+      type: object
+      title: PluginRunIn
     PolicyIngestRequest:
       properties:
         policy_name:
@@ -5057,6 +5307,17 @@ components:
       required:
       - action
       title: SkillReview
+    SkillSuggest:
+      properties:
+        focus_hint:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Focus Hint
+      type: object
+      title: SkillSuggest
+      description: AI 技能总结请求（v1.3-B C1）：可选关注点提示，纯文本 ≤200 字。
     SupervisorAskRequest:
       properties:
         question:
@@ -5132,6 +5393,48 @@ components:
       - model_id
       - api_key
       title: SupplierCreate
+    SupplierProbeModelsBody:
+      properties:
+        provider_type:
+          type: string
+          enum:
+          - deepseek
+          - qwen
+          - moonshot
+          - openai
+          - openai_compatible
+          - custom
+          - anthropic
+          - gemini
+          title: Provider Type
+        base_url:
+          type: string
+          maxLength: 500
+          minLength: 1
+          title: Base Url
+        api_key:
+          anyOf:
+          - type: string
+            maxLength: 2000
+          - type: 'null'
+          title: Api Key
+        supplier_id:
+          anyOf:
+          - type: string
+            maxLength: 64
+          - type: 'null'
+          title: Supplier Id
+      type: object
+      required:
+      - provider_type
+      - base_url
+      title: SupplierProbeModelsBody
+      description: '模型列表探测入参：api_key 只在本次请求内存中瞬时使用，绝不落库/日志/审计。
+
+
+        api_key 缺省时：若传了 supplier_id 则用该供应商已存密钥（租户可见范围内）；
+
+        两者都没有则不带鉴权头探测（本机 Ollama / LM Studio 通常无需 Key）。'
     SupplierTestBody:
       properties:
         provider_type:

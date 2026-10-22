@@ -36,6 +36,9 @@ REQUIRED_FIELDS = (
 
 STATUS_ENABLED = "enabled"
 STATUS_DISABLED = "disabled"
+# v1.3-B workflow 审核态（workflow.py 从这里取，避免双头定义）
+STATUS_PENDING_REVIEW = "pending_review"
+STATUS_REJECTED = "rejected"
 
 
 def plugin_dir() -> Path:
@@ -249,4 +252,6 @@ def plugin_to_out(record: PluginManifest) -> dict:
         "checksum_ok": record.checksum_ok,
         "installed_at": record.installed_at,
         "created_at": record.created_at,
+        # v1.3-B：带 _auto 溯源节的 manifest = 自动挖掘草稿
+        "created_from": "auto" if manifest.get("_auto") else "manual",
     }

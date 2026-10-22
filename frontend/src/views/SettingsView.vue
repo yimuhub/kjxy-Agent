@@ -478,15 +478,7 @@
           <el-input
             v-model="form.base_url"
             placeholder="https://api.deepseek.com"
-          />
-        </el-form-item>
-        <el-form-item
-          label="模型名"
-          required
-        >
-          <el-input
-            v-model="form.model_id"
-            placeholder="上游物理模型名，如 deepseek-chat"
+            @blur="onProbeTrigger"
           />
         </el-form-item>
         <el-form-item
@@ -498,7 +490,53 @@
             type="password"
             show-password
             :placeholder="editingId ? '留空则不修改' : '上游 API Key，加密存储'"
+            @blur="onProbeTrigger"
           />
+          <span class="note">填写后自动获取上游模型列表</span>
+        </el-form-item>
+        <el-form-item
+          label="默认模型"
+          required
+        >
+          <div class="model-picker">
+            <el-select
+              v-if="!manualModel"
+              v-model="form.model_id"
+              filterable
+              :loading="probing"
+              placeholder="填写地址与密钥后自动获取"
+              class="model-select"
+            >
+              <el-option
+                v-for="m in modelOptions"
+                :key="m.id"
+                :label="m.label"
+                :value="m.id"
+              />
+            </el-select>
+            <el-input
+              v-else
+              v-model="form.model_id"
+              placeholder="上游物理模型名，如 deepseek-chat"
+            />
+            <el-button
+              text
+              :loading="probing"
+              @click="probeModels(true)"
+            >
+              {{ probing ? '获取中' : '刷新列表' }}
+            </el-button>
+            <el-button
+              text
+              @click="manualModel = !manualModel"
+            >
+              {{ manualModel ? '用下拉选择' : '手动输入' }}
+            </el-button>
+          </div>
+          <span
+            v-if="probeMessage"
+            class="note"
+          >{{ probeMessage }}</span>
         </el-form-item>
         <el-form-item label="模型白名单">
           <el-input
@@ -708,6 +746,7 @@ import type {
   McpToolItem,
 } from '@/api/modules'
 import { isMockEnabled } from '@/api/mock'
+import { extractErrorMessage } from '@/api/client'
 import AsyncState from '@/components/AsyncState.vue'
 import { classifyError, type ViewState } from '@/utils/status'
 import type { LlmStatus, ToolDefinition } from '@/types/api'
@@ -757,6 +796,12 @@ const templateNote = ref('')
 const formTest = ref<{ ok: boolean; title: string; desc: string } | null>(null)
 const rowTest = ref<{ ok: boolean; title: string; desc: string } | null>(null)
 
+/* ---------- 默认模型下拉（v1.3 §A）：填完地址/密钥自动获取上游模型列表 ---------- */
+const modelOptions = ref<{ id: string; label: string }[]>([])
+const probing = ref(false)
+const manualModel = ref(false)
+const probeMessage = ref('')
+
 const form = reactive({
   name: '',
   provider_type: 'deepseek',
@@ -769,6 +814,45 @@ const form = reactive({
   // function-calling 能力位：仅编辑时提交（创建接口不接受该字段）
   supports_tools: false,
 })
+
+async function probeModels(force = false) {
+  if (probing.value) return
+  if (!force && !form.base_url.trim()) return
+  probing.value = true
+  probeMessage.value = ''
+  try {
+    const payload: { provider_type: string; base_url: string; api_key?: string; supplier_id?: string } = {
+      provider_type: form.provider_type,
+      base_url: form.base_url.trim(),
+    }
+    // 编辑态且本次没填新 key → 用已存密钥探测
+    if (editingId.value && !form.api_key.trim()) payload.supplier_id = editingId.value
+    else if (form.api_key.trim()) payload.api_key = form.api_key.trim()
+    const res = await llmSupplierApi.probeModels(payload)
+    modelOptions.value = res.models
+    if (res.source === 'remote') {
+      probeMessage.value = `已获取 ${res.models.length} 个模型`
+      manualModel.value = false
+      if (!form.model_id && res.models.length) form.model_id = res.models[0].id
+    } else if (res.source === 'unsupported') {
+      probeMessage.value = res.message || '该供应商不支持模型列表，请手动填写'
+      manualModel.value = true
+    } else {
+      probeMessage.value = res.message || '获取失败，请手动填写或检查地址与密钥'
+      manualModel.value = true
+    }
+  } catch (e) {
+    probeMessage.value = extractErrorMessage(e).message || '获取失败，请手动填写或检查地址与密钥'
+    manualModel.value = true
+  } finally {
+    probing.value = false
+  }
+}
+
+/** 地址或密钥失焦时自动触发一次探测（force=false 避免空地址乱请求） */
+function onProbeTrigger() {
+  void probeModels(false)
+}
 
 function typeLabel(t: string): string {
   const found = templates.value.find(x => x.provider_type === t)
@@ -818,6 +902,9 @@ function resetForm() {
   templateKey.value = ''
   templateNote.value = ''
   formTest.value = null
+  modelOptions.value = []
+  manualModel.value = false
+  probeMessage.value = ''
 }
 
 function applyTemplate() {
@@ -854,7 +941,12 @@ function openEdit(row: LlmSupplier) {
   templateKey.value = ''
   templateNote.value = ''
   formTest.value = null
+  modelOptions.value = []
+  manualModel.value = false
+  probeMessage.value = ''
   dialogVisible.value = true
+  // 编辑态：进表单即自动探测一次（用已存密钥，失败则回落到手动输入）
+  void probeModels(false)
 }
 
 async function saveForm() {
@@ -1124,6 +1216,16 @@ onMounted(() => {
   color: var(--ds-text-2);
   font-size: 12px;
   margin-left: 8px;
+}
+.model-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.model-select {
+  flex: 1;
+  min-width: 0;
 }
 .masked-key {
   font-family: ui-monospace, monospace;

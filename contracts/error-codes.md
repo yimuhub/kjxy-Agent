@@ -65,6 +65,8 @@
 | `SKILL_NOT_FOUND` | 404 | Skill 不存在 |
 | `SKILL_VERSION_CONFLICT` | 409 | 版本已存在 |
 | `INVALID_SKILL_TRANSITION` | 409 | 非法 Skill 状态转移 |
+| `EVOLUTION_INSUFFICIENT_EVIDENCE` | 409 | 窗口内运行样本不足，不生成技能建议（AI 总结诚实拒绝） |
+| `EVOLUTION_LLM_UNAVAILABLE` | 502 | 模型不可用/输出不可解析，未生成技能建议（不落半成品） |
 | `EVAL_GATE_BLOCKED` | 409 | 评测门禁未通过 / 无法执行评估，禁止发布；details 含 failed_case_ids 与通过率 |
 | `EVAL_GATE_UNAVAILABLE` | 503 | 评测门禁所需问答 Agent 不可用 |
 
@@ -106,3 +108,14 @@
 | `QUEUED_TIMEOUT` | — | 任务 error_code：queued 超时被周期回收（queued→failed） |
 | `RUNNING_TIMEOUT` | — | 任务 error_code：running 超时/卡死被周期回收 |
 | `DOCUMENT_NOT_REPARSABLE` | 409 | 文档当前状态不允许重新解析（仅 failed 可调） |
+
+## 插件 / 声明式 workflow（v1.3-B）
+
+| code | HTTP | 说明 |
+|---|---|---|
+| `PLUGIN_NOT_FOUND` | 404 | 插件不存在或跨租户访问（workflow 按当前租户校验） |
+| `PLUGIN_MANIFEST_INVALID` | 400/422 | manifest 校验失败（注册路径 400：步骤>8/未知或 mcp 工具/save_as 非法等） |
+| `PLUGIN_TYPE_UNSUPPORTED` | 422 | 不支持的插件类型 |
+| `PLUGIN_CONFLICT` | 409 | plugin_id 被其他类型占用 |
+| `INVALID_PLUGIN_TRANSITION` | 409 | 非法插件审核状态转移（仅 pending_review 可审） |
+| `PLUGIN_NOT_ENABLED` | 409 | 插件未通过发布闸（enabled）不可运行 |

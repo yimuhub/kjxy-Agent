@@ -403,6 +403,15 @@ export const llmSupplierApi = {
   templates(): Promise<LlmProviderTemplate[]> {
     return unwrap(api.get<ApiResponse<LlmProviderTemplate[]>>('/llm/provider-templates'))
   },
+  /** 探测上游模型列表（v1.3 §A）：key 只在请求体瞬时使用，不落库 */
+  probeModels(payload: {
+    provider_type: string
+    base_url: string
+    api_key?: string
+    supplier_id?: string
+  }): Promise<{ models: { id: string; label: string }[]; source: 'remote' | 'unsupported' | 'error'; message?: string }> {
+    return unwrap(api.post<ApiResponse<{ models: { id: string; label: string }[]; source: 'remote' | 'unsupported' | 'error'; message?: string }>>('/llm/providers/probe-models', payload))
+  },
 }
 
 // ---------- 审计 / 管理 ----------
@@ -668,6 +677,10 @@ export const evolutionApi = {
   listPlugins(): Promise<any[]> {
     return unwrap(api.get<any>('/plugins')).then((r: any) => r.data ?? r.plugins ?? r)
   },
+  /** 插件详情（含 manifest 正文：运行参数/步骤定义从这里取） */
+  getPlugin(plugin_id: string): Promise<Record<string, unknown>> {
+    return unwrap(api.get<ApiResponse<Record<string, unknown>>>(`/plugins/${plugin_id}`))
+  },
   /** 扫描插件 */
   scanPlugins(): Promise<unknown> {
     return unwrap(api.post('/plugins/scan', {}))
@@ -679,6 +692,38 @@ export const evolutionApi = {
   /** 禁用插件 */
   disablePlugin(plugin_id: string): Promise<unknown> {
     return unwrap(api.post(`/plugins/${plugin_id}/disable`, {}))
+  },
+  /** AI 总结技能候选（v1.3 C1）：近 7 天证据不足会诚实拒绝 EVOLUTION_INSUFFICIENT_EVIDENCE */
+  suggestSkills(
+    payload: { focus_hint?: string } = {},
+    config?: AxiosRequestConfig & { skipErrorToast?: boolean },
+  ): Promise<Record<string, unknown>> {
+    // 设计稿 C1 写的是 /evolution/skills/suggest，但后端 evolution 路由挂在 /api/v1 根下
+    // （与 /skills、/feedback 同形状），实际路径为 POST /skills/suggest
+    return unwrap(
+      api.post<ApiResponse<Record<string, unknown>>>('/skills/suggest', payload, config),
+    )
+  },
+  /** 注册声明式 workflow 插件（v1.3 C2）：后端校验通过 → pending_review 等待批准 */
+  registerPlugin(manifest: WorkflowManifest): Promise<Record<string, unknown>> {
+    return unwrap(api.post<ApiResponse<Record<string, unknown>>>('/plugins/register', { manifest }))
+  },
+  /** 插件审核：approve → enabled；reject → rejected */
+  reviewPlugin(
+    plugin_id: string,
+    decision: 'approve' | 'reject',
+  ): Promise<Record<string, unknown>> {
+    return unwrap(api.post<ApiResponse<Record<string, unknown>>>(`/plugins/${plugin_id}/review`, { decision }))
+  },
+  /** 运行插件（enabled 才可跑）：顺序执行 steps，返回 outputs/final */
+  runPlugin(plugin_id: string, params: Record<string, unknown>): Promise<PluginRunResult> {
+    return unwrap(api.post<ApiResponse<PluginRunResult>>(`/plugins/${plugin_id}/run`, { params }))
+  },
+  /** 从历史工具序列挖掘插件草稿（v1.3 C2）：只产草稿走审核，启用永远经人 */
+  suggestPlugins(
+    config?: AxiosRequestConfig & { skipErrorToast?: boolean },
+  ): Promise<Record<string, unknown>> {
+    return unwrap(api.post<ApiResponse<Record<string, unknown>>>('/plugins/suggest', {}, config))
   },
 }
 
@@ -1270,4 +1315,42 @@ export const supervisorApi = {
   candidates(): Promise<{ candidates: SupervisorCandidate[] }> {
     return unwrap(api.get<ApiResponse<{ candidates: SupervisorCandidate[] }>>('/agents/supervisor/candidates'))
   },
+}
+
+
+/* ---------- 进化域 v1.3：AI 总结候选 + 声明式插件（DESIGN-v3 C 契约） ---------- */
+
+/** workflow 插件入参定义（运行小对话框按此渲染） */
+export interface WorkflowParamDef {
+  key: string
+  label: string
+  required?: boolean
+}
+
+/** workflow 步骤：tool（执行注册表工具）| llm（模型补全，{{变量}} 插值） */
+export interface WorkflowStepDef {
+  kind: 'tool' | 'llm'
+  /** kind=tool：工具注册表中的工具编码（如 sensor.query） */
+  tool?: string
+  /** kind=tool：工具参数（JSON 对象） */
+  args?: Record<string, unknown>
+  /** kind=tool：结果以此名写入上下文，供后续步骤 {{名}} 引用 */
+  save_as?: string
+  /** kind=llm：提示词，支持 {{变量}} 插值 */
+  prompt?: string
+}
+
+/** 声明式 workflow 插件清单（POST /plugins/register 的 manifest） */
+export interface WorkflowManifest {
+  name: string
+  description?: string
+  params: WorkflowParamDef[]
+  steps: WorkflowStepDef[]
+}
+
+/** 插件运行结果：outputs 为 save_as → 输出映射；final 为末步文本 */
+export interface PluginRunResult {
+  outputs?: Record<string, unknown>
+  final?: string
+  [key: string]: unknown
 }

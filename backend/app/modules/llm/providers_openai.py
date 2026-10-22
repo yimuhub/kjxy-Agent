@@ -94,7 +94,7 @@ class OpenAICompatibleProvider:
         # 私有网段按 enforce_model_egress_guard 策略执行（内网私有化部署默认放行）
         from app.core.net_guard import check_egress_url
 
-        check_egress_url(f"{self.base_url}/chat/completions", context="llm_chat")
+        check_egress_url(f"{self.base_url}/chat/completions", context="llm_chat", allow_local=True)
         model = request.model or self.model
         payload: dict = {
             "model": model,
