@@ -133,6 +133,22 @@ class Settings(BaseSettings):
         "（展示性预筛，不阻断审核；机器预检不受此开关影响，始终执行）",
     )
 
+    # --- 手机配对（扫码接入局域网，Wave B） ---
+    pairing_code_ttl_seconds: int = Field(
+        default=300, description="配对码有效期（秒）：过期自动作废，需重新生成"
+    )
+    pairing_max_active_codes: int = Field(
+        default=5, description="单租户未用配对码上限：超限拒绝新建，防止码堆积被慢爆破"
+    )
+    pairing_device_token_expire_days: int = Field(
+        default=30, description="配对成功签发的设备令牌有效期（天）；过期需重新扫码配对"
+    )
+    pairing_advertise_port: int = Field(
+        default=8000,
+        description="pair_url 携带的对外服务端口；必须与 API 实际监听端口一致"
+        "（nginx/桌面 sidecar 部署需按对外端口覆盖默认值）",
+    )
+
     # --- 声明式 Agent 工具循环护栏（P0 内核） ---
     agent_tool_loop_max_iterations: int = Field(
         default=6,

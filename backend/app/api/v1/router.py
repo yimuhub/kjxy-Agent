@@ -14,6 +14,7 @@ from app.modules.knowledge.router import router as knowledge_router
 from app.modules.llm.router import router as llm_router
 from app.modules.market.router import router as market_router
 from app.modules.mcp.router import router as mcp_router
+from app.modules.pairing.router import router as pairing_router
 from app.modules.plugins.router import router as plugins_router
 from app.modules.policy.router import router as policy_router
 from app.modules.push.router import router as push_router
@@ -47,6 +48,7 @@ router.include_router(devices_router)
 router.include_router(push_router)  # /settings/push-channels（W4 事件推送通道）
 router.include_router(mcp_router)  # /settings/mcp-servers（W5a MCP 工具服务器）
 router.include_router(chat_router)  # /chat/sessions（对话模式：会话+消息，执行复用 supervisor）
+router.include_router(pairing_router)  # /pairing（手机扫码配对：建码/交换/设备台账）
 
 
 @router.get("/ping", include_in_schema=False)

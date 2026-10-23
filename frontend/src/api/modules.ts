@@ -414,6 +414,29 @@ export const llmSupplierApi = {
   },
 }
 
+// ---------- 手机配对（Wave B：扫码接入局域网） ----------
+
+export interface PairDeviceOut {
+  id: string
+  name: string
+  created_at: string
+  expires_at: string
+  last_seen_at: string | null
+  revoked_at: string | null
+}
+
+export const pairingApi = {
+  createCode(): Promise<{ pair_url: string; expires_in: number }> {
+    return unwrap(api.post<ApiResponse<{ pair_url: string; expires_in: number }>>('/pairing/codes'))
+  },
+  devices(): Promise<PairDeviceOut[]> {
+    return unwrap(api.get<ApiResponse<PairDeviceOut[]>>('/pairing/devices'))
+  },
+  revoke(deviceId: string): Promise<PairDeviceOut> {
+    return unwrap(api.post<ApiResponse<PairDeviceOut>>(`/pairing/devices/${deviceId}/revoke`))
+  },
+}
+
 // ---------- 审计 / 管理 ----------
 
 export const auditApi = {

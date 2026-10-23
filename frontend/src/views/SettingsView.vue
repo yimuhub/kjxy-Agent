@@ -389,6 +389,97 @@
       </el-tab-pane>
 
       <el-tab-pane
+        label="手机接入"
+        name="pairing"
+      >
+        <el-card class="section">
+          <template #header>
+            <div class="card-head">
+              <span>手机扫码接入（局域网）</span>
+              <el-button
+                type="primary"
+                :loading="pairLoading"
+                @click="genPairCode"
+              >
+                生成配对二维码
+              </el-button>
+            </div>
+          </template>
+          <p class="pair-tip">
+            手机与本机需在同一局域网。用系统相机或浏览器扫码即可配对；
+            桌面本地引擎需先在「连接服务器」旁开启局域网共享（--lan）。
+          </p>
+          <div
+            v-if="pairQr"
+            class="pair-qr-wrap"
+          >
+            <img
+              :src="pairQr"
+              alt="配对二维码"
+              class="pair-qr"
+            >
+            <div class="pair-meta">
+              <div>{{ pairExpires > 0 ? `${pairExpires} 秒后过期` : '已过期，请重新生成' }}</div>
+              <div class="pair-url">
+                {{ pairUrlText }}
+              </div>
+            </div>
+          </div>
+          <el-table
+            :data="pairDevices"
+            stripe
+            class="pair-table"
+          >
+            <el-table-column
+              prop="name"
+              label="设备"
+            />
+            <el-table-column
+              label="配对时间"
+              width="180"
+            >
+              <template #default="{ row }">
+                {{ fmtPairTime(row.created_at) }}
+              </template>
+            </el-table-column>
+            <el-table-column
+              label="令牌到期"
+              width="180"
+            >
+              <template #default="{ row }">
+                {{ fmtPairTime(row.expires_at) }}
+              </template>
+            </el-table-column>
+            <el-table-column
+              label="状态"
+              width="100"
+            >
+              <template #default="{ row }">
+                <el-tag :type="row.revoked_at ? 'danger' : 'success'">
+                  {{ row.revoked_at ? '已吊销' : '在用' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column
+              label="操作"
+              width="100"
+            >
+              <template #default="{ row }">
+                <el-button
+                  v-if="!row.revoked_at"
+                  text
+                  type="danger"
+                  @click="revokePairDevice(row.id)"
+                >
+                  吊销
+                </el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+      </el-tab-pane>
+
+      <el-tab-pane
         label="前端配置"
         name="frontend"
       >
@@ -734,10 +825,11 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, onUnmounted, reactive, ref } from 'vue'
 import { Lock } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { llmApi, llmSupplierApi, mcpApi, toolApi } from '@/api/modules'
+import QRCode from 'qrcode'
+import { llmApi, llmSupplierApi, mcpApi, pairingApi, toolApi, type PairDeviceOut } from '@/api/modules'
 import type {
   LlmProviderTemplate,
   LlmSupplier,
@@ -1182,12 +1274,72 @@ async function showMcpTools(s: McpServerItem) {
   mcpToolsVisible.value = true
 }
 
+/* ---------- 手机接入（Wave B）：一次性配对码 + 二维码 + 设备台账 ---------- */
+const pairQr = ref('')
+const pairUrlText = ref('')
+const pairExpires = ref(0)
+const pairLoading = ref(false)
+const pairDevices = ref<PairDeviceOut[]>([])
+let pairTimer: number | undefined
+
+async function genPairCode() {
+  pairLoading.value = true
+  try {
+    const res = await pairingApi.createCode()
+    pairUrlText.value = res.pair_url
+    pairQr.value = await QRCode.toDataURL(res.pair_url, { margin: 1, width: 220 })
+    pairExpires.value = res.expires_in
+    if (pairTimer) window.clearInterval(pairTimer)
+    pairTimer = window.setInterval(() => {
+      if (pairExpires.value > 0) pairExpires.value -= 1
+    }, 1000)
+  } catch (e) {
+    ElMessage.error(extractErrorMessage(e).message || '生成配对码失败')
+  } finally {
+    pairLoading.value = false
+  }
+}
+
+async function loadPairDevices() {
+  try {
+    pairDevices.value = await pairingApi.devices()
+  } catch {
+    // 网络失败不打扰：表格保持原样
+  }
+}
+
+async function revokePairDevice(id: string) {
+  try {
+    await ElMessageBox.confirm('吊销后该设备需重新扫码才能接入。', '吊销设备', { type: 'warning' })
+  } catch {
+    return
+  }
+  try {
+    await pairingApi.revoke(id)
+    ElMessage.success('已吊销')
+    await loadPairDevices()
+  } catch (e) {
+    ElMessage.error(extractErrorMessage(e).message || '吊销失败')
+  }
+}
+
+function fmtPairTime(iso: string | null): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString()
+}
+
+onUnmounted(() => {
+  if (pairTimer) window.clearInterval(pairTimer)
+})
+
 onMounted(() => {
   loadLlm()
   loadTools()
   loadSuppliers()
   loadTemplates()
   loadMcp()
+  void loadPairDevices()
 })
 </script>
 
@@ -1216,6 +1368,44 @@ onMounted(() => {
   color: var(--ds-text-2);
   font-size: 12px;
   margin-left: 8px;
+}
+.pair-tip {
+  color: var(--ds-text-2);
+  font-size: 13px;
+  margin: 0 0 12px;
+}
+.pair-qr-wrap {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.pair-qr {
+  width: 220px;
+  height: 220px;
+  border-radius: var(--ds-radius-md, 12px);
+  background: #fff;
+  padding: 8px;
+}
+.pair-meta {
+  font-size: 13px;
+  color: var(--ds-text-1);
+}
+.pair-url {
+  margin-top: 6px;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--ds-text-2);
+  word-break: break-all;
+  max-width: 420px;
+}
+.pair-table {
+  margin-top: 8px;
+}
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 .model-picker {
   display: flex;

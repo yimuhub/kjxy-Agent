@@ -4233,6 +4233,89 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/pairing/codes:
+    post:
+      tags:
+      - v1
+      - pairing
+      summary: Create Code
+      operationId: create_code_api_v1_pairing_codes_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/pairing/exchange:
+    post:
+      tags:
+      - v1
+      - pairing
+      summary: Exchange
+      operationId: exchange_api_v1_pairing_exchange_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PairExchangeRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/pairing/devices:
+    get:
+      tags:
+      - v1
+      - pairing
+      summary: List Devices
+      operationId: list_devices_api_v1_pairing_devices_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/pairing/devices/{device_id}/revoke:
+    post:
+      tags:
+      - v1
+      - pairing
+      summary: Revoke Device
+      operationId: revoke_device_api_v1_pairing_devices__device_id__revoke_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: device_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Device Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
     AddMemberRequest:
@@ -4800,6 +4883,26 @@ components:
       - content
       title: MessageSendRequest
       description: 发消息：content 为问题原文（转发给 supervisor 三级路由执行）。
+    PairExchangeRequest:
+      properties:
+        code:
+          type: string
+          maxLength: 64
+          minLength: 8
+          title: Code
+          description: 扫码得到的配对码明文
+        device_name:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Device Name
+          description: 设备自报名称（展示用）
+      type: object
+      required:
+      - code
+      - device_name
+      title: PairExchangeRequest
+      description: 设备侧交换请求：扫码得到的配对码明文 + 设备自报名称。
     PluginRegister:
       properties:
         manifest:

@@ -27,6 +27,7 @@ dist/techyard-sidecar-<os>，作为 Tauri sidecar 由 Rust 壳拉起。
 
 from __future__ import annotations
 
+import argparse
 import contextlib
 import itertools
 import os
@@ -247,6 +248,16 @@ def _mount_frontend(app: FastAPI) -> None:
 
 
 def main() -> None:
+    # --lan 显式开启局域网模式（默认关闭 → 行为与桌面版完全一致，只绑回环）。
+    # 用 parse_known_args：Rust 壳可能追加未知参数，绝不允许因认不出就崩启动。
+    parser = argparse.ArgumentParser(prog="techyard-sidecar", description="科技小院桌面本地引擎")
+    parser.add_argument(
+        "--lan",
+        action="store_true",
+        help="局域网模式：绑定 0.0.0.0 并打印局域网访问地址（默认关闭，仅监听回环）",
+    )
+    args, _unknown = parser.parse_known_args()
+
     # 端口由 Rust 壳传入（TECHYARD_PORT，18700-18710 里选的空闲端口）；兼容 PORT
     raw_port = os.environ.get("TECHYARD_PORT") or os.environ.get("PORT") or "18700"
     try:
@@ -268,8 +279,23 @@ def main() -> None:
     from app.main import app
 
     _mount_frontend(app)
-    # 只绑 127.0.0.1：桌面模式绝不监听 0.0.0.0
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level=os.environ.get("LOG_LEVEL", "info"))
+    if not args.lan:
+        # 默认：只绑 127.0.0.1，桌面模式绝不外露端口
+        host = "127.0.0.1"
+    else:
+        # --lan：绑定 0.0.0.0 供同网段手机扫码配对；打印局域网地址提示
+        host = "0.0.0.0"
+        from app.modules.pairing.service import detect_local_ipv4
+
+        lan_ip = detect_local_ipv4()
+        if lan_ip:
+            print(f"[standalone] LAN 模式已开启：手机可用 http://{lan_ip}:{port} 接入（同网段）")
+        else:
+            print(
+                f"[standalone] LAN 模式已开启：已绑定 0.0.0.0:{port}"
+                "（未探测到局域网 IP，请手动确认本机地址）"
+            )
+    uvicorn.run(app, host=host, port=port, log_level=os.environ.get("LOG_LEVEL", "info"))
 
 
 if __name__ == "__main__":
