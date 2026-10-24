@@ -9,8 +9,9 @@
 //! - remote 模式（<data>/client.json 配 {"mode":"remote","url":...}）：不拉引擎，
 //!   窗口直接加载服务器地址（移动云端同款的桌面逃生口）。
 //!
-//! 编译提示：本文件按 tauri 2.x / tauri-plugin-shell 2.x API 编写；未经本地 cargo
-//! 验证（CI 首发编译），不确定处以 TODO-COMPILE 注释标明。
+//! 编译提示：本文件已用本地 cargo check（tauri 2.12 / 各插件 2.x，2026-10）验证编译，
+//! 但运行时行为（splash 导航、updater 下载安装）未在真机构建产物上回归；不确定处以
+//! TODO 注释标明。
 
 use std::fs;
 use std::io::Read;
@@ -21,9 +22,10 @@ use std::thread;
 use std::time::Duration;
 
 use serde::Deserialize;
-use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_shell::process::CommandChild;
 use tauri_plugin_shell::ShellExt;
+use tauri_plugin_updater::UpdaterExt;
 
 /// 引擎探测/绑定端口段（AO 同款端口顺延，避开常用 8xxx 冲突面）
 const PORT_RANGE: std::ops::RangeInclusive<u16> = 18700..=18710;
@@ -33,6 +35,73 @@ const HEALTH_TIMEOUT_SECS: u64 = 90;
 struct EngineState {
     child: Mutex<Option<CommandChild>>,
     port: Mutex<Option<u16>>,
+}
+
+/// 启动后静默检查更新的延迟：不抢启动体验（引擎拉起/splash 优先）
+const UPDATE_CHECK_DELAY_SECS: u64 = 30;
+
+/// 缓存 check 命中的 Update，供 download_and_install 直接复用（不重复拉清单）
+struct UpdateState {
+    pending: Mutex<Option<tauri_plugin_updater::Update>>,
+}
+
+/// 发给前端的轻量版本信息（Update 本身持有网络客户端，不可序列化）
+#[derive(Clone, serde::Serialize)]
+struct UpdateAvailable {
+    version: String,
+    notes: Option<String>,
+}
+
+/// 向窗口注入底部提示条（splash/主窗/引擎页通吃），纯 eval 不依赖页面 IPC
+fn inject_update_banner(win: &tauri::WebviewWindow, version: &str) {
+    let js = format!(
+        "(function(){{if(!document.body)return;var i='kjxy-update-banner';if(document.getElementById(i))return;var d=document.createElement('div');d.id=i;d.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:2147483647;padding:8px 16px;background:#1c2430;color:#e6edf3;font:13px -apple-system,\"PingFang SC\",\"Microsoft YaHei\",sans-serif;text-align:center';d.textContent='有新版本 v{v} 可用：在设置页/版本条点击「检查更新」完成升级';document.body.appendChild(d);}})()",
+        v = version
+    );
+    let _ = win.eval(&js);
+}
+
+/// 记录新版本并双路通知：广播事件（供前端 listen）+ 注入提示条（供无 JS 集成的页面兜底）
+fn publish_update(
+    app: &tauri::AppHandle,
+    update: tauri_plugin_updater::Update,
+) -> UpdateAvailable {
+    let info = UpdateAvailable {
+        version: update.version.clone(),
+        notes: update.body.clone(),
+    };
+    {
+        let st = app.state::<UpdateState>();
+        *st.pending.lock().unwrap() = Some(update);
+    }
+    let _ = app.emit("app:update-available", info.clone());
+    for win in app.webview_windows().values() {
+        inject_update_banner(win, &info.version);
+    }
+    info
+}
+
+/// 启动后延迟静默检查：不弹窗、失败只打日志（设置页可手动再查），发现新版走 publish_update
+fn spawn_update_watcher(app: tauri::AppHandle) {
+    thread::spawn(move || {
+        thread::sleep(Duration::from_secs(UPDATE_CHECK_DELAY_SECS));
+        // 独立线程内 block_on 轮询清单请求（异步 API 在 tokio 上跑，不占主线程）
+        let outcome = app
+            .updater()
+            .map_err(|e| e.to_string())
+            .and_then(|updater| {
+                tauri::async_runtime::block_on(updater.check()).map_err(|e| e.to_string())
+            });
+        match outcome {
+            Ok(Some(update)) => {
+                publish_update(&app, update);
+            }
+            // 已是最新：静默
+            Ok(None) => {}
+            // 网络失败等：不打扰用户，下轮启动再说
+            Err(e) => eprintln!("[updater] 静默检查跳过：{e}"),
+        }
+    });
 }
 
 #[derive(Deserialize, Default)]
@@ -70,7 +139,9 @@ fn ensure_secret(dir: &PathBuf) -> Result<String, String> {
     }
     // 无 rand crate：借系统熵源拼一个 64 位十六进制密钥
     let mut buf = [0u8; 32];
-    fs::File::open("/dev/urandom")
+    // 熵源读取失败不再让整链 ?: 短路：读不到就明确走回退（原 or_else 里 Ok(()) 与
+    // Result<File, _> 类型冲突，cargo check E0282）
+    let entropy_ok = fs::File::open("/dev/urandom")
         .or_else(|_| {
             #[cfg(windows)]
             {
@@ -82,18 +153,18 @@ fn ensure_secret(dir: &PathBuf) -> Result<String, String> {
             }
         })
         .and_then(|mut f| f.read_exact(&mut buf))
-        .or_else(|_| {
-            // TODO-COMPILE(windows): urandom 不可用时退化到哈希(时间+pid)；上线前应换 getrandom
-            use std::collections::hash_map::DefaultHasher;
-            use std::hash::{Hash, Hasher};
-            let mut h = DefaultHasher::new();
-            (std::time::SystemTime::now(), std::process::id(), 0x5eed).hash(&mut h);
-            let v = h.finish();
-            for i in 0..32 {
-                buf[i] = (v >> (i % 8 * 8)) as u8;
-            }
-            Ok(())
-        })?;
+        .is_ok();
+    if !entropy_ok {
+        // TODO(windows): urandom 不可用时退化到哈希(时间+pid)；上线前应换 getrandom
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut h = DefaultHasher::new();
+        (std::time::SystemTime::now(), std::process::id(), 0x5eedu64).hash(&mut h);
+        let v = h.finish();
+        for i in 0..32 {
+            buf[i] = (v >> (i % 8 * 8)) as u8;
+        }
+    }
     let secret = buf.iter().map(|b| format!("{b:02x}")).collect::<String>();
     fs::write(&path, &secret).map_err(|e| format!("写 secret.key 失败：{e}"))?;
     Ok(secret)
@@ -190,6 +261,7 @@ fn start_local(app: &tauri::AppHandle, state: &EngineState, dir: &PathBuf) -> Re
     .map_err(|e| e.to_string())?;
     let handle = app.clone();
     let win = splash.clone();
+    let dir = dir.clone(); // 线程需要 owned 副本（原引用不满足 'static）
     thread::spawn(move || {
         let deadline = std::time::Instant::now() + Duration::from_secs(HEALTH_TIMEOUT_SECS);
         while std::time::Instant::now() < deadline {
@@ -210,7 +282,82 @@ fn start_local(app: &tauri::AppHandle, state: &EngineState, dir: &PathBuf) -> Re
             "本地引擎 {HEALTH_TIMEOUT_SECS} 秒内未就绪。\n常见原因：安全软件拦截 sidecar、端口段被占、安装包损坏。\n可尝试：完全退出后重开；仍失败请删除数据目录后重试（会重置本地数据）：\n{}",
             dir.display()
         );
-        handle.dialog().message(msg, "启动失败");
+        handle.dialog().message(msg).title("启动失败").show(|_| {});
+    });
+    Ok(())
+}
+
+/// 版本条：当前应用版本（tauri.conf.json version），前端免装 app 插件权限。
+#[tauri::command]
+fn get_app_version(app: tauri::AppHandle) -> String {
+    app.package_info().version.to_string()
+}
+
+/// 设置页：手动检查更新。返回 null=已是最新；对象=新版信息（同时触发事件+提示条通知）。
+#[tauri::command]
+async fn check_for_updates(app: tauri::AppHandle) -> Result<Option<UpdateAvailable>, String> {
+    let updater = app
+        .updater()
+        .map_err(|e| format!("初始化更新器失败：{e}"))?;
+    let update = updater
+        .check()
+        .await
+        .map_err(|e| format!("检查更新请求失败：{e}"))?;
+    Ok(update.map(|u| publish_update(&app, u)))
+}
+
+/// 设置页：下载并安装更新，成功后应用自动重启（sidecar 在替换前被级联关闭）。
+/// 命令先返回，下载进度走 `app:update-downloaded-bytes` 事件；失败走 `app:update-error` + 原生对话框。
+#[tauri::command]
+async fn download_and_install(app: tauri::AppHandle) -> Result<(), String> {
+    // 缓存命中判断 + 取出都收敛为单表达式，避免 State 临时值生命周期问题
+    let cached = app.state::<UpdateState>().pending.lock().unwrap().take();
+    let update = match cached {
+        Some(u) => u,
+        None => {
+            // 未经检查直接点「升级」：先查一次拿最新
+            let updater = app
+                .updater()
+                .map_err(|e| format!("初始化更新器失败：{e}"))?;
+            updater
+                .check()
+                .await
+                .map_err(|e| format!("检查更新请求失败：{e}"))?
+                .ok_or_else(|| "当前已是最新版本，无需升级".to_string())?
+        }
+    };
+    // 1) 流式下载（插件内置 minisign 验签，坏包/伪造包直接报错）
+    let dl_app = app.clone();
+    let mut downloaded: u64 = 0;
+    let bytes = update
+        .download(
+            move |chunk_len, _content_length| {
+                downloaded += chunk_len as u64;
+                let _ = dl_app.emit("app:update-downloaded-bytes", downloaded);
+            },
+            || {},
+        )
+        .await
+        .map_err(|e| format!("下载更新失败：{e}"))?;
+    // 2) 安装前先级联关闭引擎 sidecar：安装成功可能直接替换/退出进程，未必走 run() 清理
+    if let Some(child) = app.state::<EngineState>().child.lock().unwrap().take() {
+        let _ = child.kill();
+    }
+    let _ = app.emit("app:update-installing", ());
+    // 3) 安装是重阻塞活：Windows 由安装器接管并自行退出；macOS/Linux 需手动重启新进程
+    let install_app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || match update.install(&bytes) {
+        Ok(()) => {
+            #[cfg(not(windows))]
+            install_app.restart();
+        }
+        Err(e) => {
+            let msg = format!("升级安装失败：{e}");
+            eprintln!("[updater] {msg}");
+            let _ = install_app.emit("app:update-error", msg.clone());
+            use tauri_plugin_dialog::DialogExt;
+            install_app.dialog().message(msg).title("升级失败").show(|_| {});
+        }
     });
     Ok(())
 }
@@ -221,12 +368,21 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(EngineState {
             child: Mutex::new(None),
             port: Mutex::new(None),
         })
+        .manage(UpdateState {
+            pending: Mutex::new(None),
+        })
+        .invoke_handler(tauri::generate_handler![
+            get_app_version,
+            check_for_updates,
+            download_and_install
+        ])
         .setup(|app| {
-            lethandle = app.handle().clone();
+            let handle = app.handle().clone();
             let state = app.state::<EngineState>();
             let dir = data_dir(&handle)?;
             let cfg = client_config(&dir);
@@ -236,10 +392,12 @@ pub fn run() {
             } else {
                 start_local(&handle, &state, &dir).map_err(|e| {
                     use tauri_plugin_dialog::DialogExt;
-                    handle.dialog().message(e.clone(), "启动失败");
+                    handle.dialog().message(e.clone()).title("启动失败").show(|_| {});
                     e
                 })?;
             }
+            // 升级静默检查（30 秒后）：本地/远程模式都跑，与启动路径解耦
+            spawn_update_watcher(handle.clone());
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -247,8 +405,7 @@ pub fn run() {
         .run(|app, event| {
             // 级联退出：壳关闭时带走引擎 sidecar（SIGTERM；短等待后系统回收）
             if let tauri::RunEvent::ExitRequested { .. } = event {
-                let state = app.state::<EngineState>();
-                if let Some(child) = state.child.lock().unwrap().take() {
+                if let Some(child) = app.state::<EngineState>().child.lock().unwrap().take() {
                     let _ = child.kill();
                 }
             }

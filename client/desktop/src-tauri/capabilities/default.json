@@ -1,12 +1,16 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "桌面壳默认能力：splash/主窗体加载引擎页面；sidecar 仅允许内置 techyard-sidecar",
+  "description": "桌面壳默认能力：splash/主窗体加载引擎页面；sidecar 仅允许内置 techyard-sidecar；updater 允许检查/下载/安装",
   "windows": ["*"],
   "permissions": [
     "core:default",
     "dialog:default",
     "opener:default",
+    "updater:default",
+    "updater:allow-check",
+    "updater:allow-download",
+    "updater:allow-install",
     {
       "identifier": "shell:allow-execute",
       "allow": [

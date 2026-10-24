@@ -12,3 +12,7 @@ src-tauri/frontend-dist/*
 src-tauri/target/
 src-tauri/gen/schemas/
 node_modules/
+
+# 应用图标（CI 由 icons-src 生成）
+src-tauri/icons/
+src-tauri/gen/android/

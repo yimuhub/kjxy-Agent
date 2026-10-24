@@ -1,0 +1,99 @@
+# 正式发布流水线：推 v* 标签 → 三平台构建签名安装包 → 上传 GitHub Release（含更新包 .sig 与 latest.json）
+# 客户端 plugins.updater 指向本仓库 Releases 的 latest.json，实现应用内自动升级（见 client/desktop/README.md）。
+#
+# 必须在仓库 Settings → Secrets and variables → Actions 配置：
+#   TAURI_SIGNING_PRIVATE_KEY          = updater 私钥文件完整内容
+#                                        （本机路径：Documents/Hermes/kjxy-work/tauri_updater_private_key，绝不提交进仓库）
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD = 开发固定密码 kjxy-dev-key（正式对外发版前必须换密钥与密码）
+#   GITHUB_TOKEN 用工作流自带 token（下方 permissions 已给 contents: write，用于建 Release）
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            # updater 升级包来自 app bundle（.app.tar.gz + .sig），dmg 供手动首装
+            bundles: app,dmg
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            # updater 要求 NSIS（createUpdaterArtifacts 对 msi 不产升级包）
+            bundles: nsis
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            # 显式列 bundle 格式，避开 rpm（runner 无 rpmbuild）
+            bundles: appimage,deb
+    runs-on: ${{ matrix.os }}
+    steps:
+      # —— 以下步骤链复用 client.yml 已实测的模式 ——
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install linux system deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+      - name: Build web frontend -> dist-web
+        run: |
+          cd frontend && npm ci && npm run build
+          mkdir -p ../client/desktop/dist-web
+          cp -r dist/* ../client/desktop/dist-web/
+          # 引擎托管的前端资源（bundle.resources: frontend-dist/**/*，build.rs 校验非空 glob）
+          mkdir -p ../client/desktop/src-tauri/frontend-dist
+          cp -r dist/* ../client/desktop/src-tauri/frontend-dist/
+      - name: Build PyInstaller sidecar（本地引擎）
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip pyinstaller
+          bash backend/scripts/build_sidecar.sh
+          ls -la backend/dist
+      - name: Stage sidecar binary (tauri target-triple naming)
+        shell: bash
+        run: |
+          SRC=$(ls backend/dist/techyard-sidecar* | head -1)
+          EXT=$([ "${{ runner.os }}" = "Windows" ] && echo ".exe" || echo "")
+          cp "$SRC" "client/desktop/src-tauri/binaries/techyard-sidecar-${{ matrix.target }}${EXT}"
+      - name: Generate app icons
+        working-directory: client/desktop
+        run: |
+          npm install
+          npx tauri icon icons-src/app-icon.png
+      # 签名 + 打包 + 建 Release + 上传产物（安装包、.sig、各平台更新清单并合并 latest.json）：
+      # tauri-action 用 GITHUB_TOKEN 走 GitHub API 上传（等效 softprops/action-gh-release/gh CLI），
+      # 且跨平台 latest.json 合并是 updater 自动升级的关键，手动 gh 极易漏。
+      - name: Tauri build + sign + upload to GitHub Release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 缺这两个 secret 时签名直接失败——正式发布必须配置（见文件头注释）
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: client/desktop
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+          # 与推送的标签同名：Release 即更新通道，latest.json 放该 Release 供 updater 拉取
+          tagName: ${{ github.ref_name }}
+          releaseName: 科技小院 ${{ github.ref_name }}
+          releaseBody: 自动构建：macOS(aarch64) / Windows(NSIS) / Linux(AppImage+deb)，含自动升级更新包与签名。
+          releaseDraft: false
+          prerelease: false
