@@ -55,7 +55,7 @@ rm -rf "build/${NAME}" "dist/${NAME}" "dist/${NAME}.spec"
   --noconfirm \
   --console \
   --paths "$BACKEND_DIR" \
-  --add-data "alembic.ini.${SEP}." \
+  --add-data "alembic.ini${SEP}." \
   --add-data "migrations${SEP}migrations" \
   --collect-all app \
   --collect-all alembic \

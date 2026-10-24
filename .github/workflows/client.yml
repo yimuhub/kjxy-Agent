@@ -52,6 +52,8 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip pyinstaller
+          # 脚本前置条件：项目与全部运行依赖就位（sidecar --collect-all app 需要真实导入）
+          python -m pip install --quiet -e .
           bash backend/scripts/build_sidecar.sh
           ls -la backend/dist
       - name: Stage sidecar binary (tauri target-triple naming)
