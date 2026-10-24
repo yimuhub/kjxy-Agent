@@ -2,6 +2,41 @@
 
 本项目遵循《工程开发规范 V3.0》；版本号遵循语义化版本。
 
+## [1.6.0] - 2026-10-24
+
+桌面端全平台可用性升级 + 构建修复。
+
+### Windows 兼容 Win7+（WebView2 固定版）
+- `webviewInstallMode` 从 `embedBootstrapper` 改为 `fixedRuntime`（WebView2 10554）：
+  安装包内含固定版 runtime，对 Win7/8/10/11 全兼容，无需用户联网装系统级 WebView2。
+  10554 是微软最后支持 Win7 的 runtime，同时满足 Tauri 2 最低要求 10414。
+- NSIS 安装包体积略增（~10MB 固定 runtime），换来安装后零网络依赖。
+
+### 自动升级链路验证
+- GitHub Release run 40075755769 失败原因：`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+  GitHub Secret 与本地密钥实际使用的密码不匹配（wrong password）。
+  本地密钥在 `~/Documents/Hermes/kjxy-work/tauri_updater_private_key`，需用正确
+  密码通过 CLI 重新确认，再同步到 GitHub Secrets。
+  安装包构建本身成功（.app/.dmg/.tar.gz 全产出），只是签名步骤挂了。
+
+### 桌面版零配置开箱即用确认
+- sidecar 打包已含全部 Python 引擎依赖（`--collect-all app/alembic/pydantic/sqlalchemy/cryptography`）；
+- 首启自动：创建数据目录 → alembic upgrade head → seed 演示租户 → 生成随机口令写
+  `desktop-login.txt` → 启动 uvicorn 127.0.0.1:187xx → 窗口自动跳转登录页；
+- splash 明确告知登录文件路径，用户只需配置模型供应商 API key，其余全自动化。
+
+### Linux 包格式收窄
+- `tauri.conf.json` bundle.linux.fileformat 显式 `["deb","appimage"]`：
+  避开 rpm（Ubuntu runner 无 rpmbuild），安装走 deb 或 AppImage 免安装方式。
+
+### macOS dmg 确认
+- macOS bundle targets 含 `dmg`（aarch64-apple-darwin），安装后无需额外配置。
+
+### 版本号对齐
+- tauri.conf.json / Cargo.toml / pyproject.toml / client/desktop/package.json
+  四处统一升至 1.6.0（updater 按 tauri.conf.json version 比较新旧）。
+
+
 ## [1.5.0] - 2026-10-24
 
 IM 机器人网关第一波（企微/钉钉直连）+ Release 流水线修复。
