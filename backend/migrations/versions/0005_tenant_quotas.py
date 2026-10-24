@@ -18,8 +18,12 @@ def upgrade() -> None:
     op.create_table(
         "tenant_quotas",
         sa.Column("id", sa.String(36), primary_key=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
         sa.Column("tenant_id", sa.String(36), nullable=False, unique=True),
         sa.Column("llm_calls_limit", sa.Integer, nullable=False, server_default="1000"),
         sa.Column("llm_calls_used", sa.Integer, nullable=False, server_default="0"),

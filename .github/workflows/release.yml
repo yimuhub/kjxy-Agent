@@ -54,6 +54,7 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
             libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
       - name: Build web frontend -> dist-web
+        shell: bash
         run: |
           cd frontend && npm ci && npm run build
           mkdir -p ../client/desktop/dist-web
@@ -72,11 +73,13 @@ jobs:
       - name: Stage sidecar binary (tauri target-triple naming)
         shell: bash
         run: |
+          mkdir -p client/desktop/src-tauri/binaries
           SRC=$(ls backend/dist/techyard-sidecar* | head -1)
           EXT=$([ "${{ runner.os }}" = "Windows" ] && echo ".exe" || echo "")
           cp "$SRC" "client/desktop/src-tauri/binaries/techyard-sidecar-${{ matrix.target }}${EXT}"
       - name: Generate app icons
         working-directory: client/desktop
+        shell: bash
         run: |
           npm install
           npx tauri icon icons-src/app-icon.png

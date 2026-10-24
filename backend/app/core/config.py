@@ -149,6 +149,52 @@ class Settings(BaseSettings):
         "（nginx/桌面 sidecar 部署需按对外端口覆盖默认值）",
     )
 
+    # --- 机器人网关（IM 出向长连接接入，Wave C） ---
+    bot_manager_enabled: bool = Field(
+        default=True,
+        description="进程内机器人连接器管家开关：桌面单机模式保持 true；"
+        "多实例部署由 Redis 选主保证只有 leader 建连（企微单机器人单连接限制）",
+    )
+    bot_leader_lock_ttl_seconds: int = Field(
+        default=20, description="连接器选主锁的 Redis TTL（秒）：leader 崩溃后最多这么久可接管"
+    )
+    bot_leader_renew_seconds: int = Field(
+        default=15, description="选主锁续租间隔（秒）：必须小于 TTL，否则锁会被抢走"
+    )
+    bot_context_window_turns: int = Field(
+        default=6,
+        ge=0,
+        description="入站消息拼接的多轮上下文滑窗轮数（0=不带上下文）；"
+        "明文只存 bot_conversations.context_cache_json，用途仅限上下文拼接",
+    )
+    bot_context_ttl_days: int = Field(
+        default=30,
+        description="上下文滑窗保留天数：超过该时长无活动的会话清空 context_cache_json",
+    )
+    bot_idempotency_cache_size: int = Field(
+        default=512, ge=1, description="每个机器人入站消息幂等 LRU 容量（防平台重推重复回答）"
+    )
+    bot_wecom_ws_url: str = Field(
+        default="wss://openws.work.weixin.qq.com", description="企微智能机器人长连接入口地址"
+    )
+    bot_dingtalk_open_url: str = Field(
+        default="https://api.dingtalk.com/v1.0/gateway/connections/open",
+        description="钉钉 Stream 模式建连凭证接口（POST 换 endpoint+ticket）",
+    )
+    bot_stream_min_interval_seconds: float = Field(
+        default=2.0,
+        ge=0,
+        description="流式回复推平台的节流间隔（秒）：企微 30 条/分/会话限频，宁可少推",
+    )
+    bot_consecutive_failure_limit: int = Field(
+        default=5,
+        ge=2,
+        description="机器人连接连续失败熔断阈值：达到后自动 enabled=false，与 push 通道同口径",
+    )
+    bot_wecom_ping_seconds: float = Field(
+        default=30.0, gt=0, description="企微长连接空闲心跳间隔（秒），官方要求 30s"
+    )
+
     # --- 声明式 Agent 工具循环护栏（P0 内核） ---
     agent_tool_loop_max_iterations: int = Field(
         default=6,

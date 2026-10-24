@@ -38,6 +38,7 @@ os.environ["CELERY_RESULT_BACKEND"] = "cache+memory://"
 os.environ["LOCAL_STORAGE_PATH"] = str(_TEST_STORAGE_DIR)
 os.environ["TASK_ENQUEUE_TIMEOUT_SECONDS"] = "0.5"
 os.environ["WORKER_SYNC_FALLBACK"] = "false"
+os.environ["BOT_MANAGER_DISABLED"] = "1"  # 测试永不真起机器人长连接
 
 from app.core.deps import get_db_session  # noqa: E402
 from app.db.base import Base  # noqa: E402

@@ -4316,6 +4316,304 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/bots:
+    get:
+      tags:
+      - v1
+      - bots
+      summary: List Bots
+      operationId: list_bots_api_v1_bots_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+    post:
+      tags:
+      - v1
+      - bots
+      summary: Create Bot
+      operationId: create_bot_api_v1_bots_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              additionalProperties: true
+              type: object
+              title: Payload
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/bots/{bot_id}:
+    patch:
+      tags:
+      - v1
+      - bots
+      summary: Update Bot
+      operationId: update_bot_api_v1_bots__bot_id__patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: bot_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Bot Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+              title: Payload
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - v1
+      - bots
+      summary: Delete Bot
+      operationId: delete_bot_api_v1_bots__bot_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: bot_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Bot Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/bots/{bot_id}/test:
+    post:
+      tags:
+      - v1
+      - bots
+      summary: Test Bot
+      description: '连通性自检（离线可测部分）：飞书查 SDK；企微/钉钉做 TLS HTTP 握手探测。
+
+
+        完整的长连接建立由 manager 负责，本端点只做「凭据格式 + 平台可达」快检，
+
+        结果回写给 status_reason 供前端展示，不改变 enabled。'
+      operationId: test_bot_api_v1_bots__bot_id__test_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: bot_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Bot Id
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - type: object
+                additionalProperties: true
+              - type: 'null'
+              title: Payload
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/bots/{bot_id}/status:
+    get:
+      tags:
+      - v1
+      - bots
+      summary: Bot Status
+      operationId: bot_status_api_v1_bots__bot_id__status_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: bot_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Bot Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/bots/conversations:
+    get:
+      tags:
+      - v1
+      - bots
+      summary: List Conversations
+      operationId: list_conversations_api_v1_bots_conversations_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 50
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/bots/conversations/{conv_id}/messages:
+    get:
+      tags:
+      - v1
+      - bots
+      summary: Conversation Messages
+      description: 消息账本（sha12 摘要口径，无正文）。
+      operationId: conversation_messages_api_v1_bots_conversations__conv_id__messages_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conv_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Conv Id
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 30
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/bots/conversations/{conv_id}/approve:
+    post:
+      tags:
+      - v1
+      - bots
+      summary: Approve Conversation
+      operationId: approve_conversation_api_v1_bots_conversations__conv_id__approve_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conv_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Conv Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/bots/conversations/{conv_id}/revoke:
+    post:
+      tags:
+      - v1
+      - bots
+      summary: Revoke Conversation
+      operationId: revoke_conversation_api_v1_bots_conversations__conv_id__revoke_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conv_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Conv Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
     AddMemberRequest:

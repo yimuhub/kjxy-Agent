@@ -287,3 +287,68 @@ async def ask(db: Session, *, ctx: TenantContext, question: str) -> dict[str, An
 
 
 __all__ = ["ask", "list_candidates", "score_by_rules", "parse_llm_choice"]
+
+
+async def ask_directed(
+    db: Session,
+    *,
+    ctx: TenantContext,
+    question: str,
+    target: str | None,
+    prefer_team: bool = False,
+) -> dict:
+    """定向执行：跳过三级路由，直达指定助手/班组（机器人绑定与 /use 命令用）。
+
+    target 可为候选 id / agent_code / 名称（模糊精确匹配，先 id 再 code 再名称）；
+    prefer_team=True 时同名冲突优先取班组。找不到 → NOT_FOUND 404（附可选清单提示）。
+    返回与 ask 同构：{choice, routed_by='bound', reason, result}。
+    """
+    question = (question or "").strip()
+    if not question:
+        raise AppError("INVALID_REQUEST", "问题不能为空。", http_status=400)
+    cands = list_candidates(db, ctx.tenant_id)
+    chosen = None
+    for c in cands:
+        if c["id"] == target:
+            chosen = c
+            break
+    if chosen is None:
+        want_team = cands if not prefer_team else [c for c in cands if c["kind"] == "team"]
+        rest = [c for c in cands if c["kind"] != "team"]
+        for pool in (want_team, rest, cands):
+            for c in pool:
+                if c.get("code") == target or c.get("name") == target:
+                    chosen = c
+                    break
+            if chosen:
+                break
+    if chosen is None:
+        names = "、".join(c["name"] for c in cands[:10]) or "无"
+        raise AppError(
+            "NOT_FOUND",
+            f"没有找到名为「{target}」的已发布助手或班组。可选：{names}",
+            http_status=404,
+        )
+    result = await execute_choice(db, ctx, chosen, question)
+    log_audit(
+        db,
+        tenant_id=ctx.tenant_id,
+        actor_id=ctx.user_id,
+        action="supervisor_directed",
+        resource_type="supervisor",
+        resource_id=chosen["id"],
+        result="success",
+        request_id=ctx.request_id,
+        metadata={
+            "kind": chosen["kind"],
+            "name": chosen["name"],
+            "question_digest": _question_digest(question),
+        },
+    )
+    db.commit()
+    return {
+        "choice": {k: chosen[k] for k in ("kind", "id", "code", "name")},
+        "routed_by": "bound",
+        "reason": f"定向执行：{chosen['name']}",
+        "result": result,
+    }

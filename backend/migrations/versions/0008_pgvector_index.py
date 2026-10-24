@@ -30,7 +30,9 @@ def upgrade() -> None:
         return
     # HNSW 需 pgvector >= 0.5；旧版本退回不建索引（检索仍正确，只是走全表扫描）
     bind = op.get_bind()
-    ver = bind.execute(sa.text("SELECT extversion FROM pg_extension WHERE extname = 'vector'")).scalar()
+    ver = bind.execute(
+        sa.text("SELECT extversion FROM pg_extension WHERE extname = 'vector'")
+    ).scalar()
     major, minor = (int(x) for x in str(ver).split(".")[:2]) if ver else (0, 0)
     if (major, minor) < (0, 5):
         op.execute("SELECT 1")  # no-op：低版本 pgvector 跳过 HNSW

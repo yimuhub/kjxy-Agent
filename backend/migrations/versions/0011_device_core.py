@@ -59,9 +59,7 @@ def upgrade() -> None:
         sa.Column("created_by", sa.String(36), nullable=True),
         # 连接器轮询状态（高频小更新，与用户配置分列存储）
         sa.Column("last_polled_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column(
-            "consecutive_failures", sa.Integer(), nullable=False, server_default="0"
-        ),
+        sa.Column("consecutive_failures", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("last_error", sa.String(300), nullable=True),
         sa.UniqueConstraint("tenant_id", "name", name="uq_devices_tenant_name"),
     )

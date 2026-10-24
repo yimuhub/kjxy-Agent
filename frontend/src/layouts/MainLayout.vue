@@ -227,6 +227,7 @@
         { path: '/members', title: '成员管理', icon: markRaw(User), roles: ADMIN_ROLES },
         { path: '/quota', title: '用量额度', icon: markRaw(DataLine), roles: ADMIN_ROLES },
         { path: '/settings', title: '系统设置', icon: markRaw(Setting), roles: ADMIN_ROLES },
+        { path: '/bots', title: 'IM 机器人', icon: markRaw(ChatDotRound), roles: ADMIN_ROLES },
         { path: '/evolution', title: '自生长管理', icon: markRaw(TrendCharts), roles: ADMIN_ROLES },
       ],
     },

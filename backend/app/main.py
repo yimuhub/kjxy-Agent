@@ -72,6 +72,12 @@ async def lifespan(app: FastAPI):
         log.warning("startup safety warning: %s", warning)
     log.info("tech-yard-platform starting, env=%s", settings.app_env)
     _startup_wiring()
+    # IM 机器人管家：拉起 enabled 机器人长连接（测试环境/显式关闭时内部自行跳过）
+    import asyncio
+
+    from app.modules.bots.manager import manager as bot_manager
+
+    _bot_resume_task = asyncio.create_task(bot_manager.resume_enabled_bots())  # noqa: RUF006
     yield
     log.info("tech-yard-platform stopping")
 

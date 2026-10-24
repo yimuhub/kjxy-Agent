@@ -45,7 +45,10 @@ def main() -> int:
         "# 接口变更后运行该脚本重新生成，并与代码同 PR 提交。\n"
         "# =============================================================\n"
     )
-    out_path.write_text(text + yaml.safe_dump(spec, allow_unicode=True, sort_keys=False, width=120), encoding="utf-8")
+    out_path.write_text(
+        text + yaml.safe_dump(spec, allow_unicode=True, sort_keys=False, width=120),
+        encoding="utf-8",
+    )
     n_paths = len(spec.get("paths", {}))
     print(f"openapi.yaml written: {out_path} ({n_paths} paths)")
     return 0

@@ -47,12 +47,8 @@ def upgrade() -> None:
             ["skill_id"], ["evolution_skills.id"], name="fk_skill_rollouts_skill_id"
         ),
     )
-    op.create_index(
-        "ix_skill_rollouts_tenant_id", "evolution_skill_rollouts", ["tenant_id"]
-    )
-    op.create_index(
-        "ix_skill_rollouts_skill_code", "evolution_skill_rollouts", ["skill_code"]
-    )
+    op.create_index("ix_skill_rollouts_tenant_id", "evolution_skill_rollouts", ["tenant_id"])
+    op.create_index("ix_skill_rollouts_skill_code", "evolution_skill_rollouts", ["skill_code"])
     op.create_index("ix_skill_rollouts_status", "evolution_skill_rollouts", ["status"])
 
     # ---- 第四期 4.2 插件机制：plugin_manifests 注册表 ----
@@ -81,9 +77,7 @@ def upgrade() -> None:
         sa.Column("checksum", sa.String(128), nullable=False),
         sa.Column("checksum_ok", sa.Boolean, nullable=False, server_default=sa.true()),
         sa.Column("installed_at", sa.DateTime(timezone=True), nullable=True),
-        sa.UniqueConstraint(
-            "plugin_id", "tenant_id", name="uq_plugin_manifests_pid_tenant"
-        ),
+        sa.UniqueConstraint("plugin_id", "tenant_id", name="uq_plugin_manifests_pid_tenant"),
     )
     op.create_index("ix_plugin_manifests_plugin_id", "plugin_manifests", ["plugin_id"])
     op.create_index("ix_plugin_manifests_tenant_id", "plugin_manifests", ["tenant_id"])

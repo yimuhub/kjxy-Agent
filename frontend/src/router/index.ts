@@ -16,6 +16,7 @@ import TeamsView from '@/views/TeamsView.vue'
 import AgentFactoryView from '@/views/AgentFactoryView.vue'
 import DevicesView from '@/views/DevicesView.vue'
 import MarketView from '@/views/MarketView.vue'
+import BotsView from '@/views/BotsView.vue'
 import PolicyView from '@/views/PolicyView.vue'
 import EvolutionView from '@/views/EvolutionView.vue'
 import QuotaView from '@/views/QuotaView.vue'
@@ -96,6 +97,12 @@ const routes: RouteRecordRaw[] = [
         name: 'Settings',
         component: SettingsView,
         meta: { title: '系统设置', roles: ADMIN_ROLES },
+      },
+      {
+        path: 'bots',
+        name: 'Bots',
+        component: BotsView,
+        meta: { title: 'IM 机器人', roles: ADMIN_ROLES },
       },
     ],
   },
