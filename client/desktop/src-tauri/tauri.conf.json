@@ -44,7 +44,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDEwNTUwNjRFOEY1MzZDQjYKUldTMmJGT1BUZ1pWRUJlZktLdWtvSTRYZURpZ2RaTnZoZWt5eDJYM1dGdWR2cXpDNkJlMDk2T0oK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI3Mjg5RkU5MjNEOURDNTgKUldSWTNOa2o2WjhvdDByUEV0NFhRQ21NbXAyK2oxVGFra09tNGdsRTVwYmtmamRyM25kM3VrYzAK",
       "endpoints": [
         "https://github.com/yimuhub/kjxy-Agent/releases/latest/download/latest.json"
       ]
