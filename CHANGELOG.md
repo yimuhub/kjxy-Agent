@@ -2,6 +2,34 @@
 
 本项目遵循《工程开发规范 V3.0》；版本号遵循语义化版本。
 
+## [1.4.0] - 2026-10-23
+
+多形态发行第一波：桌面自动升级通道 + 手机扫码接入 + 生产部署三件套。
+
+### 桌面客户端：自动升级（GitHub Releases 通道）
+- updater 密钥对（minisign）本机生成：私钥仓外 600 权限，公开公钥入配置；
+  更新源 `releases/latest/download/latest.json`，`createUpdaterArtifacts` 三平台开启。
+- 壳启动 30 秒静默检查 → 底部「有新版本」提示条；`check_for_updates` /
+  `download_and_install`（安装前级联停引擎，装完自启）/ `get_app_version` 命令组。
+- 新增 `release.yml`：推 `v*` tag → macOS/Windows/Linux 三平台签名构建 →
+  安装包 + `.sig` + 合并 `latest.json` 自动挂 GitHub Release（tauri-action）。
+- 修复桌面壳存量编译错误（updater 引入前的 lib.rs 历史问题），`cargo check` 全绿。
+
+### 手机扫码接入（局域网）
+- `POST /api/v1/pairing/codes`：一次性配对码（只存 sha256、TTL 300s、同租户未用码
+  上限 5），pair_url 携带局域网 IP；`/pairing/exchange` 原子占用防重放
+  （无效/过期/已用同文案防枚举），换发 30 天设备令牌（type=pair，常规 API 物理隔离）。
+- 设置页全新「手机接入」标签：点击复制链接二维码生成（300s 倒计时、过期自动置灰）、
+  设备台账（名称/到期/吊销）。
+- 桌面引擎 `standalone --lan`：显式开启才绑 0.0.0.0；二维码端口=实际监听端口。
+
+### 生产部署
+- `docker-compose.prod.yaml`：单机一键自包含构建（api/worker/scheduler/web +
+  pgvector pg17 + redis7 带密码；密钥缺失 compose 层直接拒启）。
+- `.env.production.example` 模板；服务器版 `deploy/native/server/upgrade.sh`：
+  备份(SQLite/pg_dump) → 切 tag → 迁移 → 重启 → 健康检查失败自动回滚（含库恢复）。
+- 测试 607 → **619**；迁移链新增 0018_pair_devices（可逆已验证）；openapi contracts（119 paths）。
+
 ## [1.3.0] - 2026-10-22
 
 供应商体验升级 + 本地模型放行 + 自生长闭环。
