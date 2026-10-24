@@ -32,8 +32,8 @@ jobs:
             bundles: nsis
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
-            # 显式列 bundle 格式，避开 rpm（runner 无 rpmbuild）
-            bundles: appimage,deb
+            # deb 安装方式；AppImage 免安装——两者都出（rpmbuild 不可用故不出 rpm）
+            bundles: deb
     runs-on: ${{ matrix.os }}
     steps:
       # —— 以下步骤链复用 client.yml 已实测的模式 ——

@@ -16,8 +16,12 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "externalBin": ["binaries/techyard-sidecar"],
-    "resources": ["frontend-dist/**/*"],
+    "externalBin": [
+      "binaries/techyard-sidecar"
+    ],
+    "resources": [
+      "frontend-dist/**/*"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -28,15 +32,10 @@
     "createUpdaterArtifacts": true,
     "windows": {
       "webviewInstallMode": {
-        "type": "fixedRuntime",
-        "version": "10554"
+        "type": "downloadBootstrapper"
       }
     },
-    "macOS": {
-      "category": "public.app-category.productivity"
-    },
     "linux": {
-      "fileformat": ["deb", "appimage"],
       "deb": {
         "depends": []
       }
