@@ -417,6 +417,7 @@
               :src="pairQr"
               alt="配对二维码"
               class="pair-qr"
+              :class="{ 'is-expired': pairExpires <= 0 }"
             >
             <div class="pair-meta">
               <div>{{ pairExpires > 0 ? `${pairExpires} 秒后过期` : '已过期，请重新生成' }}</div>
@@ -1386,6 +1387,11 @@ onMounted(() => {
   border-radius: var(--ds-radius-md, 12px);
   background: #fff;
   padding: 8px;
+}
+/* 过期自动置灰：不可再被扫出有效配对，按钮仍可点（重新生成） */
+.pair-qr.is-expired {
+  filter: grayscale(1);
+  opacity: 0.45;
 }
 .pair-meta {
   font-size: 13px;

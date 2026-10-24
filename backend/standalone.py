@@ -110,6 +110,9 @@ def _apply_env_contract(data_dir: Path, port: int) -> None:
     os.environ["USE_PGVECTOR"] = "false"
     os.environ["TECHYARD_DATA_DIR"] = str(data_dir)
     os.environ["TECHYARD_PORT"] = str(port)
+    # 配对二维码携带的对外端口 = 实际监听端口（桌面 --lan 场景 sidecar 端口是随机的，
+    # 绝不能用 config 默认 8000，否则手机扫出来的地址根本连不上）
+    os.environ["PAIRING_ADVERTISE_PORT"] = str(port)
     # 独立 APP_SECRET_KEY：首启生成，持久化在 data_dir/secret.key（AO 同款做法，
     # 每次随机会导致重启后所有登录态/签名失效，绝不能每次现生成）
     secret_file = data_dir / "secret.key"
