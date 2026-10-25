@@ -15,6 +15,7 @@ from app.core.errors import AppError
 from app.core.responses import ok
 from app.modules.bots import service
 from app.modules.bots.manager import manager
+from app.modules.bots.models import STATUS_CONFIGURED, STATUS_ERROR
 
 router = APIRouter(prefix="/bots", tags=["bots"])
 
@@ -124,10 +125,11 @@ async def test_bot(
     elif bot.platform == "feishu":
         if not feishu_available():
             problems.append(MISSING_SDK_REASON)
-    result = {"ok": not problems, "problems": problems}
-    service.record_state(
-        db, bot.id, "online" if not problems else "error", "；".join(problems)[:300]
-    )
+    # 本端点只做凭据/可达性自检：通过也只能标记 configured，
+    # online 必须由 manager 完成长连接握手后写入，避免误导用户。
+    state = STATUS_ERROR if problems else STATUS_CONFIGURED
+    result = {"ok": not problems, "state": state, "problems": problems}
+    service.record_state(db, bot.id, state, "；".join(problems)[:300])
     return ok(result)
 
 

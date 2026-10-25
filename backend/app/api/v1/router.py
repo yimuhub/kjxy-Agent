@@ -20,6 +20,7 @@ from app.modules.plugins.router import router as plugins_router
 from app.modules.policy.router import router as policy_router
 from app.modules.push.router import router as push_router
 from app.modules.tasks.router import router as tasks_router
+from app.modules.tenants.invite_router import router as tenant_invite_router
 from app.modules.tenants.quota_router import router as tenant_quota_router
 from app.modules.tenants.router import router as tenants_router
 from app.modules.tenants.signup_router import router as tenant_signup_router
@@ -32,6 +33,7 @@ router.include_router(auth_router)
 router.include_router(tenants_router)
 router.include_router(tenant_quota_router)
 router.include_router(tenant_signup_router)
+router.include_router(tenant_invite_router)
 router.include_router(tasks_router)
 router.include_router(knowledge_router)
 router.include_router(agriculture_router)

@@ -102,6 +102,7 @@
   import { useAuthStore } from '@/stores/auth'
   import { tenantApi } from '@/api/modules'
   import { extractErrorMessage, REFRESH_TOKEN_KEY, TOKEN_KEY } from '@/api/client'
+  import { friendlyErrorMessage } from '@/utils/status'
   const router = useRouter()
   const auth = useAuthStore()
   const formRef = ref<FormInstance>()
@@ -158,7 +159,8 @@
       await auth.fetchTenant()
       router.replace('/')
     } catch (err: unknown) {
-      errorMsg.value = extractErrorMessage(err).message
+      const { code, message } = extractErrorMessage(err)
+      errorMsg.value = friendlyErrorMessage(code, message)
     } finally {
       loading.value = false
     }

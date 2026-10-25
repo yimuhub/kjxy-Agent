@@ -46,12 +46,22 @@ export interface User {
   created_at?: string
 }
 
+/** 登录/me 返回的租户归属（后端 TenantBrief） */
+export interface TenantBrief {
+  tenant_id: string
+  tenant_name: string
+  roles: string[]
+}
+
+/** /tenants/current 返回的租户详情（后端 TenantOut） */
 export interface Tenant {
-  /** 契约未细化，以下为约定字段 */
-  id?: string
-  name?: string
-  code?: string
+  tenant_id: string
+  name: string
+  roles?: string[]
   status?: string
+  province?: string | null
+  city?: string | null
+  scene_type?: string | null
 }
 
 export interface LoginResponse {
@@ -59,14 +69,16 @@ export interface LoginResponse {
   refresh_token: string
   token_type: string
   user: User
-  tenants: Tenant[]
+  /** 登录响应附带调用者角色（平台管理员 bootstrap 后为最终角色） */
+  roles?: string[]
+  tenants: TenantBrief[]
 }
 
 /** /auth/me 返回：当前用户 + 角色 + 租户列表 */
 export interface MeResponse {
   user: User
   roles: string[]
-  tenants: Tenant[]
+  tenants: TenantBrief[]
 }
 
 /** 高风险工具审批单 */
@@ -90,7 +102,9 @@ export interface Member {
   user_id?: string
   username?: string
   display_name?: string
+  email?: string | null
   role?: MemberRole
+  status?: string
   joined_at?: string
 }
 
@@ -100,6 +114,34 @@ export interface AddMemberPayload {
   username: string
   role: MemberRole
   display_name?: string
+}
+
+/** 成员邀请链接（管理端列表项；invite_path 仅创建响应返回一次） */
+export interface Invitation {
+  id: string
+  role: MemberRole
+  note: string | null
+  status: 'pending' | 'accepted' | 'revoked' | 'expired'
+  expires_at: string
+  created_at: string
+  created_by?: string | null
+  accepted_at?: string | null
+  invite_path?: string | null
+}
+
+/** 公开邀请预览（接受页展示空间名与角色） */
+export interface InvitationPreview {
+  tenant_id: string
+  tenant_name: string
+  role: MemberRole
+  note: string | null
+  expires_at: string
+}
+
+/** 批量添加成员结果：逐条独立成败 */
+export interface BatchAddMembersResult {
+  added: Member[]
+  failed: Array<{ username: string; error_code: string; message: string }>
 }
 
 // ---------- 任务 ----------
@@ -293,14 +335,15 @@ export interface ReviewSkillPayload {
 
 // ---------- 模型 / 工具 ----------
 
-/** /llm/status：不返回密钥；字段为约定字段 */
+/** /llm/status：不返回密钥；字段与后端 LLMStatusOut 对齐 */
 export interface LlmStatus {
   provider?: string
   model?: string
   configured?: boolean
-  healthy?: boolean
-  latency_ms?: number | null
-  checked_at?: string
+  /** mock | live | unknown */
+  mode?: 'mock' | 'live' | 'unknown'
+  /** 选择该提供方的可读原因（不含密钥） */
+  reason?: string
 }
 
 /** 与 contracts/json-schema/tool-definition.schema.json 一一对应 */

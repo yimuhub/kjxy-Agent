@@ -44,7 +44,7 @@
                   :model-value="d.enabled"
                   size="small"
                   class="ml"
-                  @change="(v: boolean) => toggleDevice(d, v)"
+                  @change="(v: string | number | boolean) => toggleDevice(d, Boolean(v))"
                 />
                 <el-button v-if="d.source_type === 'webhook'" size="small" class="ml" @click="rotate(d)">换令牌</el-button>
                 <el-button size="small" type="danger" class="ml" @click="removeDevice(d)">删除</el-button>
@@ -174,12 +174,12 @@
       <el-table-column label="启用" width="70">
         <template #default="{ row }">
           <el-switch :model-value="row.enabled" size="small" :disabled="!canManage"
-            @change="(v: boolean) => deviceApi.patchRule(row.id, { enabled: v }).then(loadRules)" />
+            @change="(v: string | number | boolean) => deviceApi.patchRule(row.id, { enabled: Boolean(v) }).then(loadRules)" />
         </template>
       </el-table-column>
       <el-table-column v-if="canManage" label="操作" width="120">
         <template #default="{ row }">
-          <el-button size="small" @click="openRule(row)">编辑</el-button>
+          <el-button size="small" @click="openRule(row as DeviceAlertRule)">编辑</el-button>
           <el-button size="small" type="danger" @click="removeRule(row.id)">删</el-button>
         </template>
       </el-table-column>
@@ -196,7 +196,7 @@
       <el-table-column label="工单" width="170">
         <template #default="{ row }">
           <span v-if="row.workorder_no" class="wo-no" :title="row.workorder_no">{{ row.workorder_no }}</span>
-          <el-button v-else size="small" type="primary" plain :loading="woBusy === row.id" @click="openWorkorder(row)">开工单</el-button>
+          <el-button v-else size="small" type="primary" plain :loading="woBusy === row.id" @click="openWorkorder(row as DeviceAlert)">开工单</el-button>
         </template>
       </el-table-column>
     </el-table>

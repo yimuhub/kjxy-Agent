@@ -11,7 +11,7 @@
         :model="form"
         :rules="rules"
         label-position="top"
-        @submit.prevent
+        @submit.prevent="handleLogin"
       >
         <el-form-item
           label="用户名"
@@ -51,9 +51,9 @@
           >
             <el-option
               v-for="t in tenants"
-              :key="t.id ?? t.name"
-              :label="t.name ?? t.code ?? t.id"
-              :value="t.id ?? ''"
+              :key="t.tenant_id"
+              :label="t.tenant_name"
+              :value="t.tenant_id"
             />
           </el-select>
           <div class="hint">
@@ -63,6 +63,7 @@
         <el-button
           type="primary"
           size="large"
+          native-type="submit"
           class="submit-btn"
           :loading="loading"
           @click="handleLogin"
@@ -85,7 +86,10 @@
         >
           开通新的使用空间
         </router-link>
-        <span class="demo-hint">演示环境账号见 README</span>
+        <span
+          v-if="showDemoHint"
+          class="demo-hint"
+        >演示环境账号见 README</span>
       </div>
     </div>
   </div>
@@ -93,55 +97,54 @@
 
 <script setup lang="ts">
   import { reactive, ref } from 'vue'
-  import { useRouter } from 'vue-router'
+  import { useRoute, useRouter } from 'vue-router'
   import type { FormInstance, FormRules } from 'element-plus'
   import { useAuthStore } from '@/stores/auth'
-  import { authApi } from '@/api/modules'
-  import { extractErrorMessage } from '@/api/client'
-  import type { Tenant } from '@/types/api'
+  import { extractErrorDetails, extractErrorMessage } from '@/api/client'
+  import { friendlyErrorMessage } from '@/utils/status'
+  import type { TenantBrief } from '@/types/api'
 
   const router = useRouter()
+  const route = useRoute()
   const auth = useAuthStore()
   const formRef = ref<FormInstance>()
   const loading = ref(false)
   const errorMsg = ref('')
-  const tenants = ref<Tenant[]>([])
+  const tenants = ref<TenantBrief[]>([])
 
   const form = reactive({ username: '', password: '', tenant_id: '' })
+  /** 生产构建不展示演示账号提示，避免误导真实用户 */
+  const showDemoHint = !import.meta.env.PROD
 
   const rules: FormRules = {
     username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
     password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
   }
 
-  /** 先做一次预登录，拿到租户列表；若多租户则让用户选择后再正式登录 */
+  /** 多租户账号先无 tenant 登录拿到空间列表，用户选择后再正式登录 */
   async function handleLogin() {
     errorMsg.value = ''
     await formRef.value?.validate()
+    if (tenants.value.length > 1 && !form.tenant_id) {
+      errorMsg.value = '请选择使用空间后继续登录。'
+      return
+    }
     loading.value = true
     try {
-      if (tenants.value.length > 1 && !form.tenant_id) {
-        errorMsg.value = '请选择使用空间后继续登录。'
-        return
-      }
       await auth.login(form.username, form.password, form.tenant_id || undefined)
-      router.replace('/')
+      const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/'
+      router.replace(redirect.startsWith('/') ? redirect : '/')
     } catch (err: unknown) {
       const { code, message } = extractErrorMessage(err)
-      if (code === 'TENANT_REQUIRED' || message.includes('租户') || message.includes('使用空间')) {
-        // 尝试一次无 tenant 登录以拉取使用空间列表（契约要求多空间用户必传 tenant_id）
-        try {
-          const res = await authApi.login(form.username, form.password)
-          tenants.value = res.tenants ?? []
-          if (tenants.value.length > 1) {
-            errorMsg.value = '该账号归属多个使用空间，请选择后重新登录。'
-            return
-          }
-        } catch {
-          /* 忽略二次错误，展示原始错误 */
-        }
+      if (code === 'TENANT_REQUIRED') {
+        const details = extractErrorDetails(err) as { tenants?: TenantBrief[] } | undefined
+        tenants.value = details?.tenants ?? []
+        errorMsg.value = tenants.value.length
+          ? '该账号归属多个使用空间，请选择后重新登录。'
+          : message
+        return
       }
-      errorMsg.value = message
+      errorMsg.value = friendlyErrorMessage(code, message)
     } finally {
       loading.value = false
     }

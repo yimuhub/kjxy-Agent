@@ -152,6 +152,7 @@ def list_task_events(
 @router.get("/{task_id}/events/stream")
 def stream_task_events(
     task_id: str,
+    last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
     ctx: TenantContext = Depends(get_tenant_context),
     db: Session = Depends(get_db_session),
 ) -> StreamingResponse:
@@ -161,10 +162,11 @@ def stream_task_events(
       TaskService.get 可见性检查（阅读本文前先检查，失败按普通 JSON 错误返回）。
     - 本端点不套统一 {data, request_id} 信封：SSE 帧由 event:/data: 行构成，
       帧协议与命名见 stream.py 模块注释（stream-init/task-event/task-status/stream-end）。
+    - 支持 Last-Event-ID 重连续传，并以注释帧心跳保活。
     - 断连仅停止推送，任务继续执行；取消仍须显式调用 POST /{task_id}/cancel。
     """
     task = TaskService.get(db, ctx, task_id)
-    return build_stream_response(task.tenant_id, task.id)
+    return build_stream_response(task.tenant_id, task.id, last_event_id=last_event_id)
 
 
 @router.post("/{task_id}/cancel")

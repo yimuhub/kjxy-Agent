@@ -45,6 +45,36 @@ def _require_review_permission(ctx: TenantContext) -> None:
 
 
 # ---------------------------------------------------------------- 反馈
+#: 纠错内容最小长度：过短文本无法构成可入库知识，避免审核队列被噪声淹没
+MIN_CORRECTION_CHARS = 10
+
+
+def _candidate_title(feedback_text: str | None, task_id: str | None) -> str:
+    """候选标题优先取反馈摘要；没有反馈文本时用任务号兜底，便于审核定位。"""
+    if feedback_text and feedback_text.strip():
+        first_line = feedback_text.strip().splitlines()[0].strip()
+        return f"纠错：{first_line[:60]}"
+    if task_id:
+        return f"用户纠错·任务 {task_id[-8:]}"
+    return "用户纠错"
+
+
+def _dedupe_candidate(
+    db: Session, tenant_id: str, corrected_answer: str
+) -> KnowledgeCandidate | None:
+    """同一租户下内容相同的待审/已通过纠错只保留一条。"""
+    return (
+        db.query(KnowledgeCandidate)
+        .filter(
+            KnowledgeCandidate.tenant_id == tenant_id,
+            KnowledgeCandidate.source_type == "user_feedback",
+            KnowledgeCandidate.status.in_(("pending_review", "approved")),
+            KnowledgeCandidate.content == corrected_answer,
+        )
+        .first()
+    )
+
+
 def submit_feedback(
     db: Session,
     ctx: TenantContext,
@@ -56,35 +86,42 @@ def submit_feedback(
 ) -> Feedback:
     if rating is not None and rating not in ("up", "down"):
         raise AppError("INVALID_REQUEST", "rating 只能为 up 或 down。", http_status=400)
+    corrected = corrected_answer.strip() if corrected_answer else ""
+    if corrected and len(corrected) < MIN_CORRECTION_CHARS:
+        raise AppError(
+            "FEEDBACK_TOO_SHORT",
+            f"纠错内容至少需要 {MIN_CORRECTION_CHARS} 个字符，便于专家审核。",
+            http_status=400,
+        )
     feedback = Feedback(
         tenant_id=ctx.tenant_id,
         task_id=task_id,
         actor_id=ctx.user_id,
         rating=rating,
         feedback_text=feedback_text,
-        corrected_answer=corrected_answer,
+        corrected_answer=corrected or corrected_answer,
         status="open",
     )
     db.add(feedback)
     db.flush()
 
     candidate = None
-    if corrected_answer and corrected_answer.strip():
-        candidate = KnowledgeCandidate(
-            tenant_id=ctx.tenant_id,
-            source_feedback_id=feedback.id,
-            title=(
-                feedback_text.strip()[:80]
-                if feedback_text and feedback_text.strip()
-                else "用户纠错"
+    deduped = False
+    if corrected:
+        candidate = _dedupe_candidate(db, ctx.tenant_id, corrected)
+        if candidate is not None:
+            deduped = True
+        else:
+            candidate = KnowledgeCandidate(
+                tenant_id=ctx.tenant_id,
+                source_feedback_id=feedback.id,
+                title=_candidate_title(feedback_text, task_id),
+                content=corrected,
+                source_type="user_feedback",
+                status="pending_review",
             )
-            or "用户纠错",
-            content=corrected_answer.strip(),
-            source_type="user_feedback",
-            status="pending_review",
-        )
-        db.add(candidate)
-        db.flush()
+            db.add(candidate)
+            db.flush()
 
     db.flush()
     log_audit(
@@ -96,7 +133,11 @@ def submit_feedback(
         resource_id=feedback.id,
         result="success",
         request_id=request_id or ctx.request_id,
-        metadata={"rating": rating, "candidate_id": candidate.id if candidate else None},
+        metadata={
+            "rating": rating,
+            "candidate_id": candidate.id if candidate else None,
+            "candidate_deduped": deduped,
+        },
     )
     return feedback
 

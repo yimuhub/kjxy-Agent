@@ -5,7 +5,13 @@ import io
 import app.modules.knowledge.models  # noqa: F401  (注册 ORM 表，供 create_all 建表)
 import pytest
 from app.core.config import settings
-from app.core.deps import TenantContext, get_db_session, get_tenant_context
+from app.core.deps import (
+    CurrentUser,
+    TenantContext,
+    get_current_user,
+    get_db_session,
+    get_tenant_context,
+)
 from app.core.errors import (
     AppError,
     app_error_handler,
@@ -35,11 +41,11 @@ AGRI_TEXT = (
 )
 
 
-def _ctx(tenant_id: str) -> TenantContext:
+def _ctx(tenant_id: str, roles: list[str] | None = None) -> TenantContext:
     return TenantContext(
         tenant_id=tenant_id,
         user_id=f"user-{tenant_id}",
-        roles=["tenant_admin"],
+        roles=roles or ["tenant_admin"],
         request_id="req-test",
     )
 
@@ -164,6 +170,12 @@ def _build_test_app(db_session, ctx: TenantContext) -> FastAPI:
     app.include_router(knowledge_router, prefix="/api/v1")
     app.dependency_overrides[get_db_session] = lambda: db_session
     app.dependency_overrides[get_tenant_context] = lambda: ctx
+    app.dependency_overrides[get_current_user] = lambda: CurrentUser(
+        user_id=ctx.user_id,
+        tenant_id=ctx.tenant_id,
+        roles=ctx.roles,
+        request_id=ctx.request_id,
+    )
     return app
 
 
@@ -206,6 +218,23 @@ def test_http_upload_multipart(db_session, storage_tmp):
         )
         assert r.status_code == 201, r.text
         assert r.json()["data"]["status"] == "queued"
+
+
+def test_viewer_cannot_upload_or_delete(db_session, storage_tmp):
+    """viewer 只有 knowledge:read，上传/删除必须 403（不得污染团队知识库）。"""
+    doc = _upload_and_parse(db_session, storage_tmp)
+    app = _build_test_app(db_session, _ctx(TENANT_A, roles=["viewer"]))
+    with TestClient(app, raise_server_exceptions=False) as client:
+        up = client.post(
+            "/api/v1/knowledge/documents",
+            files={"file": ("note.txt", AGRI_TEXT.encode("utf-8"), "text/plain")},
+        )
+        assert up.status_code == 403, up.text
+        assert up.json()["error"]["code"] == "FORBIDDEN"
+
+        deleted = client.delete(f"/api/v1/knowledge/documents/{doc.id}")
+        assert deleted.status_code == 403, deleted.text
+        assert deleted.json()["error"]["code"] == "FORBIDDEN"
 
 
 def test_tool_registration_and_func(db_session, storage_tmp, monkeypatch):

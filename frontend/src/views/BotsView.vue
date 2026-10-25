@@ -1,13 +1,15 @@
 <script setup lang="ts">
 // IM 机器人管理页（Wave C 最小可用版）：
 // 机器人卡列表（状态灯/启停/测试/编辑/删除）+ 添加配置对话框 + 会话审批抽屉
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   botsApi,
+  supervisorApi,
   type BotConversationOut,
   type BotMessageOut,
   type BotOut,
+  type SupervisorCandidate,
 } from '@/api/modules'
 
 const bots = ref<BotOut[]>([])
@@ -39,9 +41,49 @@ const form = reactive({
   platform: 'wecom_aibot',
   name: '',
   binding_mode: 'auto',
+  bound_agent_id: '',
   require_approval: true,
   creds: {} as Record<string, string>,
 })
+
+/** 可绑定的已发布助手 / 启用班组（与总控路由候选一致） */
+const candidates = ref<SupervisorCandidate[]>([])
+const candidatesLoading = ref(false)
+const bindingOptions = computed(() => {
+  const kind = form.binding_mode === 'team' ? 'team' : 'agent'
+  return candidates.value.filter(c => c.kind === kind)
+})
+
+// 切换绑定类型时清掉不属于新类型的旧选择
+watch(
+  () => form.binding_mode,
+  () => {
+    if (!form.bound_agent_id) return
+    // 候选尚未加载时保留已有绑定，避免打开编辑弹窗即清空
+    if (!candidates.value.length) return
+    if (!bindingOptions.value.some(c => c.id === form.bound_agent_id)) form.bound_agent_id = ''
+  },
+)
+
+function bindingLabel(row: BotOut): string {
+  if (row.binding_mode === 'auto') return '智能路由'
+  const c = candidates.value.find(
+    x => x.id === row.bound_agent_id || x.code === row.bound_agent_id || x.name === row.bound_agent_id,
+  )
+  if (c) return `${c.kind === 'team' ? '班组' : '助手'}：${c.name}`
+  return row.bound_agent_id ? `未找到：${row.bound_agent_id}` : '未指定'
+}
+
+async function loadCandidates() {
+  candidatesLoading.value = true
+  try {
+    candidates.value = (await supervisorApi.candidates()).candidates
+  } catch {
+    candidates.value = []
+  } finally {
+    candidatesLoading.value = false
+  }
+}
 
 const drawerVisible = ref(false)
 const convs = ref<BotConversationOut[]>([])
@@ -53,6 +95,17 @@ const STATUS_TEXT: Record<string, string> = {
   online: '在线',
   offline: '离线',
   error: '异常',
+  configured: '已配置（未连接）',
+}
+
+/** 连接状态三态展示：停用优先于后端状态，未知状态不伪装成离线 */
+function statusText(row: BotOut): string {
+  if (!row.enabled) return '已停用'
+  return STATUS_TEXT[row.status] ?? '未知'
+}
+
+function statusDot(row: BotOut): string {
+  return row.enabled ? row.status : 'disabled'
 }
 
 function platformLabel(p: string): string {
@@ -74,9 +127,11 @@ function openCreate() {
     platform: 'wecom_aibot',
     name: '',
     binding_mode: 'auto',
+    bound_agent_id: '',
     require_approval: true,
     creds: {},
   })
+  void loadCandidates()
   dialogVisible.value = true
 }
 
@@ -86,24 +141,38 @@ function openEdit(row: BotOut) {
     platform: row.platform,
     name: row.name,
     binding_mode: row.binding_mode,
+    bound_agent_id: row.bound_agent_id ?? '',
     require_approval: row.require_approval,
     creds: {}, // 留空 = 不改动已存凭据
   })
+  void loadCandidates()
   dialogVisible.value = true
 }
 
 async function submit() {
+  if (form.binding_mode !== 'auto' && !form.bound_agent_id) {
+    ElMessage.warning(`请先选择要绑定的${form.binding_mode === 'team' ? '班组' : '助手'}`)
+    return
+  }
   try {
     if (editingId.value) {
       const payload: Record<string, unknown> = {
         name: form.name,
         binding_mode: form.binding_mode,
+        bound_agent_id: form.binding_mode === 'auto' ? null : form.bound_agent_id,
         require_approval: form.require_approval,
       }
       if (Object.values(form.creds).some((v) => v.trim())) payload.credentials = { ...form.creds }
       await botsApi.update(editingId.value, payload)
     } else {
-      await botsApi.create({ platform: form.platform, name: form.name, credentials: { ...form.creds }, binding_mode: form.binding_mode, require_approval: form.require_approval })
+      await botsApi.create({
+        platform: form.platform,
+        name: form.name,
+        credentials: { ...form.creds },
+        binding_mode: form.binding_mode,
+        bound_agent_id: form.binding_mode === 'auto' ? null : form.bound_agent_id,
+        require_approval: form.require_approval,
+      })
     }
     dialogVisible.value = false
     ElMessage.success('已保存')
@@ -124,7 +193,7 @@ async function toggle(row: BotOut) {
 
 async function testOne(row: BotOut) {
   const r = await botsApi.test(row.id)
-  if (r.ok) ElMessage.success('检查通过')
+  if (r.ok) ElMessage.success('凭据检查通过；长连接状态以状态列为准')
   else ElMessage.warning(r.problems.join('；'))
   await refresh()
 }
@@ -161,7 +230,10 @@ function approvedText(c: BotConversationOut): { text: string; type: 'success' | 
   return { text: '待批准', type: 'warning' }
 }
 
-onMounted(refresh)
+onMounted(() => {
+  void refresh()
+  void loadCandidates()
+})
 </script>
 
 <template>
@@ -181,27 +253,27 @@ onMounted(refresh)
       </el-table-column>
       <el-table-column label="状态" min-width="150">
         <template #default="{ row }">
-          <span class="dot" :class="row.status" />
-          {{ STATUS_TEXT[row.status] ?? row.status }}
+          <span class="dot" :class="statusDot(row as BotOut)" />
+          {{ statusText(row as BotOut) }}
           <span v-if="row.status_reason" class="reason">{{ row.status_reason }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="绑定" min-width="90">
-        <template #default="{ row }">{{ { auto: '智能路由', assistant: '指定助手', team: '指定班组' }[row.binding_mode as string] ?? row.binding_mode }}</template>
+      <el-table-column label="绑定" min-width="140">
+        <template #default="{ row }">{{ bindingLabel(row as BotOut) }}</template>
       </el-table-column>
       <el-table-column label="需批准" width="80">
         <template #default="{ row }">{{ row.require_approval ? '是' : '否' }}</template>
       </el-table-column>
       <el-table-column label="启用" width="90">
         <template #default="{ row }">
-          <el-switch :model-value="row.enabled" @change="toggle(row)" />
+          <el-switch :model-value="row.enabled" @change="toggle(row as BotOut)" />
         </template>
       </el-table-column>
       <el-table-column label="操作" width="210">
         <template #default="{ row }">
-          <el-button size="small" @click="testOne(row)">测试</el-button>
-          <el-button size="small" @click="openEdit(row)">编辑</el-button>
-          <el-button size="small" type="danger" plain @click="removeOne(row)">删除</el-button>
+          <el-button size="small" @click="testOne(row as BotOut)">测试</el-button>
+          <el-button size="small" @click="openEdit(row as BotOut)">编辑</el-button>
+          <el-button size="small" type="danger" plain @click="removeOne(row as BotOut)">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -228,6 +300,35 @@ onMounted(refresh)
             <el-radio value="team">指定班组</el-radio>
           </el-radio-group>
         </el-form-item>
+        <el-form-item
+          v-if="form.binding_mode !== 'auto'"
+          :label="form.binding_mode === 'team' ? '绑定班组' : '绑定助手'"
+        >
+          <el-select
+            v-model="form.bound_agent_id"
+            filterable
+            clearable
+            placeholder="选择已发布的助手 / 启用的班组"
+            style="width: 100%"
+            :loading="candidatesLoading"
+          >
+            <el-option
+              v-for="c in bindingOptions"
+              :key="c.id"
+              :value="c.id"
+              :label="c.name"
+            >
+              <span>{{ c.name }}</span>
+              <span class="option-blurb">{{ c.blurb }}</span>
+            </el-option>
+          </el-select>
+          <div
+            v-if="!bindingOptions.length"
+            class="binding-empty"
+          >
+            暂无可绑定的{{ form.binding_mode === 'team' ? '班组' : '已发布助手' }}，请先到对应页面创建并发布。
+          </div>
+        </el-form-item>
         <el-form-item label="新会话需批准">
           <el-switch v-model="form.require_approval" />
         </el-form-item>
@@ -249,14 +350,14 @@ onMounted(refresh)
         </el-table-column>
         <el-table-column label="审批" width="90">
           <template #default="{ row }">
-            <el-tag :type="approvedText(row).type" size="small">{{ approvedText(row).text }}</el-tag>
+            <el-tag :type="approvedText(row as BotConversationOut).type" size="small">{{ approvedText(row as BotConversationOut).text }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="msg_count" label="消息" width="70" />
         <el-table-column label="操作" width="130">
           <template #default="{ row }">
-            <el-button v-if="!row.approved_at" size="small" type="success" plain @click.stop="review(row, true)">批准</el-button>
-            <el-button v-else size="small" type="danger" plain @click.stop="review(row, false)">吊销</el-button>
+            <el-button v-if="!row.approved_at" size="small" type="success" plain @click.stop="review(row as BotConversationOut, true)">批准</el-button>
+            <el-button v-else size="small" type="danger" plain @click.stop="review(row as BotConversationOut, false)">吊销</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -308,8 +409,25 @@ onMounted(refresh)
 .dot.connecting {
   background: var(--el-color-warning);
 }
+.dot.configured {
+  background: var(--el-color-primary);
+}
 .dot.error {
   background: var(--el-color-danger);
+}
+.dot.disabled {
+  background: var(--el-color-info-light-5, #b1b3b8);
+}
+.option-blurb {
+  margin-left: 12px;
+  color: var(--ds-text-muted, #999);
+  font-size: 12px;
+}
+.binding-empty {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--el-color-warning);
+  line-height: 1.5;
 }
 .reason {
   color: var(--ds-text-muted, #999);

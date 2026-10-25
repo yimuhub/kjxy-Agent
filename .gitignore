@@ -7,6 +7,9 @@ venv/
 !.env.example
 node_modules/
 dist/
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
 .DS_Store
 *.log
 .pytest_cache/

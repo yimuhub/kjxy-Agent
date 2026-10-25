@@ -13,6 +13,8 @@ class AgentContext(BaseModel):
     allowed_tools: list[str] = Field(default_factory=list)
     deadline_seconds: int = Field(gt=0)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    # 调用者角色：工具执行必须沿用请求者的权限，缺失会导致 TOOL_FORBIDDEN。
+    roles: list[str] = Field(default_factory=list)
 
 
 class AgentResult(BaseModel):

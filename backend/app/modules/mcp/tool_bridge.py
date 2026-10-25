@@ -248,7 +248,12 @@ def lookup_mcp_tool(db: Session, tenant_id: str, code: str) -> ToolDef | None:
     srv, entry = found
     description = str(entry.get("description") or tool_name)[:1024]
     schema = entry.get("input_schema")
-    input_schema = schema if isinstance(schema, dict) and schema else {"type": "object"}
+    # 无 schema 时也必须禁止额外字段，避免客户端用未声明参数绕过审批/注入。
+    input_schema = (
+        schema
+        if isinstance(schema, dict) and schema
+        else {"type": "object", "additionalProperties": False}
+    )
 
     async def _func(params: dict, ctx: TenantContext) -> dict:
         # 整轮（解密→出网→熔断计数）进线程池，避免 15s 超时冻结事件循环。

@@ -171,6 +171,11 @@ def test_login_multi_tenant_with_valid_tenant(db_session, seeded):
     assert payload["tenant_id"] == seeded["t2"].id
     assert payload["roles"] == ["viewer"]
     assert len(data.tenants) == 2
+    # 前端依赖 LoginResponse.roles 与 TenantBrief 字段渲染空间选择与菜单
+    assert data.roles == ["viewer"]
+    brief = next(t for t in data.tenants if t.tenant_id == seeded["t2"].id)
+    assert brief.tenant_name == "小院B"
+    assert brief.roles == ["viewer"]
 
 
 def test_login_forbidden_tenant(db_session, seeded):

@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 
 from app.core.config import settings
@@ -36,6 +36,7 @@ router = APIRouter(tags=["evolution"])
 @router.post("/feedback", status_code=201)
 def create_feedback(
     body: FeedbackCreate,
+    request: Request,
     ctx: TenantContext = Depends(get_tenant_context),
     db=Depends(get_db_session),
 ):
@@ -54,12 +55,14 @@ def create_feedback(
         db.rollback()
         raise
     return JSONResponse(
-        status_code=201, content=ok(FeedbackOut.model_validate(feedback).model_dump(mode="json"))
+        status_code=201,
+        content=ok(FeedbackOut.model_validate(feedback).model_dump(mode="json"), request),
     )
 
 
 @router.get("/feedback")
 def get_feedback(
+    request: Request,
     page_page: tuple[int, int] = Depends(pagination_params),
     ctx: TenantContext = Depends(get_tenant_context),
     db=Depends(get_db_session),
@@ -71,11 +74,13 @@ def get_feedback(
         page,
         page_size,
         total,
+        request,
     )
 
 
 @router.get("/knowledge/candidates")
 def get_candidates(
+    request: Request,
     status: str | None = Query(default=None, description="pending_review|approved|rejected"),
     page_page: tuple[int, int] = Depends(pagination_params),
     ctx: TenantContext = Depends(get_tenant_context),
@@ -90,13 +95,14 @@ def get_candidates(
         # 结论只随响应透出供参考，列表/审核行为完全不受影响。
         payload["machine_precheck"] = precheck_service.precheck_candidate(item)
         payloads.append(payload)
-    return paged(payloads, page, page_size, total)
+    return paged(payloads, page, page_size, total, request)
 
 
 @router.post("/knowledge/candidates/{candidate_id}/review")
 async def review_candidate(
     candidate_id: str,
     body: CandidateReview,
+    request: Request,
     ctx: TenantContext = Depends(get_tenant_context),
     db=Depends(get_db_session),
 ):
@@ -119,12 +125,13 @@ async def review_candidate(
         from app.modules.llm.provider import get_provider
 
         payload["deep_precheck"] = await precheck_service.deep_precheck(candidate, get_provider())
-    return ok(payload)
+    return ok(payload, request)
 
 
 @router.post("/knowledge/candidates/batch-review")
 def batch_review_candidates(
     body: CandidateBatchReview,
+    request: Request,
     ctx: TenantContext = Depends(get_tenant_context),
     db=Depends(get_db_session),
 ):
@@ -147,11 +154,12 @@ def batch_review_candidates(
         rejected=result["rejected"],
         failed=[CandidateBatchFailure(**item) for item in result["failed"]],
     )
-    return ok(out.model_dump(mode="json"))
+    return ok(out.model_dump(mode="json"), request)
 
 
 @router.get("/skills")
 def get_skills(
+    request: Request,
     status: str | None = Query(
         default=None, description="draft|testing|pending_review|published|deprecated"
     ),
@@ -169,12 +177,14 @@ def get_skills(
         page,
         page_size,
         total,
+        request,
     )
 
 
 @router.post("/skills", status_code=201)
 def create_skill(
     body: SkillCreate,
+    request: Request,
     ctx: TenantContext = Depends(get_tenant_context),
     db=Depends(get_db_session),
 ):
@@ -194,13 +204,14 @@ def create_skill(
         raise
     return JSONResponse(
         status_code=201,
-        content=ok(SkillOut.model_validate(skill).model_dump(mode="json", by_alias=True)),
+        content=ok(SkillOut.model_validate(skill).model_dump(mode="json", by_alias=True), request),
     )
 
 
 @router.post("/skills/suggest", status_code=201)
 async def suggest_skills(
     body: SkillSuggest,
+    request: Request,
     ctx: TenantContext = Depends(get_tenant_context),
     db=Depends(get_db_session),
 ):
@@ -227,7 +238,8 @@ async def suggest_skills(
                     SkillOut.model_validate(s).model_dump(mode="json", by_alias=True)
                     for s in skills
                 ],
-            }
+            },
+            request,
         ),
     )
 
@@ -236,6 +248,7 @@ async def suggest_skills(
 def review_skill(
     skill_id: str,
     body: SkillReview,
+    request: Request,
     ctx: TenantContext = Depends(get_tenant_context),
     db=Depends(get_db_session),
 ):
@@ -247,12 +260,13 @@ def review_skill(
     except Exception:
         db.rollback()
         raise
-    return ok(SkillOut.model_validate(skill).model_dump(mode="json", by_alias=True))
+    return ok(SkillOut.model_validate(skill).model_dump(mode="json", by_alias=True), request)
 
 
 @router.get("/skills/{skill_id}/eval-runs")
 def get_skill_eval_runs(
     skill_id: str,
+    request: Request,
     page_page: tuple[int, int] = Depends(pagination_params),
     ctx: TenantContext = Depends(get_tenant_context),
     db=Depends(get_db_session),
@@ -265,6 +279,7 @@ def get_skill_eval_runs(
         page,
         page_size,
         total,
+        request,
     )
 
 
@@ -272,6 +287,7 @@ def get_skill_eval_runs(
 def set_skill_rollout(
     skill_id: str,
     body: RolloutCreate,
+    request: Request,
     ctx: TenantContext = Depends(get_tenant_context),
     db=Depends(get_db_session),
 ):
@@ -292,25 +308,29 @@ def set_skill_rollout(
         raise
     return JSONResponse(
         status_code=201,
-        content=ok(RolloutOut.model_validate(rollout).model_dump(mode="json", by_alias=True)),
+        content=ok(
+            RolloutOut.model_validate(rollout).model_dump(mode="json", by_alias=True), request
+        ),
     )
 
 
 @router.get("/skills/{skill_id}/rollout")
 def get_skill_rollout(
     skill_id: str,
+    request: Request,
     ctx: TenantContext = Depends(get_tenant_context),
     db=Depends(get_db_session),
 ):
     rollout = rollout_service.get_rollout(db, ctx, skill_id)
     if rollout is None:
-        return ok(None)
-    return ok(RolloutOut.model_validate(rollout).model_dump(mode="json", by_alias=True))
+        return ok(None, request)
+    return ok(RolloutOut.model_validate(rollout).model_dump(mode="json", by_alias=True), request)
 
 
 @router.post("/skills/{skill_id}/rollout/promote")
 def promote_skill_rollout(
     skill_id: str,
+    request: Request,
     ctx: TenantContext = Depends(get_tenant_context),
     db=Depends(get_db_session),
 ):
@@ -320,12 +340,13 @@ def promote_skill_rollout(
     except Exception:
         db.rollback()
         raise
-    return ok(RolloutOut.model_validate(rollout).model_dump(mode="json", by_alias=True))
+    return ok(RolloutOut.model_validate(rollout).model_dump(mode="json", by_alias=True), request)
 
 
 @router.post("/skills/{skill_id}/rollout/halt")
 def halt_skill_rollout(
     skill_id: str,
+    request: Request,
     ctx: TenantContext = Depends(get_tenant_context),
     db=Depends(get_db_session),
 ):
@@ -335,4 +356,4 @@ def halt_skill_rollout(
     except Exception:
         db.rollback()
         raise
-    return ok(RolloutOut.model_validate(rollout).model_dump(mode="json", by_alias=True))
+    return ok(RolloutOut.model_validate(rollout).model_dump(mode="json", by_alias=True), request)

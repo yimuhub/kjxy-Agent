@@ -2,6 +2,71 @@
 
 本项目遵循《工程开发规范 V3.0》；版本号遵循语义化版本。
 
+## [1.7.0] - 2026-10-26
+
+依据 `docs/audit-report-2026-10-25.md` 的审查结论完成 P0/P1/P2 整改：
+安全红线、主流程可用性、成员邀请、前端工程化与可访问性。
+
+### 安全与权限（P0）
+- 移除工具审批入参旁路：不再采信请求体 `approved`，只认服务端上下文与数据库中
+  已批准且参数哈希一致的审批单；MCP 桥接工具同样受约束。
+- 审批决策与消费改为条件更新（`UPDATE … WHERE status='pending'` / `used_count < max`），
+  并发下只有一个请求能批准或占用，杜绝重复执行外部副作用。
+- 知识库上传/删除统一要求 `knowledge:write` 权限；viewer 不再能污染或清空团队知识库。
+- 保留管理员用户名改为“静态名单 ∪ `PLATFORM_ADMIN_USERNAMES`”，统一小写比较，
+  自助注册与邀请接受共用同一套账号/密码校验，封堵注册抢注后 bootstrap 提权。
+
+### 主流程与稳定性（P0/P1）
+- 多空间账号登录：从 `TENANT_REQUIRED.details.tenants` 渲染空间选择器，选择后携带
+  `tenant_id` 重新登录；登录响应新增 `roles`，前端 TenantBrief → Tenant 统一适配，
+  修复面包屑显示“未开通空间”。
+- 访问令牌过期改为静默续期：并发 401 共享一次 refresh，成功后重放原请求，失败才跳登录，
+  并保留 `redirect` 回跳地址；登录页 401 不再触发刷新递归。
+- SSE 可靠性：后端增加 15s 心跳注释与 `id` 事件游标，支持 `Last-Event-ID` 断点续传；
+  前端基于首帧判定连接成功、45s 空闲超时、指数退避+抖动重连，仍失败才降级轮询。
+- Agent 目录与可运行集合对齐（`pest_alert`、`agriculture_qa` 等可正常 run）；
+  总控 Agent 注入调用者角色，修复 `TOOL_FORBIDDEN`。
+- 平台管理员无空间时仅在概览展示全局总览；访问其他业务路由给出明确说明与返回入口，
+  不再出现“URL 变了内容仍是总览”。
+- 设置页模型状态改为 `configured + mode` 推导，不再误报“异常”；演示账号提示仅开发环境展示。
+
+### 功能补齐（P1）
+- 成员邀请闭环：一次性令牌（仅存 sha256、TTL 可配、原子核销）、公开预览/接受、
+  邀请列表/撤销、接受页支持新账号注册与已有账号加入；新增迁移 `0020_tenant_invitations`。
+- 成员批量导入：逐条 savepoint 独立成败，返回成功列表与失败原因。
+- 反馈纠错质量门禁：纠错正文至少 10 字、标题优先取反馈摘要、同租户重复内容去重，
+  避免“错了”变成知识文档；审计记录去重标记。
+- 机器人绑定校验修正：指定助手/班组必须存在且已发布/启用，切换回智能路由会清空旧绑定；
+  管理页补绑定选择器与状态展示；“测试连接”通过只标记 `configured`，`online` 仅由
+  manager 长连接握手回填，避免把“凭据齐全”误认为通道已通。
+- 检索候选上限改为可配置 `retrieval_scan_limit`（默认 2000），达到上限时输出截断告警，
+  不再静默硬截断 500 chunk。
+
+### 前端工程化与体验（P2/UX）
+- 路由级懒加载 + `vue-vendor` 手动分包；Element Plus 改为按需引入（`unplugin-vue-components`），
+  首屏 gzip 从约 306 kB 降至约 240 kB。
+- 新增 404 页面与全站文档标题；导航从 17 个入口收敛为 9 个一级入口（4 组二级菜单），
+  面包屑支持空间/分组/父级/当前四级。
+- 移动端抽屉式侧栏（遮罩、Esc 关闭、滚动锁、路由跳转自动收起）；跳过导航链接、
+  `aria-current`/`aria-label`、键盘焦点样式、`prefers-reduced-motion`。
+- 对比度提升：`--ds-text-3`、`--ds-accent-text` 达到 AA；空状态支持主行动按钮
+  （成员页可直接“添加成员/生成邀请链接”）；错误文案统一为友好中文。
+- 角色未加载时管理入口默认拒绝（不再 fails-open）；演示账号区块仅开发/演示构建展示；
+  设置页 `LLM_PROVIDER`/`MODEL` 等术语改为业务文案。
+
+### 质量门禁与契约
+- 新增 Playwright E2E（6 条主旅程）：登录错误、导航/面包屑、404、全部业务路由无运行时异常、
+  成员邀请闭环、移动端抽屉；`playwright.config.ts` 同时覆盖桌面与 Pixel 7。
+- 后端 `669 passed`；Ruff、mypy、`vue-tsc`、`vite build` 全绿；ESLint 0 error
+  （保留既有模板排版 warning，不阻断门禁）。
+- `contracts/openapi.yaml` 重新生成（132 paths），补齐邀请、批量成员等新接口。
+
+### 升级注意
+- 需执行 `alembic upgrade head`（0020 新增 `tenant_invitations`）。
+- 前端新增开发依赖 `@playwright/test`、`unplugin-vue-components`，首次运行 E2E 需
+  `npx playwright install chromium`。
+- `VITE_USE_MOCK=true` 的演示开关不变；生产构建不再展示演示账号提示。
+
 ## [1.6.0] - 2026-10-24
 
 桌面端全平台可用性升级 + 构建修复。

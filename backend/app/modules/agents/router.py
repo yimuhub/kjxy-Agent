@@ -42,20 +42,30 @@ class AgentRunRequest(BaseModel):
     task_id: str | None = Field(default=None, description="可选：关联任务 ID，不传则自动生成")
 
 
+_AGENT_MODULES = {
+    "pest_alert": "app.modules.pest_alert.agent",
+    "orchestrator": "app.modules.agents.orchestrator",
+    "agriculture_qa": "app.modules.agriculture.qa_agent",
+    "crop_diagnosis": "app.modules.crop_diagnosis.agent",
+    "farm_planner": "app.modules.farm_planner.agent",
+    "research_assistant": "app.modules.research_assistant.agent",
+    "data_analyst": "app.modules.data_analyst.agent",
+}
+
+
 def _ensure_imported(code: str) -> None:
-    """按 code 触发对应 Agent 模块的 import（触发自注册）。"""
-    module_by_code = {
-        "crop_diagnosis": "app.modules.crop_diagnosis.agent",
-        "farm_planner": "app.modules.farm_planner.agent",
-        "research_assistant": "app.modules.research_assistant.agent",
-        "data_analyst": "app.modules.data_analyst.agent",
-    }
-    module_name = module_by_code.get(code)
-    if module_name:
-        try:
-            __import__(module_name)
-        except ImportError:
-            pass
+    """按 code 触发对应 Agent 模块的 import（触发自注册）。
+
+    总控运行的工作流可引用任意专业 Agent，因此需保证全部模块已注册。
+    """
+    codes = _AGENT_MODULES if code == "orchestrator" else (code,)
+    for item in codes:
+        module_name = _AGENT_MODULES.get(item)
+        if module_name:
+            try:
+                __import__(module_name)
+            except ImportError:
+                pass
 
 
 def _skill_summaries(allowed_tools: list[str] | None) -> list[dict]:
@@ -89,7 +99,7 @@ def list_agents(request: Request, ctx: TenantContext = Depends(get_tenant_contex
     （code/name/description/risk_level），供前端"初始技能"区域展示。
     """
     # 触发全部专业 Agent 模块的自注册，保证 definitions 与 registry 一致
-    for code in ("crop_diagnosis", "farm_planner", "research_assistant", "data_analyst"):
+    for code in _AGENT_MODULES:
         _ensure_imported(code)
     agents = []
     for d in AGENT_DEFINITIONS:
@@ -131,6 +141,7 @@ async def run_agent(
         allowed_tools=getattr(agent, "definition", {}).get("allowed_tools", []) or [],
         deadline_seconds=120,
         metadata={"db_session_id": id(db)},
+        roles=list(ctx.roles),
     )
     # 把 db 会话挂到 metadata 供 Agent 内部取用（knowledge/llm 需要）
     agent_ctx.metadata["db"] = db

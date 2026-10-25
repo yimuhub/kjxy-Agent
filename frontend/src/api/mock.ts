@@ -17,8 +17,14 @@ const ok = (data: unknown, meta?: unknown): unknown => ({
 
 const pageMeta = (total: number, page = 1, page_size = 20) => ({ page, page_size, total })
 
-const MOCK_USER = { id: 'u-demo-1', username: 'demo', display_name: '演示用户', role: 'tenant_admin' }
-const MOCK_TENANT = { id: 't-demo-1', name: '演示科技小院', code: 'demo' }
+const MOCK_USER = { user_id: 'u-demo-1', username: 'demo', display_name: '演示用户', status: 'active' }
+const MOCK_TENANT = {
+  tenant_id: 't-demo-1',
+  tenant_name: '演示科技小院',
+  name: '演示科技小院',
+  roles: ['tenant_admin'],
+  status: 'active',
+}
 
 const MOCK_TASKS = [
   {
@@ -153,11 +159,12 @@ export function getMockAdapter(): AxiosAdapter {
     })
 
     if (method === 'post' && url === '/auth/login')
-      return respond(ok({ access_token: 'mock-access', refresh_token: 'mock-refresh', token_type: 'bearer', user: MOCK_USER, tenants: [MOCK_TENANT] }))
+      return respond(ok({ access_token: 'mock-access', refresh_token: 'mock-refresh', token_type: 'bearer', user: MOCK_USER, roles: ['tenant_admin'], tenants: [MOCK_TENANT] }))
     if (method === 'post' && url === '/auth/refresh')
       return respond(ok({ access_token: 'mock-access', refresh_token: 'mock-refresh' }))
     if (method === 'post' && url === '/auth/logout') return respond(ok(null))
-    if (method === 'get' && url === '/auth/me') return respond(ok(MOCK_USER))
+    if (method === 'get' && url === '/auth/me')
+      return respond(ok({ user: MOCK_USER, roles: ['tenant_admin'], tenants: [MOCK_TENANT] }))
 
     if (method === 'get' && url === '/tenants/current') return respond(ok(MOCK_TENANT))
     if (method === 'get' && url === '/tenants/current/members')

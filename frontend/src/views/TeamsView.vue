@@ -52,7 +52,7 @@
                     :model-value="t.enabled"
                     size="small"
                     :loading="busyTeamId === t.id"
-                    @change="(v: boolean) => toggleEnabled(t, v)"
+                    @change="(v: string | number | boolean) => toggleEnabled(t, Boolean(v))"
                   />
                 </el-tooltip>
                 <el-tag

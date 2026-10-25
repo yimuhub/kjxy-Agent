@@ -9,11 +9,14 @@ import type {
   ApiResponse,
   AuditLog,
   BatchReviewResult,
+  BatchAddMembersResult,
   Candidate,
   ChunkHit,
   CreateTaskPayload,
   DocumentReparseResult,
   Feedback,
+  Invitation,
+  InvitationPreview,
   KnowledgeDocument,
   KnowledgeSearchResult,
   KnowledgeUploadResult,
@@ -21,6 +24,7 @@ import type {
   LlmStatus,
   LoginResponse,
   Member,
+  MemberRole,
   PageMeta,
   Policy,
   PolicyIngestPayload,
@@ -98,8 +102,46 @@ export const tenantApi = {
   addMember(payload: AddMemberPayload): Promise<Member> {
     return unwrap(api.post<ApiResponse<Member>>('/tenants/current/members', payload))
   },
+  batchAddMembers(payload: {
+    members: AddMemberPayload[]
+  }): Promise<BatchAddMembersResult> {
+    return unwrap(
+      api.post<ApiResponse<BatchAddMembersResult>>(
+        '/tenants/current/members/batch',
+        payload,
+      ),
+    )
+  },
   removeMember(user_id: string): Promise<void> {
     return api.delete(`/tenants/current/members/${user_id}`).then(() => undefined)
+  },
+  invitations(): Promise<Invitation[]> {
+    return unwrap(api.get<ApiResponse<Invitation[]>>('/tenants/current/invitations'))
+  },
+  createInvitation(payload: {
+    role: MemberRole
+    expires_in_days?: number
+    note?: string
+  }): Promise<Invitation> {
+    return unwrap(
+      api.post<ApiResponse<Invitation>>('/tenants/current/invitations', payload),
+    )
+  },
+  revokeInvitation(id: string): Promise<Invitation> {
+    return unwrap(api.delete<ApiResponse<Invitation>>(`/tenants/current/invitations/${id}`))
+  },
+  /** 公开：邀请预览（接受页，无需登录） */
+  previewInvitation(token: string): Promise<InvitationPreview> {
+    return unwrap(api.get<ApiResponse<InvitationPreview>>(`/invitations/${token}`))
+  },
+  /** 公开：接受邀请并直接返回登录令牌 */
+  acceptInvitation(
+    token: string,
+    payload: { username: string; password: string; display_name?: string },
+  ): Promise<LoginResponse> {
+    return unwrap(
+      api.post<ApiResponse<LoginResponse>>(`/invitations/${token}/accept`, payload),
+    )
   },
   /** 当前租户配额状态 */
   getQuota(): Promise<any> {
@@ -248,7 +290,10 @@ export const knowledgeApi = {
 
 export const qaApi = {
   async answer(payload: QAAnswerRequest): Promise<QAAnswerResult> {
-    const data = await unwrap<Record<string, unknown>>(api.post('/qa/answers', payload))
+    // 同步问答包含检索 + LLM 生成，可能超过默认 30s；异步模式立即返回
+    const data = await unwrap<Record<string, unknown>>(
+      api.post('/qa/answers', payload, { timeout: 120_000 }),
+    )
     if (data && typeof data === 'object' && 'answer' in data) {
       return { kind: 'sync', output: data as unknown as QAOutput }
     }
@@ -624,7 +669,10 @@ export const agentApi = {
     )
   },
   run(code: string, input: Record<string, unknown>): Promise<AgentRunResult> {
-    return unwrap(api.post<ApiResponse<AgentRunResult>>(`/agents/${code}/run`, { input }))
+    // 后端 Agent 截止时间 120s，客户端留余量，避免同步运行被 30s 默认超时中断
+    return unwrap(
+      api.post<ApiResponse<AgentRunResult>>(`/agents/${code}/run`, { input }, { timeout: 150_000 }),
+    )
   },
 }
 

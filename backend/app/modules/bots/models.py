@@ -44,7 +44,15 @@ STATUS_CONNECTING = "connecting"
 STATUS_ONLINE = "online"
 STATUS_OFFLINE = "offline"
 STATUS_ERROR = "error"
-VALID_STATUSES = (STATUS_CONNECTING, STATUS_ONLINE, STATUS_OFFLINE, STATUS_ERROR)
+#: 仅代表凭据/配置自检通过，长连接尚未建立；不能当作 online 展示
+STATUS_CONFIGURED = "configured"
+VALID_STATUSES = (
+    STATUS_CONNECTING,
+    STATUS_ONLINE,
+    STATUS_OFFLINE,
+    STATUS_ERROR,
+    STATUS_CONFIGURED,
+)
 
 # --- 绑定方式：自动路由 / 指定助手 / 指定班组 ---
 BINDING_AUTO = "auto"

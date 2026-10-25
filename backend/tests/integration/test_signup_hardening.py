@@ -54,6 +54,15 @@ def test_reserved_admin_usernames_rejected(client, reserved):
     assert resp.json()["error"]["code"] == "RESERVED_USERNAME"
 
 
+@pytest.mark.parametrize("configured", ["ops_admin", "OPS_ADMIN"])
+def test_configured_platform_admin_username_rejected(client, monkeypatch, configured):
+    """自定义平台管理员名也必须保留，避免被自助注册后 bootstrap 提权。"""
+    monkeypatch.setattr(settings, "platform_admin_usernames", "ops_admin,ops_backup")
+    resp = _signup(client, username=configured)
+    assert resp.status_code == 400
+    assert resp.json()["error"]["code"] == "RESERVED_USERNAME"
+
+
 def test_password_min_length_follows_settings(client, monkeypatch):
     # 默认 password_min_length=8：7 位被拒
     short = _signup(client, username="farmer_len1", password="a1bcde2")

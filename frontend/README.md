@@ -9,7 +9,7 @@ Vue 3 + TypeScript + Vite + Element Plus + Vue Router + Pinia + axios。
 ```bash
 cd frontend
 npm install
-npm run dev        # 开发，http://localhost:5173，/api 代理到 http://localhost:8000
+npm run dev        # 开发，http://127.0.0.1:5173，/api 代理到 http://127.0.0.1:8000
 ```
 
 ## 构建与检查
@@ -21,9 +21,21 @@ npm run build       # 类型检查 + vite build，产物在 dist/
 npm run preview     # 预览构建产物
 ```
 
+## E2E（Playwright）
+
+前置条件：后端已启动（`make native-api`）且执行过 `make native-seed`（演示账号
+`tenant_admin / tenant123`）。
+
+```bash
+npx playwright install chromium   # 首次或浏览器版本不匹配时执行
+npm run test:e2e                  # 6 条主旅程：登录/导航/404/全业务页/邀请闭环/移动端抽屉
+```
+
+用例位于 `e2e/`，失败截图与 trace 输出到 `test-results/`（已加入 `.gitignore`）。
+
 ## 后端联调
 
-- 唯一 API 前缀 `/api/v1`，开发时代理见 `vite.config.ts`（`/api -> http://localhost:8000`）。
+- 唯一 API 前缀 `/api/v1`，开发时代理见 `vite.config.ts`（`/api -> http://127.0.0.1:8000`）。
 - 生产部署如需改后端地址，设置环境变量 `VITE_API_BASE`（仅 `VITE_` 开头变量会被打包进前端，**绝不能放密钥**）。
 - 每次请求的 `X-Request-ID` 由前端自动生成；`Authorization: Bearer <token>` 自动携带；401 自动清 token 并跳转登录页。
 - 错误提示统一取后端错误信封 `error.message`（见 `contracts/error-codes.md`）。
@@ -50,11 +62,11 @@ npm run dev
 ```
 src/
   api/        client.ts（axios 实例/拦截器）、modules.ts（按资源分组的 API）、mock.ts（演示 fixture）
-  components/ AsyncState.vue（loading/空/失败重试/无权限四态）
-  layouts/    MainLayout.vue（侧边导航 + 顶栏）
-  router/     index.ts（路由守卫）
+  components/ AsyncState.vue（loading/空/失败重试/无权限四态，空态支持行动按钮）
+  layouts/    MainLayout.vue（分组侧栏 + 二级菜单 + 移动端抽屉 + 无障碍跳转链接）
+  router/     index.ts（懒加载路由、角色守卫、404 与文档标题）
   stores/     auth.ts（token/user/tenant）
   types/      api.ts（与契约同步的类型）
-  utils/      status.ts（任务状态彩色 tag、无权限分类）
+  utils/      status.ts（任务状态彩色 tag、错误码中文映射、无权限分类）
   views/      Login/Dashboard/QaView/KnowledgeView/TasksView/ReviewView/MembersView/SettingsView
 ```

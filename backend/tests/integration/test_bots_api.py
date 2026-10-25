@@ -65,6 +65,45 @@ def test_create_missing_credentials_400(client, tenant):
     assert resp2.status_code == 400 and "secret" in resp2.text
 
 
+def test_binding_requires_existing_target(client, tenant):
+    """指定助手/班组绑定必须给出目标，且目标必须是本租户已发布助手/启用班组。"""
+    missing = _create(client, binding_mode="assistant")
+    assert missing.status_code == 400, missing.text
+    assert missing.json()["error"]["code"] == "INVALID_REQUEST"
+
+    ghost = _create(client, binding_mode="assistant", bound_agent_id="agent-not-exist")
+    assert ghost.status_code == 400, ghost.text
+    assert "不存在" in ghost.json()["error"]["message"]
+
+
+def test_binding_to_published_agent_and_switch_back_to_auto(client, tenant, db_session):
+    from app.modules.agents.models import TenantAgent
+
+    agent = TenantAgent(
+        tenant_id=TENANT,
+        agent_code="pest_alert",
+        name="病虫害预警",
+        persona_prompt="你是植保专家。",
+        task_prompt_template="回答：{{question}}",
+        status="published",
+    )
+    db_session.add(agent)
+    db_session.commit()
+
+    created = _create(client, binding_mode="assistant", bound_agent_id=agent.id)
+    assert created.status_code == 201, created.text
+    data = created.json()["data"]
+    assert data["binding_mode"] == "assistant" and data["bound_agent_id"] == agent.id
+
+    # 切回智能路由必须清空绑定目标，避免残留失效引用
+    patched = client.patch(
+        f"/api/v1/bots/{data['id']}", json={"binding_mode": "auto"}, headers=_hdr()
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["data"]["binding_mode"] == "auto"
+    assert patched.json()["data"]["bound_agent_id"] is None
+
+
 def test_update_toggle_and_circuit_clear(client, tenant):
     bot_id = _create(client).json()["data"]["id"]
     # 通过 PATCH 走正常启停路径（启用联动 manager.spawn 在测试环境为 no-op）
@@ -87,6 +126,10 @@ def test_wecom_test_endpoint_local_validation(client, tenant, monkeypatch):
     bot_id = _create(client).json()["data"]["id"]
     r = client.post(f"/api/v1/bots/{bot_id}/test", headers=_hdr())
     assert r.status_code == 200 and r.json()["data"]["ok"] is True
+    # 凭据齐全只能表示“已配置”，不能冒充长连接已在线
+    assert r.json()["data"]["state"] == "configured"
+    status = client.get(f"/api/v1/bots/{bot_id}/status", headers=_hdr()).json()["data"]
+    assert status["status"] == "configured"
     # 缺凭据的企微配置：报错但不外呼
     bot2 = client.post(
         "/api/v1/bots",

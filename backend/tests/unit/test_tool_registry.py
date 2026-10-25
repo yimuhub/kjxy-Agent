@@ -138,9 +138,27 @@ async def test_risk_blocked_without_approval(db_session):
         await reg.execute(db_session, "test.danger", {}, _ctx(), "req-3")
     assert e.value.code == "TOOL_RISK_BLOCKED"
     assert e.value.http_status == 403
-    # 审批通过后放行
-    out = await reg.execute(db_session, "test.danger", {"approved": True}, _ctx(), "req-4")
-    assert out == {"done": True}
+
+
+@pytest.mark.asyncio
+async def test_client_approved_param_cannot_bypass_approval(db_session):
+    """请求参数中的 approved 由调用方控制，绝不能作为审批放行依据。"""
+
+    async def dangerous(params, ctx):
+        return {"done": True}
+
+    reg = ToolRegistry()
+    reg.register(
+        _echo_def(
+            code="test.danger",
+            func=dangerous,
+            risk_level="external_side_effect",
+            input_schema={"type": "object"},
+        )
+    )
+    with pytest.raises(AppError) as e:
+        await reg.execute(db_session, "test.danger", {"approved": True}, _ctx(), "req-4")
+    assert e.value.code == "TOOL_RISK_BLOCKED"
 
 
 @pytest.mark.asyncio

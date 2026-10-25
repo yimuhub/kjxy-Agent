@@ -1,5 +1,8 @@
 <template>
-  <div class="async-state">
+  <div
+    class="async-state"
+    aria-live="polite"
+  >
     <el-skeleton
       v-if="state === 'loading'"
       :rows="4"
@@ -8,7 +11,18 @@
     <el-empty
       v-else-if="state === 'empty'"
       :description="emptyText"
-    />
+    >
+      <slot name="empty-action">
+        <el-button
+          v-if="emptyActionText"
+          type="primary"
+          plain
+          @click="$emit('action')"
+        >
+          {{ emptyActionText }}
+        </el-button>
+      </slot>
+    </el-empty>
     <el-result
       v-else-if="state === 'error'"
       icon="error"
@@ -41,12 +55,16 @@
     defineProps<{
       state: ViewState
       emptyText?: string
+      emptyActionText?: string
       errorText?: string
     }>(),
-    { emptyText: '暂无数据', errorText: '' },
+    { emptyText: '暂无数据', emptyActionText: '', errorText: '' },
   )
 
-  defineEmits<{ (e: 'retry'): void }>()
+  defineEmits<{
+    (e: 'retry'): void
+    (e: 'action'): void
+  }>()
 </script>
 
 <style scoped>

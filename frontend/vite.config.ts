@@ -1,16 +1,26 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import Components from 'unplugin-vue-components/vite'
+import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 import { fileURLToPath, URL } from 'node:url'
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [
+    vue(),
+    // 模板中的 el-* 组件按需引入，避免整包打进首屏（样式仍由 main.ts 全量引入）
+    Components({
+      resolvers: [ElementPlusResolver({ importStyle: false })],
+      dts: 'src/components.d.ts',
+    }),
+  ],
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
   server: {
+    host: '127.0.0.1',
     port: 5173,
     proxy: {
       // 开发时代理后端 API，避免跨域；后端默认 http://localhost:8000
@@ -19,5 +29,16 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+  },
+  build: {
+    // 业务页已按路由懒加载；框架单独成块，组件库交给 Rollup 按需拆分
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vue-vendor': ['vue', 'vue-router', 'pinia'],
+        },
+      },
+    },
+    chunkSizeWarningLimit: 700,
   },
 })

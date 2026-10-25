@@ -60,8 +60,12 @@ def _format_schema_errors(exc: jsonschema.ValidationError) -> list[dict]:
 def _is_approved(
     ctx: TenantContext, params: dict, db: Session | None = None, tool_code: str = ""
 ) -> bool:
-    """高风险工具是否已获审批：上下文标记 / params 标记 / 已批准的审批单。"""
-    if getattr(ctx, "approved", False) is True or params.get("approved") is True:
+    """高风险工具是否已获审批。
+
+    只认服务端标记（``ctx.approved``）与数据库中的已批准审批单；
+    请求参数里的 ``approved`` 由调用方控制，不得作为放行依据。
+    """
+    if getattr(ctx, "approved", False) is True:
         return True
     if db is not None and tool_code and ctx.tenant_id:
         from app.modules.tools.approvals import has_approved_approval

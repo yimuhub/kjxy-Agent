@@ -10,7 +10,6 @@ diff，不一致即失败（规范 §7.6：代码与 OpenAPI 不一致时禁止�
 代码/Schema，再跑本脚本更新契约，随同一 PR 提交。
 """
 
-import json
 import os
 import sys
 from pathlib import Path
@@ -26,9 +25,8 @@ os.environ.setdefault("WORKER_SYNC_FALLBACK", "false")
 
 sys.path.insert(0, str(REPO_ROOT / "backend"))
 
-from app.main import create_app  # noqa: E402
-
 import yaml  # noqa: E402
+from app.main import create_app  # noqa: E402
 
 
 def main() -> int:

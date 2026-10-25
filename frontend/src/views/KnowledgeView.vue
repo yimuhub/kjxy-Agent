@@ -198,14 +198,14 @@
                 link
                 type="primary"
                 :loading="reparseId === row.id"
-                @click="doReparse(row)"
+                @click="doReparse(row as KnowledgeDocument)"
               >
                 重新解析
               </el-button>
               <el-button
                 link
                 type="danger"
-                @click="confirmRemove(row)"
+                @click="confirmRemove(row as KnowledgeDocument)"
               >
                 删除
               </el-button>

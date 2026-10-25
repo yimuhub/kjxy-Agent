@@ -55,21 +55,43 @@ def list_members(
 def add_member(
     db: Session, ctx: TenantContext, req: AddMemberRequest, *, request_id: str
 ) -> TenantMemberOut:
-    if req.role not in TENANT_ASSIGNABLE_ROLES:
+    data = _add_member(
+        db,
+        ctx,
+        username=req.username,
+        role=req.role,
+        display_name=req.display_name,
+        request_id=request_id,
+    )
+    db.commit()
+    return data
+
+
+def _add_member(
+    db: Session,
+    ctx: TenantContext,
+    *,
+    username: str,
+    role: str,
+    display_name: str | None,
+    request_id: str,
+) -> TenantMemberOut:
+    """添加成员但不提交事务；批量导入按条复用并统一提交。"""
+    if role not in TENANT_ASSIGNABLE_ROLES:
         raise AppError(
             "INVALID_REQUEST",
             f"角色不合法，可选：{', '.join(TENANT_ASSIGNABLE_ROLES)}。",
             http_status=400,
         )
-    user = get_by_username(db, req.username)
+    user = get_by_username(db, username)
     if user is None:
         raise AppError("NOT_FOUND", "用户不存在。", http_status=404)
     if repo.get_membership(db, ctx.tenant_id, user.id) is not None:
         raise AppError("MEMBER_EXISTS", "该用户已是本租户成员。", http_status=409)
 
-    if req.display_name and not user.display_name:
-        user.display_name = req.display_name
-    membership = repo.add_membership(db, tenant_id=ctx.tenant_id, user_id=user.id, role=req.role)
+    if display_name and not user.display_name:
+        user.display_name = display_name
+    membership = repo.add_membership(db, tenant_id=ctx.tenant_id, user_id=user.id, role=role)
     log_audit(
         db,
         tenant_id=ctx.tenant_id,
@@ -79,9 +101,9 @@ def add_member(
         resource_id=user.id,
         result="success",
         request_id=request_id,
-        metadata={"username": user.username, "role": req.role},
+        metadata={"username": user.username, "role": role},
     )
-    db.commit()
+    db.flush()
     return TenantMemberOut(
         user_id=user.id,
         username=user.username,
@@ -91,6 +113,35 @@ def add_member(
         status=membership.status,
         joined_at=membership.created_at,
     )
+
+
+def batch_add_members(
+    db: Session,
+    ctx: TenantContext,
+    items: list[tuple[str, str, str | None]],
+    *,
+    request_id: str,
+) -> tuple[list[TenantMemberOut], list[dict[str, str]]]:
+    """批量添加成员：逐条独立提交（savepoint），单条失败不影响其余。"""
+    added: list[TenantMemberOut] = []
+    failed: list[dict[str, str]] = []
+    for username, role, display_name in items:
+        try:
+            with db.begin_nested():
+                added.append(
+                    _add_member(
+                        db,
+                        ctx,
+                        username=username,
+                        role=role,
+                        display_name=display_name,
+                        request_id=request_id,
+                    )
+                )
+        except AppError as exc:
+            failed.append({"username": username, "error_code": exc.code, "message": exc.message})
+    db.commit()
+    return added, failed
 
 
 def remove_member(db: Session, ctx: TenantContext, user_id: str, *, request_id: str) -> None:

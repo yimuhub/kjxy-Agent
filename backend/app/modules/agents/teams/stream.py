@@ -84,6 +84,7 @@ async def _stream_frames(tenant_id: str, run_id: str) -> AsyncIterator[str]:
     seen: set[str] = set()
     loop = asyncio.get_running_loop()
     deadline = loop.time() + MAX_STREAM_SECONDS
+    last_emit = loop.time()
 
     def _key(row: dict[str, Any]) -> str:
         # 状态每变一次发一帧：游标必须含状态与时序（同 W1 口径）
@@ -135,7 +136,9 @@ async def _stream_frames(tenant_id: str, run_id: str) -> AsyncIterator[str]:
             if run_d is None:
                 yield _sse_frame("team-end", {"status": "not_found", "reason": "run_not_found"})
                 return
+            emitted = False
             for frame in _collect_new(rows):
+                emitted = True
                 yield frame
             if run_d["status"] != "running":
                 yield _sse_frame("team-end", {"status": run_d["status"], "reason": "run_terminal"})
@@ -143,6 +146,11 @@ async def _stream_frames(tenant_id: str, run_id: str) -> AsyncIterator[str]:
             if loop.time() >= deadline:
                 yield _sse_frame("team-end", {"status": "running", "reason": "timeout"})
                 return
+            if emitted:
+                last_emit = loop.time()
+            elif loop.time() - last_emit >= 15.0:
+                yield ": keepalive\n\n"
+                last_emit = loop.time()
             await asyncio.sleep(POLL_INTERVAL_SECONDS)
     except asyncio.CancelledError:
         # 断开只是停止"看"：班组 run 由服务端继续执行（与 tasks/stream 一致）

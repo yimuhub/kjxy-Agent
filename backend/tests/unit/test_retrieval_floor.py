@@ -330,7 +330,9 @@ def test_batch_review_requires_permission(db_session, storage_tmp):
     from app.modules.evolution import service as evo_service
 
     ctx = _ctx_admin("tenant-batch-perm")
-    fb = evo_service.submit_feedback(db_session, ctx, corrected_answer="x", request_id="r")
+    fb = evo_service.submit_feedback(
+        db_session, ctx, corrected_answer="纠错内容占位测试文本", request_id="r"
+    )
     db_session.commit()
     rows = db_session.query(evo_service.KnowledgeCandidate).filter_by(tenant_id=ctx.tenant_id).all()
     cid = rows[0].id

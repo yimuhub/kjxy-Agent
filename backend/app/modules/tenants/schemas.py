@@ -31,6 +31,65 @@ class AddMemberRequest(BaseModel):
     display_name: str | None = Field(default=None, max_length=64)
 
 
+class BatchMemberItem(BaseModel):
+    username: str = Field(..., min_length=1, max_length=64)
+    role: str = Field(..., description="tenant_admin|expert|operator|viewer|service_worker")
+    display_name: str | None = Field(default=None, max_length=64)
+
+
+class BatchAddMembersRequest(BaseModel):
+    """批量添加已有账号为成员；逐条独立成败，单条失败不影响其余。"""
+
+    members: list[BatchMemberItem] = Field(..., min_length=1, max_length=100)
+
+
+class BatchMemberFailure(BaseModel):
+    username: str
+    error_code: str
+    message: str
+
+
+class BatchAddMembersResult(BaseModel):
+    added: list[TenantMemberOut]
+    failed: list[BatchMemberFailure]
+
+
+class InvitationCreateRequest(BaseModel):
+    role: str = Field(..., description="tenant_admin|expert|operator|viewer|service_worker")
+    expires_in_days: int = Field(default=7, ge=1, le=30)
+    note: str | None = Field(default=None, max_length=120)
+
+
+class InvitationOut(BaseModel):
+    id: str
+    role: str
+    note: str | None = None
+    # pending | accepted | revoked | expired（expired 为按 expires_at 计算的展示态）
+    status: str
+    expires_at: datetime
+    created_at: datetime
+    created_by: str | None = None
+    accepted_at: datetime | None = None
+    # 仅创建时返回一次明文邀请链接路径（如 /invite/<token>），由前端拼 origin
+    invite_path: str | None = None
+
+
+class InvitationPreview(BaseModel):
+    """公开预览：接受邀请页展示空间名与授予角色，不泄露成员与配置。"""
+
+    tenant_id: str
+    tenant_name: str
+    role: str
+    note: str | None = None
+    expires_at: datetime
+
+
+class InvitationAcceptRequest(BaseModel):
+    username: str = Field(..., min_length=3, max_length=32)
+    password: str = Field(..., min_length=1, max_length=128)
+    display_name: str | None = Field(default=None, max_length=64)
+
+
 class TenantSignupRequest(BaseModel):
     """公开自助注册请求。
 

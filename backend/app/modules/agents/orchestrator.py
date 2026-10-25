@@ -64,8 +64,13 @@ class OrchestratorAgent:
     def _get_registry(self) -> AgentRegistry:
         if self._registry is not None:
             return self._registry
-        registry = AgentRegistry()
-        registry.register(self.code, self)
+        # 总控运行的工作流可能引用任意专业 Agent，必须使用全局注册表，
+        # 而不是只含自身的临时表，否则 answer 节点会报未注册。
+        from app.modules.agents import get_global_registry
+
+        registry = get_global_registry()
+        if self.code not in registry:
+            registry.register(self.code, self)
         return registry
 
     def _load_definition(self) -> dict[str, Any]:

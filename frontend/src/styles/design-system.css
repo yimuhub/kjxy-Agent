@@ -15,8 +15,11 @@
   --ds-border-strong: rgba(255, 255, 255, 0.16);
   --ds-text-1: #E8EAF2;
   --ds-text-2: #A3AABF;
-  --ds-text-3: #6C7386;
+  /* 对比度 ≥ 5:1（bg-0 / bg-2），满足 WCAG AA 正文要求 */
+  --ds-text-3: #7C8498;
   --ds-accent: #6366F1;
+  /* 强调色文字专用（链接/激活项），对比度 ≥ 5.8:1；#6366F1 仅用于填充与大图标 */
+  --ds-accent-text: #8B8EF7;
   --ds-accent-2: #22D3EE;
   --ds-success: #34D399;
   --ds-warning: #FBBF24;
@@ -210,7 +213,7 @@ html {
   scrollbar-color: var(--ds-border-strong) transparent;
 }
 a {
-  color: var(--ds-accent);
+  color: var(--ds-accent-text);
 }
 
 /* ============ 全局页面骨架类（给 18 个页面换装） ============ */
@@ -413,7 +416,7 @@ a {
   color: var(--ds-text-1);
 }
 .el-select-dropdown__item.is-selected {
-  color: var(--ds-accent);
+  color: var(--ds-accent-text);
 }
 .el-date-table td.current:not(.disabled) .el-date-table-cell__text,
 .el-date-table td.today .el-date-table-cell__text {
@@ -621,7 +624,7 @@ a {
 }
 .el-tabs__item:hover,
 .el-tabs__item.is-active {
-  color: var(--ds-accent);
+  color: var(--ds-accent-text);
 }
 .el-tabs__active-bar {
   background-color: var(--ds-accent);
@@ -719,7 +722,7 @@ a {
 .el-tree-node:focus > .el-tree-node__content,
 .el-tree-node.is-current > .el-tree-node__content {
   background: var(--ds-glass-strong);
-  color: var(--ds-accent);
+  color: var(--ds-accent-text);
 }
 .el-collapse {
   border-color: var(--ds-border);
@@ -748,7 +751,7 @@ a {
   font-weight: 400;
 }
 .el-breadcrumb__inner.is-link:hover {
-  color: var(--ds-accent);
+  color: var(--ds-accent-text);
 }
 .el-breadcrumb__item:last-child .el-breadcrumb__inner {
   color: var(--ds-text-1);

@@ -6,7 +6,13 @@
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile, status
 
-from app.core.deps import TenantContext, get_db_session, get_tenant_context
+from app.core.deps import (
+    CurrentUser,
+    TenantContext,
+    get_db_session,
+    get_tenant_context,
+    require_permission,
+)
 from app.core.pagination import pagination_params
 from app.core.responses import ok, paged
 from app.modules.knowledge import service
@@ -28,6 +34,7 @@ def upload_document(
     title: str | None = Form(default=None),
     db=Depends(get_db_session),
     ctx: TenantContext = Depends(get_tenant_context),
+    _user: CurrentUser = Depends(require_permission("knowledge:write")),
 ):
     doc = service.upload_document(
         db, ctx, file, title=title, request_id=getattr(request.state, "request_id", "")
@@ -70,6 +77,7 @@ def delete_document(
     request: Request,
     db=Depends(get_db_session),
     ctx: TenantContext = Depends(get_tenant_context),
+    _user: CurrentUser = Depends(require_permission("knowledge:write")),
 ):
     service.delete_document(db, ctx, document_id)
     return ok({"id": document_id, "deleted": True}, request)

@@ -3,27 +3,31 @@ import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 import MainLayout from '@/layouts/MainLayout.vue'
 import Login from '@/views/Login.vue'
-import Dashboard from '@/views/Dashboard.vue'
-import ChatView from '@/views/ChatView.vue'
-import QaView from '@/views/QaView.vue'
-import KnowledgeView from '@/views/KnowledgeView.vue'
-import TasksView from '@/views/TasksView.vue'
-import ReviewView from '@/views/ReviewView.vue'
-import MembersView from '@/views/MembersView.vue'
-import SettingsView from '@/views/SettingsView.vue'
-import AgentsView from '@/views/AgentsView.vue'
-import TeamsView from '@/views/TeamsView.vue'
-import AgentFactoryView from '@/views/AgentFactoryView.vue'
-import DevicesView from '@/views/DevicesView.vue'
-import MarketView from '@/views/MarketView.vue'
-import BotsView from '@/views/BotsView.vue'
-import PolicyView from '@/views/PolicyView.vue'
-import EvolutionView from '@/views/EvolutionView.vue'
-import QuotaView from '@/views/QuotaView.vue'
-import SignupView from '@/views/SignupView.vue'
 
 /** 管理类页面：仅使用空间管理员与平台管理员 */
 const ADMIN_ROLES = ['tenant_admin', 'platform_admin']
+
+/** 业务页按路由懒加载，首屏只下载登录页与主框架 */
+const Dashboard = () => import('@/views/Dashboard.vue')
+const ChatView = () => import('@/views/ChatView.vue')
+const QaView = () => import('@/views/QaView.vue')
+const KnowledgeView = () => import('@/views/KnowledgeView.vue')
+const TasksView = () => import('@/views/TasksView.vue')
+const ReviewView = () => import('@/views/ReviewView.vue')
+const MembersView = () => import('@/views/MembersView.vue')
+const SettingsView = () => import('@/views/SettingsView.vue')
+const AgentsView = () => import('@/views/AgentsView.vue')
+const TeamsView = () => import('@/views/TeamsView.vue')
+const AgentFactoryView = () => import('@/views/AgentFactoryView.vue')
+const DevicesView = () => import('@/views/DevicesView.vue')
+const MarketView = () => import('@/views/MarketView.vue')
+const BotsView = () => import('@/views/BotsView.vue')
+const PolicyView = () => import('@/views/PolicyView.vue')
+const EvolutionView = () => import('@/views/EvolutionView.vue')
+const QuotaView = () => import('@/views/QuotaView.vue')
+const SignupView = () => import('@/views/SignupView.vue')
+const InviteAcceptView = () => import('@/views/InviteAcceptView.vue')
+const NotFoundView = () => import('@/views/NotFoundView.vue')
 
 // meta.roles 声明允许访问的角色；缺省表示所有登录用户可见
 const routes: RouteRecordRaw[] = [
@@ -40,11 +44,16 @@ const routes: RouteRecordRaw[] = [
     meta: { public: true, title: '使用空间注册' },
   },
   {
+    path: '/invite/:token',
+    name: 'InviteAccept',
+    component: InviteAcceptView,
+    meta: { public: true, title: '接受邀请' },
+  },
+  {
     path: '/',
-
     component: MainLayout,
     children: [
-      { path: '', name: 'Dashboard', component: Dashboard, meta: { title: '工作台' } },
+      { path: '', name: 'Dashboard', component: Dashboard, meta: { title: '概览' } },
       // 对话模式：全员可用（§10 契约：全部登录可用，成员级）
       { path: 'chat', name: 'Chat', component: ChatView, meta: { title: '对话' } },
       { path: 'qa', name: 'QA', component: QaView, meta: { title: '知识问答' } },
@@ -104,6 +113,8 @@ const routes: RouteRecordRaw[] = [
         component: BotsView,
         meta: { title: 'IM 机器人', roles: ADMIN_ROLES },
       },
+      // 兜底：未知路径显示站内 404，避免白屏
+      { path: ':pathMatch(.*)*', name: 'NotFound', component: NotFoundView, meta: { title: '页面不存在' } },
     ],
   },
 ]
@@ -111,14 +122,30 @@ const routes: RouteRecordRaw[] = [
 const router = createRouter({
   history: createWebHistory(),
   routes,
+  scrollBehavior: (_to, _from, saved) => saved ?? { top: 0 },
+})
+
+const APP_NAME = '阗策 · 科技小院'
+
+router.afterEach(to => {
+  const title = to.meta.title as string | undefined
+  document.title = title ? `${title} · ${APP_NAME}` : APP_NAME
 })
 
 router.beforeEach(async to => {
   const auth = useAuthStore()
-  if (to.path === '/login' || to.path === '/signup') {
-    return auth.isLoggedIn() ? '/' : true
+  if (to.meta.public) {
+    // 已登录用户访问登录/注册页时跳回站内；邀请页允许已登录用户继续（加入新空间）
+    if ((to.path === '/login' || to.path === '/signup') && auth.isLoggedIn()) {
+      const redirect = typeof to.query.redirect === 'string' ? to.query.redirect : '/'
+      return redirect.startsWith('/') ? redirect : '/'
+    }
+    return true
   }
-  if (!auth.isLoggedIn()) return '/login'
+  if (!auth.isLoggedIn()) {
+    const query = to.fullPath !== '/' ? { redirect: to.fullPath } : undefined
+    return { path: '/login', query }
+  }
   // 直达管理页 URL 时角色可能还没加载，先补一次 /auth/me
   if (!auth.meLoaded) {
     try {

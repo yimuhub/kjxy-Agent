@@ -35,6 +35,7 @@ class LoginResponseData(BaseModel):
     refresh_token: str
     token_type: str = "bearer"
     user: UserOut
+    roles: list[str] = Field(default_factory=list)
     tenants: list[TenantBrief]
 
 

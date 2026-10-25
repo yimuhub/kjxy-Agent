@@ -628,20 +628,20 @@
               v-if="row.status === 'draft'"
               size="small"
               type="success"
-              @click="daPublish(row)"
+              @click="daPublish(row as DeclarativeAgent)"
             >
               发布
             </el-button>
             <el-button
               v-if="row.status === 'published'"
               size="small"
-              @click="openDaRun(row)"
+              @click="openDaRun(row as DeclarativeAgent)"
             >
               试跑
             </el-button>
             <el-button
               size="small"
-              @click="openDaEdit(row)"
+              @click="openDaEdit(row as DeclarativeAgent)"
             >
               编辑
             </el-button>
@@ -649,7 +649,7 @@
               v-if="row.status === 'published'"
               size="small"
               type="warning"
-              @click="daDeprecate(row)"
+              @click="daDeprecate(row as DeclarativeAgent)"
             >
               停用
             </el-button>
@@ -848,14 +848,14 @@
             <el-button
               size="small"
               type="success"
-              @click="reviewAction(row, 'approve')"
+              @click="reviewAction(row as DeclarativeAgent, 'approve')"
             >
               批准
             </el-button>
             <el-button
               size="small"
               type="danger"
-              @click="reviewAction(row, 'reject')"
+              @click="reviewAction(row as DeclarativeAgent, 'reject')"
             >
               驳回
             </el-button>
@@ -964,7 +964,7 @@
     if (!t) return ''
     return `来源: ${t.source}; 条件: ${JSON.stringify(t.filters)}; 时间: ${JSON.stringify(t.time_range)}`
   }
-  function riskType(r?: string): string {
+  function riskType(r?: string): 'warning' | 'success' {
     return r === 'medium' ? 'warning' : 'success'
   }
   function riskLabel(r?: string): string {
@@ -978,7 +978,7 @@
     skillDetail.value = s
     skillDialogVisible.value = true
   }
-  function skillRiskType(r?: string): string {
+  function skillRiskType(r?: string): 'danger' | 'warning' | 'success' {
     if (r === 'external_side_effect') return 'danger'
     if (r === 'write_reversible' || r === 'draft') return 'warning'
     return 'success'
@@ -1142,20 +1142,22 @@
     },
   ]
 
-  function applyDaTemplate(key: string) {
-    const t = DA_TEMPLATES.find(x => x.key === key)
+  function applyDaTemplate(key: string | number | boolean | undefined) {
+    const t = DA_TEMPLATES.find(x => x.key === String(key ?? ''))
     if (!t) return
     decForm.value.persona_prompt = t.persona
     decForm.value.description = t.desc
     if (!decForm.value.name) decForm.value.name = t.name
   }
 
-  function daStatusType(s: string) {
-    return (
-      { draft: 'info', pending_platform_review: 'warning', published: 'success', deprecated: 'info' }[
-        s
-      ] || 'info'
-    )
+  function daStatusType(s: string): 'info' | 'warning' | 'success' {
+    const map: Record<string, 'info' | 'warning' | 'success'> = {
+      draft: 'info',
+      pending_platform_review: 'warning',
+      published: 'success',
+      deprecated: 'info',
+    }
+    return map[s] ?? 'info'
   }
   function daStatusLabel(s: string) {
     return (

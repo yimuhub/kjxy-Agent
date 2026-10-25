@@ -1,4 +1,4 @@
-import axios, { AxiosError, type AxiosRequestConfig } from 'axios'
+import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import { ElMessage } from 'element-plus'
 import type { ApiError } from '@/types/api'
 import { friendlyErrorMessage } from '@/utils/status'
@@ -43,23 +43,83 @@ export function extractErrorMessage(err: unknown): { code: string; message: stri
   return { code: 'UNKNOWN', message: '未知错误' }
 }
 
+/** 结构化错误详情（如 TENANT_REQUIRED 的 details.tenants） */
+export function extractErrorDetails(err: unknown): Record<string, unknown> | undefined {
+  if (err instanceof AxiosError && err.response?.data) {
+    const body = err.response.data as ApiError
+    return body?.error?.details
+  }
+  return undefined
+}
+
+interface RetryConfig extends InternalAxiosRequestConfig {
+  _retry?: boolean
+  skipErrorToast?: boolean
+}
+
+/** 登录/刷新自身返回 401 时不触发刷新，避免递归与误跳转 */
+const AUTH_ENDPOINTS = ['/auth/login', '/auth/refresh']
+
+function isAuthEndpoint(url?: string): boolean {
+  return !!url && AUTH_ENDPOINTS.some(path => url.includes(path))
+}
+
+let refreshPromise: Promise<string | null> | null = null
+
+/** 用 refresh_token 换 access_token；并发 401 共享同一个刷新请求。 */
+function refreshAccessToken(): Promise<string | null> {
+  if (refreshPromise) return refreshPromise
+  const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY)
+  if (!refreshToken) return Promise.resolve(null)
+  const baseURL = api.defaults.baseURL ?? '/api/v1'
+  refreshPromise = axios
+    .post(`${baseURL}/auth/refresh`, { refresh_token: refreshToken })
+    .then(res => {
+      const token = (res.data as { data?: { access_token?: string } })?.data?.access_token
+      if (!token) return null
+      localStorage.setItem(TOKEN_KEY, token)
+      return token
+    })
+    .catch(() => null)
+    .finally(() => {
+      refreshPromise = null
+    })
+  return refreshPromise
+}
+
+function redirectToLogin(): void {
+  localStorage.removeItem(TOKEN_KEY)
+  localStorage.removeItem(REFRESH_TOKEN_KEY)
+  if (window.location.pathname.startsWith('/login')) return
+  const redirect = encodeURIComponent(window.location.pathname + window.location.search)
+  window.location.assign(`/login?redirect=${redirect}`)
+}
+
 api.interceptors.response.use(
   response => response,
-  (error: unknown) => {
+  async (error: unknown) => {
     if (error instanceof AxiosError) {
       const status = error.response?.status
+      const config = error.config as RetryConfig | undefined
       if (status === 401) {
-        // 令牌无效/过期：清 token 并跳登录页（错误码 UNAUTHORIZED / INVALID_CREDENTIALS）
+        // 访问令牌过期：先尝试用 refresh_token 静默续期并重放原请求
+        if (config && !config._retry && !isAuthEndpoint(config.url)) {
+          config._retry = true
+          const token = await refreshAccessToken()
+          if (token) {
+            config.headers.Authorization = `Bearer ${token}`
+            return api(config)
+          }
+          redirectToLogin()
+          return Promise.reject(error)
+        }
+        // 登录失败或刷新失败：清空本地凭据；登录页自行展示错误
         localStorage.removeItem(TOKEN_KEY)
         localStorage.removeItem(REFRESH_TOKEN_KEY)
-        if (!window.location.pathname.startsWith('/login')) {
-          window.location.assign('/login')
-        }
         return Promise.reject(error)
       }
       // 统一错误 toast：错误码优先映射为中文文案，未命中且为纯英文时兜底，
       // 不把原始英文细节抛给用户；opt-out 见 config.skipErrorToast
-      const config = error.config as AxiosRequestConfig & { skipErrorToast?: boolean }
       if (!config?.skipErrorToast && error.response) {
         const { code, message } = extractErrorMessage(error)
         ElMessage.error(friendlyErrorMessage(code, message))

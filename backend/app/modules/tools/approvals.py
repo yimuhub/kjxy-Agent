@@ -162,10 +162,29 @@ def has_approved_approval(
     )
     if approval is None:
         return False
-    if max_uses and max_uses > 0 and approval.used_count >= max_uses:
+
+    # 原子占位：把“检查上限”和“累加次数”合成一条条件 UPDATE，
+    # 避免两个并发调用同时读到 used_count 未超限而重复放行。
+    claim = db.query(ToolApproval).filter(
+        ToolApproval.id == approval.id,
+        ToolApproval.status == APPROVAL_APPROVED,
+    )
+    expires_filter = (
+        or_(ToolApproval.expires_at.is_(None), ToolApproval.expires_at > now)
+        if ttl_hours and ttl_hours > 0
+        else None
+    )
+    if expires_filter is not None:
+        claim = claim.filter(expires_filter)
+    if max_uses and max_uses > 0:
+        claim = claim.filter(ToolApproval.used_count < max_uses)
+    updated = claim.update(
+        {"used_count": ToolApproval.used_count + 1},
+        synchronize_session=False,
+    )
+    if not updated:
         return False
-    approval.used_count += 1
-    db.flush()
+    db.refresh(approval)
     return True
 
 
@@ -229,6 +248,31 @@ def _ensure_decidable(
     return False
 
 
+def _claim_pending(db: Session, approval: ToolApproval, values: dict) -> None:
+    """条件更新抢占 pending 审批单；并发下只有一个请求能成功。
+
+    先读后写会让两个并发审批都通过状态校验，因此在 PostgreSQL 的默认隔离级别
+    下必须用 ``UPDATE ... WHERE status='pending'`` 的 rowcount 做最终裁决。
+    """
+    updated = (
+        db.query(ToolApproval)
+        .filter(
+            ToolApproval.id == approval.id,
+            ToolApproval.tenant_id == approval.tenant_id,
+            ToolApproval.status == APPROVAL_PENDING,
+        )
+        .update(values, synchronize_session=False)
+    )
+    if not updated:
+        db.refresh(approval)
+        raise AppError(
+            "APPROVAL_NOT_PENDING",
+            f"审批单已处理（{approval.status}），不可重复决策。",
+            http_status=409,
+        )
+    db.refresh(approval)
+
+
 def approve_approval(
     db: Session,
     approval: ToolApproval,
@@ -239,19 +283,25 @@ def approve_approval(
     self_decide_allowed: bool = False,
 ) -> ToolApproval:
     self_approved = _ensure_decidable(approval, decided_by, self_decide_allowed=self_decide_allowed)
-    approval.status = APPROVAL_APPROVED
-    approval.decided_by = decided_by
     decided_at = _utcnow()
-    approval.decided_at = decided_at
-    approval.decision_note = note
-    # 有效期与复用上限（规范 §15.2 R3：审批不是永久通行证）
-    approval.expires_at = (
+    expires_at = (
         decided_at + timedelta(hours=settings.tool_approval_ttl_hours)
         if settings.tool_approval_ttl_hours > 0
         else None
     )
-    approval.used_count = 0
-    db.flush()
+    # 有效期与复用上限（规范 §15.2 R3：审批不是永久通行证）
+    _claim_pending(
+        db,
+        approval,
+        {
+            "status": APPROVAL_APPROVED,
+            "decided_by": decided_by,
+            "decided_at": decided_at,
+            "decision_note": note,
+            "expires_at": expires_at,
+            "used_count": 0,
+        },
+    )
     log_audit(
         db,
         tenant_id=approval.tenant_id,
@@ -280,11 +330,16 @@ def reject_approval(
     self_decide_allowed: bool = False,
 ) -> ToolApproval:
     self_approved = _ensure_decidable(approval, decided_by, self_decide_allowed=self_decide_allowed)
-    approval.status = APPROVAL_REJECTED
-    approval.decided_by = decided_by
-    approval.decided_at = _utcnow()
-    approval.decision_note = note
-    db.flush()
+    _claim_pending(
+        db,
+        approval,
+        {
+            "status": APPROVAL_REJECTED,
+            "decided_by": decided_by,
+            "decided_at": _utcnow(),
+            "decision_note": note,
+        },
+    )
     log_audit(
         db,
         tenant_id=approval.tenant_id,

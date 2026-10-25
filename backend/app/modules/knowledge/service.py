@@ -34,10 +34,9 @@ MIME_BY_EXT = {
     ".csv": "text/csv",
 }
 
-SEARCH_CANDIDATE_LIMIT = 500
 QUOTE_MAX_CHARS = 200
 #: pgvector 路径候选过采样因子：DB 侧取 top_k × 因子 的候选
-#: （下限 40，上限 SEARCH_CANDIDATE_LIMIT）
+#: （下限 40，上限 settings.retrieval_scan_limit）
 VECTOR_OVERSAMPLE_FACTOR = 4
 
 
@@ -361,11 +360,12 @@ def search(
             KnowledgeDocument.deleted_at.is_(None),
         )
     )
+    scan_limit = max(50, int(settings.retrieval_scan_limit))
     candidates: list[KnowledgeChunk]
     if settings.use_pgvector and _is_postgresql(db):
         # pgvector 索引路径（规范 §10.3）：DB 侧按余弦距离排序取候选，
         # 避免全量拉取后 Python 扫描；混合模式在候选集上做关键词融合。
-        oversample = min(max(top_k * VECTOR_OVERSAMPLE_FACTOR, 40), SEARCH_CANDIDATE_LIMIT)
+        oversample = min(max(top_k * VECTOR_OVERSAMPLE_FACTOR, 40), scan_limit)
         candidates = (
             base_query.order_by(KnowledgeChunk.embedding.op("<=>")(query_vec).asc())
             .limit(oversample)
@@ -383,14 +383,14 @@ def search(
         # SQLite/测试回退：按文档序取候选后 Python 侧计算余弦（确定性、可离线测试）
         candidates = (
             base_query.order_by(KnowledgeChunk.document_id, KnowledgeChunk.chunk_index)
-            .limit(SEARCH_CANDIDATE_LIMIT)
+            .limit(scan_limit)
             .all()
         )
-        if len(candidates) >= SEARCH_CANDIDATE_LIMIT:
+        if len(candidates) >= scan_limit:
             log.warning(
                 "knowledge.search truncated(scan) t=%s lim=%d k=%d qlen=%d",
                 ctx.tenant_id,
-                SEARCH_CANDIDATE_LIMIT,
+                scan_limit,
                 top_k,
                 len(query),
             )

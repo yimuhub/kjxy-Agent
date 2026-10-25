@@ -40,6 +40,13 @@ os.environ["TASK_ENQUEUE_TIMEOUT_SECONDS"] = "0.5"
 os.environ["WORKER_SYNC_FALLBACK"] = "false"
 os.environ["BOT_MANAGER_DISABLED"] = "1"  # 测试永不真起机器人长连接
 
+# 供应商密钥加解密需要 Fernet 主密钥；不依赖某个测试模块先设置（曾导致
+# 机器人类测试单独运行时因环境变量缺失而失败，属于测试顺序耦合）。
+if not os.environ.get("SUPPLIER_KEY_SECRET"):
+    from cryptography.fernet import Fernet
+
+    os.environ["SUPPLIER_KEY_SECRET"] = Fernet.generate_key().decode()
+
 from app.core.deps import get_db_session  # noqa: E402
 from app.db.base import Base  # noqa: E402
 from app.main import create_app  # noqa: E402

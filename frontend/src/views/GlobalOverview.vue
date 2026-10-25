@@ -76,7 +76,7 @@
       </el-col>
     </el-row>
 
-    <el-card class="switch-card">
+    <el-card v-if="showDemoAccounts" class="switch-card">
       <template #header>快速切换体验租户功能</template>
       <div class="switch-row">
         <el-tag>租户管理员</el-tag>
@@ -106,6 +106,8 @@ import type { AdminStats, AdminTenantList } from '@/types/api'
 
 const router = useRouter()
 const auth = useAuthStore()
+/** 演示账号仅在开发/演示构建展示，生产环境避免客户截图泄露 */
+const showDemoAccounts = !import.meta.env.PROD
 
 const statsState = ref<ViewState>('loading')
 const tenantsState = ref<ViewState>('loading')

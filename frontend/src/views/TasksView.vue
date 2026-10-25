@@ -146,7 +146,7 @@
               <el-button
                 link
                 type="primary"
-                @click="openDrawer(row)"
+                @click="openDrawer(row as Task)"
               >
                 详情
               </el-button>
@@ -154,7 +154,7 @@
                 v-if="['queued', 'running'].includes(row.status)"
                 link
                 type="warning"
-                @click="doCancel(row)"
+                @click="doCancel(row as Task)"
               >
                 取消
               </el-button>
@@ -162,7 +162,7 @@
                 v-if="row.status === 'failed'"
                 link
                 type="success"
-                @click="doRetry(row)"
+                @click="doRetry(row as Task)"
               >
                 重试
               </el-button>

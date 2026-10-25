@@ -65,6 +65,11 @@ class Settings(BaseSettings):
     retrieval_alpha: float = Field(
         default=0.7, description="混合检索权重：final = alpha*vector + (1-alpha)*keyword"
     )
+    retrieval_scan_limit: int = Field(
+        default=2000,
+        description="检索候选扫描上限：SQLite 全量扫描条数 / pgvector 过采样上限；"
+        "大知识库可按内存与延迟调高（2000 条 chunk 约数 MB 内存）",
+    )
     worker_sync_fallback: bool = Field(
         default=False,
         description="纯本机模式：Redis/Celery 不可用时在后台线程同步执行任务，不阻塞 API",

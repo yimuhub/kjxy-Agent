@@ -200,6 +200,7 @@ def login(
         access_token=create_access_token(user_id=user.id, tenant_id=chosen_tenant_id, roles=roles),
         refresh_token=create_refresh_token(user_id=user.id, tenant_id=chosen_tenant_id),
         user=_user_out(user),
+        roles=roles,
         tenants=tenants,
     )
 

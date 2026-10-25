@@ -72,14 +72,14 @@
                   <el-button
                     link
                     type="success"
-                    @click="doReviewCandidate(row, 'approve')"
+                    @click="doReviewCandidate(row as Candidate, 'approve')"
                   >
                     通过
                   </el-button>
                   <el-button
                     link
                     type="danger"
-                    @click="openRejectDialog(row)"
+                    @click="openRejectDialog(row as Candidate)"
                   >
                     驳回
                   </el-button>
@@ -161,7 +161,7 @@
                     v-if="row.status === 'draft'"
                     link
                     type="primary"
-                    @click="doReviewSkill(row, 'submit')"
+                    @click="doReviewSkill(row as Skill, 'submit')"
                   >
                     提交审核
                   </el-button>
@@ -169,7 +169,7 @@
                     v-if="row.status === 'pending_review'"
                     link
                     type="success"
-                    @click="doReviewSkill(row, 'approve')"
+                    @click="doReviewSkill(row as Skill, 'approve')"
                   >
                     发布
                   </el-button>
@@ -177,7 +177,7 @@
                     v-if="['draft', 'pending_review'].includes(row.status)"
                     link
                     type="danger"
-                    @click="openSkillRejectDialog(row)"
+                    @click="openSkillRejectDialog(row as Skill)"
                   >
                     驳回
                   </el-button>
@@ -185,7 +185,7 @@
                     v-if="row.status === 'published'"
                     link
                     type="warning"
-                    @click="doReviewSkill(row, 'rollback')"
+                    @click="doReviewSkill(row as Skill, 'rollback')"
                   >
                     回滚
                   </el-button>

@@ -133,12 +133,36 @@ def test_feedback_without_correction_creates_no_candidate(evo_client):
     assert resp.json()["meta"]["total"] == 0
 
 
+def test_feedback_short_correction_rejected(evo_client):
+    """过短纠错无法构成可审核知识，应在入口拒绝而不是灌入审核队列。"""
+    member = _headers(["member"])
+    resp = evo_client.post(
+        "/api/v1/feedback",
+        json={"corrected_answer": "太短"},
+        headers=member,
+    )
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["error"]["code"] == "FEEDBACK_TOO_SHORT"
+    listed = evo_client.get("/api/v1/knowledge/candidates", headers=member).json()
+    assert listed["meta"]["total"] == 0
+
+
+def test_feedback_duplicate_correction_deduped(evo_client):
+    """同一纠错重复提交时复用待审候选，不重复堆积。"""
+    member = _headers(["member"])
+    payload = {"corrected_answer": "花生开花下针期应控制氮肥，增施磷钾肥。"}
+    assert evo_client.post("/api/v1/feedback", json=payload, headers=member).status_code == 201
+    assert evo_client.post("/api/v1/feedback", json=payload, headers=member).status_code == 201
+    resp = evo_client.get("/api/v1/knowledge/candidates", headers=member)
+    assert resp.json()["meta"]["total"] == 1
+
+
 def test_candidate_reject(evo_client):
     member = _headers(["member"])
     expert = _headers(["expert"])
     resp = evo_client.post(
         "/api/v1/feedback",
-        json={"corrected_answer": "存疑的纠错内容"},
+        json={"corrected_answer": "存疑的纠错内容：该地块应先排水再施药。"},
         headers=member,
     )
     candidates = evo_client.get("/api/v1/knowledge/candidates", headers=member).json()["data"]

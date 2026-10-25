@@ -70,5 +70,22 @@ def require_roles(*allowed: str):
     return checker
 
 
+def require_permission(permission: str):
+    """要求当前用户拥有指定权限点；平台管理员按全权限处理。"""
+
+    def checker(user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+        from app.modules.tenants.permissions import has_permission
+
+        if not has_permission(user.roles, permission):
+            raise AppError(
+                "FORBIDDEN",
+                f"缺少 {permission} 权限，无法执行该操作。",
+                http_status=403,
+            )
+        return user
+
+    return checker
+
+
 def get_db_session(db: Session = Depends(get_db)) -> Session:
     return db

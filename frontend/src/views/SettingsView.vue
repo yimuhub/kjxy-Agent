@@ -25,10 +25,10 @@
               :column="2"
               border
             >
-              <el-descriptions-item label="LLM_PROVIDER">
+              <el-descriptions-item label="模型供应商">
                 {{ llm.provider || '—' }}
               </el-descriptions-item>
-              <el-descriptions-item label="MODEL">
+              <el-descriptions-item label="模型名称">
                 {{ llm.model || '—' }}
               </el-descriptions-item>
               <el-descriptions-item label="是否已配置">
@@ -38,12 +38,24 @@
                 <span
                   v-if="!llm.configured"
                   class="note"
-                >（LLM_NOT_CONFIGURED：真实模型未配置）</span>
+                >真实模型尚未配置，当前仅能使用演示能力。</span>
               </el-descriptions-item>
-              <el-descriptions-item label="健康状态">
-                <el-tag :type="llm.healthy ? 'success' : 'warning'">
-                  {{ llm.healthy ? '健康' : '异常' }}
+              <el-descriptions-item label="运行模式">
+                <el-tag :type="llmModeTag">
+                  {{ llmModeLabel }}
                 </el-tag>
+              </el-descriptions-item>
+              <el-descriptions-item label="就绪状态">
+                <el-tag :type="llmHealth.type">
+                  {{ llmHealth.text }}
+                </el-tag>
+              </el-descriptions-item>
+              <el-descriptions-item
+                v-if="llm.reason"
+                label="配置说明"
+                :span="2"
+              >
+                <span class="note">{{ llm.reason }}</span>
               </el-descriptions-item>
             </el-descriptions>
             <div class="secret-note">
@@ -163,7 +175,7 @@
                   <el-button
                     v-if="!row.readonly"
                     size="small"
-                    @click="testRow(row)"
+                    @click="testRow(row as LlmSupplier)"
                   >
                     测试连通
                   </el-button>
@@ -172,7 +184,7 @@
                     size="small"
                     type="warning"
                     :disabled="row.status !== 1"
-                    @click="setActiveRow(row)"
+                    @click="setActiveRow(row as LlmSupplier)"
                   >
                     设为当前
                   </el-button>
@@ -187,14 +199,14 @@
                     v-if="!row.readonly"
                     size="small"
                     :type="row.status === 1 ? 'info' : 'success'"
-                    @click="toggleRow(row)"
+                    @click="toggleRow(row as LlmSupplier)"
                   >
                     {{ row.status === 1 ? '禁用' : '启用' }}
                   </el-button>
                   <el-button
                     v-if="!row.readonly"
                     size="small"
-                    @click="openEdit(row)"
+                    @click="openEdit(row as LlmSupplier)"
                   >
                     编辑
                   </el-button>
@@ -202,7 +214,7 @@
                     v-if="!row.readonly"
                     size="small"
                     type="danger"
-                    @click="removeRow(row)"
+                    @click="removeRow(row as LlmSupplier)"
                   >
                     删除
                   </el-button>
@@ -826,7 +838,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { Lock } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import QRCode from 'qrcode'
@@ -854,6 +866,24 @@ const llmState = ref<ViewState>('loading')
 const toolState = ref<ViewState>('loading')
 const apiBase = import.meta.env.VITE_API_BASE ?? '/api/v1'
 const mockEnabled = isMockEnabled()
+
+const llmModeLabel = computed(() => {
+  if (llm.mode === 'live') return '真实模型'
+  if (llm.mode === 'mock') return '演示 / Mock'
+  return '未知'
+})
+const llmModeTag = computed<'success' | 'info' | 'warning'>(() => {
+  if (llm.mode === 'live') return 'success'
+  if (llm.mode === 'mock') return 'info'
+  return 'warning'
+})
+/** /llm/status 不做主动探测；就绪度由 configured + mode 推导，避免误报“健康”。 */
+const llmHealth = computed<{ type: 'success' | 'warning' | 'danger'; text: string }>(() => {
+  if (!llm.configured) return { type: 'danger', text: '未就绪' }
+  if (llm.mode === 'unknown') return { type: 'warning', text: '配置异常' }
+  if (llm.mode === 'mock') return { type: 'warning', text: '仅演示可用' }
+  return { type: 'success', text: '已配置（未主动探测）' }
+})
 
 async function loadLlm() {
   llmState.value = 'loading'

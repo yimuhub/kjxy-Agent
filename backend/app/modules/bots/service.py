@@ -85,7 +85,7 @@ def validate_create(
         raise AppError("INVALID_REQUEST", f"不支持的平台：{platform}", http_status=400)
     if binding_mode not in VALID_BINDING_MODES:
         raise AppError("INVALID_REQUEST", f"不支持的绑定方式：{binding_mode}", http_status=400)
-    if binding_mode != "auto" and bound_agent_id is not None and not str(bound_agent_id).strip():
+    if binding_mode != "auto" and not (bound_agent_id and str(bound_agent_id).strip()):
         raise AppError("INVALID_REQUEST", "绑定方式需要指定助手/班组。", http_status=400)
     if not name.strip():
         raise AppError("INVALID_REQUEST", "名称不能为空。", http_status=400)
@@ -114,6 +114,31 @@ def _need(creds: dict[str, Any], keys: tuple[str, ...]) -> None:
         )
 
 
+def _validate_bound_target(
+    db: Session, tenant_id: str, binding_mode: str, bound_agent_id: str | None
+) -> None:
+    """指定助手/班组时必须指向本租户已发布助手或启用班组。"""
+    from app.core.errors import AppError
+    from app.modules.agents.supervisor import list_candidates
+
+    if binding_mode == "auto":
+        return
+    target = (bound_agent_id or "").strip()
+    if not target:
+        raise AppError("INVALID_REQUEST", "绑定方式需要指定助手/班组。", http_status=400)
+    expected = "team" if binding_mode == "team" else "agent"
+    hit = any(
+        c["kind"] == expected and target in (c["id"], c.get("code"), c["name"])
+        for c in list_candidates(db, tenant_id)
+    )
+    if not hit:
+        raise AppError(
+            "INVALID_REQUEST",
+            "绑定的助手或班组不存在、未发布或已停用，请重新选择。",
+            http_status=400,
+        )
+
+
 def create_bot(
     db: Session,
     *,
@@ -133,6 +158,7 @@ def create_bot(
         binding_mode=binding_mode,
         bound_agent_id=bound_agent_id,
     )
+    _validate_bound_target(db, tenant_id, binding_mode, bound_agent_id)
     bot = BotConfig(
         tenant_id=tenant_id,
         platform=platform,
@@ -196,6 +222,17 @@ def update_bot(
 ) -> BotConfig:
     from app.core.errors import AppError
 
+    new_mode = binding_mode if binding_mode is not None else bot.binding_mode
+    new_bound = bound_agent_id if bound_agent_id is not None else bot.bound_agent_id
+    if binding_mode is not None:
+        if binding_mode not in VALID_BINDING_MODES:
+            raise AppError("INVALID_REQUEST", "不支持的绑定方式。", http_status=400)
+        # 切回智能路由时清空绑定目标，避免残留旧绑定
+        if binding_mode == "auto":
+            new_bound = None
+    if binding_mode is not None or bound_agent_id is not None:
+        _validate_bound_target(db, tenant_id, new_mode, new_bound)
+
     if name is not None:
         if not name.strip():
             raise AppError("INVALID_REQUEST", "名称不能为空。", http_status=400)
@@ -205,16 +242,14 @@ def update_bot(
             platform=bot.platform,
             name=bot.name,
             credentials=credentials,
-            binding_mode=binding_mode or bot.binding_mode,
-            bound_agent_id=bound_agent_id if bound_agent_id is not None else bot.bound_agent_id,
+            binding_mode=new_mode,
+            bound_agent_id=new_bound,
         )
         bot.credentials_enc = _dump_credentials(credentials)
     if binding_mode is not None:
-        if binding_mode not in VALID_BINDING_MODES:
-            raise AppError("INVALID_REQUEST", "不支持的绑定方式。", http_status=400)
         bot.binding_mode = binding_mode
-    if bound_agent_id is not None:
-        bot.bound_agent_id = bound_agent_id or None
+    if bound_agent_id is not None or (binding_mode is not None and new_bound is None):
+        bot.bound_agent_id = new_bound or None
     if require_approval is not None:
         bot.require_approval = require_approval
     if enabled is not None:

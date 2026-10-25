@@ -203,6 +203,99 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/tenants/current/members/batch:
+    post:
+      tags:
+      - v1
+      summary: Batch Add Members
+      description: 批量添加已有账号：逐条独立成败，返回成功列表与失败原因。
+      operationId: batch_add_members_api_v1_tenants_current_members_batch_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchAddMembersRequest'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/tenants/current/invitations:
+    get:
+      tags:
+      - v1
+      summary: List Invitations
+      operationId: list_invitations_api_v1_tenants_current_invitations_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+    post:
+      tags:
+      - v1
+      summary: Create Invitation
+      operationId: create_invitation_api_v1_tenants_current_invitations_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvitationCreateRequest'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/tenants/current/invitations/{invitation_id}:
+    delete:
+      tags:
+      - v1
+      summary: Revoke Invitation
+      operationId: revoke_invitation_api_v1_tenants_current_invitations__invitation_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: invitation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Invitation Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/tenants/current/members/{user_id}:
     delete:
       tags:
@@ -292,6 +385,62 @@ paths:
         required: true
       responses:
         '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/invitations/{token}:
+    get:
+      tags:
+      - v1
+      summary: Preview Invitation
+      operationId: preview_invitation_api_v1_invitations__token__get
+      parameters:
+      - name: token
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/invitations/{token}/accept:
+    post:
+      tags:
+      - v1
+      summary: Accept Invitation
+      operationId: accept_invitation_api_v1_invitations__token__accept_post
+      parameters:
+      - name: token
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvitationAcceptRequest'
+      responses:
+        '200':
           description: Successful Response
           content:
             application/json:
@@ -454,7 +603,8 @@ paths:
       summary: Stream Task Events
       description: "SSE 任务事件流（text/event-stream）。\n\n- 权限与 GET /{task_id}/events 完全一致：同一 get_tenant_context 依赖 +\n  TaskService.get\
         \ 可见性检查（阅读本文前先检查，失败按普通 JSON 错误返回）。\n- 本端点不套统一 {data, request_id} 信封：SSE 帧由 event:/data: 行构成，\n  帧协议与命名见 stream.py\
-        \ 模块注释（stream-init/task-event/task-status/stream-end）。\n- 断连仅停止推送，任务继续执行；取消仍须显式调用 POST /{task_id}/cancel。"
+        \ 模块注释（stream-init/task-event/task-status/stream-end）。\n- 支持 Last-Event-ID 重连续传，并以注释帧心跳保活。\n- 断连仅停止推送，任务继续执行；取消仍须显式调用\
+        \ POST /{task_id}/cancel。"
       operationId: stream_task_events_api_v1_tasks__task_id__events_stream_get
       security:
       - HTTPBearer: []
@@ -465,6 +615,14 @@ paths:
         schema:
           type: string
           title: Task Id
+      - name: Last-Event-ID
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Last-Event-Id
       responses:
         '200':
           description: Successful Response
@@ -4691,6 +4849,42 @@ components:
           title: Note
       type: object
       title: ApprovalDecisionRequest
+    BatchAddMembersRequest:
+      properties:
+        members:
+          items:
+            $ref: '#/components/schemas/BatchMemberItem'
+          type: array
+          maxItems: 100
+          minItems: 1
+          title: Members
+      type: object
+      required:
+      - members
+      title: BatchAddMembersRequest
+      description: 批量添加已有账号为成员；逐条独立成败，单条失败不影响其余。
+    BatchMemberItem:
+      properties:
+        username:
+          type: string
+          maxLength: 64
+          minLength: 1
+          title: Username
+        role:
+          type: string
+          title: Role
+          description: tenant_admin|expert|operator|viewer|service_worker
+        display_name:
+          anyOf:
+          - type: string
+            maxLength: 64
+          - type: 'null'
+          title: Display Name
+      type: object
+      required:
+      - username
+      - role
+      title: BatchMemberItem
     Body_upload_document_api_v1_knowledge_documents_post:
       properties:
         file:
@@ -5078,6 +5272,51 @@ components:
       - data
       title: IngestBody
       description: 设备侧推送报文：data 为 厂商字段→原始值 的扁平/嵌套对象（连接器设备可带 field_map 配置）。
+    InvitationAcceptRequest:
+      properties:
+        username:
+          type: string
+          maxLength: 32
+          minLength: 3
+          title: Username
+        password:
+          type: string
+          maxLength: 128
+          minLength: 1
+          title: Password
+        display_name:
+          anyOf:
+          - type: string
+            maxLength: 64
+          - type: 'null'
+          title: Display Name
+      type: object
+      required:
+      - username
+      - password
+      title: InvitationAcceptRequest
+    InvitationCreateRequest:
+      properties:
+        role:
+          type: string
+          title: Role
+          description: tenant_admin|expert|operator|viewer|service_worker
+        expires_in_days:
+          type: integer
+          maximum: 30.0
+          minimum: 1.0
+          title: Expires In Days
+          default: 7
+        note:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Note
+      type: object
+      required:
+      - role
+      title: InvitationCreateRequest
     LoginRequest:
       properties:
         username:

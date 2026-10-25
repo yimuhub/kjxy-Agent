@@ -232,3 +232,14 @@ async def test_orchestrator_reports_failure_when_agent_missing():
     result = await orchestrator.run({"question": "x"}, make_ctx())
     assert result.status == "failed"
     assert result.output["error_code"] == "INVALID_REQUEST"
+
+
+def test_orchestrator_defaults_to_global_registry_with_professional_agents():
+    """未注入 registry 时，总控必须使用全局注册表，否则 answer 节点必然 miss。"""
+    from app.modules.agents import get_global_registry
+    from app.modules.agents.router import _ensure_imported
+
+    _ensure_imported("orchestrator")
+    registry = OrchestratorAgent()._get_registry()
+    assert registry is get_global_registry()
+    assert "agriculture_qa" in registry

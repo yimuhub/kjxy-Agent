@@ -29,7 +29,7 @@ log = get_logger(__name__)
 
 # ---------------------------------------------------------------- agents 协议
 try:
-    from app.modules.agents import Agent, AgentRegistry  # 真实协议
+    from app.modules.agents import Agent, AgentRegistry, get_global_registry  # 真实协议
     from app.modules.agents.schemas import AgentContext as ProtocolAgentContext
     from app.modules.agents.schemas import AgentResult as ProtocolAgentResult
 except ImportError:
@@ -66,6 +66,11 @@ except ImportError:
         def get(self, code: str) -> Any | None:
             return self._agents.get(code)
 
+    _fallback_registry = AgentRegistry()
+
+    def get_global_registry() -> Any:  # type: ignore[misc]
+        return _fallback_registry
+
 
 # 对外仍导出协议名（兼容任务书中的引用）
 AgentContext = ProtocolAgentContext
@@ -81,12 +86,7 @@ def _make_agent_result(**kwargs: Any) -> Any:
         return AgentResult(status=kwargs.get("status", "failed"), output=kwargs.get("output", {}))
 
 
-# 全局 agent 注册表（agents 模块未提供 get_global_registry，本模块内单例）
-_agent_registry = AgentRegistry()
-
-
-def get_global_registry() -> Any:
-    return _agent_registry
+# 全局 agent 注册表由 agents 模块提供；缺失时上面的 except 分支给出进程内兜底。
 
 
 @dataclass
@@ -467,7 +467,10 @@ class AgricultureQAAgent:
             top_k = 5
         top_k = max(1, min(20, top_k))
 
+        metadata = getattr(context, "metadata", None)
         db = getattr(context, "db", None)
+        if db is None and isinstance(metadata, dict):
+            db = metadata.get("db")
         tenant_id = str(getattr(context, "tenant_id", "") or "")
         request_id = str(getattr(context, "request_id", "req_unknown") or "req_unknown")
 
