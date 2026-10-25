@@ -238,3 +238,70 @@ def test_cross_tenant_approval_invisible(api_client, session_factory):
     resp = api_client.post(f"/api/v1/tool-approvals/{approval_id}/approve", json={}, headers=cross)
     assert resp.status_code == 404
     assert resp.json()["error"]["code"] == "APPROVAL_NOT_FOUND"
+
+
+# ---------------------------------------------------------------------------
+# 自批策略（四眼原则的单人空间豁免）
+# ---------------------------------------------------------------------------
+
+
+def test_solo_admin_can_self_approve(api_client, session_factory, monkeypatch):
+    """solo 策略：本空间除发起人外无可审批人时，允许自批并标 self_approved。"""
+    from app.modules.audit.models import AuditLog
+    from app.modules.tenants.models import TenantMembership
+
+    # 撤销 expert 成员身份 → admin 成为唯一可审批人
+    s = session_factory()
+    exp_mem = s.query(TenantMembership).filter_by(tenant_id=TENANT_ID, user_id=EXPERT_ID).one()
+    s.delete(exp_mem)
+    s.commit()
+    s.close()
+
+    task_id = _create_workorder_task(api_client, _admin_headers(), title="单人自批工单")
+    worker_tasks.execute_task(task_id)
+    s = session_factory()
+    approval_id = s.get(Task, task_id).result_json["approval_id"]
+    s.close()
+
+    resp = api_client.post(
+        f"/api/v1/tool-approvals/{approval_id}/approve",
+        json={},
+        headers=_admin_headers(),
+    )
+    assert resp.status_code == 200, resp.text
+    s = session_factory()
+    assert s.get(ToolApproval, approval_id).status == "approved"
+    assert s.get(Task, task_id).status == sm.STATUS_SUCCEEDED
+    # 审计必须标记 self_approved=True（可追责）
+    audit = (
+        s.query(AuditLog).filter_by(action="tool_approval_approved", resource_id=approval_id).one()
+    )
+    assert audit.metadata_json.get("self_approved") is True
+    s.close()
+
+
+def test_multi_approver_still_blocks_self_decide_even_with_expert_disabled(
+    api_client, session_factory
+):
+    """expert 只是 disabled（非删除）时仍算其他可审批人？——不，只数 active。"""
+    from app.modules.tenants.models import TenantMembership
+
+    s = session_factory()
+    exp_mem = s.query(TenantMembership).filter_by(tenant_id=TENANT_ID, user_id=EXPERT_ID).one()
+    exp_mem.status = "disabled"  # 停用后不再计入可审批人数
+    s.commit()
+    s.close()
+
+    task_id = _create_workorder_task(api_client, _admin_headers(), title="停用专家后自批")
+    worker_tasks.execute_task(task_id)
+    s = session_factory()
+    approval_id = s.get(Task, task_id).result_json["approval_id"]
+    s.close()
+
+    # expert 停用 → admin 唯一可审批 → 自批放行
+    resp = api_client.post(
+        f"/api/v1/tool-approvals/{approval_id}/approve",
+        json={},
+        headers=_admin_headers(),
+    )
+    assert resp.status_code == 200, resp.text

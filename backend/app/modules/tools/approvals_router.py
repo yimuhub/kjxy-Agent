@@ -127,7 +127,12 @@ def approve(
     ctx = _require_approver(user)
     approval = approval_svc.get_approval(db, ctx.tenant_id, approval_id)
     approval_svc.approve_approval(
-        db, approval, decided_by=ctx.user_id, note=body.note, request_id=ctx.request_id
+        db,
+        approval,
+        decided_by=ctx.user_id,
+        note=body.note,
+        request_id=ctx.request_id,
+        self_decide_allowed=approval_svc.self_decide_allowed(db, approval, ctx.user_id),
     )
 
     # 批准后立即以请求人身份执行工具（审批单已 approved，注册表 DB 校验放行）
@@ -196,7 +201,12 @@ def reject(
     ctx = _require_approver(user)
     approval = approval_svc.get_approval(db, ctx.tenant_id, approval_id)
     approval_svc.reject_approval(
-        db, approval, decided_by=ctx.user_id, note=body.note, request_id=ctx.request_id
+        db,
+        approval,
+        decided_by=ctx.user_id,
+        note=body.note,
+        request_id=ctx.request_id,
+        self_decide_allowed=approval_svc.self_decide_allowed(db, approval, ctx.user_id),
     )
 
     task_id = approval.task_id

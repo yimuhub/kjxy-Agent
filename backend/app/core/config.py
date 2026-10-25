@@ -97,6 +97,14 @@ class Settings(BaseSettings):
         default=1,
         description="单张已批准审批单允许放行的最大次数；0 表示不限。防止一纸审批无限复用。",
     )
+    tool_approval_self_decide: str = Field(
+        default="solo",
+        description=(
+            "高风险工具审批的自批策略：solo=本空间除发起人外无其他可审批人时允许自批"
+            "（单人空间默认放行，避免流程死锁，审计标 self_approved）；never=一律禁止自批；"
+            "always=允许自批（仅审计标记）。"
+        ),
+    )
 
     log_level: str = "INFO"
 

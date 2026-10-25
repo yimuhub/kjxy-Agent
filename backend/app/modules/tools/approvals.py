@@ -10,7 +10,7 @@ import hashlib
 import json
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import or_
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -169,7 +169,44 @@ def has_approved_approval(
     return True
 
 
-def _ensure_decidable(approval: ToolApproval, decided_by: str) -> None:
+def count_other_approvers(db: Session, tenant_id: str, exclude_user_id: str) -> int:
+    """本租户除 exclude_user_id 外，具备审批资格（tenant_admin/expert）的 active 成员数。
+
+    用于四眼原则的单人空间豁免（solo 策略）：发起人之外没有别的可审批人时，
+    禁止自批等于流程死锁，此时允许自批并在审计中明确标记 self_approved（可追责）。
+    """
+    from app.modules.tenants.models import TenantMembership
+
+    return int(
+        db.scalar(
+            select(func.count(TenantMembership.id)).where(
+                TenantMembership.tenant_id == tenant_id,
+                TenantMembership.status == "active",
+                TenantMembership.user_id != exclude_user_id,
+                TenantMembership.role.in_(("tenant_admin", "expert")),
+            )
+        )
+        or 0
+    )
+
+
+def self_decide_allowed(db: Session, approval: ToolApproval, decided_by: str) -> bool:
+    """按策略判定是否允许审批人处理自己发起的审批单。"""
+    policy = settings.tool_approval_self_decide
+    if approval.requested_by != decided_by:
+        return True  # 非自批场景不适用本判定
+    if policy == "always":
+        return True
+    if policy == "never":
+        return False
+    # 默认 solo：本空间发起人之外无其他可审批人 → 豁免
+    return count_other_approvers(db, approval.tenant_id, decided_by) == 0
+
+
+def _ensure_decidable(
+    approval: ToolApproval, decided_by: str, *, self_decide_allowed: bool = False
+) -> bool:
+    """审批可决策校验；返回是否属于「自批豁免」命中。"""
     if approval.status != APPROVAL_PENDING:
         raise AppError(
             "APPROVAL_NOT_PENDING",
@@ -177,7 +214,14 @@ def _ensure_decidable(approval: ToolApproval, decided_by: str) -> None:
             http_status=409,
         )
     if approval.requested_by == decided_by:
-        raise AppError("APPROVAL_SELF_DECIDE", "不能审批自己发起的申请。", http_status=403)
+        if not self_decide_allowed:
+            raise AppError(
+                "APPROVAL_SELF_DECIDE",
+                "不能审批自己发起的申请（需另一位管理员或专家；单人空间自动豁免）。",
+                http_status=403,
+            )
+        return True
+    return False
 
 
 def approve_approval(
@@ -187,8 +231,9 @@ def approve_approval(
     decided_by: str,
     note: str | None = None,
     request_id: str = "req_unknown",
+    self_decide_allowed: bool = False,
 ) -> ToolApproval:
-    _ensure_decidable(approval, decided_by)
+    self_approved = _ensure_decidable(approval, decided_by, self_decide_allowed=self_decide_allowed)
     approval.status = APPROVAL_APPROVED
     approval.decided_by = decided_by
     decided_at = _utcnow()
@@ -211,7 +256,11 @@ def approve_approval(
         resource_id=approval.id,
         result="success",
         request_id=request_id,
-        metadata={"tool_code": approval.tool_code, "task_id": approval.task_id},
+        metadata={
+            "tool_code": approval.tool_code,
+            "task_id": approval.task_id,
+            "self_approved": self_approved,
+        },
     )
     return approval
 
@@ -223,8 +272,9 @@ def reject_approval(
     decided_by: str,
     note: str | None = None,
     request_id: str = "req_unknown",
+    self_decide_allowed: bool = False,
 ) -> ToolApproval:
-    _ensure_decidable(approval, decided_by)
+    self_approved = _ensure_decidable(approval, decided_by, self_decide_allowed=self_decide_allowed)
     approval.status = APPROVAL_REJECTED
     approval.decided_by = decided_by
     approval.decided_at = _utcnow()
@@ -239,7 +289,11 @@ def reject_approval(
         resource_id=approval.id,
         result="success",
         request_id=request_id,
-        metadata={"tool_code": approval.tool_code, "task_id": approval.task_id},
+        metadata={
+            "tool_code": approval.tool_code,
+            "task_id": approval.task_id,
+            "self_approved": self_approved,
+        },
     )
     return approval
 
