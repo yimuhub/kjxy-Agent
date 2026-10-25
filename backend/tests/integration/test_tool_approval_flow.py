@@ -201,8 +201,36 @@ def test_reject_cancels_task(api_client, session_factory):
     s.close()
 
 
-def test_cannot_approve_own_request(api_client, session_factory):
+def test_default_role_policy_allows_self_approve(api_client, session_factory):
+    """默认策略（role）：空间管理员对本人发起的审批单有审批权（审计标 self_approved）。"""
+    from app.modules.audit.models import AuditLog
+
     task_id = _create_workorder_task(api_client, _admin_headers(), title="自批工单")
+    worker_tasks.execute_task(task_id)
+    s = session_factory()
+    approval_id = s.get(Task, task_id).result_json["approval_id"]
+    s.close()
+    resp = api_client.post(
+        f"/api/v1/tool-approvals/{approval_id}/approve",
+        json={},
+        headers=_admin_headers(),
+    )
+    assert resp.status_code == 200, resp.text
+    s = session_factory()
+    assert s.get(ToolApproval, approval_id).status == "approved"
+    audit = (
+        s.query(AuditLog).filter_by(action="tool_approval_approved", resource_id=approval_id).one()
+    )
+    assert audit.metadata_json.get("self_approved") is True
+    s.close()
+
+
+def test_never_policy_blocks_self_decide(api_client, session_factory, monkeypatch):
+    """never 策略（严格四眼合规）：管理员也不能自批自己发起的申请。"""
+    from app.core.config import settings as _cfg
+
+    monkeypatch.setattr(_cfg, "tool_approval_self_decide", "never")
+    task_id = _create_workorder_task(api_client, _admin_headers(), title="禁用自批工单")
     worker_tasks.execute_task(task_id)
     s = session_factory()
     approval_id = s.get(Task, task_id).result_json["approval_id"]
@@ -214,6 +242,40 @@ def test_cannot_approve_own_request(api_client, session_factory):
     )
     assert resp.status_code == 403
     assert resp.json()["error"]["code"] == "APPROVAL_SELF_DECIDE"
+
+
+def test_operator_cannot_approve_at_all(api_client, session_factory):
+    """普通成员（operator）无审批权：只能发起，审批入口一律 403。"""
+    from app.core.security import hash_password
+    from app.modules.auth.models import User
+    from app.modules.tenants.models import TenantMembership
+
+    op_id = "user-approval-op"
+    s = session_factory()
+    s.add(
+        User(
+            id=op_id,
+            username="approval_op",
+            password_hash=hash_password("x"),
+            display_name="运营员",
+        )
+    )
+    s.add(TenantMembership(tenant_id=TENANT_ID, user_id=op_id, role="operator"))
+    s.commit()
+    # 用 admin 发起，operator 尝试审批
+    s.close()
+    task_id = _create_workorder_task(api_client, _admin_headers(), title="运营员试批")
+    worker_tasks.execute_task(task_id)
+    s = session_factory()
+    approval_id = s.get(Task, task_id).result_json["approval_id"]
+    s.close()
+    resp = api_client.post(
+        f"/api/v1/tool-approvals/{approval_id}/approve",
+        json={},
+        headers={"Authorization": f"Bearer {_token(op_id, ['operator'])}"},
+    )
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] == "FORBIDDEN"
 
 
 def test_list_approvals(api_client, session_factory):
@@ -250,6 +312,7 @@ def test_solo_admin_can_self_approve(api_client, session_factory, monkeypatch):
     from app.modules.audit.models import AuditLog
     from app.modules.tenants.models import TenantMembership
 
+    monkeypatch.setattr(settings, "tool_approval_self_decide", "solo")
     # 撤销 expert 成员身份 → admin 成为唯一可审批人
     s = session_factory()
     exp_mem = s.query(TenantMembership).filter_by(tenant_id=TENANT_ID, user_id=EXPERT_ID).one()
@@ -280,15 +343,37 @@ def test_solo_admin_can_self_approve(api_client, session_factory, monkeypatch):
     s.close()
 
 
-def test_multi_approver_still_blocks_self_decide_even_with_expert_disabled(
-    api_client, session_factory
-):
-    """expert 只是 disabled（非删除）时仍算其他可审批人？——不，只数 active。"""
+def test_solo_policy_multi_approver_blocks_self_decide(api_client, session_factory, monkeypatch):
+    """solo 策略 + 空间另有 active 专家 → 管理员自批被拒（四眼仍然成立）。"""
+    monkeypatch.setattr(settings, "tool_approval_self_decide", "solo")
+    task_id = _create_workorder_task(api_client, _admin_headers(), title="双审批人禁自批")
+    worker_tasks.execute_task(task_id)
+    s = session_factory()
+    approval_id = s.get(Task, task_id).result_json["approval_id"]
+    s.close()
+    resp = api_client.post(
+        f"/api/v1/tool-approvals/{approval_id}/approve",
+        json={},
+        headers=_admin_headers(),
+    )
+    assert resp.status_code == 403
+    # 但专家可以批（权限跟人走，与是否本人发起无关）
+    resp2 = api_client.post(
+        f"/api/v1/tool-approvals/{approval_id}/approve",
+        json={},
+        headers=_expert_headers(),
+    )
+    assert resp2.status_code == 200, resp2.text
+
+
+def test_expert_disabled_not_counted_in_solo(api_client, session_factory, monkeypatch):
+    """solo 只数 active 成员：专家被停用后管理员自批放行。"""
     from app.modules.tenants.models import TenantMembership
 
+    monkeypatch.setattr(settings, "tool_approval_self_decide", "solo")
     s = session_factory()
     exp_mem = s.query(TenantMembership).filter_by(tenant_id=TENANT_ID, user_id=EXPERT_ID).one()
-    exp_mem.status = "disabled"  # 停用后不再计入可审批人数
+    exp_mem.status = "disabled"
     s.commit()
     s.close()
 
@@ -298,7 +383,6 @@ def test_multi_approver_still_blocks_self_decide_even_with_expert_disabled(
     approval_id = s.get(Task, task_id).result_json["approval_id"]
     s.close()
 
-    # expert 停用 → admin 唯一可审批 → 自批放行
     resp = api_client.post(
         f"/api/v1/tool-approvals/{approval_id}/approve",
         json={},

@@ -191,15 +191,20 @@ def count_other_approvers(db: Session, tenant_id: str, exclude_user_id: str) -> 
 
 
 def self_decide_allowed(db: Session, approval: ToolApproval, decided_by: str) -> bool:
-    """按策略判定是否允许审批人处理自己发起的审批单。"""
+    """按策略判定是否允许审批人处理自己发起的审批单。
+
+    权限模型（默认 role）：审批权跟着角色走——能进到这里的人已通过审批角色
+    校验（空间管理员/专家/平台管理员），可批本空间全部审批单含自己发起的；
+    普通用户根本拿不到审批入口。self_approved 审计标记保证可追责。
+    """
     policy = settings.tool_approval_self_decide
     if approval.requested_by != decided_by:
         return True  # 非自批场景不适用本判定
-    if policy == "always":
+    if policy in ("role", "always"):
         return True
     if policy == "never":
         return False
-    # 默认 solo：本空间发起人之外无其他可审批人 → 豁免
+    # solo：本空间发起人之外无其他可审批人 → 豁免
     return count_other_approvers(db, approval.tenant_id, decided_by) == 0
 
 
@@ -217,7 +222,7 @@ def _ensure_decidable(
         if not self_decide_allowed:
             raise AppError(
                 "APPROVAL_SELF_DECIDE",
-                "不能审批自己发起的申请（需另一位管理员或专家；单人空间自动豁免）。",
+                "当前策略禁止自批（tool_approval_self_decide=never）：请由另一位管理员或专家审批。",
                 http_status=403,
             )
         return True

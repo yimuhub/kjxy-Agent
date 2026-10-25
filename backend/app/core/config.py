@@ -98,11 +98,12 @@ class Settings(BaseSettings):
         description="单张已批准审批单允许放行的最大次数；0 表示不限。防止一纸审批无限复用。",
     )
     tool_approval_self_decide: str = Field(
-        default="solo",
+        default="role",
         description=(
-            "高风险工具审批的自批策略：solo=本空间除发起人外无其他可审批人时允许自批"
-            "（单人空间默认放行，避免流程死锁，审计标 self_approved）；never=一律禁止自批；"
-            "always=允许自批（仅审计标记）。"
+            "高风险工具审批的自批策略：role（默认）=具备审批角色（空间管理员/专家）即可批"
+            "本空间全部审批单，含自己发起的，审计标 self_approved；solo=仅当发起人之外无其他"
+            "可审批人时允许自批；never=一律禁止自批（严格四眼合规场景）。"
+            "普通成员无论如何都无审批权，只能发起。"
         ),
     )
 
