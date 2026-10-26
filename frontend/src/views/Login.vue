@@ -39,25 +39,25 @@
           />
         </el-form-item>
         <el-form-item
-          v-if="tenants.length > 1"
-          label="使用空间"
-          prop="tenant_id"
+          v-if="yards.length > 1"
+          label="小院"
+          prop="yard_id"
         >
           <el-select
-            v-model="form.tenant_id"
-            placeholder="请选择使用空间"
+            v-model="form.yard_id"
+            placeholder="请选择小院"
             size="large"
             style="width: 100%"
           >
             <el-option
-              v-for="t in tenants"
-              :key="t.tenant_id"
-              :label="t.tenant_name"
-              :value="t.tenant_id"
+              v-for="t in yards"
+              :key="t.yard_id"
+              :label="t.yard_name"
+              :value="t.yard_id"
             />
           </el-select>
           <div class="hint">
-            该账号归属多个使用空间，登录时需指定一个。
+            该账号归属多个小院，登录时需指定一个。
           </div>
         </el-form-item>
         <el-button
@@ -84,7 +84,7 @@
           class="foot-link"
           to="/signup"
         >
-          开通新的使用空间
+          开通新的小院
         </router-link>
         <span
           v-if="showDemoHint"
@@ -102,7 +102,7 @@
   import { useAuthStore } from '@/stores/auth'
   import { extractErrorDetails, extractErrorMessage } from '@/api/client'
   import { friendlyErrorMessage } from '@/utils/status'
-  import type { TenantBrief } from '@/types/api'
+  import type { YardBrief } from '@/types/api'
 
   const router = useRouter()
   const route = useRoute()
@@ -110,9 +110,9 @@
   const formRef = ref<FormInstance>()
   const loading = ref(false)
   const errorMsg = ref('')
-  const tenants = ref<TenantBrief[]>([])
+  const yards = ref<YardBrief[]>([])
 
-  const form = reactive({ username: '', password: '', tenant_id: '' })
+  const form = reactive({ username: '', password: '', yard_id: '' })
   /** 生产构建不展示演示账号提示，避免误导真实用户 */
   const showDemoHint = !import.meta.env.PROD
 
@@ -121,26 +121,26 @@
     password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
   }
 
-  /** 多租户账号先无 tenant 登录拿到空间列表，用户选择后再正式登录 */
+  /** 多小院账号先无 yard 登录拿到小院列表，用户选择后再正式登录 */
   async function handleLogin() {
     errorMsg.value = ''
     await formRef.value?.validate()
-    if (tenants.value.length > 1 && !form.tenant_id) {
-      errorMsg.value = '请选择使用空间后继续登录。'
+    if (yards.value.length > 1 && !form.yard_id) {
+      errorMsg.value = '请选择小院后继续登录。'
       return
     }
     loading.value = true
     try {
-      await auth.login(form.username, form.password, form.tenant_id || undefined)
+      await auth.login(form.username, form.password, form.yard_id || undefined)
       const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/'
       router.replace(redirect.startsWith('/') ? redirect : '/')
     } catch (err: unknown) {
       const { code, message } = extractErrorMessage(err)
-      if (code === 'TENANT_REQUIRED') {
-        const details = extractErrorDetails(err) as { tenants?: TenantBrief[] } | undefined
-        tenants.value = details?.tenants ?? []
-        errorMsg.value = tenants.value.length
-          ? '该账号归属多个使用空间，请选择后重新登录。'
+      if (code === 'YARD_REQUIRED') {
+        const details = extractErrorDetails(err) as { yards?: YardBrief[] } | undefined
+        yards.value = details?.yards ?? []
+        errorMsg.value = yards.value.length
+          ? '该账号归属多个小院，请选择后重新登录。'
           : message
         return
       }

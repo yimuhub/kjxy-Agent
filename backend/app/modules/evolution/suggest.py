@@ -21,7 +21,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.core.deps import TenantContext
+from app.core.deps import YardContext
 from app.core.errors import AppError
 from app.core.logging import get_logger
 from app.modules.agents.run_steps import (
@@ -47,7 +47,7 @@ _MAX_PROCEDURE_STEPS = 8
 _MAX_EXAMPLES = 3
 
 #: 可触发 AI 总结的角色（platform_admin 在路由层 require_roles 直通）
-_SUGGEST_ROLES = {"tenant_admin", "platform_admin"}
+_SUGGEST_ROLES = {"yard_admin", "yard_owner", "platform_admin"}
 
 # 触发词样式：优先运行入参字段，其次 messages 里最后一条 user 消息
 _QUESTION_KEYS = ("question", "query", "input", "message")
@@ -57,9 +57,9 @@ def _sha12(text: str) -> str:
     return hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
 
 
-def _require_suggest_permission(ctx: TenantContext) -> None:
+def _require_suggest_permission(ctx: YardContext) -> None:
     if not set(ctx.roles or []) & _SUGGEST_ROLES:
-        raise AppError("FORBIDDEN", "仅租户管理员可触发 AI 技能总结。", http_status=403)
+        raise AppError("FORBIDDEN", "仅小院管理员可触发 AI 技能总结。", http_status=403)
 
 
 def _extract_question(input_json: dict[str, Any] | None) -> str | None:
@@ -80,13 +80,13 @@ def _extract_question(input_json: dict[str, Any] | None) -> str | None:
     return None
 
 
-def _collect_evidence(db: Session, ctx: TenantContext) -> dict[str, Any]:
+def _collect_evidence(db: Session, ctx: YardContext) -> dict[str, Any]:
     """聚合近 7 天运行证据。返回 dict（含全部运行原始桶，供 prompt 与卡内证据复用）。"""
     cutoff = datetime.now(UTC) - timedelta(days=WINDOW_DAYS)
     rows = (
         db.query(AgentRunStep)
         .filter(
-            AgentRunStep.tenant_id == ctx.tenant_id,
+            AgentRunStep.yard_id == ctx.yard_id,
             AgentRunStep.created_at >= cutoff,
         )
         .order_by(AgentRunStep.run_id.asc(), AgentRunStep.step_index.asc())
@@ -172,12 +172,12 @@ def _parse_cards(content: str) -> list[dict[str, Any]]:
     raise ValueError("模型输出中未找到合法的技能候选卡 JSON")
 
 
-def _next_version(db: Session, ctx: TenantContext, skill_code: str) -> str:
-    """同 code 版本递增（1.0.0 → 1.0.1…），保证 (tenant, code, version) 唯一。"""
+def _next_version(db: Session, ctx: YardContext, skill_code: str) -> str:
+    """同 code 版本递增（1.0.0 → 1.0.1…），保证 (yard, code, version) 唯一。"""
     existing = {
         version
         for (version,) in db.query(Skill.version)
-        .filter(Skill.tenant_id == ctx.tenant_id, Skill.skill_code == skill_code)
+        .filter(Skill.yard_id == ctx.yard_id, Skill.skill_code == skill_code)
         .all()
     }
     index = 0
@@ -210,7 +210,7 @@ def _build_messages(evidence: dict[str, Any], focus_hint: str | None) -> list[Ch
 
 async def suggest_skills(
     db: Session,
-    ctx: TenantContext,
+    ctx: YardContext,
     focus_hint: str | None = None,
     request_id: str = "",
 ) -> list[Skill]:
@@ -232,7 +232,7 @@ async def suggest_skills(
             LLMRequest(
                 messages=_build_messages(evidence, focus_hint),
                 metadata=LLMMetadata(
-                    tenant_id=ctx.tenant_id,
+                    yard_id=ctx.yard_id,
                     task_id=f"sug-{uuid.uuid4().hex[:12]}",
                     request_id=request_id or ctx.request_id,
                     purpose="skill_suggest",
@@ -287,7 +287,7 @@ async def suggest_skills(
             continue  # 空壳卡直接丢弃，不落半成品
         skill_code = "auto-" + _sha12("|".join([title, *procedure]))
         skill = Skill(
-            tenant_id=ctx.tenant_id,
+            yard_id=ctx.yard_id,
             skill_code=skill_code,
             version=_next_version(db, ctx, skill_code),
             definition_json={
@@ -316,7 +316,7 @@ async def suggest_skills(
     db.flush()
     log_audit(
         db,
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         actor_id=ctx.user_id,
         action="skill_suggested",
         resource_type="skill",

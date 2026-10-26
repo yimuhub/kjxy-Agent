@@ -1,21 +1,4 @@
-"""对话模式服务层：会话 CRUD + 消息持久化 + 复用 supervisor 执行。
-
-执行口径（send_message 时序）：
-1. 会话定位带 tenant_id + created_by 双重边界（跨租户/无权统一 404）；
-2. 用户消息**先落库再执行**（独立 commit）：路由/执行失败不丢发言痕迹；
-3. 执行分两条链路（意图识别后分流）：
-   - 问答链路：复用 ``supervisor.ask``（规则→LLM→兜底三级路由 + 内部审计），
-     附件上下文以 ``context`` 拼在执行问句后（**不参与路由打分**，避免资料
-     文本把路由带偏）；
-   - 能力链路：命中"创建/装载"意图时走能力中心 service，产出能力卡片；
-4. 路由结果（routed_by/choice/reason）与过程步骤（steps）随 assistant 消息
-   行存证——历史回放时能看出当时是谁、按什么依据接的话、走了哪几步；
-5. 执行失败：assistant 行以 failed 状态入库（error_code 记错误码），commit
-   后原样抛错——HTTP 仍是错误响应，但历史诚实记录失败，重试可见。
-
-隐私口径：会话内容只对创建者可见（同租户成员亦不可见）；审计只记
-session/seq/路由元数据，不复制消息全文（消息本体已入库，无需二次冗余）。
-"""
+"""对话模式服务层：会话 CRUD + 消息持久化 + 复用 supervisor 执行 + 消息/会话级 Token 统计。"""
 
 from __future__ import annotations
 
@@ -25,19 +8,21 @@ from typing import Any
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from app.core.deps import TenantContext
+from app.core.deps import YardContext
 from app.core.errors import AppError
 from app.core.logging import get_logger
 from app.core.progress import (
     PHASE_GENERATING,
     PHASE_READING,
+    PHASE_ROUTING,
     STEP_DONE,
     STEP_FAILED,
     STEP_RUNNING,
     StepCallback,
     StepRecorder,
 )
-from app.modules.agents import supervisor
+from app.modules.agents import declarative, supervisor
+from app.modules.agents.models import YardAgent
 from app.modules.audit.service import log_audit
 from app.modules.chat import attachments as attachments_service
 from app.modules.chat import capability as capability_service
@@ -49,26 +34,20 @@ from app.modules.chat.models import (
     ROLE_USER,
     ChatAttachment,
     ChatMessage,
+    ChatParticipant,
     ChatSession,
 )
+from app.modules.knowledge.chunking import estimate_token_count
 
 log = get_logger(__name__)
 
-#: 会话标题上限（列为 String(200)，取短保证列表展示友好；超出加省略号不虚报）
 TITLE_CAP = 60
-#: 单条消息内容上限（与班组运行 input 口径一致）
 CONTENT_CAP = 8000
-#: 对话内路由来源（非 supervisor 路由的能力链路）
 ROUTED_LOCAL = "local"
 
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
-
-
-# ---------------------------------------------------------------------------
-# 纯函数与小工具（可单测）
-# ---------------------------------------------------------------------------
 
 
 def derive_title(content: str) -> str:
@@ -86,28 +65,93 @@ def next_seq(db: Session, session_id: str) -> int:
     return int(cur or 0) + 1
 
 
+def _session_token_summary(db: Session, session_id: str, yard_id: str) -> dict[str, int]:
+    rows = db.scalars(
+        select(ChatMessage).where(
+            ChatMessage.session_id == session_id,
+            ChatMessage.yard_id == yard_id,
+        )
+    ).all()
+    in_tok = 0
+    out_tok = 0
+    for m in rows:
+        tu = getattr(m, "token_usage_json", None)
+        if isinstance(tu, dict):
+            in_tok += int(tu.get("input_tokens") or 0)
+            out_tok += int(tu.get("output_tokens") or 0)
+        elif m.role == ROLE_ASSISTANT and m.content:
+            out_tok += estimate_token_count(m.content)
+        elif m.role == ROLE_USER and m.content:
+            in_tok += estimate_token_count(m.content)
+    return {
+        "message_count": len(rows),
+        "input_tokens": in_tok,
+        "output_tokens": out_tok,
+        "total_tokens": in_tok + out_tok,
+    }
+
+
 def session_out(db: Session, session: ChatSession) -> dict[str, Any]:
+    tok_meta = _session_token_summary(db, session.id, session.yard_id)
+    target = getattr(session, "target", None) or "auto"
+    target_code = getattr(session, "target_code", None)
+    target_name: str | None = None
+    if target == "agent" and target_code:
+        # 会话列表的「智能体」标识：按 agent_code 解析展示名，改名前的老会话也能显示
+        target_name = (
+            db.scalar(
+                select(YardAgent.name).where(
+                    YardAgent.yard_id == session.yard_id,
+                    YardAgent.agent_code == target_code,
+                )
+            )
+            or target_code
+        )
+    participant_count = int(
+        db.scalar(
+            select(func.count())
+            .select_from(ChatParticipant)
+            .where(ChatParticipant.session_id == session.id)
+        )
+        or 0
+    )
     return {
         "id": session.id,
         "title": session.title,
         "created_by": session.created_by,
         "created_at": session.created_at.isoformat() if session.created_at else "",
         "updated_at": session.updated_at.isoformat() if session.updated_at else "",
-        "message_count": int(
-            db.scalar(
-                select(func.count())
-                .select_from(ChatMessage)
-                .where(
-                    ChatMessage.session_id == session.id,
-                    ChatMessage.tenant_id == session.tenant_id,
-                )
-            )
-            or 0
-        ),
+        "message_count": tok_meta["message_count"],
+        "input_tokens": tok_meta["input_tokens"],
+        "output_tokens": tok_meta["output_tokens"],
+        "total_tokens": tok_meta["total_tokens"],
+        "target": target,
+        "target_code": target_code,
+        "target_name": target_name,
+        "participant_count": participant_count,
     }
 
 
 def message_out(msg: ChatMessage) -> dict[str, Any]:
+    routed = msg.routed_by or ""
+    tu = getattr(msg, "token_usage_json", None)
+    if tu is None and msg.role == ROLE_ASSISTANT and msg.content:
+        est_out = estimate_token_count(msg.content)
+        tu = {
+            "input_tokens": 0,
+            "output_tokens": est_out,
+            "total_tokens": est_out,
+            "model": "system",
+            "estimated": True,
+        }
+    elif tu is None and msg.role == ROLE_USER and msg.content:
+        est_in = estimate_token_count(msg.content)
+        tu = {
+            "input_tokens": est_in,
+            "output_tokens": 0,
+            "total_tokens": est_in,
+            "estimated": True,
+        }
     return {
         "id": msg.id,
         "seq": msg.seq,
@@ -115,26 +159,29 @@ def message_out(msg: ChatMessage) -> dict[str, Any]:
         "content": msg.content,
         "status": msg.status,
         "routed_by": msg.routed_by,
+        "routed_label": supervisor.routed_label(routed),
+        "routed_tone": supervisor.routed_tone(routed),
         "choice": msg.choice_json,
         "reason": msg.reason,
         "error_code": msg.error_code,
         "payload": msg.payload_json,
         "steps": msg.steps_json,
         "attachments": msg.attachments_json,
+        "token_usage": tu,
         "created_at": msg.created_at.isoformat() if msg.created_at else "",
     }
 
 
 # ---------------------------------------------------------------------------
-# 会话 CRUD（全部带租户 + 创建者边界）
+# 会话 CRUD（全部带小院 + 创建者边界）
 # ---------------------------------------------------------------------------
 
 
-def get_session(db: Session, *, tenant_id: str, created_by: str, session_id: str) -> ChatSession:
+def get_session(db: Session, *, yard_id: str, created_by: str, session_id: str) -> ChatSession:
     row = db.scalar(
         select(ChatSession).where(
             ChatSession.id == session_id,
-            ChatSession.tenant_id == tenant_id,
+            ChatSession.yard_id == yard_id,
             ChatSession.created_by == created_by,
         )
     )
@@ -146,18 +193,26 @@ def get_session(db: Session, *, tenant_id: str, created_by: str, session_id: str
 def create_session(
     db: Session,
     *,
-    tenant_id: str,
+    yard_id: str,
     created_by: str,
     title: str | None = None,
     request_id: str = "",
+    target: str = "auto",
+    target_code: str | None = None,
 ) -> ChatSession:
     clean = (title or "").strip()[:200] or None
-    session = ChatSession(tenant_id=tenant_id, created_by=created_by, title=clean)
+    session = ChatSession(
+        yard_id=yard_id,
+        created_by=created_by,
+        title=clean,
+        target=target or "auto",
+        target_code=(target_code or None) if target == "agent" else None,
+    )
     db.add(session)
     db.flush()
     log_audit(
         db,
-        tenant_id=tenant_id,
+        yard_id=yard_id,
         actor_id=created_by,
         action="chat_session_created",
         resource_type="chat_session",
@@ -169,46 +224,30 @@ def create_session(
     return session
 
 
-def list_sessions(db: Session, *, tenant_id: str, created_by: str) -> list[dict[str, Any]]:
-    """本人会话列表（最近更新在前）+ 各自消息数（一次分组统计，不在循环里查）。"""
+def list_sessions(db: Session, *, yard_id: str, created_by: str) -> list[dict[str, Any]]:
+    """本人会话列表（最近更新在前）+ 各自消息数与累计 Token。"""
     rows = list(
         db.scalars(
             select(ChatSession)
-            .where(ChatSession.tenant_id == tenant_id, ChatSession.created_by == created_by)
+            .where(ChatSession.yard_id == yard_id, ChatSession.created_by == created_by)
             .order_by(ChatSession.updated_at.desc())
         )
     )
-    counts: dict[str, int] = {}
-    if rows:
-        pairs = db.execute(
-            select(ChatMessage.session_id, func.count())
-            .where(
-                ChatMessage.tenant_id == tenant_id,
-                ChatMessage.session_id.in_([r.id for r in rows]),
-            )
-            .group_by(ChatMessage.session_id)
-        ).all()
-        counts = {str(p[0]): int(p[1]) for p in pairs}
-    out = []
-    for r in rows:
-        item = session_out(db, r)
-        item["message_count"] = counts.get(r.id, 0)
-        out.append(item)
-    return out
+    return [session_out(db, r) for r in rows]
 
 
 def rename_session(
-    db: Session, *, tenant_id: str, created_by: str, session_id: str, title: str
+    db: Session, *, yard_id: str, created_by: str, session_id: str, title: str
 ) -> ChatSession:
     clean = (title or "").strip()
     if not clean:
         raise AppError("INVALID_REQUEST", "会话标题不能为空。", http_status=400)
-    session = get_session(db, tenant_id=tenant_id, created_by=created_by, session_id=session_id)
+    session = get_session(db, yard_id=yard_id, created_by=created_by, session_id=session_id)
     session.title = clean[:200]
     session.updated_at = _utcnow()
     log_audit(
         db,
-        tenant_id=tenant_id,
+        yard_id=yard_id,
         actor_id=created_by,
         action="chat_session_updated",
         resource_type="chat_session",
@@ -220,21 +259,20 @@ def rename_session(
     return session
 
 
-def delete_session(db: Session, *, tenant_id: str, created_by: str, session_id: str) -> None:
-    """删会话连带删消息与附件（消息查询同样带租户边界，双保险）。"""
-    session = get_session(db, tenant_id=tenant_id, created_by=created_by, session_id=session_id)
+def delete_session(db: Session, *, yard_id: str, created_by: str, session_id: str) -> None:
+    session = get_session(db, yard_id=yard_id, created_by=created_by, session_id=session_id)
     db.execute(
         delete(ChatMessage).where(
-            ChatMessage.session_id == session.id, ChatMessage.tenant_id == tenant_id
+            ChatMessage.session_id == session.id, ChatMessage.yard_id == yard_id
         )
     )
     attachments_service.delete_session_attachments(
-        db, tenant_id=tenant_id, created_by=created_by, session_id=session.id
+        db, yard_id=yard_id, created_by=created_by, session_id=session.id
     )
     db.delete(session)
     log_audit(
         db,
-        tenant_id=tenant_id,
+        yard_id=yard_id,
         actor_id=created_by,
         action="chat_session_deleted",
         resource_type="chat_session",
@@ -246,13 +284,13 @@ def delete_session(db: Session, *, tenant_id: str, created_by: str, session_id: 
 
 
 def list_messages(
-    db: Session, *, tenant_id: str, created_by: str, session_id: str, limit: int = 200
+    db: Session, *, yard_id: str, created_by: str, session_id: str, limit: int = 200
 ) -> list[ChatMessage]:
-    get_session(db, tenant_id=tenant_id, created_by=created_by, session_id=session_id)
+    get_session(db, yard_id=yard_id, created_by=created_by, session_id=session_id)
     return list(
         db.scalars(
             select(ChatMessage)
-            .where(ChatMessage.session_id == session_id, ChatMessage.tenant_id == tenant_id)
+            .where(ChatMessage.session_id == session_id, ChatMessage.yard_id == yard_id)
             .order_by(ChatMessage.seq.asc())
             .limit(limit)
         )
@@ -265,9 +303,8 @@ def list_messages(
 
 
 def resolve_attachments(
-    db: Session, *, ctx: TenantContext, session_id: str, attachment_ids: list[str] | None
+    db: Session, *, ctx: YardContext, session_id: str, attachment_ids: list[str] | None
 ) -> list[ChatAttachment]:
-    """把消息引用的附件 id 解析成附件行（会话 + 创建者双边界）。"""
     ids = [str(x).strip() for x in (attachment_ids or []) if str(x).strip()]
     if not ids:
         return []
@@ -278,7 +315,7 @@ def resolve_attachments(
     rows = db.scalars(
         select(ChatAttachment).where(
             ChatAttachment.id.in_(unique),
-            ChatAttachment.tenant_id == ctx.tenant_id,
+            ChatAttachment.yard_id == ctx.yard_id,
             ChatAttachment.created_by == ctx.user_id,
             ChatAttachment.session_id == session_id,
         )
@@ -295,12 +332,47 @@ def resolve_attachments(
 
 
 # ---------------------------------------------------------------------------
+# @ 点名候选（只读，不落库）
+# ---------------------------------------------------------------------------
+
+
+def mention_candidates(db: Session, *, ctx: YardContext) -> list[dict[str, Any]]:
+    cands = supervisor.list_candidates(db, ctx.yard_id, user_id=ctx.user_id)
+    agent_ids = [str(c["id"]) for c in cands if c["kind"] == "agent"]
+    extras: dict[str, dict[str, Any]] = {}
+    if agent_ids:
+        rows = list(
+            db.scalars(
+                select(YardAgent).where(
+                    YardAgent.id.in_(agent_ids), YardAgent.yard_id == ctx.yard_id
+                )
+            )
+        )
+        extras = {str(a["id"]): a for a in declarative.to_out_list(db, rows)}
+    items: list[dict[str, Any]] = []
+    for c in cands:
+        extra = extras.get(str(c["id"]), {})
+        items.append(
+            {
+                "kind": c["kind"],
+                "id": c["id"],
+                "code": c.get("code"),
+                "name": c["name"],
+                "display_name": extra.get("display_name") or c["name"],
+                "visibility": extra.get("visibility"),
+                "emoji": extra.get("emoji"),
+                "blurb": c.get("blurb") or "",
+            }
+        )
+    return items
+
+
+# ---------------------------------------------------------------------------
 # 消息持久化（用户消息 / 助手消息 / 失败消息）
 # ---------------------------------------------------------------------------
 
 
 def _attachment_ref(att: ChatAttachment) -> dict[str, Any]:
-    """附件引用（存进用户消息行）：文件名等事实，历史回放不必再查附件表。"""
     return {
         "id": att.id,
         "filename": att.filename,
@@ -314,20 +386,26 @@ def _attachment_ref(att: ChatAttachment) -> dict[str, Any]:
 def persist_user_message(
     db: Session,
     *,
-    ctx: TenantContext,
+    ctx: YardContext,
     session: ChatSession,
     content: str,
     attachments: list[ChatAttachment],
 ) -> ChatMessage:
-    """用户消息落库（含附件引用）；标题缺省继承首句。"""
+    in_tok = estimate_token_count(content)
     msg = ChatMessage(
         session_id=session.id,
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         seq=next_seq(db, session.id),
         role=ROLE_USER,
         content=content,
         status=MSG_OK,
         attachments_json=[_attachment_ref(a) for a in attachments] or None,
+        token_usage_json={
+            "input_tokens": in_tok,
+            "output_tokens": 0,
+            "total_tokens": in_tok,
+            "estimated": True,
+        },
     )
     db.add(msg)
     if not session.title:
@@ -339,7 +417,7 @@ def persist_user_message(
 def persist_assistant_message(
     db: Session,
     *,
-    ctx: TenantContext,
+    ctx: YardContext,
     session: ChatSession,
     content: str,
     routed_by: str = "",
@@ -349,11 +427,21 @@ def persist_assistant_message(
     steps: list[dict[str, Any]] | None = None,
     status: str = MSG_OK,
     error_code: str = "",
+    token_usage: dict[str, Any] | None = None,
 ) -> ChatMessage:
-    """助手消息落库（路由存证 + 过程步骤 + 结构化载荷）。"""
+    """助手消息落库（路由存证 + 过程步骤 + 结构化载荷 + Token 统计）。"""
+    if token_usage is None and content:
+        out_tok = estimate_token_count(content)
+        token_usage = {
+            "input_tokens": 0,
+            "output_tokens": out_tok,
+            "total_tokens": out_tok,
+            "model": "local",
+            "estimated": True,
+        }
     msg = ChatMessage(
         session_id=session.id,
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         seq=next_seq(db, session.id),
         role=ROLE_ASSISTANT,
         content=content[:CONTENT_CAP],
@@ -364,6 +452,7 @@ def persist_assistant_message(
         error_code=error_code[:50] or None,
         payload_json=payload,
         steps_json=steps or None,
+        token_usage_json=token_usage,
     )
     db.add(msg)
     session.updated_at = _utcnow()
@@ -373,16 +462,15 @@ def persist_assistant_message(
 def _persist_failure(
     db: Session,
     session: ChatSession,
-    ctx: TenantContext,
+    ctx: YardContext,
     *,
     code: str,
     message: str,
     steps: list[dict[str, Any]] | None = None,
 ) -> None:
-    """执行失败：assistant 行以 failed 入库并审计，然后由调用方原样抛错。"""
     failed = ChatMessage(
         session_id=session.id,
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         seq=next_seq(db, session.id),
         role=ROLE_ASSISTANT,
         content=message[:CONTENT_CAP],
@@ -394,7 +482,7 @@ def _persist_failure(
     session.updated_at = _utcnow()
     log_audit(
         db,
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         actor_id=ctx.user_id,
         action="chat_message_send",
         resource_type="chat_session",
@@ -414,16 +502,14 @@ def _persist_failure(
 async def execute_turn(
     db: Session,
     *,
-    ctx: TenantContext,
+    ctx: YardContext,
+    session_id: str,
     content: str,
     attachments: list[ChatAttachment],
     on_step: StepCallback | None = None,
+    target_code: str | None = None,
 ) -> dict[str, Any]:
-    """执行一轮对话，返回 {content, routed_by, choice, reason, payload}。
-
-    意图分流：命中"创建能力"→ 能力链路（产出卡片）；命中"装载市场能力"→
-    市场链路；其余 → 既有问答链路（supervisor 三级路由）。
-    """
+    """执行一轮对话，返回 {content, routed_by, choice, reason, payload, token_usage}。"""
     intent = intent_service.detect(content)
 
     if intent.kind == intent_service.INTENT_CREATE:
@@ -439,12 +525,20 @@ async def execute_turn(
             raise
         if on_step:
             on_step(PHASE_GENERATING, "能力草稿已生成", STEP_DONE)
+        in_tok = estimate_token_count(content)
+        out_tok = estimate_token_count(note) + estimate_token_count(str(card))
         return {
             "content": note,
             "routed_by": ROUTED_LOCAL,
             "choice": {"kind": "agent", "id": card.get("agent_id") or "", "name": card["name"]},
             "reason": intent.reason,
             "payload": card,
+            "token_usage": {
+                "input_tokens": in_tok,
+                "output_tokens": out_tok,
+                "total_tokens": in_tok + out_tok,
+                "model": "capability_builder",
+            },
         }
 
     if intent.kind == intent_service.INTENT_INSTALL:
@@ -455,12 +549,52 @@ async def execute_turn(
         install_result = install_from_chat(db, ctx=ctx, request_text=content)
         if on_step:
             on_step(PHASE_GENERATING, install_result["summary"], STEP_DONE)
+        in_tok = estimate_token_count(content)
+        out_tok = estimate_token_count(install_result["summary"])
         return {
             "content": install_result["summary"],
             "routed_by": ROUTED_LOCAL,
             "choice": {"kind": "agent", "id": "", "name": install_result["name"]},
             "reason": intent.reason,
             "payload": install_result["card"],
+            "token_usage": {
+                "input_tokens": in_tok,
+                "output_tokens": out_tok,
+                "total_tokens": in_tok + out_tok,
+                "model": "market_installer",
+                "estimated": True,
+            },
+        }
+
+    # ---- 文档链路：产出 Word/Excel/PPT/PDF/Markdown 并落为会话附件 ----
+    if intent.kind == intent_service.INTENT_DOC:
+        from app.modules.chat import document as document_service
+
+        doc_context = ""
+        if attachments:
+            if on_step:
+                on_step(PHASE_READING, f"正在阅读 {len(attachments)} 个附件", STEP_RUNNING)
+            doc_context = attachments_service.build_attachment_context(attachments)
+            if on_step:
+                on_step(PHASE_READING, f"已读取 {len(attachments)} 个附件", STEP_DONE)
+        if on_step:
+            on_step(PHASE_GENERATING, "正在整理文档内容", STEP_RUNNING)
+        card, note, doc_usage = await document_service.generate_document_from_chat(
+            db,
+            ctx=ctx,
+            session_id=session_id,
+            request_text=content,
+            context=doc_context,
+        )
+        if on_step:
+            on_step(PHASE_GENERATING, f"文档已生成：{card['filename']}", STEP_DONE)
+        return {
+            "content": note,
+            "routed_by": ROUTED_LOCAL,
+            "choice": {"kind": "agent", "id": "", "name": "文档生成"},
+            "reason": intent.reason,
+            "payload": card,
+            "token_usage": doc_usage,
         }
 
     # ---- 问答链路：附件只进上下文，不参与路由打分 ----
@@ -477,35 +611,54 @@ async def execute_turn(
                 STEP_DONE,
             )
 
-    data = await supervisor.ask(db, ctx=ctx, question=content, on_step=on_step, context=context)
+    if target_code:
+        if on_step:
+            on_step(PHASE_ROUTING, f"按 @ 指定定向执行「{target_code}」", STEP_RUNNING)
+        question = f"{content}\n\n{context}" if context else content
+        data = await supervisor.ask_directed(db, ctx=ctx, question=question, target=target_code)
+        chosen_name = str((data.get("choice") or {}).get("name") or target_code)
+        if on_step:
+            on_step(PHASE_ROUTING, f"已定向「{chosen_name}」（定向执行）", STEP_DONE)
+    else:
+        data = await supervisor.ask(db, ctx=ctx, question=content, on_step=on_step, context=context)
     result: dict[str, Any] = dict(data.get("result") or {})
     choice: dict[str, Any] = dict(data.get("choice") or {})
     if result.get("run_id"):
         choice["run_id"] = result["run_id"]
+
+    answer_text = str(result.get("answer") or "")
+    token_usage = result.get("token_usage")
+    if not isinstance(token_usage, dict):
+        in_tok = estimate_token_count(f"{content}\n{context}")
+        out_tok = estimate_token_count(answer_text)
+        token_usage = {
+            "input_tokens": in_tok,
+            "output_tokens": out_tok,
+            "total_tokens": in_tok + out_tok,
+            "estimated": True,
+        }
+
     return {
-        "content": str(result.get("answer") or ""),
+        "content": answer_text,
         "routed_by": str(data.get("routed_by") or ""),
         "choice": choice,
         "reason": str(data.get("reason") or ""),
         "payload": None,
+        "token_usage": token_usage,
     }
 
 
 async def run_and_persist(
     db: Session,
     *,
-    ctx: TenantContext,
+    ctx: YardContext,
     session: ChatSession,
     content: str,
     attachments: list[ChatAttachment],
     on_step: StepCallback | None = None,
     recorder: StepRecorder | None = None,
+    target_code: str | None = None,
 ) -> dict[str, Any]:
-    """执行一轮对话并落库助手消息（同步与流式两条链路共用）。
-
-    步骤既进消息行（历史可回放）也通过 ``on_step`` 推给调用方（SSE 实时帧）；
-    流式链路传入带 notify 的 ``recorder``，可直接拿到累计步骤快照。
-    """
     steps = recorder or StepRecorder()
 
     def _cb(phase: str, detail: str, status: str) -> None:
@@ -515,13 +668,19 @@ async def run_and_persist(
 
     try:
         outcome = await execute_turn(
-            db, ctx=ctx, content=content, attachments=attachments, on_step=_cb
+            db,
+            ctx=ctx,
+            session_id=session.id,
+            content=content,
+            attachments=attachments,
+            on_step=_cb,
+            target_code=target_code,
         )
     except AppError as e:
         steps.fail(PHASE_GENERATING, e.message)
         _persist_failure(db, session, ctx, code=e.code, message=e.message, steps=steps.steps)
         raise
-    except Exception as e:  # noqa: BLE001 —— 意外异常也要留下失败痕迹再抛
+    except Exception as e:  # noqa: BLE001
         log.warning("chat send unexpected error: %s", e)
         steps.fail(PHASE_GENERATING, "服务暂时不可用")
         _persist_failure(
@@ -540,6 +699,7 @@ async def run_and_persist(
         reason=outcome["reason"],
         payload=outcome["payload"],
         steps=steps.steps or None,
+        token_usage=outcome.get("token_usage"),
     )
     return {
         "assistant_message": assistant_msg,
@@ -549,6 +709,7 @@ async def run_and_persist(
         "reason": outcome["reason"],
         "payload": outcome["payload"],
         "steps": steps.steps,
+        "token_usage": outcome.get("token_usage"),
     }
 
 
@@ -560,26 +721,24 @@ async def run_and_persist(
 async def send_message(
     db: Session,
     *,
-    ctx: TenantContext,
+    ctx: YardContext,
     session_id: str,
     content: str,
     attachment_ids: list[str] | None = None,
     on_step: StepCallback | None = None,
+    target_code: str | None = None,
 ) -> dict[str, Any]:
-    """发一条消息并取回回复（问答链路 + 能力链路）。"""
     content = (content or "").strip()[:CONTENT_CAP]
     if not content:
         raise AppError("INVALID_REQUEST", "消息内容不能为空。", http_status=400)
-    session = get_session(
-        db, tenant_id=ctx.tenant_id, created_by=ctx.user_id, session_id=session_id
-    )
+    session = get_session(db, yard_id=ctx.yard_id, created_by=ctx.user_id, session_id=session_id)
     attachments = resolve_attachments(
         db, ctx=ctx, session_id=session.id, attachment_ids=attachment_ids
     )
     user_msg = persist_user_message(
         db, ctx=ctx, session=session, content=content, attachments=attachments
     )
-    db.commit()  # 发言先落库：后面的执行失败不能抹掉发言痕迹
+    db.commit()
 
     outcome = await run_and_persist(
         db,
@@ -588,11 +747,12 @@ async def send_message(
         content=content,
         attachments=attachments,
         on_step=on_step,
+        target_code=target_code,
     )
     assistant_msg = outcome["assistant_message"]
     log_audit(
         db,
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         actor_id=ctx.user_id,
         action="chat_message_send",
         resource_type="chat_session",
@@ -606,6 +766,7 @@ async def send_message(
             "kind": (outcome["choice"] or {}).get("kind"),
             "name": (outcome["choice"] or {}).get("name"),
             "attachments": len(attachments),
+            "tokens": (outcome.get("token_usage") or {}).get("total_tokens"),
         },
     )
     db.commit()
@@ -626,6 +787,7 @@ __all__ = [
     "get_session",
     "list_messages",
     "list_sessions",
+    "mention_candidates",
     "message_out",
     "next_seq",
     "persist_assistant_message",

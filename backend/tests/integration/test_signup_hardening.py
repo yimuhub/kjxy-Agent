@@ -14,9 +14,9 @@ from app.core.security import decode_token
 from app.modules.audit.models import AuditLog
 from app.modules.auth import repository as auth_repo
 from app.modules.auth import service as auth_service
-from app.modules.tenants import signup_router
+from app.modules.yards import signup_router
 
-SIGNUP_URL = "/api/v1/tenants/signup"
+SIGNUP_URL = "/api/v1/yards/signup"
 
 
 @pytest.fixture(autouse=True)
@@ -28,7 +28,7 @@ def _no_rate_limit(monkeypatch):
 def _signup(client, username="farmer_01", password="passw0rd-123", name="测试小院"):
     return client.post(
         SIGNUP_URL,
-        json={"tenant_name": name, "admin_username": username, "password": password},
+        json={"yard_name": name, "admin_username": username, "password": password},
     )
 
 

@@ -29,12 +29,12 @@ from sqlalchemy import create_engine  # noqa: E402
 from sqlalchemy.orm import sessionmaker  # noqa: E402
 from sqlalchemy.pool import StaticPool  # noqa: E402
 
-TENANT_1 = "tenant-sem-1"
+YARD_1 = "yard-sem-1"
 USER_1 = "user-sem-1"
 
 
 def _token() -> str:
-    return create_access_token(user_id=USER_1, tenant_id=TENANT_1, roles=["operator"])
+    return create_access_token(user_id=USER_1, yard_id=YARD_1, roles=["operator"])
 
 
 @pytest.fixture()

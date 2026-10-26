@@ -2,6 +2,202 @@
 
 本项目遵循《工程开发规范 V3.0》；版本号遵循语义化版本。
 
+## [3.0.0] - 2026-10-27
+
+联网搜索、插件/技能市场、身份权限与负责人驾驶舱一次性交付（原计划的 2.2.0 + 3.0.0
+两波合并）。小院新增「小院负责人」角色，权限判定从 JWT 静态角色升级为**数据库角色 +
+逐人授权**；模型获得受控联网能力；插件与技能可在库内检索、导入与安装，第三方内容
+一律进专家审核。
+
+### 联网搜索（web.search / web.fetch）
+- 新增 `search` 模块：SearXNG（默认，自托管、无密钥）/ Tavily / Brave 三供应商，
+  首选失败自动降级，10 分钟进程缓存，按小院与 UTC 日期计配额（默认 500/日）。
+- 启动注册两个只读工具：`web.search`（query/count≤8/lang）与 `web.fetch`
+  （url/max_chars≤6000，output_schema 带 sources）；未配置供应商时返回明确 503，
+  模型不会「假装联网」。
+- 出网安全：`web.fetch` 严格公网校验（拒绝回环/私网/link-local/元数据/保留地址），
+  手动重定向最多 3 跳且逐跳复验，Content-Type 白名单，2MB 上限与流式截断。
+- 新接口 `GET /search/status`（联网状态 + 供应商 + 配额）、`POST /search/test`
+  （`search:manage`，真实搜一条并回传耗时/结果数）。
+- 离线降级：`NETWORK_UNAVAILABLE`（409，`details.mode=local`）→ 前端提示
+  「当前设备为本地部署形态…请联网后使用，或前往专家审核 → Skill 管理」并回退内置库。
+
+### 插件 / 技能市场与本地库
+- 12 个内置农业技能（土壤/灌溉/病虫害/农药安全/储粮/农机/田间记录/农时/行情/
+  政策/作物营养/气候风险），改写自 MIT 许可的 farmfriend-labs/agent-skills-farming，
+  保留来源与许可证标注，缺失数据一律「不编造」；新小院开通时自动铺设为本院
+  published Skill，直接出现在「专家审核 → Skill 管理」，演示小院由 seed 幂等补齐。
+- GitHub 只读检索与 SKILL.md 预览（许可证白名单过滤、token 仅留在服务端、预览即落库
+  可直接安装）；离线返回空列表 + 中文提示，不阻断内置库。
+- 本地导入：`.md/.markdown/.txt` 技能（≤256KB）与插件 zip（≤2MB，解压 ≤5MB）；
+  zip 拒绝路径穿越/绝对路径/符号链接/可执行文件，**流式读取防压缩炸弹**。
+- 安装状态机：内置技能直接启用；GitHub/本地导入的 Skill 与全部插件一律
+  `pending_review`。**导入文件自带的 `builtin/verified` 标记不再被信任**，修复了
+  绕过专家审核自发布的提权漏洞。
+- 新接口：`/market/items/search|{key}|install`、`/market/installed`、
+  `/market/skills/import`、`/market/plugins/import`、`/market/github/search|preview`。
+
+### 身份、角色与成员
+- 角色体系：`yard_owner`（负责人，唯一可管理/删除管理员、可转让、可见敏感数据）、
+  `yard_admin`（日常维护，不能动负责人/其他管理员）、`expert`（专家审核、技能、
+  可管理 operator/viewer）、`operator`、`viewer`、`service_worker`。
+- 角色权限可在系统设置中调整（保护型权限只由代码发放）；支持创建/改名/删除自定义角色，
+  自定义角色可分配给成员，但授予范围必须是操作者自身权限的子集。
+- 成员管理：新增/挂接已有账号（用户名/邮箱/手机号/显示名/角色）、编辑、停用/启用、
+  软删除、重置密码（一次性临时密码 + 强制改密 + 旧令牌立即失效）；无
+  `members:manage` 时联系方式脱敏。
+- 自助注册与审核：`closed/approval/open` 三模式，`approval` 创建 pending 账号并进入
+  待审列表；通过/拒绝留痕；拒绝不会误停用该用户在其他小院的账号。
+- 个人中心：所有账号可改显示名/邮箱/手机号与密码；首次登录强制改密。
+- 令牌与会话：改密、重置、停用、改角色、负责人转让均递增 token_version，旧 access
+  token 立即失效，前端静默刷新后按新角色签发；权限判定一律 DB 优先。
+- 登录安全：全局 + 小院两级滑动窗口限流；密码最小长度取「部署下限/生产 10/小院设置」
+  三者最大值；注册限流阈值可配置。
+
+### 负责人驾驶舱
+- 总览：成员数、今日活跃、助手数、会话/消息、今日与 7 日 Token（输入/输出）、失败消息、
+  待审数量、联网状态。
+- 按人用量、按日趋势（含成员下钻）、Agent 调用、会话审计（查看正文需填写 2–200 字
+  原因并落 `sensitive_view` 审计）、逐人敏感授权（`insights:sensitive` / `finance:read` /
+  `audit:read`）、负责人转让。
+- 敏感数据默认对小院管理员不可见，由负责人逐人授权后生效。
+
+### 前端
+- 新增「插件与技能库」（联网徽章/离线提示/来源筛选/预览抽屉/导入/安装）、
+  「负责人驾驶舱」、「个人资料」、注册页「加入小院」。
+- 成员管理重写：成员/注册审核/邀请三 Tab，新建成员一次性初始密码、编辑抽屉、
+  重置密码、停用/移除、操作权限按角色收敛。
+- 系统设置新增：角色与权限、注册与安全、网络与搜索、敏感授权（仅负责人）。
+- 菜单与路由：能力中心新增插件与技能库；管理与统计新增负责人驾驶舱；账号菜单新增
+  个人资料；导航权限同步 `yard_owner`。
+
+### 迁移与契约
+- 迁移 `0030_identity_rbac`（用户安全字段、yard.owner_user_id、yard_settings /
+  yard_roles / yard_member_grants / yard_join_requests，回填负责人）、
+  `0031_market_items`、`0032_trace_user`（LLMTrace 增加 user_id/session_id）。
+- OpenAPI 重新生成（176 paths）；新增错误码 40+ 条登记至 `contracts/error-codes.md`。
+
+### 质量门禁
+- 后端：`pytest` 全量通过；`ruff check` / `ruff format --check` 全绿。
+- 前端：`vue-tsc --noEmit`、ESLint（0 error）、`vite build` 通过。
+- E2E：Playwright 串行 16 条通过（新增成员创建、插件库预览、负责人驾驶舱/权限拦截）。
+- 迁移 `0029 → 0032` 升级/降级/再升级在临时库演练通过；开发库已升级。
+
+## [2.1.0] - 2026-10-27
+
+对话内文档生成与预览 + 对话体验收口：一条需求直接产出 Word / Markdown / Excel /
+PPT / PDF，在线预览与鉴权下载；同时修复暗色提示可读性、会话类型标识、消息一键复制、
+「自我升级」菜单、会话列表竖条等问题。
+
+### 对话内文档生成（v2.1 主线）
+- 统一文档模型 `DocModel`（标题/主题/作者 + 7 种块：标题/段落/无序/有序/表格/代码/分页），
+  一处校验、五处渲染——预览与下载永远同源。
+- 五种格式写出器：`.md`、`.docx`（python-docx）、`.xlsx`（openpyxl）、`.pptx`
+  （python-pptx）、`.pdf`（reportlab，STSong-Light 中文字体）；**仅引入 MIT/BSD-3
+  依赖，GPL/AGPL 一律未使用**。
+- 对话意图 `INTENT_DOC`：命中「产出动词 + 文档名词」（写一份/生成/整理成/导出 + 报告/
+  方案/台账/PPT/Excel/PDF/Markdown…）即进入文档链路；模型把需求拟成 DocModel，
+  失败自动降级为确定性模板，文档生成不因模型不可用而失败。
+- 产物落 `chat_attachments`（迁移 `0029`：`doc_format` / `doc_model_json` / `generated`），
+  沿用会话私有边界与级联清理；卡片 `type=document` 带格式徽章与「预览 / 下载」。
+- 新接口：`POST /chat/sessions/{id}/documents`、
+  `GET …/attachments/{aid}/preview`（自包含 HTML + CSP sandbox）、
+  `GET …/attachments/{aid}/download`（RFC 5987 中文文件名，越权统一 404）。
+- 预览安全：HTML 全量转义、无脚本/无外链，前端装入 `sandbox=""` 的 iframe（srcdoc）；
+  上传附件没有 DocModel 快照 → 415 `DOC_PREVIEW_UNSUPPORTED`，请走下载。
+- 新增错误码 `DOC_*` 6 个，登记进 `contracts/error-codes.md`。
+
+### 对话体验修复
+- **悬浮提示可读性**：Element Plus 暗色 popper 用 `var(--el-bg-color)` 反色，被项目
+  桥接成深色后「深底深字」；`design-system.css` 显式设置 `color: var(--ds-text-1)`，
+  「模型路由：自动」「群聊成员」等 tooltip 全部可读。
+- **会话类型标识**：左侧会话列表新增「群聊 N / 助手名 / 班组 / 对话」徽章；后端
+  `chat_sessions.target/target_code` + `participant_count` + `target_name` 单点解析。
+- **一键复制**：用户提问与助手回答各带复制按钮（Clipboard API，失败回退
+  `execCommand`），点击后短暂显示「已复制」。
+- **会话列表竖条**：类型徽章的 `chat` 色调类名与页面根 `.chat` 布局规则冲突，导致
+  会话项被撑成竖直长条；色调类改为 `s-kind--group/agent/team/chat`，列宽与省略号
+  一并收口。
+- **「自我升级」菜单恢复**：DIY 菜单曾把该项改名为「技能与插件」并下沉；现恢复为
+  「能力协作」下的一级菜单，DIY 布局存储键升至 `v4`，归一化时同步标题与图标。
+- **专业助手页收敛**：「小院助手」分区及其创建/编辑弹窗整体移除（相关能力已全部由
+  「我的智能体」承载），只保留 4 位专业助手与平台审核队列。
+- **「我的智能体」网络错误**：根因是开发环境三件事叠加——vite 进程退出（5173 未监听）、
+  后端旧进程缺 `/llm/usage/overview`（404）、开发库停在 0026 缺列（500）；已重启
+  服务并执行迁移，前端对用量接口失败不再阻塞页面。
+
+### 质量门禁
+- 后端 `885 passed`；Ruff / Ruff format / mypy（235 文件）全绿；
+- 前端 ESLint 0 error、`vue-tsc`、`vite build` 通过；
+- Playwright 12 passed（串行，含「生成 Word → 卡片 → 预览 → 下载」全链路）；
+- `contracts/openapi.yaml` 重新生成（146 paths）；迁移 `0029` 已应用。
+
+## [2.0.0] - 2026-10-26
+
+小院化改造 + 助手工作台：全量「租户→小院」改名、助手名称唯一、私有/公用可见性、
+每助手独立绑大模型与技能、卡片/列表视图、@ 点名、弹出式「使用」对话、多助手群聊。
+
+### 小院化改造（破坏性契约变更，带兼容窗口）
+- 「租户」→「小院」全量改名（含标识符）：`tenant(s)` → `yard(s)`、表名/列名/
+  索引/约束、JWT claim、角色值、错误码与前端文案；迁移 `0022_rename_tenant_to_yard`
+  同步存量值与 JSON 键（`choice_json`/`members_json` 等）。
+- 兼容窗口：JWT 解析双读 `yard_id`/`tenant_id`（`core/security.py`
+  `LEGACY_YARD_CLAIM`）、登录请求体接受旧别名、在途任务兜底——旧客户端在窗口期
+  内不中断，但桌面端需升级至 2.0.0 与后端契约对齐。
+
+### 助手管理（名称唯一 / 可见性 / 模型与技能绑定 / 首图）
+- 同小院助手中文名唯一（迁移 `0023` 唯一约束）：撞名 409 `DUPLICATE_NAME`
+  （details 带既有助手 id/code/name/status），前端弹「已经有了，是否复用」——
+  复用直接进既有助手；不复用走复制并自动改名；存量重名数据迁移时按
+  `原名-2`/`原名-3`… 自动加后缀清洗。
+- 对话内生成能力同名冲突同样自动加后缀落草稿，卡片注明调整，不再把
+  `DUPLICATE_NAME` 硬报给用户。
+- 助手可见性 `public`/`private`（迁移 `0024`）：private 仅创建者可见可用，
+  展示名自动加「（用户名+私有）」后缀（存储名不受污染）；成员可自建助手
+  （后端强制 private），管理员可设公用。
+- 管理员软删除：`status='deleted'` 后读路径隐去，行保留避免历史消息悬空引用，
+  原名确定性改名为「原名（已删除·id8）」以释放唯一名。
+- 每助手单独绑大模型：`supplier_id` 接通运行时（此前是死字段），越权引用自动
+  回退；技能 `allowed_tools` 多选绑定。
+- 助手页卡片/列表视图切换；卡片显示首图（迁移 `0026`，上传/清除、带登录态
+  取图，失败回落 emoji）、名称、功能介绍、绑定的大模型与技能。
+
+### @ 点名与「使用」弹窗
+- 聊天输入 `@` 弹出候选面板：`GET /chat/mention-candidates`，候选 = 本小院全部
+  审核通过助手（private 仅创建者可见）+ 班组，口径复用
+  `supervisor.list_candidates`（可见性只有一份实现）。
+- `target_code` 定向执行（id→code→名称解析），`routed_by='bound'`；徽章文案与
+  色调统一由后端 `routed_label`/`routed_tone` 下发，未知取值给确定兜底——
+  根治 v1.8.0「新取值没进前端词表 → 整条消息渲染崩溃」事故。
+- 「试跑」改为「使用」：弹出与主对话同款样式的对话面板；`ChatPanel` 组件抽取 +
+  chat store 可实例化，多个弹窗与主对话状态互不污染。
+
+### 多助手群聊
+- 会话成员模型 `chat_participants`（迁移 `0025`）：
+  `PUT /chat/sessions/{id}/participants` 整表覆盖；名单按请求者可见性校验——
+  私有助手只有创建者能拉进自己的群聊，口径与 @ 点名一致。
+- 应答策略 `all`（全员必答）/ `named`（指定成员答）/ `auto`（自愿抢答）：
+  `POST /chat/sessions/{id}/messages/group` 与 `/group/stream`，SSE 推
+  `member_event`（running/ok/error），并行应答 + 成本护栏（成员上限、超时与
+  失败如实呈现）。
+- 新增 `GROUP_*` 错误码 8 个，登记进 `contracts/error-codes.md`。
+
+### 质量门禁
+- 后端 `855 passed`；Ruff / Ruff format / mypy（225 文件）全绿；前端 ESLint
+  0 error、`vue-tsc`、`vite build` 通过；`contracts/openapi.yaml` 重新生成
+  （141 paths）；Playwright 10 条全绿（串行）。
+- 新增用例：重名 409/复用/复制、visibility 越权负向、supplier_id 越权回退、
+  软删后历史可读、名称清洗迁移往返、群聊名单可见性（含私有助手自建/他人两向）、
+  @ 候选负向越权、能力生成撞名自动后缀、弹窗对话状态隔离。
+
+### 升级注意
+- 需执行 `alembic upgrade head`（0022–0026：改名、唯一名、可见性、群聊成员、
+  首图）。
+- 前后端版本号统一为 `2.0.0`（`pyproject.toml`、Tauri `tauri.conf.json`、
+  `Cargo.toml`、桌面端 `package.json`、`uv.lock`）。
+- 破坏性契约：JWT claim、登录体、表名均为 `yard` 体系，桌面端需同步升级；
+  旧版令牌在兼容窗口内可继续使用。
+
 ## [1.8.0] - 2026-10-26
 
 对话工作台升级（第一期 + 第二期）：附件阅读、对话内生成能力、过程步骤可见。

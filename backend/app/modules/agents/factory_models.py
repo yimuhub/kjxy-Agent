@@ -34,7 +34,7 @@ VALID_GENERATED_BY = (GENERATED_BY_LLM, GENERATED_BY_HEURISTIC)
 class FactoryRun(Base, TimestampMixin):
     __tablename__ = "factory_runs"
 
-    tenant_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    yard_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     # 行业描述（必填输入），如「农机服务，侧重果园小型农机」
     industry_brief: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default=STATUS_CLAIMED)

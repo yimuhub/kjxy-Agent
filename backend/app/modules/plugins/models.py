@@ -11,17 +11,17 @@ from app.db.base import Base, TimestampMixin
 class PluginManifest(Base, TimestampMixin):
     """插件注册表：扫描 plugins/ 目录后写入/更新。
 
-    tenant_id 为空 = 全局（platform）插件，首版所有插件都走全局。
+    yard_id 为空 = 全局（platform）插件，首版所有插件都走全局。
     status: enabled | disabled —— 停用只改状态，不删除业务数据。
     """
 
     __tablename__ = "plugin_manifests"
     __table_args__ = (
-        UniqueConstraint("plugin_id", "tenant_id", name="uq_plugin_manifests_pid_tenant"),
+        UniqueConstraint("plugin_id", "yard_id", name="uq_plugin_manifests_pid_yard"),
     )
 
     plugin_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
-    tenant_id: Mapped[str | None] = mapped_column(
+    yard_id: Mapped[str | None] = mapped_column(
         String(36), nullable=True, index=True
     )  # 空=全局插件
     version: Mapped[str] = mapped_column(String(50), nullable=False)

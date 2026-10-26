@@ -4,7 +4,7 @@ C1 skills/suggest：证据不足诚实拒绝 / 候选卡落 pending_review / LLM
 / 复用现有审核队列 / 角色闸。
 C2 plugins：register 校验（步骤超限/未知与 mcp 工具 400）→ review 发布闸 →
 run 解释执行（模板插值/save_as）→ 高风险工具运行闸兜底（TOOL_RISK_BLOCKED）→
-suggest 重复序列挖掘（幂等、只产草稿）→ created_from 与租户边界。
+suggest 重复序列挖掘（幂等、只产草稿）→ created_from 与小院边界。
 """
 
 import json
@@ -25,8 +25,8 @@ from app.modules.plugins import service as plugin_service
 from app.modules.tools.registry import ToolDef, tool_registry
 from fastapi.testclient import TestClient
 
-TENANT_A = "tenant-a"
-TENANT_B = "tenant-b"
+YARD_A = "yard-a"
+YARD_B = "yard-b"
 
 
 # ---------------------------------------------------------------- fixtures
@@ -105,15 +105,15 @@ def wf_tools():
 
 
 # ---------------------------------------------------------------- helpers
-def _headers(user_id: str = "u-1", tenant: str = TENANT_A, roles=("tenant_admin",)) -> dict:
-    token = create_access_token(user_id=user_id, tenant_id=tenant, roles=list(roles))
+def _headers(user_id: str = "u-1", yard: str = YARD_A, roles=("yard_admin",)) -> dict:
+    token = create_access_token(user_id=user_id, yard_id=yard, roles=list(roles))
     return {"Authorization": f"Bearer {token}"}
 
 
 def _seed_run(
     db,  # noqa: ANN001
     *,
-    tenant: str = TENANT_A,
+    yard: str = YARD_A,
     run_id: str,
     tools: tuple[str, ...] = (),
     question: str | None = None,
@@ -124,7 +124,7 @@ def _seed_run(
     if question is not None:
         record_step(
             db,
-            tenant_id=tenant,
+            yard_id=yard,
             run_id=run_id,
             step_type=STEP_LLM,
             status=STEP_OK,
@@ -134,7 +134,7 @@ def _seed_run(
     for code in tools:
         record_step(
             db,
-            tenant_id=tenant,
+            yard_id=yard,
             run_id=run_id,
             step_type=STEP_TOOL,
             status=STEP_OK,
@@ -145,7 +145,7 @@ def _seed_run(
     if fail:
         record_step(
             db,
-            tenant_id=tenant,
+            yard_id=yard,
             run_id=run_id,
             step_type=STEP_TOOL,
             status="error",
@@ -156,7 +156,7 @@ def _seed_run(
     if final:
         record_step(
             db,
-            tenant_id=tenant,
+            yard_id=yard,
             run_id=run_id,
             step_type=STEP_FINAL,
             status=STEP_OK,
@@ -272,7 +272,7 @@ def test_skill_suggest_llm_unavailable_no_partial(growth_client, db_session):
     assert listing == []  # 不落半成品
 
 
-def test_skill_suggest_requires_tenant_admin(growth_client, db_session):
+def test_skill_suggest_requires_yard_admin(growth_client, db_session):
     for i in range(6):
         _seed_run(db_session, run_id=f"r-{i}", tools=("wf.test.echo",))
     resp = growth_client.post(
@@ -455,7 +455,7 @@ def test_plugin_suggest_mining_idempotent(growth_client, db_session, wf_tools):
     assert resp.json()["data"]["created"] == 0
 
     # manifest._auto 溯源结构：pattern / occurrences / source_runs sha12
-    record = plugin_service._find_record(db_session, draft["plugin_id"], TENANT_A)  # noqa: SLF001
+    record = plugin_service._find_record(db_session, draft["plugin_id"], YARD_A)  # noqa: SLF001
     assert record is not None
     auto = record.manifest_json["_auto"]
     assert auto["pattern"] == ["wf.test.echo", "wf.test.notify"]
@@ -467,7 +467,7 @@ def test_plugin_suggest_mining_idempotent(growth_client, db_session, wf_tools):
     assert all(s["kind"] == "tool" and s["save_as"] for s in steps)
 
 
-def test_plugin_created_from_and_tenant_boundary(growth_client, wf_tools):  # noqa: ARG001
+def test_plugin_created_from_and_yard_boundary(growth_client, wf_tools):  # noqa: ARG001
     resp = growth_client.post(
         "/api/v1/plugins/register",
         json={"manifest": _manifest("wf.secret")},
@@ -475,7 +475,7 @@ def test_plugin_created_from_and_tenant_boundary(growth_client, wf_tools):  # no
     )
     assert resp.status_code == 201, resp.text
 
-    # 详情含 manifest 正文（审核人看 steps）；租户 A 可见
+    # 详情含 manifest 正文（审核人看 steps）；小院 A 可见
     resp = growth_client.get("/api/v1/plugins/wf.secret", headers=_headers())
     assert resp.status_code == 200, resp.text
     detail = resp.json()["data"]
@@ -483,8 +483,8 @@ def test_plugin_created_from_and_tenant_boundary(growth_client, wf_tools):  # no
     assert detail["manifest"]["steps"][0]["tool"] == "wf.test.echo"
     assert detail["checksum"]
 
-    # 租户 B：列表看不到、详情/审核/运行一律 404/无权
-    b = _headers("u-b", tenant=TENANT_B)
+    # 小院 B：列表看不到、详情/审核/运行一律 404/无权
+    b = _headers("u-b", yard=YARD_B)
     listing = growth_client.get("/api/v1/plugins", headers=b).json()["data"]
     assert "wf.secret" not in {p["plugin_id"] for p in listing}
     assert growth_client.get("/api/v1/plugins/wf.secret", headers=b).status_code == 404
@@ -497,7 +497,7 @@ def test_plugin_created_from_and_tenant_boundary(growth_client, wf_tools):  # no
     assert (
         growth_client.post("/api/v1/plugins/wf.secret/run", json={}, headers=b).status_code == 404
     )
-    # 租户 A 列表可见且 created_from 语义正确
+    # 小院 A 列表可见且 created_from 语义正确
     listing = growth_client.get("/api/v1/plugins", headers=_headers()).json()["data"]
     mine = {p["plugin_id"]: p for p in listing}
     assert mine["wf.secret"]["created_from"] == "manual"

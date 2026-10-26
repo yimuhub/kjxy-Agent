@@ -9,7 +9,7 @@ class DocumentOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    tenant_id: str
+    yard_id: str
     title: str
     mime_type: str
     source: str
@@ -18,8 +18,20 @@ class DocumentOut(BaseModel):
     uploaded_by: str | None
     error_message: str | None
     page_count: int | None
+    chunk_count: int | None = None
+    token_count: int | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class ChunkPreviewOut(BaseModel):
+    id: str
+    chunk_index: int
+    content: str
+    title_path: str | None = None
+    page_number: int | None = None
+    token_count: int = 0
+    trust_level: str = "yard_material"
 
 
 class SearchRequest(BaseModel):
@@ -47,6 +59,8 @@ class ChunkHitOut(BaseModel):
     quote: str
     score: float
     trust_level: str
+    token_count: int | None = None
+    title_path: str | None = None
 
 
 class SearchResponse(BaseModel):

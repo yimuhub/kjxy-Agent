@@ -104,12 +104,12 @@ def validate_manifest(raw: dict, source: str = "<unknown>") -> dict:
     return raw
 
 
-def _find_record(db: Session, plugin_id: str, tenant_id: str | None = None):
+def _find_record(db: Session, plugin_id: str, yard_id: str | None = None):
     stmt = select(PluginManifest).where(PluginManifest.plugin_id == plugin_id)
-    if tenant_id is None:
-        stmt = stmt.where(PluginManifest.tenant_id.is_(None))
+    if yard_id is None:
+        stmt = stmt.where(PluginManifest.yard_id.is_(None))
     else:
-        stmt = stmt.where(PluginManifest.tenant_id == tenant_id)
+        stmt = stmt.where(PluginManifest.yard_id == yard_id)
     return db.execute(stmt).scalar_one_or_none()
 
 
@@ -175,7 +175,7 @@ def scan_plugins(db: Session, root: Path | None = None) -> dict:
         if record is None:
             record = PluginManifest(
                 plugin_id=str(manifest["plugin_id"]),
-                tenant_id=None,  # 首版：全局插件
+                yard_id=None,  # 首版：全局插件
                 version=str(manifest["version"]),
                 type=str(manifest["type"]),
                 status=STATUS_DISABLED,
@@ -243,7 +243,7 @@ def plugin_to_out(record: PluginManifest) -> dict:
     return {
         "id": record.id,
         "plugin_id": record.plugin_id,
-        "tenant_id": record.tenant_id,
+        "yard_id": record.yard_id,
         "version": record.version,
         "type": record.type,
         "status": record.status,

@@ -40,12 +40,12 @@ class FarmPlannerAgent:
                 details={"errors": e.errors()},
             ) from e
 
-        tenant_id = str(getattr(context, "tenant_id", "") or getattr(context, "tenant", "") or "")
+        yard_id = str(getattr(context, "yard_id", "") or getattr(context, "yard", "") or "")
         user_id = str(getattr(context, "actor_id", "") or getattr(context, "user_id", "") or "")
         metadata = getattr(context, "metadata", None) or {}
         db = metadata.get("db") if isinstance(metadata, dict) else None
 
-        plan = generate_plan(db, tenant_id, user_id, plan_input)
+        plan = generate_plan(db, yard_id, user_id, plan_input)
         warnings = list(plan.get("warnings", []))
         if db is None:
             log.info("farm_planner run without db session; knowledge search skipped.")

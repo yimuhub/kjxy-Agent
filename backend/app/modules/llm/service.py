@@ -1,4 +1,4 @@
-"""LLM 调用服务：统一走 Provider，并在 llm_calls 表中记录调用（含失败）。"""
+"""LLM 调用服务：统一走 Provider，并在 llm_calls 与 llm_traces 表中记录调用（含失败）。"""
 
 import hashlib
 import time
@@ -9,10 +9,11 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.errors import AppError
 from app.core.logging import get_logger
+from app.modules.knowledge.chunking import estimate_token_count
 from app.modules.llm.models import LLMCall, LLMTrace
 from app.modules.llm.provider import get_provider, provider_resolution
 from app.modules.llm.schemas import LLMRequest, LLMResponse, LLMStatusOut
-from app.modules.tenants.quota import check_and_consume
+from app.modules.yards.quota import check_and_consume
 
 log = get_logger(__name__)
 
@@ -23,7 +24,7 @@ _choice_logged = False
 def _provider_choice_reason(provider) -> str:
     """为什么选中当前 provider 的人类可读理由（只含配置态描述，绝不含密钥值）。"""
     if getattr(provider, "provider_name", None):
-        return "DB 供应商配置生效（租户/全局 active supplier）"
+        return "DB 供应商配置生效（小院/全局 active supplier）"
     if settings.llm_provider == "fake":
         return "settings.llm_provider=fake（开发/CI 兜底，不出网）"
     if settings.llm_provider == "openai_compatible":
@@ -50,11 +51,7 @@ def _prompt_sha(request: LLMRequest) -> str:
 
 
 def _prompt_digest(request: LLMRequest) -> str:
-    """观测轨迹的提示词摘要（W4 隐私口径）：``sha256 前 12 位|前 200 字``。
-
-    全文绝不入库——200 字之外的内容被截断丢弃，sha 前缀仍可跨行对账
-    （同一 prompt 的 digest 稳定可比）。
-    """
+    """观测轨迹的提示词摘要（W4 隐私口径）：``sha256 前 12 位|前 200 字``。"""
     text = "\n".join(f"{m.role}:{m.content or ''}" for m in request.messages)
     sha12 = hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
     return f"{sha12}|{text[:200]}"
@@ -72,6 +69,22 @@ def _provider_label(provider) -> str:
     return getattr(provider, "provider_name", settings.llm_provider) or settings.llm_provider
 
 
+def _ensure_token_counts(request: LLMRequest, resp: LLMResponse) -> LLMResponse:
+    """若成功响应的上游 provider 未返回 input_tokens / output_tokens，用分词器保底估算，
+    确保所有成功调用场景都有非空 Token 统计。
+    """
+    in_tok = resp.input_tokens
+    out_tok = resp.output_tokens
+    if in_tok is None:
+        prompt_text = "\n".join(f"{m.role}:{m.content or ''}" for m in request.messages)
+        in_tok = estimate_token_count(prompt_text)
+    if out_tok is None:
+        out_tok = estimate_token_count(resp.content or "")
+    if in_tok != resp.input_tokens or out_tok != resp.output_tokens:
+        resp = resp.model_copy(update={"input_tokens": in_tok, "output_tokens": out_tok})
+    return resp
+
+
 def _write_call(
     db: Session,
     *,
@@ -82,7 +95,7 @@ def _write_call(
     error_category: str | None,
     latency_ms: int,
     request_id: str,
-    tenant_id: str,
+    yard_id: str,
     error_text: str | None = None,
 ) -> None:
     from app.core.context import metrics
@@ -90,7 +103,7 @@ def _write_call(
     metrics.observe_llm(status=status, provider=_provider_label(provider))
     db.add(
         LLMCall(
-            tenant_id=tenant_id,
+            yard_id=yard_id,
             task_id=request.metadata.task_id,
             provider=_provider_label(provider),
             model=(
@@ -110,11 +123,11 @@ def _write_call(
             prompt_sha=_prompt_sha(request),
         )
     )
-    # ⚑ observe_llm 指标点旁挂观测轨迹（W4）：fake provider 也落；purpose 由调用方
-    # 经 LLMMetadata 透传，拿不到按 "platform"；token 取不到就 null，绝不编造。
     db.add(
         LLMTrace(
-            tenant_id=tenant_id,
+            yard_id=yard_id,
+            user_id=request.metadata.user_id,
+            session_id=request.metadata.session_id,
             provider_id=getattr(provider, "supplier_id", None),
             model=(
                 resp.model
@@ -137,15 +150,14 @@ def _write_call(
 
 async def complete_with_logging(db: Session, request: LLMRequest) -> LLMResponse:
     """调用模型并记录 llm_calls 行；成功/失败都记，失败时原样抛出 AppError。"""
-    tenant_id = request.metadata.tenant_id
-    if not tenant_id:
-        raise AppError("INVALID_REQUEST", "缺少租户信息，无法记录模型调用。", http_status=400)
+    yard_id = request.metadata.yard_id
+    if not yard_id:
+        raise AppError("INVALID_REQUEST", "缺少小院信息，无法记录模型调用。", http_status=400)
     # 配额拦截：调用模型前先扣减 llm_calls，超限直接 429 拒绝，不消耗上游资源
-    check_and_consume(db, tenant_id, "llm_calls")
+    check_and_consume(db, yard_id, "llm_calls")
     request_id = request.metadata.request_id or f"req_{uuid.uuid4().hex[:16]}"
 
-    # 供应商热更新：注入租户上下文，get_provider() 按 DB 配置解析
-    with provider_resolution(tenant_id, db):
+    with provider_resolution(yard_id, db, request.metadata.supplier_id):
         provider = get_provider()
     _log_provider_choice_once(provider)
     started = time.perf_counter()
@@ -163,12 +175,13 @@ async def complete_with_logging(db: Session, request: LLMRequest) -> LLMResponse
             error_category=category,
             latency_ms=latency_ms,
             request_id=request_id,
-            tenant_id=tenant_id,
+            yard_id=yard_id,
             error_text=f"{e.code}: {e.message}",
         )
         raise
 
     latency_ms = int((time.perf_counter() - started) * 1000)
+    resp = _ensure_token_counts(request, resp)
     _write_call(
         db,
         provider=provider,
@@ -178,7 +191,7 @@ async def complete_with_logging(db: Session, request: LLMRequest) -> LLMResponse
         error_category=None,
         latency_ms=latency_ms,
         request_id=request_id,
-        tenant_id=tenant_id,
+        yard_id=yard_id,
     )
     return resp
 

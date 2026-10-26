@@ -6,7 +6,7 @@ from app.modules.agriculture.qa_agent import AgricultureQAAgent, QAAgentContext
 
 
 def _ctx() -> QAAgentContext:
-    return QAAgentContext(tenant_id="t1", user_id="u1", roles=["member"], request_id="req_test")
+    return QAAgentContext(yard_id="t1", user_id="u1", roles=["member"], request_id="req_test")
 
 
 class _StubRegistry:
@@ -19,7 +19,7 @@ class _StubRegistry:
 
 def _search_tool(hits):
     async def _tool(payload: dict, context=None):
-        assert context.tenant_id == "t1"  # 租户上下文必须透传
+        assert context.yard_id == "t1"  # 小院上下文必须透传
         return hits
 
     return _tool

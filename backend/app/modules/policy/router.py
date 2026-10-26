@@ -3,7 +3,7 @@
 第三期实现，不再是 P1 桩。
 - 全部接口先检查 settings.policy_module_enabled，未启用时抛
   AppError("POLICY_MODULE_DISABLED", 404)；
-- 全部接口经 get_tenant_context 做租户隔离。
+- 全部接口经 get_yard_context 做小院隔离。
 - 采集去重冲突返回 409 POLICY_DUPLICATE。
 """
 
@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 
 from app.core.config import settings
-from app.core.deps import TenantContext, get_db_session, get_tenant_context
+from app.core.deps import YardContext, get_db_session, get_yard_context
 from app.core.errors import AppError
 from app.core.pagination import pagination_params
 from app.core.responses import ok, paged
@@ -49,7 +49,7 @@ def list_policies(
     policy_type: str | None = Query(default=None),
     status: str | None = Query(default=None, description="active|expired|archived"),
     page_page: tuple[int, int] = Depends(pagination_params),
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db=Depends(get_db_session),
 ):
     _require_enabled()
@@ -75,7 +75,7 @@ def list_policies(
 @router.post("")
 def ingest_policy(
     req: PolicyIngestRequest,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db=Depends(get_db_session),
 ):
     _require_enabled()
@@ -89,7 +89,7 @@ def ingest_policy(
 @router.post("/match")
 def match_policies(
     profile: PolicyProfile,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db=Depends(get_db_session),
 ):
     _require_enabled()
@@ -100,7 +100,7 @@ def match_policies(
 @router.get("/{policy_id}")
 def get_policy(
     policy_id: str,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db=Depends(get_db_session),
 ):
     _require_enabled()
@@ -115,20 +115,20 @@ def get_policy(
 def create_application_draft(
     policy_id: str,
     payload: ApplicationDraftCreate,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db=Depends(get_db_session),
 ):
     _require_enabled()
-    draft = service.create_application_draft(db, ctx.tenant_id, ctx.user_id, policy_id, payload)
+    draft = service.create_application_draft(db, ctx.yard_id, ctx.user_id, policy_id, payload)
     return ok(_draft_out(draft))
 
 
 @router.get("/application-drafts/{draft_id}")
 def get_application_draft(
     draft_id: str,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db=Depends(get_db_session),
 ):
     _require_enabled()
-    draft = service.get_application_draft(db, ctx.tenant_id, draft_id)
+    draft = service.get_application_draft(db, ctx.yard_id, draft_id)
     return ok(_draft_out(draft))

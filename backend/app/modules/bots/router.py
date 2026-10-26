@@ -1,4 +1,4 @@
-"""机器人管理接口 ``/bots``（租户管理员口径同 pairing）。
+"""机器人管理接口 ``/bots``（小院管理员口径同 pairing）。
 
 - CRUD + 测试连接 + 状态查询；
 - 会话台账与批准/吊销（陌生人安全模型的运营入口）；
@@ -10,7 +10,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.core.deps import TenantContext, get_db_session, get_tenant_context
+from app.core.deps import YardContext, get_db_session, get_yard_context
 from app.core.errors import AppError
 from app.core.responses import ok
 from app.modules.bots import service
@@ -19,29 +19,29 @@ from app.modules.bots.models import STATUS_CONFIGURED, STATUS_ERROR
 
 router = APIRouter(prefix="/bots", tags=["bots"])
 
-_ADMIN_ROLES = {"platform_admin", "admin", "tenant_admin"}
+_ADMIN_ROLES = {"platform_admin", "admin", "yard_admin"}
 
 
-def _admin(ctx: TenantContext = Depends(get_tenant_context)) -> TenantContext:
+def _admin(ctx: YardContext = Depends(get_yard_context)) -> YardContext:
     if not set(ctx.roles) & _ADMIN_ROLES:
-        raise AppError("FORBIDDEN", "机器人管理需要租户管理员权限。", http_status=403)
+        raise AppError("FORBIDDEN", "机器人管理需要小院管理员权限。", http_status=403)
     return ctx
 
 
 @router.get("", response_model=None)
-def list_bots(ctx: TenantContext = Depends(_admin), db: Session = Depends(get_db_session)):
-    return ok([service.bot_to_out(b) for b in service.list_bots(db, ctx.tenant_id)])
+def list_bots(ctx: YardContext = Depends(_admin), db: Session = Depends(get_db_session)):
+    return ok([service.bot_to_out(b) for b in service.list_bots(db, ctx.yard_id)])
 
 
 @router.post("", response_model=None, status_code=201)
 async def create_bot(
     payload: dict,
-    ctx: TenantContext = Depends(_admin),
+    ctx: YardContext = Depends(_admin),
     db: Session = Depends(get_db_session),
 ):
     bot = service.create_bot(
         db,
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         actor_id=ctx.user_id,
         platform=str(payload.get("platform", "")),
         name=str(payload.get("name", "")),
@@ -59,14 +59,14 @@ async def create_bot(
 async def update_bot(
     bot_id: str,
     payload: dict,
-    ctx: TenantContext = Depends(_admin),
+    ctx: YardContext = Depends(_admin),
     db: Session = Depends(get_db_session),
 ):
-    bot = service.get_bot_or_404(db, ctx.tenant_id, bot_id)
+    bot = service.get_bot_or_404(db, ctx.yard_id, bot_id)
     was_enabled = bot.enabled
     bot = service.update_bot(
         db,
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         actor_id=ctx.user_id,
         bot=bot,
         name=payload.get("name"),
@@ -87,12 +87,12 @@ async def update_bot(
 @router.delete("/{bot_id}", response_model=None)
 async def delete_bot(
     bot_id: str,
-    ctx: TenantContext = Depends(_admin),
+    ctx: YardContext = Depends(_admin),
     db: Session = Depends(get_db_session),
 ):
-    bot = service.get_bot_or_404(db, ctx.tenant_id, bot_id)
+    bot = service.get_bot_or_404(db, ctx.yard_id, bot_id)
     await manager.stop(bot.id)
-    service.delete_bot(db, tenant_id=ctx.tenant_id, actor_id=ctx.user_id, bot=bot)
+    service.delete_bot(db, yard_id=ctx.yard_id, actor_id=ctx.user_id, bot=bot)
     return ok({"deleted": bot_id})
 
 
@@ -100,7 +100,7 @@ async def delete_bot(
 async def test_bot(
     bot_id: str,
     payload: dict | None = None,
-    ctx: TenantContext = Depends(_admin),
+    ctx: YardContext = Depends(_admin),
     db: Session = Depends(get_db_session),
 ):
     """连通性自检（离线可测部分）：飞书查 SDK；企微/钉钉做 TLS HTTP 握手探测。
@@ -110,7 +110,7 @@ async def test_bot(
     """
     from app.modules.bots.feishu_adapter import MISSING_SDK_REASON, feishu_available
 
-    bot = service.get_bot_or_404(db, ctx.tenant_id, bot_id)
+    bot = service.get_bot_or_404(db, ctx.yard_id, bot_id)
     raw_creds = payload.get("credentials") if isinstance(payload, dict) else None
     creds = dict(raw_creds) if raw_creds else service.load_credentials(bot)
     problems: list[str] = []
@@ -160,10 +160,10 @@ async def _ding_reachable(creds: dict) -> list[str]:
 @router.get("/{bot_id}/status", response_model=None)
 def bot_status(
     bot_id: str,
-    ctx: TenantContext = Depends(_admin),
+    ctx: YardContext = Depends(_admin),
     db: Session = Depends(get_db_session),
 ):
-    bot = service.get_bot_or_404(db, ctx.tenant_id, bot_id)
+    bot = service.get_bot_or_404(db, ctx.yard_id, bot_id)
     return ok(
         {
             "status": bot.status,
@@ -178,10 +178,10 @@ def bot_status(
 @router.get("/conversations", response_model=None)
 def list_conversations(
     limit: int = 50,
-    ctx: TenantContext = Depends(_admin),
+    ctx: YardContext = Depends(_admin),
     db: Session = Depends(get_db_session),
 ):
-    rows = service.list_conversations(db, ctx.tenant_id, limit=limit)
+    rows = service.list_conversations(db, ctx.yard_id, limit=limit)
     return ok([service.conv_to_out(c) for c in rows])
 
 
@@ -189,7 +189,7 @@ def list_conversations(
 def conversation_messages(
     conv_id: str,
     limit: int = 30,
-    ctx: TenantContext = Depends(_admin),
+    ctx: YardContext = Depends(_admin),
     db: Session = Depends(get_db_session),
 ):
     """消息账本（sha12 摘要口径，无正文）。"""
@@ -202,7 +202,7 @@ def conversation_messages(
             select(BotMessageLog)
             .where(
                 BotMessageLog.conversation_id == conv_id,
-                BotMessageLog.tenant_id == ctx.tenant_id,
+                BotMessageLog.yard_id == ctx.yard_id,
             )
             .order_by(BotMessageLog.created_at.desc())
             .limit(min(limit, 100))
@@ -228,11 +228,11 @@ def conversation_messages(
 @router.post("/conversations/{conv_id}/approve", response_model=None)
 def approve_conversation(
     conv_id: str,
-    ctx: TenantContext = Depends(_admin),
+    ctx: YardContext = Depends(_admin),
     db: Session = Depends(get_db_session),
 ):
     conv = service.review_conversation(
-        db, tenant_id=ctx.tenant_id, actor_id=ctx.user_id, conv_id=conv_id, approve=True
+        db, yard_id=ctx.yard_id, actor_id=ctx.user_id, conv_id=conv_id, approve=True
     )
     return ok(service.conv_to_out(conv))
 
@@ -240,10 +240,10 @@ def approve_conversation(
 @router.post("/conversations/{conv_id}/revoke", response_model=None)
 def revoke_conversation(
     conv_id: str,
-    ctx: TenantContext = Depends(_admin),
+    ctx: YardContext = Depends(_admin),
     db: Session = Depends(get_db_session),
 ):
     conv = service.review_conversation(
-        db, tenant_id=ctx.tenant_id, actor_id=ctx.user_id, conv_id=conv_id, approve=False
+        db, yard_id=ctx.yard_id, actor_id=ctx.user_id, conv_id=conv_id, approve=False
     )
     return ok(service.conv_to_out(conv))

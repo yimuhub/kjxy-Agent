@@ -6,7 +6,7 @@
 - 农业知识库：文档上传 → 解析 → 切块 → Embedding → 检索 → 引用溯源
 - 统一模型适配接口（`LLMProvider`），业务层不绑定任何模型供应商
 - 专家反馈与候选知识 / Skill 审核队列（受控自进化）
-- 租户隔离、RBAC、审计日志贯穿全链路
+- 小院隔离、RBAC、审计日志贯穿全链路
 
 > 开发基线：《科技小院多智能体自生长开发平台 · 工程开发规范与多 Agent 并行开发手册 V3.0》
 > 首版目标：先交付可验证的农业业务闭环（阶段 A→D），再逐步平台化。
@@ -43,7 +43,7 @@ cp .env.example .env
 
 make up          # 启动 postgres / redis / api / worker / web
 make migrate     # 执行数据库迁移
-make seed-dev    # 创建演示租户、账号与示例知识
+make seed-dev    # 创建演示小院、账号与示例知识
 make test        # 运行后端测试
 ```
 
@@ -58,7 +58,7 @@ make test        # 运行后端测试
 | 用户名 | 密码 | 角色 |
 |---|---|---|
 | `admin` | `admin123` | 平台管理员 |
-| `tenant_admin` | `tenant123` | 演示租户管理员 |
+| `yard_admin` | `yard123` | 演示小院管理员 |
 | `expert` | `expert123` | 农业专家 |
 | `operator` | `operator123` | 科研/生产人员 |
 
@@ -72,7 +72,7 @@ backend/            # FastAPI 后端（模块化单体）
     api/v1/         # REST 接口层（只做鉴权、校验与 service 调用）
     core/           # 配置、错误模型、日志、权限上下文
     db/             # SQLAlchemy 基类、会话、seed
-    modules/        # 领域模块：auth/tenants/tasks/agents/llm/tools/knowledge/evolution/agriculture/policy/audit
+    modules/        # 领域模块：auth/yards/tasks/agents/llm/tools/knowledge/evolution/agriculture/policy/audit
     workers/        # Celery 应用与后台任务入口
   migrations/       # Alembic 迁移脚本
   tests/            # unit / integration / security
@@ -108,7 +108,7 @@ make build         # 构建生产镜像
 ## 安全须知
 
 - 模型密钥只从环境变量读取，绝不写入 Git / 数据库明文 / 日志。
-- 所有租户业务表强制 `tenant_id` 隔离；跨租户访问有自动化负向测试。
+- 所有小院业务表强制 `yard_id` 隔离；跨小院访问有自动化负向测试。
 - 高风险操作（设备控制、正式派单、对外提交）默认需要人工确认。
 - 详见 `docs/security.md`。
 

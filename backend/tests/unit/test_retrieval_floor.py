@@ -14,7 +14,7 @@ import app.modules.evolution.models  # noqa: F401
 import app.modules.knowledge.models  # noqa: F401  (注册 ORM 表，供 create_all 建表)
 import pytest
 from app.core.config import settings
-from app.core.deps import TenantContext, get_db_session, get_tenant_context
+from app.core.deps import YardContext, get_db_session, get_yard_context
 from app.core.errors import (
     AppError,
     app_error_handler,
@@ -32,16 +32,16 @@ from fastapi import FastAPI, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.testclient import TestClient
 
-TENANT_FLOOR = "t-floor-test"
+YARD_FLOOR = "t-floor-test"
 
 # 填充文本：把 chunk 撑长，使短查询（其子串）的 mock 向量分被显著稀释
 _PADDING = "田间水肥管理与病虫害监测记录，农户需按时巡查并做好台账登记。" * 40
 
 
-def _seed_doc(db, title: str, content: str, tenant_id: str = TENANT_FLOOR, source: str = "seed"):
+def _seed_doc(db, title: str, content: str, yard_id: str = YARD_FLOOR, source: str = "seed"):
     provider = MockEmbeddingProvider()
     doc = KnowledgeDocument(
-        tenant_id=tenant_id,
+        yard_id=yard_id,
         title=title,
         storage_key=f"floor-{title}-{id(content)}",
         mime_type="text/plain",
@@ -53,11 +53,11 @@ def _seed_doc(db, title: str, content: str, tenant_id: str = TENANT_FLOOR, sourc
     db.flush()
     db.add(
         KnowledgeChunk(
-            tenant_id=tenant_id,
+            yard_id=yard_id,
             document_id=doc.id,
             chunk_index=0,
             content=content,
-            trust_level="tenant_material",
+            trust_level="yard_material",
             embedding=provider.embed([content])[0],
         )
     )
@@ -79,7 +79,7 @@ def floor_db(db_session):
 
 @pytest.fixture()
 def ctx():
-    return TenantContext(tenant_id=TENANT_FLOOR, user_id="u1", roles=["operator"], request_id="t")
+    return YardContext(yard_id=YARD_FLOOR, user_id="u1", roles=["operator"], request_id="t")
 
 
 def test_coverage_floor_recalls_low_vector_hit(floor_db, ctx, monkeypatch):
@@ -121,15 +121,15 @@ def test_trust_level_mapping_by_source():
     assert _trust_level_for_source("official") == "verified_official"
     assert _trust_level_for_source("政策文件库") == "verified_official"
     assert _trust_level_for_source("上传资料-官方发布") == "verified_official"
-    assert _trust_level_for_source("upload") == "tenant_material"
-    assert _trust_level_for_source("seed") == "tenant_material"
-    assert _trust_level_for_source(None) == "tenant_material"
+    assert _trust_level_for_source("upload") == "yard_material"
+    assert _trust_level_for_source("seed") == "yard_material"
+    assert _trust_level_for_source(None) == "yard_material"
 
 
 def test_parse_applies_trust_level_by_source(db_session, storage_tmp):
     """端到端：expert_correction 文档解析出的 chunk 信任级为 expert_reviewed。"""
-    ctx = TenantContext(
-        tenant_id="tenant-trust", user_id="u-trust", roles=["tenant_admin"], request_id="req"
+    ctx = YardContext(
+        yard_id="yard-trust", user_id="u-trust", roles=["yard_admin"], request_id="req"
     )
     doc = service.upload_document(
         db_session,
@@ -147,16 +147,16 @@ def test_parse_applies_trust_level_by_source(db_session, storage_tmp):
 
 
 # ---------------------------------------------------------------- API 装配
-def _ctx_admin(tenant_id: str, roles: list[str] | None = None) -> TenantContext:
-    return TenantContext(
-        tenant_id=tenant_id,
-        user_id=f"u-{tenant_id}",
-        roles=roles or ["tenant_admin"],
+def _ctx_admin(yard_id: str, roles: list[str] | None = None) -> YardContext:
+    return YardContext(
+        yard_id=yard_id,
+        user_id=f"u-{yard_id}",
+        roles=roles or ["yard_admin"],
         request_id="req-api",
     )
 
 
-def _build_app(db_session, ctx: TenantContext) -> FastAPI:
+def _build_app(db_session, ctx: YardContext) -> FastAPI:
     """knowledge + evolution 路由的最小可测装配（同 test_knowledge_flow 模式）。"""
     from app.modules.evolution.router import router as evolution_router
 
@@ -168,7 +168,7 @@ def _build_app(db_session, ctx: TenantContext) -> FastAPI:
     app.include_router(knowledge_router, prefix="/api/v1")
     app.include_router(evolution_router, prefix="/api/v1")
     app.dependency_overrides[get_db_session] = lambda: db_session
-    app.dependency_overrides[get_tenant_context] = lambda: ctx
+    app.dependency_overrides[get_yard_context] = lambda: ctx
     return app
 
 
@@ -195,7 +195,7 @@ def _upload(db, ctx, filename: str, data: bytes, title: str):
 
 # ---------------------------------------------------------------- reparse 端点（追加任务 A）
 def test_reparse_failed_document_flow(db_session, storage_tmp):
-    ctx = _ctx_admin("tenant-rp")
+    ctx = _ctx_admin("yard-rp")
     # 制造 failed 文档：坏 PDF → 解析失败
     doc = _upload(db_session, ctx, "broken.pdf", b"not a pdf at all", "坏文档")
     parse_document_sync(db_session, doc.id)
@@ -217,7 +217,7 @@ def test_reparse_failed_document_flow(db_session, storage_tmp):
 
 
 def test_reparse_guards(db_session, storage_tmp):
-    ctx = _ctx_admin("tenant-rp2")
+    ctx = _ctx_admin("yard-rp2")
     # ready 文档不可 reparse → 409
     doc = _upload(db_session, ctx, "ok.txt", "正常文本内容，可以直接解析。".encode(), "好文档")
     parse_document_sync(db_session, doc.id)
@@ -233,15 +233,15 @@ def test_reparse_guards(db_session, storage_tmp):
         assert r.status_code == 404
         assert r.json()["error"]["code"] == "DOCUMENT_NOT_FOUND"
 
-    # 跨租户 → 404（不泄露存在性）
-    other = _ctx_admin("tenant-rp-other")
+    # 跨小院 → 404（不泄露存在性）
+    other = _ctx_admin("yard-rp-other")
     app2 = _build_app(db_session, other)
     with TestClient(app2, raise_server_exceptions=False) as client:
         r = client.post(f"/api/v1/knowledge/documents/{doc.id}/reparse")
         assert r.status_code == 404
 
     # 无 knowledge:write 权限（viewer）→ 403
-    viewer = _ctx_admin("tenant-rp2", roles=["viewer"])
+    viewer = _ctx_admin("yard-rp2", roles=["viewer"])
     app3 = _build_app(db_session, viewer)
     with TestClient(app3, raise_server_exceptions=False) as client:
         r = client.post(f"/api/v1/knowledge/documents/{doc.id}/reparse")
@@ -264,7 +264,7 @@ def _make_candidates(db, ctx, n: int) -> list[str]:
         db.commit()
     rows = (
         db.query(KnowledgeCandidate)
-        .filter_by(tenant_id=ctx.tenant_id)
+        .filter_by(yard_id=ctx.yard_id)
         .order_by(KnowledgeCandidate.created_at)
         .all()
     )
@@ -274,7 +274,7 @@ def _make_candidates(db, ctx, n: int) -> list[str]:
 
 
 def test_batch_review_endpoint_flow(db_session, storage_tmp):
-    ctx = _ctx_admin("tenant-batch")
+    ctx = _ctx_admin("yard-batch")
     c1, c2, c3 = _make_candidates(db_session, ctx, 3)
 
     app = _build_app(db_session, ctx)
@@ -318,7 +318,7 @@ def test_batch_review_endpoint_flow(db_session, storage_tmp):
     docs = (
         db_session.query(KnowledgeDocument)
         .filter(
-            KnowledgeDocument.tenant_id == ctx.tenant_id,
+            KnowledgeDocument.yard_id == ctx.yard_id,
             KnowledgeDocument.source == "expert_correction",
         )
         .all()
@@ -329,15 +329,15 @@ def test_batch_review_endpoint_flow(db_session, storage_tmp):
 def test_batch_review_requires_permission(db_session, storage_tmp):
     from app.modules.evolution import service as evo_service
 
-    ctx = _ctx_admin("tenant-batch-perm")
+    ctx = _ctx_admin("yard-batch-perm")
     fb = evo_service.submit_feedback(
         db_session, ctx, corrected_answer="纠错内容占位测试文本", request_id="r"
     )
     db_session.commit()
-    rows = db_session.query(evo_service.KnowledgeCandidate).filter_by(tenant_id=ctx.tenant_id).all()
+    rows = db_session.query(evo_service.KnowledgeCandidate).filter_by(yard_id=ctx.yard_id).all()
     cid = rows[0].id
 
-    viewer = TenantContext(tenant_id=ctx.tenant_id, user_id="v", roles=["viewer"], request_id="req")
+    viewer = YardContext(yard_id=ctx.yard_id, user_id="v", roles=["viewer"], request_id="req")
     app = _build_app(db_session, viewer)
     with TestClient(app, raise_server_exceptions=False) as client:
         r = client.post(
@@ -352,14 +352,12 @@ def test_batch_review_requires_permission(db_session, storage_tmp):
 def test_review_single_exposes_ingest_failure(db_session, storage_tmp, monkeypatch):
     from app.modules.evolution import service as evo_service
 
-    ctx = _ctx_admin("tenant-s1")
+    ctx = _ctx_admin("yard-s1")
     evo_service.submit_feedback(
         db_session, ctx, corrected_answer="更正：晒田应看苗情。", request_id="r"
     )
     db_session.commit()
-    cand = (
-        db_session.query(evo_service.KnowledgeCandidate).filter_by(tenant_id=ctx.tenant_id).first()
-    )
+    cand = db_session.query(evo_service.KnowledgeCandidate).filter_by(yard_id=ctx.yard_id).first()
 
     # 模拟知识库写入失败（如存储盘故障）
     def _boom(*args, **kwargs):
@@ -386,7 +384,7 @@ def test_review_single_exposes_ingest_failure(db_session, storage_tmp, monkeypat
     audit = (
         db_session.query(AuditLog)
         .filter(
-            AuditLog.tenant_id == ctx.tenant_id,
+            AuditLog.yard_id == ctx.yard_id,
             AuditLog.action == "knowledge.ingest_failed",
         )
         .first()

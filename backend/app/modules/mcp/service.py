@@ -4,7 +4,7 @@
 - URL/鉴权头 Fernet 加密入库（llm/supplier_crypto），接口只回掩码，明文/密文
   都绝不出接口；重填 url 即换（无独立轮换端点）且清零失败计数；
 - 保存/换 URL 时 ``check_egress_url`` 第一重校验；每次外呼前 client 内复检；
-- 跨租户与不存在统一 404；同租户重名 409；审计只记 name/transport/fields，
+- 跨小院与不存在统一 404；同小院重名 409；审计只记 name/transport/fields，
   绝不记 URL 与头值。
 """
 
@@ -78,7 +78,7 @@ def server_to_out(srv: McpServer) -> dict[str, Any]:
             headers_masked[str(name)] = "****（无法解密，请重新录入）"
     return {
         "id": srv.id,
-        "tenant_id": srv.tenant_id,
+        "yard_id": srv.yard_id,
         "name": srv.name,
         "url_masked": url_masked,
         "headers_masked": headers_masked,
@@ -109,10 +109,10 @@ def validate_transport(transport: str) -> None:
         )
 
 
-def get_server_or_404(db: Session, tenant_id: str, server_id: str) -> McpServer:
-    """跨租户与不存在统一 404（不泄露其他租户服务器是否存在）。"""
+def get_server_or_404(db: Session, yard_id: str, server_id: str) -> McpServer:
+    """跨小院与不存在统一 404（不泄露其他小院服务器是否存在）。"""
     srv = db.get(McpServer, server_id)
-    if srv is None or srv.tenant_id != tenant_id:
+    if srv is None or srv.yard_id != yard_id:
         raise AppError("NOT_FOUND", "MCP 服务器不存在。", http_status=404)
     return srv
 
@@ -184,7 +184,7 @@ def test_connection(db: Session, srv: McpServer, *, request_id: str) -> dict[str
     tool_bridge.record_connection_success(db, srv)
     log_audit(
         db,
-        tenant_id=srv.tenant_id,
+        yard_id=srv.yard_id,
         actor_id=None,
         action="mcp_server_test",
         resource_type="mcp_server",
@@ -201,11 +201,11 @@ def test_connection(db: Session, srv: McpServer, *, request_id: str) -> dict[str
     }
 
 
-def list_tenant_servers(db: Session, tenant_id: str) -> list[McpServer]:
+def list_yard_servers(db: Session, yard_id: str) -> list[McpServer]:
     return list(
         db.scalars(
             select(McpServer)
-            .where(McpServer.tenant_id == tenant_id)
+            .where(McpServer.yard_id == yard_id)
             .order_by(McpServer.created_at.desc())
         )
     )

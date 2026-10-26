@@ -18,8 +18,8 @@
   - 证据：CI 步骤 "Migrations on clean database"（`alembic upgrade head` → `downgrade -1` → `upgrade head`，PG/pgvector 镜像）；本机 SQLite 全量 0001–0008 可执行
 - [x] ✅ 未登录用户无法访问受保护接口
   - 证据：`tests/security/` 匿名访问负向用例（401/403 断言）
-- [x] ✅ 租户 A 无法通过替换 ID 访问租户 B 的文档、任务、反馈、知识片段、文件
-  - 证据：`tests/security/` 跨租户越权负向用例（文档/任务/反馈/知识/文件五类 ID 替换）；repository 层强制 tenant_id 过滤
+- [x] ✅ 小院 A 无法通过替换 ID 访问小院 B 的文档、任务、反馈、知识片段、文件
+  - 证据：`tests/security/` 跨小院越权负向用例（文档/任务/反馈/知识/文件五类 ID 替换）；repository 层强制 yard_id 过滤
 - [x] ✅ 上传文档有清晰处理状态；失败时有可追踪原因
   - 证据：knowledge 模块 `queued/processing/ready/failed` 状态流转测试 + 失败原因落 `error_message`
 - [x] ✅ 问答回答展示实际检索到的来源；无证据时不伪造引用
@@ -47,14 +47,14 @@
 2. 集成测试：API + 临时库、迁移、任务队列 ✅（sqlite 内存库；PG 路径由 CI 迁移步骤覆盖）
 3. 契约测试：OpenAPI 与实现一致 ✅（`make contract-check` + CI 漂移检查，`backend/scripts/generate_openapi.py` 自动生成）
 4. 端到端：登录→上传→问答→引用→反馈→审核 ✅（integration tests）
-5. 安全测试：跨租户、越权、提示注入、文件上传、密钥泄露 ✅（tests/security/）
-6. AI 评估：检索召回、来源正确率、拒答恰当性、跨租户泄漏（必须为 0） ⚠️ 评估 runner 就位（`app/eval/`），**专家评估集（≥50 条）尚未建立**，基线报告缺失
+5. 安全测试：跨小院、越权、提示注入、文件上传、密钥泄露 ✅（tests/security/）
+6. AI 评估：检索召回、来源正确率、拒答恰当性、跨小院泄漏（必须为 0） ⚠️ 评估 runner 就位（`app/eval/`），**专家评估集（≥50 条）尚未建立**，基线报告缺失
 7. 部署恢复测试：干净启动、迁移、备份、恢复、升级回滚 ⚠️ 迁移回环已自动化；**备份恢复演练未执行**
 
 ## 发布准入
 
 - [ ] 迁移验证通过（CI 通过后可勾选）
-- [ ] 高风险权限/租户隔离用例通过（本地已绿，CI 首跑确认）
+- [ ] 高风险权限/小院隔离用例通过（本地已绿，CI 首跑确认）
 - [ ] P0 主流程 E2E 通过（本地已绿，CI 首跑确认）
 - [ ] 无未处理阻断级安全问题（2026-10-16 审计 0 阻断项；platform_admin 偏差已 ADR-0002 记录）
 - [ ] 配置变更和回滚步骤可执行 ⚠️（手册在 operations.md，回滚含"数据库不自动反向"的明确说明）
@@ -71,7 +71,7 @@
 | 6 | platform_admin / 供应商密钥边界 ADR | ✅ docs/adr/0002（生产 fail-fast）、0003（SSRF 私有网段策略）——实文件已随 2026-10-17 整改推送 |
 | 7 | 审批 TTL + 复用上限 | ✅ 0007 迁移 + service + 6 用例 |
 | 8 | 检索 pgvector 索引路径 + 截断指标 | ✅ 0008 HNSW 迁移 + search() DB 侧排序 + 截断日志 |
-| 9 | 专家评估集 ≥50 条 + 基线报告 | ⚠️ qa_eval_v1（≥20 用例，含跨租户/注入类目）已入 CI；≥50 条专家标注版待试点数据 |
+| 9 | 专家评估集 ≥50 条 + 基线报告 | ⚠️ qa_eval_v1（≥20 用例，含跨小院/注入类目）已入 CI；≥50 条专家标注版待试点数据 |
 | 10 | 备份恢复演练 + Worker 心跳告警 | ✅ 心跳（Redis 键 + /health/worker + compose healthcheck + beat）与 ALERT_WEBHOOK_URL 告警通道已实现；⚠️ 恢复演练仍未执行 |
 | 11 | 生产接管链（默认密钥/admin 白名单/seed 弱口令） | ✅ ADR-0002：启动 fail-fast + bootstrap 审计 + seed 生产守卫 + 注册保留名/密码策略（见 CHANGELOG） |
 | 12 | 部署链路必败点（web 构建/nginx 1MB/备份空卷/镜像构建顺序/生产 redis 断连） | ✅ 全部修复（compose 实际容器启动验证待有 Docker 环境执行一次留痕） |

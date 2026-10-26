@@ -2,14 +2,14 @@
 
 > 总指令：你是本平台的独立开发 Agent。严格遵守《工程开发规范与多 Agent 并行开发手册 V3.0》。
 > 只修改分配的主责目录；需改他模块先提接口变更。先读现有代码、契约与测试；使用已定义的 Pydantic/OpenAPI Schema；接口未实现时用 Mock。
-> 必须含测试、错误处理、日志、权限检查与类型定义；数据库变更提交 migration；不写真实密钥；不执行模型生成的任意代码；不绕过租户边界与人工审批。
+> 必须含测试、错误处理、日志、权限检查与类型定义；数据库变更提交 migration；不写真实密钥；不执行模型生成的任意代码；不绕过小院边界与人工审批。
 > 提交前运行验收命令并真实报告结果；未执行不得标记通过。
 
 ## TASK-001 项目骨架、公共配置与 CI（技术负责人）✅ 已完成
 
-## TASK-002 认证、成员与租户权限
+## TASK-002 认证、成员与小院权限
 
-主责：`backend/app/modules/auth/`、`tenants/`。交付登录/刷新/注销/当前用户、RBAC、租户上下文、成员管理、越权负向测试。
+主责：`backend/app/modules/auth/`、`yards/`。交付登录/刷新/注销/当前用户、RBAC、小院上下文、成员管理、越权负向测试。
 
 ## TASK-003 任务状态机、事件与 Worker
 
@@ -21,7 +21,7 @@
 
 ## TASK-005 知识文件与 RAG
 
-主责：`backend/app/modules/knowledge/`。交付上传/解析/切块/Embedding/检索、租户过滤、`knowledge.search` 工具。
+主责：`backend/app/modules/knowledge/`。交付上传/解析/切块/Embedding/检索、小院过滤、`knowledge.search` 工具。
 
 ## TASK-006 Vue 前端基础与首版核心页面
 

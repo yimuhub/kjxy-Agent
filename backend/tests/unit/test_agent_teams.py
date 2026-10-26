@@ -2,7 +2,7 @@
 
 覆盖（纯服务层，不起 HTTP）：
 - members 规整：默认值/字段拒绝/数量 2..8 边界；
-- create_team：同租户重名 409、跨租户成员 404、成员顺序与 critic 标记落库；
+- create_team：同小院重名 409、跨小院成员 404、成员顺序与 critic 标记落库；
 - update_team/delete_team 基本语义；
 - 接力拼接纯函数 build_member_question（前序段格式、截断、critic 指令）；
 - 答案拼接 compose_answer（末位 critic / critic 在中间并入 / 无 critic）；
@@ -10,49 +10,47 @@
 """
 
 import pytest
-from app.core.deps import TenantContext
+from app.core.deps import YardContext
 from app.core.errors import AppError
 from app.modules.agents import declarative
 from app.modules.agents.declarative import DeclarativeAgentCreate
 from app.modules.agents.teams import service
 from app.modules.agents.teams.models import AgentTeam
-from app.modules.tenants.repository import create_tenant
+from app.modules.yards.repository import create_yard
 
 REQ_ID = "req-unit-teams"
 
 
-def _ctx(tenant_id: str, user_id: str = "u-team") -> TenantContext:
-    return TenantContext(
-        tenant_id=tenant_id, user_id=user_id, roles=["tenant_admin"], request_id=REQ_ID
-    )
+def _ctx(yard_id: str, user_id: str = "u-team") -> YardContext:
+    return YardContext(yard_id=yard_id, user_id=user_id, roles=["yard_admin"], request_id=REQ_ID)
 
 
-def _mk_agent(db, tenant_id: str, code: str, name: str = "助手") -> str:
+def _mk_agent(db, yard_id: str, code: str, name: str = "助手") -> str:
     """服务层直建已发布声明式 Agent（绕开 HTTP；本模块测的不是发布链路）。"""
     req = DeclarativeAgentCreate(
         agent_code=code,
         name=name,
         persona_prompt="你是测试助手。",
         task_prompt_template="请回答：{{question}}",
-        knowledge_scopes=["tenant"],
+        knowledge_scopes=["yard"],
     )
     agent = declarative.create_agent(
-        db, tenant_id=tenant_id, actor_id="u-team", req=req, request_id=REQ_ID
+        db, yard_id=yard_id, actor_id="u-team", req=req, request_id=REQ_ID
     )
     db.commit()
     return agent.id
 
 
 @pytest.fixture()
-def tenant(db_session):
-    t = create_tenant(db_session, name="班组单测租户")
+def yard(db_session):
+    t = create_yard(db_session, name="班组单测小院")
     db_session.commit()
     return t
 
 
 @pytest.fixture()
 def other(db_session):
-    t = create_tenant(db_session, name="隔壁单测租户")
+    t = create_yard(db_session, name="隔壁单测小院")
     db_session.commit()
     return t
 
@@ -95,7 +93,7 @@ def test_parse_members_field_rejections():
     with pytest.raises(AppError) as e2:
         service.parse_members(
             [
-                {"agent_id": "a", "role_name": "r", "tenant_id": "hack"},
+                {"agent_id": "a", "role_name": "r", "yard_id": "hack"},
                 {"agent_id": "b", "role_name": "r"},
             ]
         )
@@ -107,16 +105,16 @@ def test_parse_members_field_rejections():
 # ---------------------------------------------------------------------------
 
 
-def test_create_team_validates_agents_and_stores_order(db_session, tenant, other):
-    a1 = _mk_agent(db_session, tenant.id, "t_a1", "解读员")
-    a2 = _mk_agent(db_session, tenant.id, "t_a2", "审核员")
+def test_create_team_validates_agents_and_stores_order(db_session, yard, other):
+    a1 = _mk_agent(db_session, yard.id, "t_a1", "解读员")
+    a2 = _mk_agent(db_session, yard.id, "t_a2", "审核员")
     foreign = _mk_agent(db_session, other.id, "t_foreign", "外人")
 
-    # 跨租户成员 → 404（防枚举，不泄露"存在但无权"）
+    # 跨小院成员 → 404（防枚举，不泄露"存在但无权"）
     with pytest.raises(AppError) as e:
         service.create_team(
             db_session,
-            tenant_id=tenant.id,
+            yard_id=yard.id,
             actor_id="u-team",
             name="混队",
             members=[{"agent_id": a1, "role_name": "r1"}, {"agent_id": foreign, "role_name": "r2"}],
@@ -127,7 +125,7 @@ def test_create_team_validates_agents_and_stores_order(db_session, tenant, other
 
     team = service.create_team(
         db_session,
-        tenant_id=tenant.id,
+        yard_id=yard.id,
         actor_id="u-team",
         name="棚室管家",
         members=[
@@ -140,11 +138,11 @@ def test_create_team_validates_agents_and_stores_order(db_session, tenant, other
     assert [m["role_name"] for m in team.members_json] == ["解读员", "审核员"]
     assert team.members_json[1]["is_critic"] is True
 
-    # 同租户重名 → 409
+    # 同小院重名 → 409
     with pytest.raises(AppError) as dup:
         service.create_team(
             db_session,
-            tenant_id=tenant.id,
+            yard_id=yard.id,
             actor_id="u-team",
             name="棚室管家",
             members=[{"agent_id": a1, "role_name": "x"}, {"agent_id": a2, "role_name": "y"}],
@@ -152,18 +150,19 @@ def test_create_team_validates_agents_and_stores_order(db_session, tenant, other
         )
     assert dup.value.code == "TEAM_NAME_CONFLICT" and dup.value.http_status == 409
 
-    # 他租户不可见 → 404
+    # 他小院不可见 → 404
     with pytest.raises(AppError) as cross:
-        service.get_team(db_session, tenant_id=other.id, team_id=team.id)
+        service.get_team(db_session, yard_id=other.id, team_id=team.id)
     assert cross.value.code == "TEAM_NOT_FOUND"
 
 
-def test_update_and_delete_team(db_session, tenant):
-    a1 = _mk_agent(db_session, tenant.id, "t_u1")
-    a2 = _mk_agent(db_session, tenant.id, "t_u2")
+def test_update_and_delete_team(db_session, yard):
+    # 同小院助手名唯一（uq_yard_agents_yard_name）：两名必须不同
+    a1 = _mk_agent(db_session, yard.id, "t_u1", "助手一")
+    a2 = _mk_agent(db_session, yard.id, "t_u2", "助手二")
     team = service.create_team(
         db_session,
-        tenant_id=tenant.id,
+        yard_id=yard.id,
         actor_id="u-team",
         name="编辑队",
         members=[{"agent_id": a1, "role_name": "r1"}, {"agent_id": a2, "role_name": "r2"}],
@@ -172,7 +171,7 @@ def test_update_and_delete_team(db_session, tenant):
     db_session.commit()
     updated = service.update_team(
         db_session,
-        tenant_id=tenant.id,
+        yard_id=yard.id,
         actor_id="u-team",
         team_id=team.id,
         fields={"enabled": False, "description": "停用演示"},
@@ -185,7 +184,7 @@ def test_update_and_delete_team(db_session, tenant):
     with pytest.raises(AppError) as bad:
         service.update_team(
             db_session,
-            tenant_id=tenant.id,
+            yard_id=yard.id,
             actor_id="u-team",
             team_id=team.id,
             fields={"members": [{"agent_id": a1, "role_name": "r1"}]},
@@ -196,7 +195,7 @@ def test_update_and_delete_team(db_session, tenant):
     deleted_id = team.id
     service.delete_team(
         db_session,
-        tenant_id=tenant.id,
+        yard_id=yard.id,
         actor_id="u-team",
         team_id=team.id,
         request_id=REQ_ID,

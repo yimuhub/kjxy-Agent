@@ -3,9 +3,9 @@
 职责（task_type=agent_factory，经 tasks.handlers 注册，Celery/本机线程通用）：
 1. planning：调 LLM 产蓝图 JSON → 解析（容忍围栏）；任何失败落内置启发式
    兜底，generated_by 诚实标注 llm|heuristic；agent_code 统一加 run 短后缀防撞码。
-2. generating：每个蓝图角色用 knowledge.service.search 以建议问题探测本租户
+2. generating：每个蓝图角色用 knowledge.service.search 以建议问题探测本小院
    知识库覆盖（knowledge_coverage / needs_knowledge / smoke_questions），
-   并创建 TenantAgent 草稿（created_from=factory，risk 走 assess_risk）。
+   并创建 YardAgent 草稿（created_from=factory，risk 走 assess_risk）。
 3. completed：蓝图（含 agent_id/coverage/needs_knowledge/smoke_questions）回写
    factory_runs.blueprint_json；任何异常 → run 置 failed + error，绝不伪报。
 
@@ -22,7 +22,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.core.deps import TenantContext
+from app.core.deps import YardContext
 from app.core.errors import AppError
 from app.core.logging import get_logger
 from app.modules.agents import declarative
@@ -112,7 +112,7 @@ def _resolve_blueprint_items(
         request = LLMRequest(
             messages=[ChatMessage(role=m["role"], content=m["content"]) for m in messages],
             metadata=LLMMetadata(
-                tenant_id=run.tenant_id,
+                yard_id=run.yard_id,
                 task_id=task_id,
                 request_id=request_id,
                 purpose="factory",  # W4 观测：工厂蓝图调用打标，agent_ref=工厂 run id
@@ -129,7 +129,7 @@ def _resolve_blueprint_items(
         generated_by = GENERATED_BY_LLM
         rs.record_step(
             db,
-            tenant_id=run.tenant_id,
+            yard_id=run.yard_id,
             run_id=run.id,
             step_type=rs.STEP_LLM,
             status=rs.STEP_OK,
@@ -147,7 +147,7 @@ def _resolve_blueprint_items(
         # 诚实兜底：LLM 不可用或输出不可解析 → 内置启发式蓝图（不伪报为 llm）
         rs.record_step(
             db,
-            tenant_id=run.tenant_id,
+            yard_id=run.yard_id,
             run_id=run.id,
             step_type=rs.STEP_LLM,
             status=rs.STEP_ERROR,
@@ -167,9 +167,9 @@ def _resolve_blueprint_items(
 
 
 def _probe_coverage(
-    db: Session, tenant_id: str, created_by: str, questions: list[str], request_id: str
+    db: Session, yard_id: str, created_by: str, questions: list[str], request_id: str
 ) -> tuple[int, list[str]]:
-    """以建议问题探测租户知识库覆盖：返回 (最大命中数, 实际探测的问题)。
+    """以建议问题探测小院知识库覆盖：返回 (最大命中数, 实际探测的问题)。
 
     检索失败按 0 命中处理（needs_knowledge 宁严勿松），并诚实记日志。
     """
@@ -178,10 +178,10 @@ def _probe_coverage(
     probes = [q for q in questions if str(q).strip()][:COVERAGE_MAX_PROBES]
     if not probes:
         return 0, []
-    ctx = TenantContext(
-        tenant_id=tenant_id,
+    ctx = YardContext(
+        yard_id=yard_id,
         user_id=created_by or "factory",
-        roles=["tenant_admin"],
+        roles=["yard_admin"],
         request_id=request_id,
     )
     coverage = 0
@@ -190,15 +190,15 @@ def _probe_coverage(
             hits = knowledge_search(db, ctx, str(q), COVERAGE_TOP_K)
             coverage = max(coverage, len(hits))
         except Exception as e:
-            log.warning("factory coverage probe failed (t=%s): %s", tenant_id, e)
+            log.warning("factory coverage probe failed (t=%s): %s", yard_id, e)
             coverage = max(coverage, 0)
     return coverage, probes
 
 
 def _create_draft(
     db: Session, *, run: FactoryRun, item: dict[str, Any], actor_id: str, request_id: str
-) -> declarative.TenantAgent:
-    """蓝图角色 → TenantAgent 草稿（created_from=factory；同码冲突自动升版本重试）。"""
+) -> declarative.YardAgent:
+    """蓝图角色 → YardAgent 草稿（created_from=factory；同码冲突自动升版本重试）。"""
     last_error: AppError | None = None
     for patch in range(3):
         req = DeclarativeAgentCreate(
@@ -215,7 +215,7 @@ def _create_draft(
         try:
             return declarative.create_agent(
                 db,
-                tenant_id=run.tenant_id,
+                yard_id=run.yard_id,
                 actor_id=actor_id,
                 req=req,
                 request_id=request_id,
@@ -248,7 +248,7 @@ def run_agent_factory(input_data: dict[str, Any], context: dict[str, Any]) -> di
     db = _get_session_factory()()
     try:
         run = db.get(FactoryRun, run_id)
-        if run is None or run.tenant_id != context.get("tenant_id"):
+        if run is None or run.yard_id != context.get("yard_id"):
             raise AppError("FACTORY_RUN_NOT_FOUND", f"工厂运行不存在：{run_id}。", http_status=404)
         if run.status not in _RERUN_OK:
             raise AppError(
@@ -287,7 +287,7 @@ def run_agent_factory(input_data: dict[str, Any], context: dict[str, Any]) -> di
             progress=0.35,
         )
 
-        # -- 里程碑 2：generating（覆盖探测 + TenantAgent 草稿装配）----------
+        # -- 里程碑 2：generating（覆盖探测 + YardAgent 草稿装配）----------
         _milestone(
             db,
             run,
@@ -300,7 +300,7 @@ def run_agent_factory(input_data: dict[str, Any], context: dict[str, Any]) -> di
         actor_id = run.created_by or str(context.get("actor_id") or "factory")
         for item in items:
             coverage, probes = _probe_coverage(
-                db, run.tenant_id, actor_id, list(item.get("suggested_questions") or []), request_id
+                db, run.yard_id, actor_id, list(item.get("suggested_questions") or []), request_id
             )
             agent = _create_draft(db, run=run, item=item, actor_id=actor_id, request_id=request_id)
             item["knowledge_coverage"] = coverage
@@ -319,7 +319,7 @@ def run_agent_factory(input_data: dict[str, Any], context: dict[str, Any]) -> di
 
         rs.record_step(
             db,
-            tenant_id=run.tenant_id,
+            yard_id=run.yard_id,
             run_id=run.id,
             step_type=rs.STEP_FINAL,
             status=rs.STEP_OK,
@@ -342,7 +342,7 @@ def run_agent_factory(input_data: dict[str, Any], context: dict[str, Any]) -> di
         )
         log_audit(
             db,
-            tenant_id=run.tenant_id,
+            yard_id=run.yard_id,
             actor_id=actor_id,
             action="factory_run_completed",
             resource_type="factory_run",
@@ -381,7 +381,7 @@ def run_agent_factory(input_data: dict[str, Any], context: dict[str, Any]) -> di
         try:
             db.rollback()
             run = db.get(FactoryRun, run_id)
-            if run is not None and run.tenant_id == context.get("tenant_id"):
+            if run is not None and run.yard_id == context.get("yard_id"):
                 run.status = STATUS_FAILED
                 run.error = str(detail)[:2000]
                 # checkpoint：工厂 run 失败终态步（SSE 据此收流）
@@ -389,7 +389,7 @@ def run_agent_factory(input_data: dict[str, Any], context: dict[str, Any]) -> di
 
                 rs.record_step(
                     db,
-                    tenant_id=run.tenant_id,
+                    yard_id=run.yard_id,
                     run_id=run.id,
                     step_type=rs.STEP_FINAL,
                     status=rs.STEP_ERROR,
@@ -398,7 +398,7 @@ def run_agent_factory(input_data: dict[str, Any], context: dict[str, Any]) -> di
                 )
             _milestone(
                 db,
-                run if run is not None and run.tenant_id == context.get("tenant_id") else None,
+                run if run is not None and run.yard_id == context.get("yard_id") else None,
                 task_id,
                 "failed",
                 f"工厂运行失败：{detail}",

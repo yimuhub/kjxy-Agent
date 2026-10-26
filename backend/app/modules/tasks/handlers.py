@@ -3,7 +3,7 @@
 Handler 签名：``handler(input_data: dict, context: dict) -> dict``
 
 - input_data：任务输入（Task.input_json["data"]）。
-- context：{"task_id", "tenant_id", "actor_id", "request_id"}。
+- context：{"task_id", "yard_id", "actor_id", "request_id"}。
 - 返回：写入 Task.result_json 的结果字典。
 
 其他模块用 @register_handler("my.task_type") 注册自己的处理器。

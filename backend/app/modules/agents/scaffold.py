@@ -7,11 +7,11 @@
         --name <中文名> --desc <描述> [--tools knowledge.search]
 
 一键生成（全部符合现有 Agent 规范：Pydantic v2 schemas、无状态 service
-纯函数、ToolRegistry 工具声明、租户隔离、Fake LLM 可演示）：
+纯函数、ToolRegistry 工具声明、小院隔离、Fake LLM 可演示）：
 
 - ``app/modules/<code>/__init__.py``：导出 agent 实例（import 触发自注册）
 - ``app/modules/<code>/schemas.py``：``<Class>Input``/``<Class>Output``
-- ``app/modules/<code>/service.py``：纯函数 ``run_<code>(db, tenant_id, user_id, input) -> dict``，
+- ``app/modules/<code>/service.py``：纯函数 ``run_<code>(db, yard_id, user_id, input) -> dict``，
   默认走 knowledge.search 检索 + Fake LLM 拼装结果，TODO 处替换真实业务逻辑
 - ``app/modules/<code>/agent.py``：Agent 类，向 global_registry 自注册，
   ``allowed_tools`` 取自 ``--tools`` 参数
@@ -93,8 +93,8 @@ class @@CLASS@@Output(BaseModel):
 
 _TPL_SERVICE = '''"""@@NAME@@业务逻辑：无状态纯函数。
 
-默认实现：knowledge.search 检索租户知识库 + Fake LLM 拼装回答，
-不调用真实 LLM、不建表、不写 migration，所有查询强制带 tenant_id 隔离。
+默认实现：knowledge.search 检索小院知识库 + Fake LLM 拼装回答，
+不调用真实 LLM、不建表、不写 migration，所有查询强制带 yard_id 隔离。
 
 TODO：把 run_@@CODE@@ 内的检索/拼装替换为真实业务逻辑
 （输入解析、领域规则、真实 LLM 调用走 app.modules.llm.service.complete_with_logging）。
@@ -108,7 +108,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.core.deps import TenantContext
+from app.core.deps import YardContext
 from app.core.logging import get_logger
 from app.modules.@@CODE@@.schemas import @@CLASS@@Input, @@CLASS@@Output
 from app.modules.knowledge.service import search as knowledge_search
@@ -122,10 +122,10 @@ DEFAULT_TOOLS = @@TOOLS@@
 
 
 def _retrieve_evidence(
-    db: Session, tenant_id: str, user_id: str, query: str, top_k: int
+    db: Session, yard_id: str, user_id: str, query: str, top_k: int
 ) -> tuple[list[dict[str, Any]], list[str]]:
-    """租户知识库检索。TODO：按业务替换检索策略 / 数据源。"""
-    ctx = TenantContext(tenant_id=tenant_id, user_id=user_id, roles=[], request_id="")
+    """小院知识库检索。TODO：按业务替换检索策略 / 数据源。"""
+    ctx = YardContext(yard_id=yard_id, user_id=user_id, roles=[], request_id="")
     warnings: list[str] = []
     try:
         hits = knowledge_search(db, ctx, query, top_k=top_k)
@@ -180,14 +180,14 @@ def _fake_llm_answer(question: str, evidence: list[dict[str, Any]]) -> str:
 
 
 def run_@@CODE@@(
-    db: Session, tenant_id: str, user_id: str, input_data: dict[str, Any]
+    db: Session, yard_id: str, user_id: str, input_data: dict[str, Any]
 ) -> dict[str, Any]:
     """@@NAME@@纯函数入口。TODO：替换为真实业务逻辑。
 
     参数 input_data 须符合 @@CLASS@@Input；返回 dict 符合 @@CLASS@@Output。
     """
     parsed = @@CLASS@@Input(**(input_data or {}))
-    evidence, warnings = _retrieve_evidence(db, tenant_id, user_id, parsed.query, parsed.top_k)
+    evidence, warnings = _retrieve_evidence(db, yard_id, user_id, parsed.query, parsed.top_k)
     if not evidence:
         warnings.append("未检索到相关知识，回答为模板拼装，请核验。")
     answer = _fake_llm_answer(parsed.query, evidence)
@@ -202,7 +202,7 @@ def run_@@CODE@@(
 _TPL_AGENT = '''"""@@NAME@@（code=@@CODE@@，version=@@VERSION@@）。
 
 统一运行接口：async run(input_data, context) -> AgentResult。
-db 会话从 context.metadata["db"] 获取；所有知识查询经 service 层带 tenant_id 隔离。
+db 会话从 context.metadata["db"] 获取；所有知识查询经 service 层带 yard_id 隔离。
 
 本文件由脚手架 app.modules.agents.scaffold 自动生成：
 - import 时先做"配置式注册"（register_agent_definition 登记元数据，
@@ -237,7 +237,7 @@ def _ensure_definition() -> dict:
             description="@@DESC@@",
             version="@@VERSION@@",
             allowed_tools=@@TOOLS@@,
-            allowed_knowledge_scopes=["tenant"],
+            allowed_knowledge_scopes=["yard"],
         )
     return definition
 
@@ -264,7 +264,7 @@ class @@CLASS@@Agent:
         try:
             raw = run_@@CODE@@(
                 db,
-                tenant_id=context.tenant_id,
+                yard_id=context.yard_id,
                 user_id=context.actor_id,
                 input_data=input_data or {},
             )
@@ -315,7 +315,7 @@ from pydantic import ValidationError
 def _make_context(db_session) -> AgentContext:
     return AgentContext(
         task_id="task-test",
-        tenant_id="tenant-test",
+        yard_id="yard-test",
         actor_id="user-test",
         request_id="req-test",
         allowed_tools=@@TOOLS@@,
@@ -332,7 +332,7 @@ def test_input_schema_validation():
 
 
 def test_service_runs(db_session):
-    result = run_@@CODE@@(db_session, "tenant-test", "user-test", {"query": "示例问题"})
+    result = run_@@CODE@@(db_session, "yard-test", "user-test", {"query": "示例问题"})
     assert isinstance(result, dict)
     assert "answer" in result
     assert "示例问题" in result["answer"]  # Fake LLM 回显问题摘要
@@ -377,7 +377,7 @@ def _definition_entry(mapping: dict[str, str]) -> str:
         '        "input_schema_ref": "",\n'
         '        "output_schema_ref": "",\n'
         f'        "allowed_tools": {mapping["@@TOOLS@@"]},\n'
-        '        "allowed_knowledge_scopes": ["tenant"],\n'
+        '        "allowed_knowledge_scopes": ["yard"],\n'
         '        "risk_level": "low",\n'
         '        "max_steps": 8,\n'
         '        "timeout_seconds": 90,\n'

@@ -1,13 +1,13 @@
-"""Skill 灰度发布单元测试：名单命中/未命中、百分比边界、promote/halt、租户隔离。"""
+"""Skill 灰度发布单元测试：名单命中/未命中、百分比边界、promote/halt、小院隔离。"""
 
 import pytest
-from app.core.deps import TenantContext
+from app.core.deps import YardContext
 from app.core.errors import AppError
 from app.modules.evolution import rollout, service
 
 
-def _ctx(tenant="t1", roles=("expert",)) -> TenantContext:
-    return TenantContext(tenant_id=tenant, user_id="u1", roles=list(roles), request_id="req_test")
+def _ctx(yard="t1", roles=("expert",)) -> YardContext:
+    return YardContext(yard_id=yard, user_id="u1", roles=list(roles), request_id="req_test")
 
 
 def _publish(db, ctx, code="gray_skill", version="1.0.0"):
@@ -34,14 +34,14 @@ def test_allowlist_hit_and_miss(db_session):
         ctx,
         v1.id,
         rollout_version="2.0.0",
-        strategy="tenant_allowlist",
-        tenant_ids=["t1", "t9"],
+        strategy="yard_allowlist",
+        yard_ids=["t1", "t9"],
     )
     assert rollout.resolve_skill_version(db_session, "t1", "gray_skill") == "2.0.0"
     assert rollout.resolve_skill_version(db_session, "t2", "gray_skill") == "1.0.0"
 
 
-def test_allowlist_empty_tenant_ids_rejected(db_session):
+def test_allowlist_empty_yard_ids_rejected(db_session):
     ctx, v1, v2 = _setup_two_versions(db_session)
     with pytest.raises(AppError) as e:
         rollout.set_rollout(
@@ -49,8 +49,8 @@ def test_allowlist_empty_tenant_ids_rejected(db_session):
             ctx,
             v1.id,
             rollout_version="2.0.0",
-            strategy="tenant_allowlist",
-            tenant_ids=[],
+            strategy="yard_allowlist",
+            yard_ids=[],
         )
     assert e.value.code == "INVALID_ROLLOUT_STRATEGY"
 
@@ -121,7 +121,7 @@ def test_percentage_zero_never_hits(db_session):
         strategy="percentage",
         percentage=0,
     )
-    for tid in ("t1", "t2", "t3", "some-tenant", "another-one"):
+    for tid in ("t1", "t2", "t3", "some-yard", "another-one"):
         assert rollout.resolve_skill_version(db_session, tid, "gray_skill") == "1.0.0"
 
 
@@ -135,7 +135,7 @@ def test_percentage_hundred_always_hits(db_session):
         strategy="percentage",
         percentage=100,
     )
-    for tid in ("t1", "t2", "t3", "some-tenant", "another-one"):
+    for tid in ("t1", "t2", "t3", "some-yard", "another-one"):
         assert rollout.resolve_skill_version(db_session, tid, "gray_skill") == "2.0.0"
 
 
@@ -151,10 +151,10 @@ def test_percentage_partial_is_stable_and_deterministic(db_session):
     )
     results = {
         tid: rollout.resolve_skill_version(db_session, tid, "gray_skill")
-        for tid in (f"tenant-{i}" for i in range(40))
+        for tid in (f"yard-{i}" for i in range(40))
     }
     assert set(results.values()) <= {"1.0.0", "2.0.0"}
-    # 同一租户多次解析结果一致
+    # 同一小院多次解析结果一致
     for tid, ver in results.items():
         assert rollout.resolve_skill_version(db_session, tid, "gray_skill") == ver
 
@@ -208,8 +208,8 @@ def test_promote_makes_rollout_full(db_session):
         ctx,
         v2.id,
         rollout_version="3.0.0",
-        strategy="tenant_allowlist",
-        tenant_ids=["t1"],
+        strategy="yard_allowlist",
+        yard_ids=["t1"],
     )
     assert r2.id != r.id
     assert r2.status == "active"
@@ -255,11 +255,11 @@ def test_get_rollout_none_when_absent(db_session):
     assert rollout.get_rollout(db_session, ctx, v1.id) is None
 
 
-# ---------------------------------------------------------------- 租户隔离
+# ---------------------------------------------------------------- 小院隔离
 def test_rollout_write_isolation(db_session):
-    """t2 不能在 t1 的 Skill 上设置灰度（写操作按配置者租户隔离）。"""
-    ctx1 = _ctx(tenant="t1")
-    ctx2 = _ctx(tenant="t2")
+    """t2 不能在 t1 的 Skill 上设置灰度（写操作按配置者小院隔离）。"""
+    ctx1 = _ctx(yard="t1")
+    ctx2 = _ctx(yard="t2")
     v1 = _publish(db_session, ctx1, version="1.0.0")
     _publish(db_session, ctx1, version="2.0.0")
     with pytest.raises(AppError) as e:
@@ -279,9 +279,9 @@ def test_rollout_write_isolation(db_session):
 
 
 def test_rollout_owner_preference(db_session):
-    """同一 skill_code 多租户各配灰度时，解析优先用请求租户自己的。"""
-    ctx1 = _ctx(tenant="t1")
-    ctx2 = _ctx(tenant="t2")
+    """同一 skill_code 多小院各配灰度时，解析优先用请求小院自己的。"""
+    ctx1 = _ctx(yard="t1")
+    ctx2 = _ctx(yard="t2")
     v1_t1 = _publish(db_session, ctx1, version="1.0.0")
     _publish(db_session, ctx1, version="2.0.0")
     rollout.set_rollout(
@@ -306,9 +306,9 @@ def test_rollout_owner_preference(db_session):
     assert rollout.resolve_skill_version(db_session, "t2", "gray_skill") == "1.0.0"
 
 
-def test_no_rollout_fallback_is_tenant_scoped(db_session):
-    """无灰度时回退只看请求租户自己的 published 版本。"""
-    ctx1 = _ctx(tenant="t1")
+def test_no_rollout_fallback_is_yard_scoped(db_session):
+    """无灰度时回退只看请求小院自己的 published 版本。"""
+    ctx1 = _ctx(yard="t1")
     _publish(db_session, ctx1, version="1.0.0")
     assert rollout.resolve_skill_version(db_session, "t1", "gray_skill") == "1.0.0"
     assert rollout.resolve_skill_version(db_session, "t2", "gray_skill") is None
@@ -329,9 +329,9 @@ def test_set_rollout_upserts_existing(db_session):
         ctx,
         v1.id,
         rollout_version="2.0.0",
-        strategy="tenant_allowlist",
-        tenant_ids=["t1"],
+        strategy="yard_allowlist",
+        yard_ids=["t1"],
     )
     assert r2.id == r1.id  # 同 code 只保留一条未完成灰度
-    assert r2.strategy == "tenant_allowlist"
+    assert r2.strategy == "yard_allowlist"
     assert rollout.resolve_skill_version(db_session, "t1", "gray_skill") == "2.0.0"

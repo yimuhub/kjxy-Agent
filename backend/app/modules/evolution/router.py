@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 
 from app.core.config import settings
-from app.core.deps import TenantContext, get_db_session, get_tenant_context
+from app.core.deps import YardContext, get_db_session, get_yard_context
 from app.core.pagination import pagination_params
 from app.core.responses import ok, paged
 from app.modules.evolution import precheck as precheck_service
@@ -37,7 +37,7 @@ router = APIRouter(tags=["evolution"])
 def create_feedback(
     body: FeedbackCreate,
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db=Depends(get_db_session),
 ):
     feedback = service.submit_feedback(
@@ -64,7 +64,7 @@ def create_feedback(
 def get_feedback(
     request: Request,
     page_page: tuple[int, int] = Depends(pagination_params),
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db=Depends(get_db_session),
 ):
     page, page_size = page_page
@@ -83,7 +83,7 @@ def get_candidates(
     request: Request,
     status: str | None = Query(default=None, description="pending_review|approved|rejected"),
     page_page: tuple[int, int] = Depends(pagination_params),
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db=Depends(get_db_session),
 ):
     page, page_size = page_page
@@ -103,7 +103,7 @@ async def review_candidate(
     candidate_id: str,
     body: CandidateReview,
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db=Depends(get_db_session),
 ):
     candidate = service.review_candidate(
@@ -120,7 +120,7 @@ async def review_candidate(
     # 第一层机器预检始终附带；第二层 LLM 深检仅 LLM_PRECHECK_ENABLED=true 时执行。
     payload["machine_precheck"] = precheck_service.precheck_candidate(candidate)
     if settings.llm_precheck_enabled:
-        # 深检是审核成功后的附加判定：不占租户配额、不进 llm_calls；
+        # 深检是审核成功后的附加判定：不占小院配额、不进 llm_calls；
         # 任何异常都在 deep_precheck 内部降级为 error 说明，禁止反噬审核响应。
         from app.modules.llm.provider import get_provider
 
@@ -132,7 +132,7 @@ async def review_candidate(
 def batch_review_candidates(
     body: CandidateBatchReview,
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db=Depends(get_db_session),
 ):
     """批量审核知识候选：逐条复用单条审核逻辑，单条失败不影响其余。"""
@@ -165,7 +165,7 @@ def get_skills(
     ),
     skill_code: str | None = Query(default=None),
     page_page: tuple[int, int] = Depends(pagination_params),
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db=Depends(get_db_session),
 ):
     page, page_size = page_page
@@ -185,7 +185,7 @@ def get_skills(
 def create_skill(
     body: SkillCreate,
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db=Depends(get_db_session),
 ):
     skill = service.create_skill(
@@ -212,10 +212,10 @@ def create_skill(
 async def suggest_skills(
     body: SkillSuggest,
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db=Depends(get_db_session),
 ):
-    """AI 技能总结（v1.3-B C1，tenant_admin）：近 7 天证据 → 候选卡 → 审核队列。
+    """AI 技能总结（v1.3-B C1，yard_admin）：近 7 天证据 → 候选卡 → 审核队列。
 
     路径说明：DESIGN C1 写作 /evolution/skills/suggest，但本仓库 evolution 路由
     挂载在 /api/v1 根下（现有 /skills、/feedback 均无 /evolution 前缀，FE 零改造），
@@ -249,7 +249,7 @@ def review_skill(
     skill_id: str,
     body: SkillReview,
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db=Depends(get_db_session),
 ):
     skill = service.review_skill(
@@ -268,7 +268,7 @@ def get_skill_eval_runs(
     skill_id: str,
     request: Request,
     page_page: tuple[int, int] = Depends(pagination_params),
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db=Depends(get_db_session),
 ):
     """查询某 Skill 的评测门禁运行历史（第四期 4.2）。"""
@@ -288,7 +288,7 @@ def set_skill_rollout(
     skill_id: str,
     body: RolloutCreate,
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db=Depends(get_db_session),
 ):
     rollout = rollout_service.set_rollout(
@@ -298,7 +298,7 @@ def set_skill_rollout(
         rollout_version=body.rollout_version,
         strategy=body.strategy,
         percentage=body.percentage,
-        tenant_ids=body.tenant_ids,
+        yard_ids=body.yard_ids,
         request_id=ctx.request_id,
     )
     try:
@@ -318,7 +318,7 @@ def set_skill_rollout(
 def get_skill_rollout(
     skill_id: str,
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db=Depends(get_db_session),
 ):
     rollout = rollout_service.get_rollout(db, ctx, skill_id)
@@ -331,7 +331,7 @@ def get_skill_rollout(
 def promote_skill_rollout(
     skill_id: str,
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db=Depends(get_db_session),
 ):
     rollout = rollout_service.promote_rollout(db, ctx, skill_id, request_id=ctx.request_id)
@@ -347,7 +347,7 @@ def promote_skill_rollout(
 def halt_skill_rollout(
     skill_id: str,
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db=Depends(get_db_session),
 ):
     rollout = rollout_service.halt_rollout(db, ctx, skill_id, request_id=ctx.request_id)

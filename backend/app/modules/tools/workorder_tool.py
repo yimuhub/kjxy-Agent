@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from app.core.deps import TenantContext
+from app.core.deps import YardContext
 from app.core.errors import AppError
 from app.core.logging import get_logger
 from app.modules.tools.models import ToolApproval
@@ -40,16 +40,16 @@ WORKORDER_INPUT_SCHEMA: dict = {
 }
 
 
-def _workorder_dispatch_func(params: dict, ctx: TenantContext) -> dict:
+def _workorder_dispatch_func(params: dict, ctx: YardContext) -> dict:
     """dry-run 实现：不做真实下发，返回拟下发记录。"""
-    if not ctx.tenant_id:
-        raise AppError("TENANT_REQUIRED", "该操作需要租户上下文。", http_status=400)
+    if not ctx.yard_id:
+        raise AppError("YARD_REQUIRED", "该操作需要小院上下文。", http_status=400)
     workorder = {
         "title": params["title"],
         "description": params.get("description", ""),
         "priority": params.get("priority", "normal"),
         "assignee": params.get("assignee", ""),
-        "tenant_id": ctx.tenant_id,
+        "yard_id": ctx.yard_id,
         "requested_by": ctx.user_id,
     }
     log.info("workorder.dispatch dry-run: %s", workorder["title"])
@@ -90,7 +90,7 @@ def register_workorder_tool():
 
 
 async def _execute_workorder(
-    db: Any, params: dict[str, Any], ctx: TenantContext, request_id: str
+    db: Any, params: dict[str, Any], ctx: YardContext, request_id: str
 ) -> dict[str, Any]:
     from app.modules.tools.registry import tool_registry
 
@@ -106,18 +106,18 @@ def workorder_dispatch_handler(
     重新抛出，由 worker 将任务置为 awaiting_review（见 worker_tasks）。
     """
     from app.core.config import settings
-    from app.core.deps import TenantContext
+    from app.core.deps import YardContext
     from app.modules.auth.models import User
     from app.modules.tasks.worker_tasks import _get_session_factory
-    from app.modules.tenants import repository as tenant_repo
+    from app.modules.yards import repository as yard_repo
 
     db = _get_session_factory()()
     try:
-        tenant_id = str(context.get("tenant_id") or "")
+        yard_id = str(context.get("yard_id") or "")
         actor_id = str(context.get("actor_id") or "")
-        # 解析执行人角色（与登录时一致：租户成员角色 + 平台管理员补齐）
+        # 解析执行人角色（与登录时一致：小院成员角色 + 平台管理员补齐）
         roles: list[str] = []
-        membership = tenant_repo.get_membership(db, tenant_id, actor_id)
+        membership = yard_repo.get_membership(db, yard_id, actor_id)
         if membership is not None:
             roles = [membership.role]
         user = db.get(User, actor_id)
@@ -127,8 +127,8 @@ def workorder_dispatch_handler(
             and "platform_admin" not in roles
         ):
             roles = ["platform_admin", *roles]
-        ctx = TenantContext(
-            tenant_id=tenant_id,
+        ctx = YardContext(
+            yard_id=yard_id,
             user_id=actor_id,
             roles=roles,
             request_id=str(context.get("request_id") or "req_unknown"),

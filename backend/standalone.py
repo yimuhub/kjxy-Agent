@@ -5,7 +5,7 @@
   1. 解析/创建跨平台数据目录（TECHYARD_DATA_DIR 优先，其次按 OS 默认值）
   2. 写入 standalone 环境变量契约（见 _apply_env_contract）
   3. alembic upgrade head（迁移后 schema 与服务器部署完全一致）
-  4. users 表为空时 seed 演示租户，生成随机管理员口令写 <data>/desktop-login.txt，
+  4. users 表为空时 seed 演示小院，生成随机管理员口令写 <data>/desktop-login.txt，
      并只在 stdout 打印一次（Rust 壳负责在 splash 里指路这个文件）
   5. 挂载前端静态文件（FRONTEND_DIST 存在时，SPA history 回退到 index.html）
   6. uvicorn 绑定 127.0.0.1:PORT —— 只监听回环，绝不外露端口
@@ -42,7 +42,7 @@ if TYPE_CHECKING:  # 仅类型检查期：运行时 app.* 一律延迟导入（�
 
 # 演示账号用户名（与 app/db/seed.py 的 SEED_USERS 保持一致；seed.py 非本文件
 # 私有 API，这里只取用户名集合用于"空库判定后自行生成口令"）
-SEED_USERNAMES = ("admin", "tenant_admin", "expert", "operator")
+SEED_USERNAMES = ("admin", "yard_admin", "expert", "operator")
 
 
 # ---------------------------------------------------------------------------
@@ -163,7 +163,7 @@ def _users_table_count() -> int:
 
 
 def seed_if_empty(data_dir: Path) -> None:
-    """空库首启：seed 演示租户 + 随机管理员口令 → desktop-login.txt。
+    """空库首启：seed 演示小院 + 随机管理员口令 → desktop-login.txt。
 
     口令生成方式：先自行生成全部随机口令，再把 app.db.seed._random_password
     打桩为按调用次序查表返回——这样明文完全由本函数掌控，可写入

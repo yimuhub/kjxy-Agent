@@ -1,6 +1,6 @@
 """作物诊断业务逻辑。
 
-规则（症状关键词）+ 租户知识库检索（app.modules.knowledge.service.search）组装的
+规则（症状关键词）+ 小院知识库检索（app.modules.knowledge.service.search）组装的
 诊断辅助；不调用真实 LLM，不建表、不写 migration、无状态。
 
 硬规则落实：
@@ -16,7 +16,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from app.core.deps import TenantContext
+from app.core.deps import YardContext
 from app.core.errors import AppError
 from app.core.logging import get_logger
 from app.modules.crop_diagnosis.schemas import (
@@ -106,7 +106,7 @@ def _has_severe_symptom(text: str) -> bool:
     return any(kw in text for kw in _SEVERE_KEYWORDS)
 
 
-def diagnose(db: Any, tenant_id: str, user_id: str, input_data: dict) -> dict:
+def diagnose(db: Any, yard_id: str, user_id: str, input_data: dict) -> dict:
     try:
         req = DiagnosisInput.model_validate(input_data or {})
     except ValidationError as exc:
@@ -118,9 +118,7 @@ def diagnose(db: Any, tenant_id: str, user_id: str, input_data: dict) -> dict:
     if not symptoms:
         raise AppError("INVALID_REQUEST", "症状描述不能为空。", http_status=400)
 
-    ctx = TenantContext(
-        tenant_id=tenant_id, user_id=user_id, roles=[], request_id="req_crop_diagnosis"
-    )
+    ctx = YardContext(yard_id=yard_id, user_id=user_id, roles=[], request_id="req_crop_diagnosis")
     query_parts = [req.crop, req.variety or "", req.growth_stage or "", symptoms[:500]]
     query = " ".join(p for p in query_parts if p).strip()
 
@@ -176,7 +174,7 @@ def diagnose(db: Any, tenant_id: str, user_id: str, input_data: dict) -> dict:
     needs_info: list[str] = []
     if not evidence:
         needs_info.append(
-            "租户知识库中暂未检索到与该症状相关的资料，请补充更具体的症状描述（如发病部位、颜色变化过程、发生范围），或上传相关技术资料后再试。"
+            "小院知识库中暂未检索到与该症状相关的资料，请补充更具体的症状描述（如发病部位、颜色变化过程、发生范围），或上传相关技术资料后再试。"
         )
     if not req.growth_stage:
         needs_info.append(

@@ -12,7 +12,7 @@ from typing import Any
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.deps import TenantContext
+from app.core.deps import YardContext
 from app.core.errors import AppError
 from app.core.logging import get_logger
 from app.eval.runner import EvalReport, run_eval_set
@@ -28,8 +28,8 @@ def _utcnow() -> datetime:
 
 # ---------------------------------------------------------------- 权限
 _PERMISSION_ROLES: dict[str, set[str]] = {
-    "review:approve": {"expert", "tenant_admin", "platform_admin"},
-    "audit:read": {"tenant_admin", "platform_admin", "auditor"},
+    "review:approve": {"expert", "yard_admin", "yard_owner", "platform_admin"},
+    "audit:read": {"yard_admin", "yard_owner", "platform_admin", "auditor"},
 }
 
 
@@ -39,9 +39,9 @@ def has_permission(roles: list[str] | None, permission: str) -> bool:
     return bool(set(roles or []) & allowed)
 
 
-def _require_review_permission(ctx: TenantContext) -> None:
+def _require_review_permission(ctx: YardContext) -> None:
     if not has_permission(ctx.roles, "review:approve"):
-        raise AppError("FORBIDDEN", "仅专家或租户管理员可审核。", http_status=403)
+        raise AppError("FORBIDDEN", "仅专家或小院管理员可审核。", http_status=403)
 
 
 # ---------------------------------------------------------------- 反馈
@@ -60,13 +60,13 @@ def _candidate_title(feedback_text: str | None, task_id: str | None) -> str:
 
 
 def _dedupe_candidate(
-    db: Session, tenant_id: str, corrected_answer: str
+    db: Session, yard_id: str, corrected_answer: str
 ) -> KnowledgeCandidate | None:
-    """同一租户下内容相同的待审/已通过纠错只保留一条。"""
+    """同一小院下内容相同的待审/已通过纠错只保留一条。"""
     return (
         db.query(KnowledgeCandidate)
         .filter(
-            KnowledgeCandidate.tenant_id == tenant_id,
+            KnowledgeCandidate.yard_id == yard_id,
             KnowledgeCandidate.source_type == "user_feedback",
             KnowledgeCandidate.status.in_(("pending_review", "approved")),
             KnowledgeCandidate.content == corrected_answer,
@@ -77,7 +77,7 @@ def _dedupe_candidate(
 
 def submit_feedback(
     db: Session,
-    ctx: TenantContext,
+    ctx: YardContext,
     task_id: str | None = None,
     rating: str | None = None,
     feedback_text: str | None = None,
@@ -94,7 +94,7 @@ def submit_feedback(
             http_status=400,
         )
     feedback = Feedback(
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         task_id=task_id,
         actor_id=ctx.user_id,
         rating=rating,
@@ -108,12 +108,12 @@ def submit_feedback(
     candidate = None
     deduped = False
     if corrected:
-        candidate = _dedupe_candidate(db, ctx.tenant_id, corrected)
+        candidate = _dedupe_candidate(db, ctx.yard_id, corrected)
         if candidate is not None:
             deduped = True
         else:
             candidate = KnowledgeCandidate(
-                tenant_id=ctx.tenant_id,
+                yard_id=ctx.yard_id,
                 source_feedback_id=feedback.id,
                 title=_candidate_title(feedback_text, task_id),
                 content=corrected,
@@ -126,7 +126,7 @@ def submit_feedback(
     db.flush()
     log_audit(
         db,
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         actor_id=ctx.user_id,
         action="feedback.submit",
         resource_type="feedback",
@@ -143,9 +143,9 @@ def submit_feedback(
 
 
 def list_feedback(
-    db: Session, ctx: TenantContext, page: int, page_size: int
+    db: Session, ctx: YardContext, page: int, page_size: int
 ) -> tuple[list[Feedback], int]:
-    q = db.query(Feedback).filter(Feedback.tenant_id == ctx.tenant_id)
+    q = db.query(Feedback).filter(Feedback.yard_id == ctx.yard_id)
     total = q.count()
     items = (
         q.order_by(Feedback.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
@@ -156,7 +156,7 @@ def list_feedback(
 # ---------------------------------------------------------------- 知识候选审核
 def review_candidate(
     db: Session,
-    ctx: TenantContext,
+    ctx: YardContext,
     candidate_id: str,
     action: str,
     note: str | None,
@@ -171,7 +171,7 @@ def review_candidate(
         db.query(KnowledgeCandidate)
         .filter(
             KnowledgeCandidate.id == candidate_id,
-            KnowledgeCandidate.tenant_id == ctx.tenant_id,
+            KnowledgeCandidate.yard_id == ctx.yard_id,
         )
         .first()
     )
@@ -203,7 +203,7 @@ def review_candidate(
     db.flush()
     log_audit(
         db,
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         actor_id=ctx.user_id,
         action=f"knowledge.candidate.{action}",
         resource_type="knowledge_candidate",
@@ -215,7 +215,7 @@ def review_candidate(
 
 
 def _ingest_approved_candidate(
-    db: Session, ctx: TenantContext, candidate: KnowledgeCandidate
+    db: Session, ctx: YardContext, candidate: KnowledgeCandidate
 ) -> tuple[bool, str | None]:
     """approve 后将纠错内容作为文档写入知识库并触发解析。
 
@@ -269,7 +269,7 @@ def _ingest_approved_candidate(
 
             log_audit(
                 db,
-                tenant_id=ctx.tenant_id,
+                yard_id=ctx.yard_id,
                 actor_id=ctx.user_id,
                 action="knowledge.ingest_failed",
                 resource_type="knowledge_candidate",
@@ -290,7 +290,7 @@ def _ingest_approved_candidate(
 
 def batch_review(
     db: Session,
-    ctx: TenantContext,
+    ctx: YardContext,
     ids: list[str],
     action: str,
     review_note: str | None,
@@ -333,12 +333,12 @@ def batch_review(
 
 def list_candidates(
     db: Session,
-    ctx: TenantContext,
+    ctx: YardContext,
     page: int,
     page_size: int,
     status: str | None = None,
 ) -> tuple[list[KnowledgeCandidate], int]:
-    q = db.query(KnowledgeCandidate).filter(KnowledgeCandidate.tenant_id == ctx.tenant_id)
+    q = db.query(KnowledgeCandidate).filter(KnowledgeCandidate.yard_id == ctx.yard_id)
     if status:
         q = q.filter(KnowledgeCandidate.status == status)
     total = q.count()
@@ -374,18 +374,18 @@ def _transition(skill: Skill, to_status: str) -> None:
     skill.status = to_status
 
 
-def _get_skill(db: Session, ctx: TenantContext, skill_id: str) -> Skill:
-    skill = db.query(Skill).filter(Skill.id == skill_id, Skill.tenant_id == ctx.tenant_id).first()
+def _get_skill(db: Session, ctx: YardContext, skill_id: str) -> Skill:
+    skill = db.query(Skill).filter(Skill.id == skill_id, Skill.yard_id == ctx.yard_id).first()
     if skill is None:
         raise AppError("SKILL_NOT_FOUND", "Skill 不存在或无权访问。", http_status=404)
     return skill
 
 
-def _check_version_unique(db: Session, ctx: TenantContext, skill_code: str, version: str) -> None:
+def _check_version_unique(db: Session, ctx: YardContext, skill_code: str, version: str) -> None:
     exists = (
         db.query(Skill)
         .filter(
-            Skill.tenant_id == ctx.tenant_id,
+            Skill.yard_id == ctx.yard_id,
             Skill.skill_code == skill_code,
             Skill.version == version,
         )
@@ -401,7 +401,7 @@ def _check_version_unique(db: Session, ctx: TenantContext, skill_code: str, vers
 
 def create_skill(
     db: Session,
-    ctx: TenantContext,
+    ctx: YardContext,
     skill_code: str,
     version: str,
     definition: dict,
@@ -410,7 +410,7 @@ def create_skill(
 ) -> Skill:
     _check_version_unique(db, ctx, skill_code, version)
     skill = Skill(
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         skill_code=skill_code,
         version=version,
         definition_json=definition,
@@ -430,7 +430,7 @@ def create_skill(
     db.flush()
     log_audit(
         db,
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         actor_id=ctx.user_id,
         action="skill.create",
         resource_type="skill",
@@ -468,12 +468,12 @@ def _eval_gate_config(skill: Skill) -> dict | None:
 
 
 def _default_gate_answer_fn(
-    db: Session, ctx: TenantContext, agent_code: str
+    db: Session, ctx: YardContext, agent_code: str
 ) -> Callable[[str, str], dict]:
     """默认答题函数：把评估用例问题交给指定的问答 Agent。
 
-    tenant 标签（用例里的 "A"/"B"）直接映射到当前审核租户——门禁用租户自己的
-    知识库回答自己租户的评估集；跨租户隔离由评估集中的 cross_tenant 用例覆盖。
+    yard 标签（用例里的 "A"/"B"）直接映射到当前审核小院——门禁用小院自己的
+    知识库回答自己小院的评估集；跨小院隔离由评估集中的 cross_yard 用例覆盖。
     懒加载 agriculture 模块，避免 evolution 顶层依赖。
     """
 
@@ -512,9 +512,9 @@ def _default_gate_answer_fn(
             "http_status": 200 if getattr(result, "status", "") == "succeeded" else 500,
         }
 
-    def answer_fn(question: str, tenant_label: str) -> dict:  # noqa: ARG001
+    def answer_fn(question: str, yard_label: str) -> dict:  # noqa: ARG001
         context = QAAgentContext(
-            tenant_id=ctx.tenant_id,
+            yard_id=ctx.yard_id,
             user_id=ctx.user_id,
             roles=list(ctx.roles or []),
             request_id=ctx.request_id,
@@ -528,7 +528,7 @@ def _default_gate_answer_fn(
 
 def _run_eval_gate(
     db: Session,
-    ctx: TenantContext,
+    ctx: YardContext,
     skill: Skill,
     evaluation: dict,
     answer_fn: Callable[[str, str], dict] | None = None,
@@ -543,7 +543,7 @@ def _run_eval_gate(
     if evaluation.get("skip_gate"):
         log_audit(
             db,
-            tenant_id=ctx.tenant_id,
+            yard_id=ctx.yard_id,
             actor_id=ctx.user_id,
             action="skill.eval_gate_skipped",
             resource_type="skill",
@@ -609,7 +609,7 @@ def _run_eval_gate(
 
     # 结果留痕：每次门禁跑完插一条
     run = EvalRun(
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         skill_code=skill.skill_code,
         skill_version=skill.version,
         test_set_id=report.test_set_id,
@@ -624,7 +624,7 @@ def _run_eval_gate(
 
     log_audit(
         db,
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         actor_id=ctx.user_id,
         action="skill.eval_gate_run",
         resource_type="skill",
@@ -667,7 +667,7 @@ def _run_eval_gate(
 
 def review_skill(
     db: Session,
-    ctx: TenantContext,
+    ctx: YardContext,
     skill_id: str,
     action: str,
     note: str | None,
@@ -704,7 +704,7 @@ def review_skill(
     db.flush()
     log_audit(
         db,
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         actor_id=ctx.user_id,
         action=f"skill.{action}",
         resource_type="skill",
@@ -716,12 +716,12 @@ def review_skill(
     return skill
 
 
-def _check_published_version_unique(db: Session, ctx: TenantContext, skill: Skill) -> None:
-    """发布时版本号唯一校验：同租户同 code 同 version 不得已有另一 published 行。"""
+def _check_published_version_unique(db: Session, ctx: YardContext, skill: Skill) -> None:
+    """发布时版本号唯一校验：同小院同 code 同 version 不得已有另一 published 行。"""
     conflict = (
         db.query(Skill)
         .filter(
-            Skill.tenant_id == ctx.tenant_id,
+            Skill.yard_id == ctx.yard_id,
             Skill.skill_code == skill.skill_code,
             Skill.version == skill.version,
             Skill.status == "published",
@@ -737,7 +737,7 @@ def _check_published_version_unique(db: Session, ctx: TenantContext, skill: Skil
         )
 
 
-def rollback_skill(db: Session, ctx: TenantContext, skill_id: str, request_id: str = "") -> Skill:
+def rollback_skill(db: Session, ctx: YardContext, skill_id: str, request_id: str = "") -> Skill:
     """回滚：当前 published→deprecated；最近一个历史版本重新置 published。"""
     _require_review_permission(ctx)
     skill = _get_skill(db, ctx, skill_id)
@@ -750,7 +750,7 @@ def rollback_skill(db: Session, ctx: TenantContext, skill_id: str, request_id: s
     previous = (
         db.query(Skill)
         .filter(
-            Skill.tenant_id == ctx.tenant_id,
+            Skill.yard_id == ctx.yard_id,
             Skill.skill_code == skill.skill_code,
             Skill.id != skill.id,
         )
@@ -766,7 +766,7 @@ def rollback_skill(db: Session, ctx: TenantContext, skill_id: str, request_id: s
     db.flush()
     log_audit(
         db,
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         actor_id=ctx.user_id,
         action="skill.rollback",
         resource_type="skill",
@@ -784,13 +784,13 @@ def rollback_skill(db: Session, ctx: TenantContext, skill_id: str, request_id: s
 
 def list_skills(
     db: Session,
-    ctx: TenantContext,
+    ctx: YardContext,
     page: int,
     page_size: int,
     status: str | None = None,
     skill_code: str | None = None,
 ) -> tuple[list[Skill], int]:
-    q = db.query(Skill).filter(Skill.tenant_id == ctx.tenant_id)
+    q = db.query(Skill).filter(Skill.yard_id == ctx.yard_id)
     if status:
         q = q.filter(Skill.status == status)
     if skill_code:
@@ -804,7 +804,7 @@ def list_skills(
 
 def list_eval_runs(
     db: Session,
-    ctx: TenantContext,
+    ctx: YardContext,
     skill_id: str,
     page: int,
     page_size: int,
@@ -812,7 +812,7 @@ def list_eval_runs(
     """查询某 Skill（同 code+version）的评测门禁运行历史。"""
     skill = _get_skill(db, ctx, skill_id)
     q = db.query(EvalRun).filter(
-        EvalRun.tenant_id == ctx.tenant_id,
+        EvalRun.yard_id == ctx.yard_id,
         EvalRun.skill_code == skill.skill_code,
         EvalRun.skill_version == skill.version,
     )

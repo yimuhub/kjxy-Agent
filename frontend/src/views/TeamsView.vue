@@ -123,7 +123,7 @@
       </el-row>
     </AsyncState>
 
-    <!-- 新建 / 编辑班组（tenant_admin/platform_admin） -->
+    <!-- 新建 / 编辑班组（yard_admin/platform_admin） -->
     <el-dialog
       v-model="editVisible"
       :title="editingTeamId ? '编辑班组' : '新建班组'"
@@ -141,7 +141,7 @@
           <el-input
             v-model="editForm.name"
             maxlength="100"
-            placeholder="同租户内不可重名"
+            placeholder="同小院内不可重名"
             style="width: 320px"
           />
         </el-form-item>
@@ -304,6 +304,14 @@
           >
             {{ runStatusLabel(currentRun.status) }}
           </el-tag>
+          <el-tag
+            v-if="currentRun.token_usage && currentRun.token_usage.total_tokens > 0"
+            size="small"
+            type="success"
+            effect="plain"
+          >
+            ⚡ 班组合计 {{ currentRun.token_usage.total_tokens.toLocaleString() }} tokens（入 {{ currentRun.token_usage.input_tokens }} / 出 {{ currentRun.token_usage.output_tokens }}）
+          </el-tag>
           <el-button
             v-if="currentRun.status === 'failed'"
             size="small"
@@ -363,6 +371,11 @@
               >
                 {{ memberStatusLabel(m.status) }}
               </el-tag>
+              <span
+                v-if="m.token_usage && m.token_usage.total_tokens > 0"
+                class="mc-dur"
+                style="color: #34d399"
+              >⚡ {{ m.token_usage.total_tokens }} tokens（入 {{ m.token_usage.input_tokens }} / 出 {{ m.token_usage.output_tokens }}）</span>
               <span class="mc-dur">{{ memberDuration(m) }}</span>
               <span class="mc-flex" />
               <el-button
@@ -505,7 +518,7 @@ import { useAuthStore } from '@/stores/auth'
 import AsyncState from '@/components/AsyncState.vue'
 
 const auth = useAuthStore()
-const canManage = computed(() => auth.isSpaceAdmin())
+const canManage = computed(() => auth.isYardAdmin())
 
 /* ---------- 班组列表 ---------- */
 const teams = ref<TeamDefinition[]>([])
@@ -522,7 +535,7 @@ async function load() {
   }
 }
 
-/* ---------- 新建 / 编辑班组（管理类：tenant_admin/platform_admin） ---------- */
+/* ---------- 新建 / 编辑班组（管理类：yard_admin/platform_admin） ---------- */
 const editVisible = ref(false)
 const editingTeamId = ref<string | null>(null)
 const saving = ref(false)

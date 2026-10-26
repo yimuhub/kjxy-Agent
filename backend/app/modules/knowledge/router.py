@@ -8,9 +8,9 @@ from fastapi import APIRouter, Depends, File, Form, Request, UploadFile, status
 
 from app.core.deps import (
     CurrentUser,
-    TenantContext,
+    YardContext,
     get_db_session,
-    get_tenant_context,
+    get_yard_context,
     require_permission,
 )
 from app.core.pagination import pagination_params
@@ -33,7 +33,7 @@ def upload_document(
     file: UploadFile = File(...),
     title: str | None = Form(default=None),
     db=Depends(get_db_session),
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     _user: CurrentUser = Depends(require_permission("knowledge:write")),
 ):
     doc = service.upload_document(
@@ -47,7 +47,7 @@ def list_documents(
     request: Request,
     page_params=Depends(pagination_params),
     db=Depends(get_db_session),
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
 ):
     page, page_size = page_params
     items, total = service.list_documents(db, ctx, page, page_size)
@@ -65,10 +65,29 @@ def get_document(
     document_id: str,
     request: Request,
     db=Depends(get_db_session),
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
 ):
     doc = service.get_document(db, ctx, document_id)
     return ok(DocumentOut.model_validate(doc).model_dump(mode="json"), request)
+
+
+@router.get("/documents/{document_id}/chunks")
+def get_document_chunks(
+    document_id: str,
+    request: Request,
+    db=Depends(get_db_session),
+    ctx: YardContext = Depends(get_yard_context),
+):
+    """获取文档经过 MarkItDown 转换与结构化切块后的分段预览列表（含每段 Token 计数）。"""
+    chunks = service.list_document_chunks(db, ctx, document_id)
+    return ok(
+        {
+            "document_id": document_id,
+            "chunks": [c.model_dump(mode="json") for c in chunks],
+            "total_tokens": sum(c.token_count for c in chunks),
+        },
+        request,
+    )
 
 
 @router.delete("/documents/{document_id}")
@@ -76,7 +95,7 @@ def delete_document(
     document_id: str,
     request: Request,
     db=Depends(get_db_session),
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     _user: CurrentUser = Depends(require_permission("knowledge:write")),
 ):
     service.delete_document(db, ctx, document_id)
@@ -88,7 +107,7 @@ def reparse_document(
     document_id: str,
     request: Request,
     db=Depends(get_db_session),
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
 ):
     """重新解析失败的文档（权限 knowledge:write，仅 status=failed 可调）。"""
     data = service.reparse_document(
@@ -102,7 +121,7 @@ def search_knowledge(
     body: SearchRequest,
     request: Request,
     db=Depends(get_db_session),
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
 ):
     hits = service.search(db, ctx, body.query, body.top_k)
     resp = SearchResponse(
@@ -116,6 +135,8 @@ def search_knowledge(
                 quote=h.quote,
                 score=h.score,
                 trust_level=h.trust_level,
+                token_count=h.token_count,
+                title_path=h.title_path,
             )
             for h in hits
         ]

@@ -6,16 +6,16 @@
 - GET /market/catalog：字段齐全、risk_level 服务端现算全 low、初始未安装；
 - POST /market/install：装载即 seed_ 前缀入库 + 直接 published（自批语义）、
   审计 action=market_install；重复装载全 skipped 不覆盖；
-- 请求体带 tenant_id → 422；非法 codes → 400；未知编码 → failed；
-- 跨租户：B 租户 catalog installed=false，列表看不到 A 的装载结果；
-- 权限：非 tenant_admin → 403。
+- 请求体带 yard_id → 422；非法 codes → 400；未知编码 → failed；
+- 跨小院：B 小院 catalog installed=false，列表看不到 A 的装载结果；
+- 权限：非 yard_admin → 403。
 """
 
 import pytest
 from app.core.security import create_access_token
 from app.modules.audit.models import AuditLog
 from app.modules.market.seeds import SEED_AGENTS, SEED_DOMAINS
-from app.modules.tenants.repository import create_tenant
+from app.modules.yards.repository import create_yard
 
 CATALOG = "/api/v1/market/catalog"
 INSTALL = "/api/v1/market/install"
@@ -43,21 +43,21 @@ EXPECTED_CODES = {
 SENSOR_QUERY_SEEDS = {"seedling_scout", "irrigation_advisor", "greenhouse_keeper"}
 
 
-def _hdr(user_id: str = "u-market-admin", tenant_id: str | None = None, roles=("tenant_admin",)):
-    token = create_access_token(user_id=user_id, tenant_id=tenant_id, roles=list(roles))
+def _hdr(user_id: str = "u-market-admin", yard_id: str | None = None, roles=("yard_admin",)):
+    token = create_access_token(user_id=user_id, yard_id=yard_id, roles=list(roles))
     return {"Authorization": f"Bearer {token}"}
 
 
 @pytest.fixture()
-def tenant_a(db_session):
-    t = create_tenant(db_session, name="市场A")
+def yard_a(db_session):
+    t = create_yard(db_session, name="市场A")
     db_session.commit()
     return t
 
 
 @pytest.fixture()
-def tenant_b(db_session):
-    t = create_tenant(db_session, name="市场B")
+def yard_b(db_session):
+    t = create_yard(db_session, name="市场B")
     db_session.commit()
     return t
 
@@ -81,7 +81,7 @@ def test_seed_package_shape():
         assert s["allowed_tools"][0] == "knowledge.search", code
         expected_extra = ["sensor.query"] if code in SENSOR_QUERY_SEEDS else []
         assert list(s["allowed_tools"][1:]) == expected_extra, code
-        assert s["knowledge_scopes"] == ["tenant"], code
+        assert s["knowledge_scopes"] == ["yard"], code
         assert "{{question}}" in s["task_prompt_template"], code
         assert len(s["suggested_questions"]) == 5, code
         assert s["name"] and s["emoji"] and s["description"], code
@@ -120,8 +120,8 @@ CATALOG_FIELDS = {
 }
 
 
-def test_catalog_full_fields_all_low_risk_not_installed(client, tenant_a):
-    resp = client.get(CATALOG, headers=_hdr(tenant_id=tenant_a.id))
+def test_catalog_full_fields_all_low_risk_not_installed(client, yard_a):
+    resp = client.get(CATALOG, headers=_hdr(yard_id=yard_a.id))
     assert resp.status_code == 200, resp.text
     items = resp.json()["data"]["items"]
     assert len(items) == 14
@@ -132,8 +132,8 @@ def test_catalog_full_fields_all_low_risk_not_installed(client, tenant_a):
         assert it["installed"] is False
 
 
-def test_catalog_requires_tenant_admin(client, tenant_a):
-    resp = client.get(CATALOG, headers=_hdr(tenant_id=tenant_a.id, roles=("viewer",)))
+def test_catalog_requires_yard_admin(client, yard_a):
+    resp = client.get(CATALOG, headers=_hdr(yard_id=yard_a.id, roles=("viewer",)))
     assert resp.status_code == 403
     assert resp.json()["error"]["code"] == "FORBIDDEN"
 
@@ -143,14 +143,12 @@ def test_catalog_requires_tenant_admin(client, tenant_a):
 # ---------------------------------------------------------------------------
 
 
-def _install(client, tenant, codes, roles=("tenant_admin",)):
-    return client.post(
-        INSTALL, json={"codes": codes}, headers=_hdr(tenant_id=tenant.id, roles=roles)
-    )
+def _install(client, yard, codes, roles=("yard_admin",)):
+    return client.post(INSTALL, json={"codes": codes}, headers=_hdr(yard_id=yard.id, roles=roles))
 
 
-def test_install_creates_published_seed_agents_with_audit(client, db_session, tenant_a):
-    resp = _install(client, tenant_a, ["plant_doctor", "policy_matcher"])
+def test_install_creates_published_seed_agents_with_audit(client, db_session, yard_a):
+    resp = _install(client, yard_a, ["plant_doctor", "policy_matcher"])
     assert resp.status_code == 200, resp.text
     data = resp.json()["data"]
     assert set(data["installed"]) == {"plant_doctor", "policy_matcher"}
@@ -158,17 +156,17 @@ def test_install_creates_published_seed_agents_with_audit(client, db_session, te
     assert data["failed"] == []
 
     # 声明式列表：seed_ 前缀入库、低风险、直接 published、来源 template
-    listed = client.get(DECLARATIVE, headers=_hdr(tenant_id=tenant_a.id))
+    listed = client.get(DECLARATIVE, headers=_hdr(yard_id=yard_a.id))
     by_code = {a["agent_code"]: a for a in listed.json()["data"]["agents"]}
     assert set(by_code) == {"seed_plant_doctor", "seed_policy_matcher"}
     for agent in by_code.values():
         assert agent["status"] == "published"
         assert agent["risk_level"] == "low"
         assert agent["created_from"] == "template"
-        assert agent["tenant_id"] == tenant_a.id
+        assert agent["yard_id"] == yard_a.id
 
     # catalog 回填 installed
-    catalog = client.get(CATALOG, headers=_hdr(tenant_id=tenant_a.id)).json()["data"]["items"]
+    catalog = client.get(CATALOG, headers=_hdr(yard_id=yard_a.id)).json()["data"]["items"]
     flags = {i["agent_code"]: i["installed"] for i in catalog}
     assert flags["plant_doctor"] is True and flags["policy_matcher"] is True
     assert flags["spray_mixer"] is False
@@ -176,7 +174,7 @@ def test_install_creates_published_seed_agents_with_audit(client, db_session, te
     # 审计：action=market_install，metadata 记 seed_code 与落库编码
     logs = (
         db_session.query(AuditLog)
-        .filter(AuditLog.action == "market_install", AuditLog.tenant_id == tenant_a.id)
+        .filter(AuditLog.action == "market_install", AuditLog.yard_id == yard_a.id)
         .all()
     )
     assert len(logs) == 2
@@ -185,68 +183,68 @@ def test_install_creates_published_seed_agents_with_audit(client, db_session, te
     assert all(lg.metadata_json["installed_as"].startswith("seed_") for lg in logs)
 
 
-def test_install_repeated_skips_without_overwrite(client, db_session, tenant_a):
+def test_install_repeated_skips_without_overwrite(client, db_session, yard_a):
     codes = ["plant_doctor", "spray_mixer", "farm_journal"]
-    first = _install(client, tenant_a, codes).json()["data"]
+    first = _install(client, yard_a, codes).json()["data"]
     assert len(first["installed"]) == 3
 
-    again = _install(client, tenant_a, codes).json()["data"]
+    again = _install(client, yard_a, codes).json()["data"]
     assert again["installed"] == []
     assert set(again["skipped"]) == set(codes)
     assert again["failed"] == []
 
     # 不覆盖：仍只有 3 行，且名称未被种子重置成任何新值（幂等只增不改）
-    listed = client.get(DECLARATIVE, headers=_hdr(tenant_id=tenant_a.id))
+    listed = client.get(DECLARATIVE, headers=_hdr(yard_id=yard_a.id))
     assert len(listed.json()["data"]["agents"]) == 3
 
-    # 租户自建同码（seed_xxx）同样视为占用：skipped 不覆盖
+    # 小院自建同码（seed_xxx）同样视为占用：skipped 不覆盖
     client.patch(
         DECLARATIVE + "/" + listed.json()["data"]["agents"][0]["id"],
-        json={"name": "租户改名不动"},
-        headers=_hdr("u-other-admin", tenant_a.id),
+        json={"name": "小院改名不动"},
+        headers=_hdr("u-other-admin", yard_a.id),
     )
-    third = _install(client, tenant_a, ["plant_doctor"]).json()["data"]
+    third = _install(client, yard_a, ["plant_doctor"]).json()["data"]
     assert third["skipped"] == ["plant_doctor"]
 
 
-def test_install_rejects_tenant_id_in_body(client, tenant_a):
+def test_install_rejects_yard_id_in_body(client, yard_a):
     resp = client.post(
         INSTALL,
-        json={"codes": ["plant_doctor"], "tenant_id": tenant_a.id},
-        headers=_hdr(tenant_id=tenant_a.id),
+        json={"codes": ["plant_doctor"], "yard_id": yard_a.id},
+        headers=_hdr(yard_id=yard_a.id),
     )
     assert resp.status_code == 422
     assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
 
 
-def test_install_validation_and_unknown_codes(client, tenant_a):
-    empty = _install(client, tenant_a, [])
+def test_install_validation_and_unknown_codes(client, yard_a):
+    empty = _install(client, yard_a, [])
     assert empty.status_code == 400 and empty.json()["error"]["code"] == "INVALID_REQUEST"
 
-    too_many = _install(client, tenant_a, [f"x{i}" for i in range(21)])
+    too_many = _install(client, yard_a, [f"x{i}" for i in range(21)])
     assert too_many.status_code == 400
 
-    unknown = _install(client, tenant_a, ["no_such_seed"])
+    unknown = _install(client, yard_a, ["no_such_seed"])
     assert unknown.status_code == 200
     data = unknown.json()["data"]
     assert data["installed"] == [] and data["skipped"] == []
     assert data["failed"][0]["code"] == "no_such_seed"
 
 
-def test_install_cross_tenant_invisible(client, tenant_a, tenant_b):
-    resp = _install(client, tenant_a, ["harvest_logger"])
+def test_install_cross_yard_invisible(client, yard_a, yard_b):
+    resp = _install(client, yard_a, ["harvest_logger"])
     assert resp.json()["data"]["installed"] == ["harvest_logger"]
 
-    # B 租户：catalog installed=false，且声明式列表看不到 A 的装载结果
-    catalog_b = client.get(CATALOG, headers=_hdr("u-b", tenant_b.id)).json()["data"]["items"]
+    # B 小院：catalog installed=false，且声明式列表看不到 A 的装载结果
+    catalog_b = client.get(CATALOG, headers=_hdr("u-b", yard_b.id)).json()["data"]["items"]
     flags = {i["agent_code"]: i["installed"] for i in catalog_b}
     assert flags["harvest_logger"] is False
-    listed_b = client.get(DECLARATIVE, headers=_hdr("u-b", tenant_b.id))
+    listed_b = client.get(DECLARATIVE, headers=_hdr("u-b", yard_b.id))
     assert listed_b.json()["data"]["agents"] == []
 
-    # B 自行装载同种子：得到的是 B 自己租户的行
-    resp_b = _install(client, tenant_b, ["harvest_logger"])
+    # B 自行装载同种子：得到的是 B 自己小院的行
+    resp_b = _install(client, yard_b, ["harvest_logger"])
     assert resp_b.json()["data"]["installed"] == ["harvest_logger"]
-    listed_b2 = client.get(DECLARATIVE, headers=_hdr("u-b", tenant_b.id)).json()["data"]["agents"]
+    listed_b2 = client.get(DECLARATIVE, headers=_hdr("u-b", yard_b.id)).json()["data"]["agents"]
     assert len(listed_b2) == 1
-    assert listed_b2[0]["tenant_id"] == tenant_b.id
+    assert listed_b2[0]["yard_id"] == yard_b.id

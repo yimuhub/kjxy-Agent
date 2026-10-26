@@ -1,9 +1,14 @@
 <template>
   <div class="kb">
     <div class="page-head">
-      <h2 class="page-title">
-        知识库
-      </h2>
+      <div>
+        <h2 class="page-title">
+          知识库
+        </h2>
+        <p class="page-sub">
+          已集成 Microsoft MarkItDown 文档转 Markdown 引擎 + 标题树/表格感知分块器，自动清洗页眉页脚噪点并降低检索 Token 消耗。
+        </p>
+      </div>
       <div class="page-actions">
         <el-button
           link
@@ -18,7 +23,16 @@
     <!-- 上传 -->
     <el-card class="section">
       <template #header>
-        上传文档
+        <div class="card-head-row">
+          <span>上传文档（MarkItDown 快速结构化入库）</span>
+          <el-tag
+            size="small"
+            type="success"
+            effect="plain"
+          >
+            自动转 Markdown · 表格表头保留 · 检索上下文裁剪省 Token
+          </el-tag>
+        </div>
       </template>
       <el-form
         :model="uploadForm"
@@ -36,7 +50,7 @@
             ref="uploadRef"
             :auto-upload="false"
             :limit="1"
-            accept=".pdf,.docx,.txt,.md,.csv"
+            accept=".pdf,.docx,.xlsx,.pptx,.txt,.md,.csv,.html,.htm"
             :on-change="handleFileChange"
             :on-remove="() => (uploadFile = null)"
           >
@@ -52,22 +66,22 @@
             :disabled="!uploadFile"
             @click="doUpload"
           >
-            上传并解析
+            上传并转化为结构化知识
           </el-button>
         </el-form-item>
       </el-form>
       <p class="upload-hint">
-        支持 PDF / DOCX / TXT / MD / CSV 格式，单个文件不超过 50MB。
+        支持 PDF / DOCX / XLSX / PPTX / CSV / HTML / TXT / MD 格式（单个文件 ≤ 50MB），上传后自动转化为层级 Markdown 并统计分块 Token。
       </p>
     </el-card>
 
     <!-- 检索测试：仅管理员可见（普通成员用知识问答即可） -->
     <el-card
-      v-if="auth.isSpaceAdmin()"
+      v-if="auth.isYardAdmin()"
       class="section"
     >
       <template #header>
-        检索测试
+        检索测试（含句级相关性裁剪后 Token 预览）
       </template>
       <el-form inline>
         <el-form-item>
@@ -110,7 +124,7 @@
           <el-table-column
             prop="score"
             label="得分"
-            width="100"
+            width="90"
           >
             <template #default="{ row }">
               {{ row.score.toFixed(3) }}
@@ -119,16 +133,24 @@
           <el-table-column
             prop="trust_level"
             label="可信度"
-            width="100"
+            width="90"
           />
           <el-table-column
             prop="page_number"
             label="页码"
-            width="80"
+            width="70"
           />
           <el-table-column
+            label="片段 Token"
+            width="105"
+          >
+            <template #default="{ row }">
+              <span class="token-pill">⚡ {{ row.token_count ?? estimateQuoteTokens(row.quote) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column
             prop="quote"
-            label="片段"
+            label="裁剪后片段"
             show-overflow-tooltip
           />
         </el-table>
@@ -152,6 +174,7 @@
           <el-table-column
             prop="title"
             label="标题"
+            min-width="160"
           >
             <template #default="{ row }">
               {{ row.title || row.filename || row.id }}
@@ -160,15 +183,37 @@
           <el-table-column
             prop="filename"
             label="文件名"
+            min-width="150"
           />
           <el-table-column
             label="解析状态"
-            width="120"
+            width="110"
           >
             <template #default="{ row }">
               <el-tag :type="docStatusMeta(row.status).type">
                 {{ docStatusMeta(row.status).label }}
               </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column
+            prop="chunk_count"
+            label="结构化分块"
+            width="105"
+          >
+            <template #default="{ row }">
+              {{ row.chunk_count ?? '—' }} 段
+            </template>
+          </el-table-column>
+          <el-table-column
+            label="总 Token 数"
+            width="125"
+          >
+            <template #default="{ row }">
+              <span
+                v-if="row.token_count != null"
+                class="token-pill"
+              >⚡ {{ row.token_count.toLocaleString() }}</span>
+              <span v-else>—</span>
             </template>
           </el-table-column>
           <el-table-column
@@ -180,19 +225,18 @@
             </template>
           </el-table-column>
           <el-table-column
-            prop="chunk_count"
-            label="可检索段落数"
-            width="120"
-          >
-            <template #default="{ row }">
-              {{ row.chunk_count ?? '—' }}
-            </template>
-          </el-table-column>
-          <el-table-column
             label="操作"
-            width="160"
+            width="230"
           >
             <template #default="{ row }">
+              <el-button
+                v-if="row.status === 'indexed' || row.status === 'ready' || (row.chunk_count ?? 0) > 0"
+                link
+                type="primary"
+                @click="openChunksDrawer(row as KnowledgeDocument)"
+              >
+                预览 Markdown 分块
+              </el-button>
               <el-button
                 v-if="row.status === 'failed'"
                 link
@@ -222,11 +266,57 @@
         />
       </AsyncState>
     </el-card>
+
+    <!-- MarkItDown 结构化分块预览抽屉 -->
+    <el-drawer
+      v-model="chunkDrawerVisible"
+      :title="`Markdown 结构化分块预览：${activeDoc?.title || activeDoc?.filename || ''}`"
+      size="680px"
+    >
+      <div
+        v-loading="chunksLoading"
+        class="chunk-drawer-body"
+      >
+        <div
+          v-if="activeDoc"
+          class="chunk-summary"
+        >
+          <span>共 <b>{{ chunkItems.length }}</b> 个语义分块</span>
+          <span>合计 <b>⚡ {{ totalPreviewTokens.toLocaleString() }} tokens</b></span>
+          <span>解析引擎：<b>MarkItDown + 标题树/表格感知切分</b></span>
+        </div>
+
+        <el-empty
+          v-if="!chunksLoading && !chunkItems.length"
+          description="该文档暂无分块记录"
+        />
+
+        <div
+          v-for="ch in chunkItems"
+          :key="ch.id"
+          class="chunk-card"
+        >
+          <div class="chunk-head">
+            <span class="chunk-idx">#{{ ch.chunk_index + 1 }}</span>
+            <span
+              v-if="ch.title_path"
+              class="chunk-path"
+            >📑 {{ ch.title_path }}</span>
+            <span
+              v-if="ch.page_number != null"
+              class="chunk-page"
+            >第 {{ ch.page_number }} 页</span>
+            <span class="chunk-tok">⚡ {{ ch.token_count }} tokens</span>
+          </div>
+          <pre class="chunk-content">{{ ch.content }}</pre>
+        </div>
+      </div>
+    </el-drawer>
   </div>
 </template>
 
 <script setup lang="ts">
-  import { onMounted, reactive, ref } from 'vue'
+  import { computed, onMounted, reactive, ref } from 'vue'
   import { ElMessage, ElMessageBox, type UploadFile } from 'element-plus'
   import { knowledgeApi } from '@/api/modules'
   import { extractErrorMessage } from '@/api/client'
@@ -238,11 +328,10 @@
     type ViewState,
   } from '@/utils/status'
   import { useAuthStore } from '@/stores/auth'
-  import type { ChunkHit, KnowledgeDocument } from '@/types/api'
+  import type { ChunkHit, KnowledgeChunkPreview, KnowledgeDocument } from '@/types/api'
 
   const auth = useAuthStore()
 
-  /** 单个上传文件大小上限（与后端一致：50MB） */
   const MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
   const docs = ref<KnowledgeDocument[]>([])
@@ -261,6 +350,34 @@
   const hits = ref<ChunkHit[]>([])
   const searching = ref(false)
   const searchState = ref<ViewState>('empty')
+
+  const chunkDrawerVisible = ref(false)
+  const activeDoc = ref<KnowledgeDocument | null>(null)
+  const chunkItems = ref<KnowledgeChunkPreview[]>([])
+  const chunksLoading = ref(false)
+
+  const totalPreviewTokens = computed(() =>
+    chunkItems.value.reduce((sum, c) => sum + (c.token_count ?? 0), 0),
+  )
+
+  function estimateQuoteTokens(text?: string): number {
+    if (!text) return 0
+    return Math.max(1, Math.ceil(text.length * 0.6))
+  }
+
+  async function openChunksDrawer(doc: KnowledgeDocument) {
+    activeDoc.value = doc
+    chunkDrawerVisible.value = true
+    chunksLoading.value = true
+    try {
+      const res = await knowledgeApi.chunks(doc.id)
+      chunkItems.value = res.items
+    } catch {
+      chunkItems.value = []
+    } finally {
+      chunksLoading.value = false
+    }
+  }
 
   async function loadDocs() {
     docState.value = 'loading'
@@ -290,13 +407,12 @@
     uploading.value = true
     try {
       await knowledgeApi.upload(uploadFile.value, uploadForm.title || undefined)
-      ElMessage.success('上传成功，已创建解析任务')
+      ElMessage.success('上传成功，已通过 MarkItDown 引擎转化为结构化知识分块')
       uploadRef.value?.clearFiles()
       uploadFile.value = null
       uploadForm.title = ''
       loadDocs()
     } catch (err) {
-      // 413/415 等由 client 统一 toast，这里仅补充中文说明
       const { code, message } = extractErrorMessage(err)
       ElMessage.warning(friendlyErrorMessage(code, message))
     } finally {
@@ -304,7 +420,6 @@
     }
   }
 
-  /** 重新解析：仅解析失败的文档可调，成功后重新拉列表 */
   async function doReparse(doc: KnowledgeDocument) {
     if (reparseId.value) return
     reparseId.value = doc.id
@@ -313,7 +428,7 @@
       ElMessage.success('已重新提交解析，可在任务中心查看进度')
       loadDocs()
     } catch {
-      /* 错误 toast 已由 client 统一处理 */
+      /* toast handled */
     } finally {
       reparseId.value = ''
     }
@@ -352,7 +467,7 @@
       ElMessage.success('已删除')
       loadDocs()
     } catch {
-      /* 错误 toast 已由 client 统一处理 */
+      /* toast handled */
     }
   }
 
@@ -362,17 +477,30 @@
 <style scoped>
   .kb {
     padding: 4px;
-    max-width: 1100px;
+    max-width: 1140px;
   }
   .page-head {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
+    justify-content: space-between;
     flex-wrap: wrap;
     gap: 8px;
     margin-bottom: 16px;
   }
   .page-head .page-title {
-    margin-bottom: 0;
+    margin-bottom: 4px;
+  }
+  .page-sub {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--ds-text-3);
+  }
+  .card-head-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
   }
   .section {
     margin-bottom: 16px;
@@ -382,8 +510,75 @@
     font-size: 12px;
     color: var(--ds-text-3);
   }
+  .token-pill {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    color: #34d399;
+    background: rgba(16, 185, 129, 0.14);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    font-variant-numeric: tabular-nums;
+  }
   .pager {
     margin-top: 16px;
     justify-content: flex-end;
+  }
+  .chunk-drawer-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .chunk-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    background: var(--ds-glass);
+    border: 1px solid var(--ds-border);
+    font-size: 12.5px;
+    color: var(--ds-text-2);
+  }
+  .chunk-card {
+    border: 1px solid var(--ds-border);
+    border-radius: 10px;
+    background: var(--ds-glass);
+    overflow: hidden;
+  }
+  .chunk-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--ds-border);
+    font-size: 12px;
+  }
+  .chunk-idx {
+    font-weight: 700;
+    color: var(--ds-accent-text);
+  }
+  .chunk-path {
+    color: var(--ds-text-1);
+    font-weight: 600;
+  }
+  .chunk-page {
+    color: var(--ds-text-3);
+  }
+  .chunk-tok {
+    margin-left: auto;
+    color: #34d399;
+    font-variant-numeric: tabular-nums;
+  }
+  .chunk-content {
+    margin: 0;
+    padding: 10px 12px;
+    font-size: 12.5px;
+    line-height: 1.65;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--ds-text-1);
+    font-family: var(--ds-font-mono);
   }
 </style>

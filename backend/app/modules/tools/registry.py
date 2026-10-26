@@ -14,16 +14,16 @@ from dataclasses import dataclass, field
 import jsonschema
 from sqlalchemy.orm import Session
 
-from app.core.deps import TenantContext
+from app.core.deps import YardContext
 from app.core.errors import AppError
 from app.core.logging import get_logger
 from app.modules.audit.service import log_audit
-from app.modules.tenants.permissions import has_permission
 from app.modules.tools.models import ToolDefinition
+from app.modules.yards.permissions import has_permission
 
 log = get_logger(__name__)
 
-ToolFunc = Callable[[dict, TenantContext], "dict | Awaitable[dict]"]
+ToolFunc = Callable[[dict, YardContext], "dict | Awaitable[dict]"]
 
 RISK_LEVELS = ("read_only", "draft", "write_reversible", "external_side_effect")
 
@@ -58,7 +58,7 @@ def _format_schema_errors(exc: jsonschema.ValidationError) -> list[dict]:
 
 
 def _is_approved(
-    ctx: TenantContext, params: dict, db: Session | None = None, tool_code: str = ""
+    ctx: YardContext, params: dict, db: Session | None = None, tool_code: str = ""
 ) -> bool:
     """高风险工具是否已获审批。
 
@@ -67,12 +67,10 @@ def _is_approved(
     """
     if getattr(ctx, "approved", False) is True:
         return True
-    if db is not None and tool_code and ctx.tenant_id:
+    if db is not None and tool_code and ctx.yard_id:
         from app.modules.tools.approvals import has_approved_approval
 
-        return has_approved_approval(
-            db, tenant_id=ctx.tenant_id, tool_code=tool_code, params=params
-        )
+        return has_approved_approval(db, yard_id=ctx.yard_id, tool_code=tool_code, params=params)
     return False
 
 
@@ -100,7 +98,7 @@ class ToolRegistry:
     def _audit(
         self,
         db: Session,
-        ctx: TenantContext,
+        ctx: YardContext,
         code: str,
         request_id: str,
         *,
@@ -113,7 +111,7 @@ class ToolRegistry:
             metadata.update(extra)
         log_audit(
             db,
-            tenant_id=ctx.tenant_id,
+            yard_id=ctx.yard_id,
             actor_id=ctx.user_id,
             action="tool_executed",
             resource_type="tool",
@@ -123,11 +121,11 @@ class ToolRegistry:
             metadata=metadata,
         )
 
-    def _resolve(self, db: Session, code: str, ctx: TenantContext) -> ToolDef:
-        """工具解析：内置内存注册表优先，未命中时回落租户级 MCP 动态工具。
+    def _resolve(self, db: Session, code: str, ctx: YardContext) -> ToolDef:
+        """工具解析：内置内存注册表优先，未命中时回落小院级 MCP 动态工具。
 
         W5a 改造点（execute 主流程唯一改造）：``mcp__`` 前缀的 wire_name 从不注册
-        进全局注册表，此前一律 TOOL_NOT_FOUND；现在经 tool_bridge 按**调用方租户
+        进全局注册表，此前一律 TOOL_NOT_FOUND；现在经 tool_bridge 按**调用方小院
         上下文**作用域解析（enabled + 未熔断 + 连接测试缓存命中才可见）。非 mcp__
         前缀行为逐字不变——executor/workorder/approvals/qa_agent 等既有调用方
         零感知（execute 签名未动，ctx/db 本就是既有入参）。
@@ -139,7 +137,7 @@ class ToolRegistry:
             from app.modules.mcp.tool_bridge import lookup_mcp_tool
 
             # 导入放在分支内：mcp.tool_bridge 反向 import 本模块，避免顶层循环
-            mcp_tool = lookup_mcp_tool(db, ctx.tenant_id, code)
+            mcp_tool = lookup_mcp_tool(db, ctx.yard_id, code)
             if mcp_tool is not None:
                 return mcp_tool
         raise AppError("TOOL_NOT_FOUND", f"工具不存在或未启用：{code}。", http_status=404)
@@ -149,7 +147,7 @@ class ToolRegistry:
         db: Session,
         code: str,
         params: dict | None,
-        ctx: TenantContext,
+        ctx: YardContext,
         request_id: str,
     ) -> dict:
         tool = self._resolve(db, code, ctx)
@@ -200,7 +198,7 @@ class ToolRegistry:
 
             approval = get_or_create_pending_approval(
                 db,
-                tenant_id=ctx.tenant_id,
+                yard_id=ctx.yard_id,
                 tool_code=code,
                 params=params,
                 requested_by=ctx.user_id,
@@ -355,7 +353,7 @@ BUILTIN_TOOLS: list[dict] = [
         "code": "knowledge.search",
         "version": "1.0.0",
         "name": "知识检索",
-        "description": "检索本租户知识库片段，返回带来源的引用。实现由知识库模块注册。",
+        "description": "检索本小院知识库片段，返回带来源的引用。实现由知识库模块注册。",
         "input_schema_json": {
             "type": "object",
             "properties": {
@@ -429,7 +427,7 @@ BUILTIN_TOOLS: list[dict] = [
         "version": "1.0.0",
         "name": "传感器读数查询",
         "description": (
-            "查询本租户设备读数概况与窗口统计（min/max/avg/样本数），可选规则命中评估。"
+            "查询本小院设备读数概况与窗口统计（min/max/avg/样本数），可选规则命中评估。"
             "实现由设备模块注册。"
         ),
         "input_schema_json": {
@@ -439,7 +437,7 @@ BUILTIN_TOOLS: list[dict] = [
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 120,
-                    "description": "设备名模糊匹配（仅限本租户设备）；缺省为本租户全部设备",
+                    "description": "设备名模糊匹配（仅限本小院设备）；缺省为本小院全部设备",
                 },
                 "metric": {
                     "type": "string",
@@ -472,7 +470,7 @@ BUILTIN_TOOLS: list[dict] = [
             },
             "required": ["window_hours", "device_count", "devices", "summary_text"],
         },
-        # 读=租户成员（devices 读接口同口径），不设额外权限点
+        # 读=小院成员（devices 读接口同口径），不设额外权限点
         "required_permissions_json": [],
         "risk_level": "read_only",
         "side_effect": False,

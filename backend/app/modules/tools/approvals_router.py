@@ -1,9 +1,9 @@
 """高风险工具审批单接口。
 
-- GET /tool-approvals：本租户审批单列表（租户成员可见）。
-- POST /tool-approvals/{id}/approve：批准（租户管理员/专家），批准后立即执行工具；
+- GET /tool-approvals：本小院审批单列表（小院成员可见）。
+- POST /tool-approvals/{id}/approve：批准（小院管理员/专家），批准后立即执行工具；
   若关联任务处于 awaiting_review，任务置为 succeeded 并写入工具执行结果。
-- POST /tool-approvals/{id}/reject：驳回（租户管理员/专家）；
+- POST /tool-approvals/{id}/reject：驳回（小院管理员/专家）；
   若关联任务处于 awaiting_review，任务置为 cancelled。
 """
 
@@ -16,10 +16,10 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.deps import (
     CurrentUser,
-    TenantContext,
+    YardContext,
     get_current_user,
     get_db_session,
-    get_tenant_context,
+    get_yard_context,
 )
 from app.core.errors import AppError
 from app.core.responses import ok, paged
@@ -28,14 +28,14 @@ from app.modules.auth.models import User
 from app.modules.tasks import state_machine as sm
 from app.modules.tasks.models import Task
 from app.modules.tasks.service import TaskService
-from app.modules.tenants import repository as tenant_repo
 from app.modules.tools import approvals as approval_svc
 from app.modules.tools.models import ToolApproval
+from app.modules.yards import repository as yard_repo
 
 router = APIRouter(prefix="/tool-approvals", tags=["tool-approvals"])
 
-#: 可审批角色：租户管理员 / 专家（平台管理员走 get_tenant_context 同样被拒，保持租户边界）
-_APPROVER_ROLES = frozenset({"tenant_admin", "expert"})
+#: 可审批角色：小院管理员 / 专家（平台管理员走 get_yard_context 同样被拒，保持小院边界）
+_APPROVER_ROLES = frozenset({"yard_admin", "yard_owner", "expert"})
 
 
 class ApprovalDecisionRequest(BaseModel):
@@ -45,7 +45,7 @@ class ApprovalDecisionRequest(BaseModel):
 def _approval_out(a: ToolApproval) -> dict:
     return {
         "id": a.id,
-        "tenant_id": a.tenant_id,
+        "yard_id": a.yard_id,
         "tool_code": a.tool_code,
         "params": a.params_json or {},
         "status": a.status,
@@ -61,24 +61,24 @@ def _approval_out(a: ToolApproval) -> dict:
     }
 
 
-def _require_approver(user: CurrentUser) -> TenantContext:
-    """审批人上下文：必须有租户 + 审批角色。"""
-    if not user.tenant_id:
-        raise AppError("TENANT_REQUIRED", "该操作需要租户上下文。", http_status=400)
+def _require_approver(user: CurrentUser) -> YardContext:
+    """审批人上下文：必须有小院 + 审批角色。"""
+    if not user.yard_id:
+        raise AppError("YARD_REQUIRED", "该操作需要小院上下文。", http_status=400)
     if "platform_admin" not in user.roles and not (set(user.roles) & _APPROVER_ROLES):
-        raise AppError("FORBIDDEN", "需要租户管理员或专家角色才能审批。", http_status=403)
-    return TenantContext(
-        tenant_id=user.tenant_id,
+        raise AppError("FORBIDDEN", "需要小院管理员或专家角色才能审批。", http_status=403)
+    return YardContext(
+        yard_id=user.yard_id,
         user_id=user.user_id,
         roles=user.roles,
         request_id=user.request_id,
     )
 
 
-def _requester_roles(db: Session, tenant_id: str, user_id: str) -> list[str]:
+def _requester_roles(db: Session, yard_id: str, user_id: str) -> list[str]:
     """解析原始请求人的角色（审批执行工具时做权限校验用）。"""
     roles: list[str] = []
-    membership = tenant_repo.get_membership(db, tenant_id, user_id)
+    membership = yard_repo.get_membership(db, yard_id, user_id)
     if membership is not None:
         roles = [membership.role]
     user = db.get(User, user_id)
@@ -91,11 +91,11 @@ def _requester_roles(db: Session, tenant_id: str, user_id: str) -> list[str]:
     return roles
 
 
-def _ctx_from_tenant(db: Session, tenant_id: str, user_id: str, request_id: str) -> TenantContext:
-    return TenantContext(
-        tenant_id=tenant_id,
+def _ctx_from_yard(db: Session, yard_id: str, user_id: str, request_id: str) -> YardContext:
+    return YardContext(
+        yard_id=yard_id,
         user_id=user_id,
-        roles=_requester_roles(db, tenant_id, user_id),
+        roles=_requester_roles(db, yard_id, user_id),
         request_id=request_id,
     )
 
@@ -103,15 +103,15 @@ def _ctx_from_tenant(db: Session, tenant_id: str, user_id: str, request_id: str)
 @router.get("")
 def list_approvals(
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db: Session = Depends(get_db_session),
     status: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
 ):
-    """本租户审批单列表（租户成员可见；审批动作需审批角色）。"""
+    """本小院审批单列表（小院成员可见；审批动作需审批角色）。"""
     rows, total = approval_svc.list_approvals(
-        db, ctx.tenant_id, status=status, page=page, page_size=page_size
+        db, ctx.yard_id, status=status, page=page, page_size=page_size
     )
     return paged([_approval_out(r) for r in rows], page, page_size, total, request)
 
@@ -125,7 +125,7 @@ def approve(
     db: Session = Depends(get_db_session),
 ):
     ctx = _require_approver(user)
-    approval = approval_svc.get_approval(db, ctx.tenant_id, approval_id)
+    approval = approval_svc.get_approval(db, ctx.yard_id, approval_id)
     approval_svc.approve_approval(
         db,
         approval,
@@ -138,7 +138,7 @@ def approve(
     # 批准后立即以请求人身份执行工具（审批单已 approved，注册表 DB 校验放行）
     from app.modules.tools.registry import tool_registry
 
-    req_ctx = _ctx_from_tenant(db, approval.tenant_id, approval.requested_by, ctx.request_id)
+    req_ctx = _ctx_from_yard(db, approval.yard_id, approval.requested_by, ctx.request_id)
     try:
         tool_result = asyncio.run(
             tool_registry.execute(
@@ -160,7 +160,7 @@ def approve(
         task = db.get(Task, task_id)
         if (
             task is not None
-            and task.tenant_id == ctx.tenant_id
+            and task.yard_id == ctx.yard_id
             and task.status == sm.STATUS_AWAITING_REVIEW
         ):
             TaskService.set_status(
@@ -177,7 +177,7 @@ def approve(
     db.commit()
     log_audit(
         db,
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         actor_id=ctx.user_id,
         action="tool_approval_executed",
         resource_type="tool_approval",
@@ -199,7 +199,7 @@ def reject(
     db: Session = Depends(get_db_session),
 ):
     ctx = _require_approver(user)
-    approval = approval_svc.get_approval(db, ctx.tenant_id, approval_id)
+    approval = approval_svc.get_approval(db, ctx.yard_id, approval_id)
     approval_svc.reject_approval(
         db,
         approval,
@@ -214,7 +214,7 @@ def reject(
         task = db.get(Task, task_id)
         if (
             task is not None
-            and task.tenant_id == ctx.tenant_id
+            and task.yard_id == ctx.yard_id
             and task.status == sm.STATUS_AWAITING_REVIEW
         ):
             TaskService.set_status(

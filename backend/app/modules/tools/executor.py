@@ -14,21 +14,21 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.core.deps import TenantContext
+from app.core.deps import YardContext
 from app.core.errors import AppError
 from app.modules.tools.registry import tool_registry
 
-_bound: ContextVar[tuple[Session, TenantContext, str] | None] = ContextVar(
+_bound: ContextVar[tuple[Session, YardContext, str] | None] = ContextVar(
     "tool_exec_ctx", default=None
 )
 
 
-def bind_tool_context(db: Session, ctx: TenantContext, request_id: str):
+def bind_tool_context(db: Session, ctx: YardContext, request_id: str):
     """绑定当前任务的工具执行上下文，返回 token（调用方负责 reset）。"""
     return _bound.set((db, ctx, request_id))
 
 
-def make_tool_executor(db: Session, ctx: TenantContext, request_id: str):
+def make_tool_executor(db: Session, ctx: YardContext, request_id: str):
     """创建绑定了 (db, ctx, request_id) 的 (name, params) 执行器。"""
 
     async def execute_tool(name: str, params: dict) -> dict:

@@ -37,7 +37,7 @@ THREE_NODE_WORKFLOW = {
 def make_ctx(**kwargs) -> AgentContext:
     base = dict(
         task_id="task-1",
-        tenant_id="tenant-1",
+        yard_id="yard-1",
         actor_id="user-1",
         request_id="req-1",
         allowed_tools=["knowledge.search"],

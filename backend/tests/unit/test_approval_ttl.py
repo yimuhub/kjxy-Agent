@@ -16,7 +16,7 @@ from app.core.config import settings
 from app.modules.tools import approvals as approval_svc
 from app.modules.tools.models import ToolApproval
 
-_TENANT = "t-ttl"
+_YARD = "t-ttl"
 _TOOL = "test.danger"
 _PARAMS = {"batch": "B-1"}
 
@@ -34,7 +34,7 @@ def _approve(db, *, ttl_hours: int, max_uses: int) -> ToolApproval:
     settings.tool_approval_max_uses = max_uses
     pending = approval_svc.get_or_create_pending_approval(
         db,
-        tenant_id=_TENANT,
+        yard_id=_YARD,
         tool_code=_TOOL,
         params=_PARAMS,
         requested_by="u-1",
@@ -48,7 +48,7 @@ def _approve(db, *, ttl_hours: int, max_uses: int) -> ToolApproval:
 
 def _grant(db, params: dict | None = None) -> bool:
     return approval_svc.has_approved_approval(
-        db, tenant_id=_TENANT, tool_code=_TOOL, params=params or _PARAMS
+        db, yard_id=_YARD, tool_code=_TOOL, params=params or _PARAMS
     )
 
 

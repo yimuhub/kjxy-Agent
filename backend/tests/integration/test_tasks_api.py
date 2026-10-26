@@ -26,13 +26,13 @@ from sqlalchemy import create_engine  # noqa: E402
 from sqlalchemy.orm import sessionmaker  # noqa: E402
 from sqlalchemy.pool import StaticPool  # noqa: E402
 
-TENANT_1 = "tenant-1"
-TENANT_2 = "tenant-2"
+YARD_1 = "yard-1"
+YARD_2 = "yard-2"
 USER_1 = "user-1"
 
 
-def _token(user_id: str, tenant_id: str) -> str:
-    return create_access_token(user_id=user_id, tenant_id=tenant_id, roles=["operator"])
+def _token(user_id: str, yard_id: str) -> str:
+    return create_access_token(user_id=user_id, yard_id=yard_id, roles=["operator"])
 
 
 @pytest.fixture()
@@ -69,12 +69,12 @@ def api_client(session_factory):
 
 @pytest.fixture()
 def auth_headers():
-    return {"Authorization": f"Bearer {_token(USER_1, TENANT_1)}"}
+    return {"Authorization": f"Bearer {_token(USER_1, YARD_1)}"}
 
 
 @pytest.fixture()
-def other_tenant_headers():
-    return {"Authorization": f"Bearer {_token('user-2', TENANT_2)}"}
+def other_yard_headers():
+    return {"Authorization": f"Bearer {_token('user-2', YARD_2)}"}
 
 
 @pytest.fixture(autouse=True)
@@ -113,9 +113,9 @@ def test_idempotency_key_returns_same_task(auth_headers, api_client):
     assert first.json()["data"]["id"] == second.json()["data"]["id"]
 
 
-def test_idempotency_key_is_tenant_scoped(auth_headers, other_tenant_headers, api_client):
+def test_idempotency_key_is_yard_scoped(auth_headers, other_yard_headers, api_client):
     first = _create(api_client, auth_headers, idem_key="key-shared")
-    second = _create(api_client, other_tenant_headers, idem_key="key-shared")
+    second = _create(api_client, other_yard_headers, idem_key="key-shared")
     assert first.status_code == 201
     assert second.status_code == 201
     assert first.json()["data"]["id"] != second.json()["data"]["id"]
@@ -150,18 +150,18 @@ def test_get_task_and_events(auth_headers, api_client):
     assert items[0]["event_type"] == "created"
 
 
-def test_cross_tenant_task_is_invisible(auth_headers, other_tenant_headers, api_client):
-    created = _create(api_client, auth_headers, idem_key="key-xtenant-1").json()["data"]
+def test_cross_yard_task_is_invisible(auth_headers, other_yard_headers, api_client):
+    created = _create(api_client, auth_headers, idem_key="key-xyard-1").json()["data"]
     task_id = created["id"]
 
-    resp = api_client.get(f"/api/v1/tasks/{task_id}", headers=other_tenant_headers)
+    resp = api_client.get(f"/api/v1/tasks/{task_id}", headers=other_yard_headers)
     assert resp.status_code == 404
     assert resp.json()["error"]["code"] == "TASK_NOT_FOUND"
 
-    events = api_client.get(f"/api/v1/tasks/{task_id}/events", headers=other_tenant_headers)
+    events = api_client.get(f"/api/v1/tasks/{task_id}/events", headers=other_yard_headers)
     assert events.status_code == 404
 
-    listing = api_client.get("/api/v1/tasks", headers=other_tenant_headers)
+    listing = api_client.get("/api/v1/tasks", headers=other_yard_headers)
     assert listing.json()["meta"]["total"] == 0
 
 
@@ -205,10 +205,10 @@ def test_cancel_queued_task(auth_headers, api_client):
 
 
 def test_cancel_running_task_marks_cancel_requested(auth_headers, api_client, session_factory):
-    from app.core.deps import TenantContext
+    from app.core.deps import YardContext
 
     created = _create(api_client, auth_headers, idem_key="key-cancel-2").json()["data"]
-    ctx = TenantContext(tenant_id=TENANT_1, user_id=USER_1, roles=[], request_id="req-test")
+    ctx = YardContext(yard_id=YARD_1, user_id=USER_1, roles=[], request_id="req-test")
     session = session_factory()
     try:
         task = TaskService.get(session, ctx, created["id"])

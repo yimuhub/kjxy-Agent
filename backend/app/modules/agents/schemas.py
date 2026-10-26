@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 class AgentContext(BaseModel):
     task_id: str
-    tenant_id: str
+    yard_id: str
     actor_id: str
     request_id: str
     allowed_tools: list[str] = Field(default_factory=list)

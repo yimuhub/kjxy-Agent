@@ -1,7 +1,7 @@
 """报表生成服务：只读授权数据源（tasks / knowledge_documents / llm_calls）。
 
-无状态、纯查询：除读取三张表的租户内数据外不产生任何副作用，
-不建新表。所有查询强制带 tenant_id 过滤。
+无状态、纯查询：除读取三张表的小院内数据外不产生任何副作用，
+不建新表。所有查询强制带 yard_id 过滤。
 """
 
 import uuid
@@ -109,7 +109,7 @@ def _iter_days(start: date, end: date):
 def _daily_counts(
     db: Session,
     model: Any,
-    tenant_id: str,
+    yard_id: str,
     start: date,
     end: date,
     extra_filters: tuple = (),
@@ -120,7 +120,7 @@ def _daily_counts(
     if status_column is not None:
         stmt = (
             select(day_col, status_column, func.count())
-            .where(model.tenant_id == tenant_id, _in_range(model, start, end), *extra_filters)
+            .where(model.yard_id == yard_id, _in_range(model, start, end), *extra_filters)
             .group_by(day_col, status_column)
         )
         rows = db.execute(stmt).all()
@@ -130,28 +130,28 @@ def _daily_counts(
         return result
     stmt = (
         select(day_col, func.count())
-        .where(model.tenant_id == tenant_id, _in_range(model, start, end), *extra_filters)
+        .where(model.yard_id == yard_id, _in_range(model, start, end), *extra_filters)
         .group_by(day_col)
     )
     return {str(day): {"total": int(count)} for day, count in db.execute(stmt).all()}
 
 
 def _build_tasks_metrics(
-    db: Session, tenant_id: str, start: date, end: date
+    db: Session, yard_id: str, start: date, end: date
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """任务指标：总数 / 各状态计数 / 成功率 + 按日统计表。"""
-    base_filters: dict[str, Any] = {"tenant_id": tenant_id}
+    base_filters: dict[str, Any] = {"yard_id": yard_id}
     total = (
         db.scalar(
             select(func.count())
             .select_from(Task)
-            .where(Task.tenant_id == tenant_id, _in_range(Task, start, end))
+            .where(Task.yard_id == yard_id, _in_range(Task, start, end))
         )
         or 0
     )
     status_rows = db.execute(
         select(Task.status, func.count())
-        .where(Task.tenant_id == tenant_id, _in_range(Task, start, end))
+        .where(Task.yard_id == yard_id, _in_range(Task, start, end))
         .group_by(Task.status)
     ).all()
     status_counts = {str(s): int(c) for s, c in status_rows}
@@ -182,7 +182,7 @@ def _build_tasks_metrics(
                 "trace": _trace("tasks", {**base_filters, "status": status}, start, end),
             }
         )
-    daily = _daily_counts(db, Task, tenant_id, start, end, status_column=Task.status)
+    daily = _daily_counts(db, Task, yard_id, start, end, status_column=Task.status)
     rows = [
         [
             day.isoformat(),
@@ -196,17 +196,17 @@ def _build_tasks_metrics(
 
 
 def _build_knowledge_metrics(
-    db: Session, tenant_id: str, start: date, end: date
+    db: Session, yard_id: str, start: date, end: date
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """文档指标：总数 / 各状态计数（排除软删除）。"""
     not_deleted = KnowledgeDocument.deleted_at.is_(None)
-    base_filters: dict[str, Any] = {"tenant_id": tenant_id, "deleted_at": "is_null"}
+    base_filters: dict[str, Any] = {"yard_id": yard_id, "deleted_at": "is_null"}
     total = (
         db.scalar(
             select(func.count())
             .select_from(KnowledgeDocument)
             .where(
-                KnowledgeDocument.tenant_id == tenant_id,
+                KnowledgeDocument.yard_id == yard_id,
                 not_deleted,
                 _in_range(KnowledgeDocument, start, end),
             )
@@ -216,7 +216,7 @@ def _build_knowledge_metrics(
     status_rows = db.execute(
         select(KnowledgeDocument.status, func.count())
         .where(
-            KnowledgeDocument.tenant_id == tenant_id,
+            KnowledgeDocument.yard_id == yard_id,
             not_deleted,
             _in_range(KnowledgeDocument, start, end),
         )
@@ -245,7 +245,7 @@ def _build_knowledge_metrics(
     daily = _daily_counts(
         db,
         KnowledgeDocument,
-        tenant_id,
+        yard_id,
         start,
         end,
         extra_filters=(not_deleted,),
@@ -264,11 +264,11 @@ def _build_knowledge_metrics(
 
 
 def _build_llm_metrics(
-    db: Session, tenant_id: str, start: date, end: date
+    db: Session, yard_id: str, start: date, end: date
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """LLM 调用指标：调用次数 / 成功率 / 总 token。"""
-    base_filters: dict[str, Any] = {"tenant_id": tenant_id}
-    cond = [LLMCall.tenant_id == tenant_id, _in_range(LLMCall, start, end)]
+    base_filters: dict[str, Any] = {"yard_id": yard_id}
+    cond = [LLMCall.yard_id == yard_id, _in_range(LLMCall, start, end)]
     total = db.scalar(select(func.count()).select_from(LLMCall).where(*cond)) or 0
     ok = (
         db.scalar(
@@ -345,7 +345,7 @@ _BUILDERS = {
 }
 
 
-def build_report(db: Session, tenant_id: str, input: ReportInput) -> dict:
+def build_report(db: Session, yard_id: str, input: ReportInput) -> dict:
     """生成可回溯报表（纯查询，无副作用）。"""
     _validate_input(input)
     start, end = _resolve_time_range(input)
@@ -354,7 +354,7 @@ def build_report(db: Session, tenant_id: str, input: ReportInput) -> dict:
     warnings: list[str] = []
     for source in input.sources:
         builder = _BUILDERS[source]
-        source_metrics, source_tables = builder(db, tenant_id, start, end)
+        source_metrics, source_tables = builder(db, yard_id, start, end)
         metrics.extend(source_metrics)
         tables.extend(source_tables)
         if source_metrics and source_metrics[0]["value"] == 0:

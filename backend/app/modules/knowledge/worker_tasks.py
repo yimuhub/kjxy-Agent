@@ -1,24 +1,27 @@
-"""文档解析后台任务：提取文本 → 切块 → 向量化 → 入库。
+"""文档解析后台任务：MarkItDown 结构化提取 → 标题/表格感知切块 → 向量化 → Token 记账与入库。
 
 Celery 入口为 ``parse_document``（task name ``knowledge.parse_document``）；
 核心逻辑在 ``parse_document_sync`` 中，便于测试与无 Celery 环境同步调用。
 """
+
+import time
 
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
 from app.core.logging import get_logger
 from app.modules.audit.service import log_audit
-from app.modules.knowledge.chunking import split_text
+from app.modules.knowledge.chunking import estimate_token_count, split_markdown_structured
 from app.modules.knowledge.embedding import get_embedding_provider
 from app.modules.knowledge.models import KnowledgeChunk, KnowledgeDocument
 from app.modules.knowledge.parsers import extract_text
+from app.modules.llm.models import LLMTrace
 from app.workers.celery_app import celery_app
 
 log = get_logger(__name__)
 
-# 信任级映射（S4/A 审查项）：chunk 的 trust_level 不再硬编码 tenant_material，
-# 而是按文档 source 区分知识可信级别——专家纠错高于普通租户资料，
+# 信任级映射（S4/A 审查项）：chunk 的 trust_level 不再硬编码 yard_material，
+# 而是按文档 source 区分知识可信级别——专家纠错高于普通小院资料，
 # 官方/政策类来源视为已核实官方知识。
 _EXPERT_SOURCE = "expert_correction"
 _OFFICIAL_SOURCE_KEYS = ("official", "policy", "verified_official")
@@ -26,13 +29,13 @@ _OFFICIAL_SOURCE_KEYS = ("official", "policy", "verified_official")
 
 def _trust_level_for_source(source: str | None) -> str:
     """文档来源 → 切块信任级：expert_correction→expert_reviewed；
-    官方/政策→verified_official；其余（upload/seed 等）→tenant_material。"""
+    官方/政策→verified_official；其余（upload/seed 等）→yard_material。"""
     src = (source or "").strip().lower()
     if src == _EXPERT_SOURCE:
         return "expert_reviewed"
     if src in _OFFICIAL_SOURCE_KEYS or "官方" in src or "政策" in src:
         return "verified_official"
-    return "tenant_material"
+    return "yard_material"
 
 
 def parse_document_sync(db: Session, document_id: str) -> None:
@@ -46,6 +49,7 @@ def parse_document_sync(db: Session, document_id: str) -> None:
     doc.error_message = None
     db.commit()
 
+    started = time.perf_counter()
     try:
         full_text, page_count, pages = extract_text(doc.storage_key, doc.mime_type)
         if not (full_text or "").strip():
@@ -58,26 +62,54 @@ def parse_document_sync(db: Session, document_id: str) -> None:
         # 重新解析时先清理旧切块，保证幂等
         db.query(KnowledgeChunk).filter(KnowledgeChunk.document_id == doc.id).delete()
 
-        pieces: list[tuple[str, int | None]] = []
+        pieces: list[tuple[str, int | None, str | None, int]] = []
         for page_idx, page_text in enumerate(pages):
             page_no = (page_idx + 1) if page_count else None
-            for piece in split_text(page_text):
-                pieces.append((piece, page_no))
+            for sc in split_markdown_structured(page_text):
+                tok = sc.token_count or estimate_token_count(sc.content)
+                pieces.append((sc.content, page_no, sc.title_path, tok))
 
         provider = get_embedding_provider()
-        texts = [content for content, _ in pieces]
+        texts = [content for content, _, _, _ in pieces]
         vectors = provider.embed(texts) if texts else []
-        for idx, ((content, page_no), vec) in enumerate(zip(pieces, vectors, strict=False)):
+        total_tokens = sum(tok for _, _, _, tok in pieces)
+        for idx, ((content, page_no, title_path, tok), vec) in enumerate(
+            zip(pieces, vectors, strict=False)
+        ):
             db.add(
                 KnowledgeChunk(
-                    tenant_id=doc.tenant_id,
+                    yard_id=doc.yard_id,
                     document_id=doc.id,
                     chunk_index=idx,
                     content=content,
                     page_number=page_no,
+                    title_path=title_path,
                     trust_level=_trust_level_for_source(doc.source),
-                    visibility="tenant",
+                    visibility="yard",
+                    metadata_json={
+                        "token_count": tok,
+                        "parser": "markitdown",
+                    },
                     embedding=list(vec),
+                )
+            )
+
+        latency_ms = max(1, int((time.perf_counter() - started) * 1000))
+        # 记录向量化 Embedding Token 消耗至观测轨迹表
+        if total_tokens > 0:
+            db.add(
+                LLMTrace(
+                    yard_id=doc.yard_id,
+                    provider_id=None,
+                    model=getattr(provider, "model", "embedding-markitdown"),
+                    purpose="embedding",
+                    agent_ref=f"doc:{doc.id[:8]}",
+                    run_id=doc.id,
+                    status="ok",
+                    input_tokens=total_tokens,
+                    output_tokens=0,
+                    latency_ms=latency_ms,
+                    prompt_digest=f"kb_embed|{doc.title[:120]}",
                 )
             )
 
@@ -86,14 +118,19 @@ def parse_document_sync(db: Session, document_id: str) -> None:
         db.commit()
         log_audit(
             db,
-            tenant_id=doc.tenant_id,
+            yard_id=doc.yard_id,
             actor_id=doc.uploaded_by,
             action="knowledge.document.parsed",
             resource_type="knowledge_document",
             resource_id=doc.id,
             result="success",
             request_id="worker",
-            metadata={"chunks": len(pieces), "page_count": page_count},
+            metadata={
+                "chunks": len(pieces),
+                "page_count": page_count,
+                "total_tokens": total_tokens,
+                "parser": "markitdown",
+            },
         )
         db.commit()
     except AppError as e:

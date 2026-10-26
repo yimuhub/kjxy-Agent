@@ -9,18 +9,21 @@ import os
 import secrets
 import sys
 
+from sqlalchemy import select
+
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.db.session import SessionLocal
 
 log = get_logger(__name__)
 
-DEMO_TENANT_NAME = "演示科技小院"
+DEMO_YARD_NAME = "演示科技小院"
 
 SEED_USERS = [
-    # (username, password, display_name, tenant_role|None)
-    ("admin", "admin123", "平台管理员", None),  # 平台管理员，无租户归属
-    ("tenant_admin", "tenant123", "租户管理员", "tenant_admin"),
+    # (username, password, display_name, yard_role|None)
+    # admin 同时是演示小院负责人
+    ("admin", "admin123", "平台管理员 / 小院负责人", "yard_owner"),
+    ("yard_admin", "yard123", "小院管理员", "yard_admin"),
     ("expert", "expert123", "农业专家", "expert"),
     ("operator", "operator123", "科研人员", "operator"),
 ]
@@ -54,30 +57,66 @@ def _random_password() -> str:
     return secrets.token_urlsafe(12)
 
 
+def _ensure_demo_owner(db) -> None:
+    """演示小院：admin 必须是负责人。
+
+    历史库由 0030 回填时，多院环境会选中最早的 yard_admin 当负责人；
+    演示环境统一纠正为 admin，并把其他 yard_owner 回退为管理员。
+    """
+    from app.modules.auth.repository import get_by_username
+    from app.modules.yards.models import Yard, YardMembership
+    from app.modules.yards.repository import add_membership, get_membership
+
+    admin = get_by_username(db, "admin")
+    yard = db.scalar(select(Yard).where(Yard.name == DEMO_YARD_NAME))
+    if admin is None or yard is None:
+        return
+    yard.owner_user_id = admin.id
+    membership = get_membership(db, yard.id, admin.id)
+    if membership is None:
+        add_membership(db, yard_id=yard.id, user_id=admin.id, role="yard_owner")
+    else:
+        membership.role = "yard_owner"
+        membership.status = "active"
+    for row in db.scalars(
+        select(YardMembership).where(
+            YardMembership.yard_id == yard.id,
+            YardMembership.role == "yard_owner",
+        )
+    ).all():
+        if row.user_id != admin.id:
+            row.role = "yard_admin"
+    from app.modules.market.agri_skills import ensure_builtin_skills
+
+    ensure_builtin_skills(db, yard_id=yard.id, actor_id=admin.id, request_id="seed")
+    db.commit()
+
+
 def seed(random_passwords: bool = False) -> None:
     from app.modules.auth.repository import create_user, get_by_username
     from app.modules.knowledge.embedding import MockEmbeddingProvider
     from app.modules.knowledge.models import KnowledgeChunk, KnowledgeDocument
-    from app.modules.tenants.repository import (
+    from app.modules.yards.repository import (
         add_membership,
-        create_tenant,
+        create_yard,
     )
 
     db = SessionLocal()
     try:
         if get_by_username(db, "admin") is not None:
-            log.info("seed 数据已存在，跳过")
+            _ensure_demo_owner(db)
+            log.info("seed 数据已存在，已校正演示小院负责人")
             return
 
-        tenant = create_tenant(
+        yard = create_yard(
             db,
-            name=DEMO_TENANT_NAME,
+            name=DEMO_YARD_NAME,
             province="演示省",
             city="演示市",
             scene_type="试点小院",
         )
         db.flush()
-        log.info("创建演示租户: %s", tenant.id)
+        log.info("创建演示小院: %s", yard.id)
 
         users = {}
         passwords: dict[str, str] = {}
@@ -87,21 +126,31 @@ def seed(random_passwords: bool = False) -> None:
             user = create_user(db, username=username, password=plain, display_name=display_name)
             users[username] = user
             if role:
-                add_membership(db, tenant_id=tenant.id, user_id=user.id, role=role)
+                add_membership(db, yard_id=yard.id, user_id=user.id, role=role)
         db.flush()
+        # admin 是演示小院负责人：owner_user_id 决定负责人专属权限
+        yard.owner_user_id = users["admin"].id
+        db.flush()
+
+        # 内置农业技能：直接出现在「专家审核 → Skill 管理」
+        from app.modules.market.agri_skills import ensure_builtin_skills
+
+        ensure_builtin_skills(
+            db, yard_id=yard.id, actor_id=users["admin"].id, request_id="seed"
+        )
 
         # 演示知识文档（直接写入 ready 状态，免去解析流程）
         from app.modules.knowledge.chunking import split_text
 
         doc = KnowledgeDocument(
-            tenant_id=tenant.id,
+            yard_id=yard.id,
             title=DEMO_DOC_TITLE,
             storage_key="seed/demo-rice-tillering.txt",
             mime_type="text/plain",
             source="seed",
             status="ready",
             checksum="seed-demo",
-            uploaded_by=users["tenant_admin"].id,
+            uploaded_by=users["yard_admin"].id,
             page_count=1,
         )
         db.add(doc)
@@ -113,19 +162,19 @@ def seed(random_passwords: bool = False) -> None:
         for i, (text, vec) in enumerate(zip(chunks, vectors, strict=False)):
             db.add(
                 KnowledgeChunk(
-                    tenant_id=tenant.id,
+                    yard_id=yard.id,
                     document_id=doc.id,
                     chunk_index=i,
                     content=text,
                     page_number=1,
                     title_path="水稻分蘖期管理技术要点",
-                    trust_level="tenant_material",
-                    visibility="tenant",
+                    trust_level="yard_material",
+                    visibility="yard",
                     embedding=list(vec),
                 )
             )
         db.commit()
-        log.info("seed 完成：租户=%s 用户=%d 文档chunk=%d", tenant.id, len(users), len(chunks))
+        log.info("seed 完成：小院=%s 用户=%d 文档chunk=%d", yard.id, len(users), len(chunks))
         if random_passwords:
             # 随机口令只在此处明文打印一次，日志/数据库均不留副本；请立刻保存
             print("SEED_RANDOM_PASSWORDS=YES：以下密码仅打印一次，请立即保存：")
@@ -133,7 +182,7 @@ def seed(random_passwords: bool = False) -> None:
                 print(f"{username} {plain}")
         else:
             log.info(
-                "演示账号： admin/admin123 tenant_admin/tenant123 expert/expert123 operator/operator123"  # noqa: E501
+                "演示账号： admin/admin123 yard_admin/yard123 expert/expert123 operator/operator123"  # noqa: E501
             )
     finally:
         db.close()

@@ -29,9 +29,9 @@ from app.db.base import Base, TimestampMixin, _utcnow
 
 class Device(TimestampMixin, Base):
     __tablename__ = "devices"
-    __table_args__ = (UniqueConstraint("tenant_id", "name", name="uq_devices_tenant_name"),)
+    __table_args__ = (UniqueConstraint("yard_id", "name", name="uq_devices_yard_name"),)
 
-    tenant_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    yard_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     # 厂商/型号自由文本（"托普云农 TNSSH-cpmz"之类），仅展示
     model_hint: Mapped[str | None] = mapped_column(String(120), nullable=True)
@@ -63,7 +63,7 @@ class Reading(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    tenant_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    yard_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     device_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("devices.id"), index=True, nullable=False
     )
@@ -86,8 +86,8 @@ class Reading(Base):
 class DeviceAlertRule(TimestampMixin, Base):
     __tablename__ = "device_alert_rules"
 
-    tenant_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
-    # 空=该租户该指标全部设备生效
+    yard_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    # 空=该小院该指标全部设备生效
     device_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     metric: Mapped[str] = mapped_column(String(50), nullable=False)
     # lt（低于阈值告警，如低温霜冻）| gt（高于阈值告警，如高温/虫情）
@@ -105,7 +105,7 @@ class DeviceAlert(TimestampMixin, Base):
         Index("ix_device_alerts_rule_device_time", "rule_id", "device_id", "triggered_at"),
     )
 
-    tenant_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    yard_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     # 空=系统健康类告警（如连接器连续失败自动停用）
     rule_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     device_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
@@ -118,7 +118,7 @@ class DeviceAlert(TimestampMixin, Base):
     )
     # 已发送的告警文案（站内展示即所用文本；也证明通知已走过 send_alert）
     notified_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # 一键工单：指向 tasks 表 workorder.dispatch 任务行（本租户）；空=尚未开工单。
+    # 一键工单：指向 tasks 表 workorder.dispatch 任务行（本小院）；空=尚未开工单。
     # 幂等锚点——已有值的告警再次"开工单"直接返回既有工单号，不重复创建。
     workorder_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
 

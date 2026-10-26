@@ -1,14 +1,14 @@
 """机器人网关 ORM（迁移 0019）。
 
-三张表构成「平台机器人 ↔ 租户会话 ↔ 消息账本」：
+三张表构成「平台机器人 ↔ 小院会话 ↔ 消息账本」：
 
-- ``BotConfig``：一个租户的一个平台机器人接入配置。凭据（BotID+Secret /
+- ``BotConfig``：一个小院的一个平台机器人接入配置。凭据（BotID+Secret /
   ClientID+Secret）**视同密钥**：``credentials_enc`` 存 Fernet 密文（复用
   llm/supplier_crypto），接口只回掩码，明文永不出库；连续失败
   ``consecutive_failures`` 达阈值自动停用（与 push 通道同一熔断口径）。
   ``status`` 是连接器回填的实时状态（connecting/online/offline/error），
   ``status_reason`` 给人看的失败原因（被踢/缺 SDK/握手失败）。
-- ``BotConversation``：平台会话映射（群 per-group、私聊 per-user）。同一租户
+- ``BotConversation``：平台会话映射（群 per-group、私聊 per-user）。同一小院
   + 平台 + 平台会话 id 唯一；``approved_at`` 为空且机器人 ``require_approval``
   时，陌生会话只会收到「等待管理员批准」的固定回复（OpenClaw 同款安全模型）。
   ``context_cache_json`` **存最近若干轮对话明文**，用途仅限多轮上下文拼接：
@@ -17,7 +17,7 @@
 - ``BotMessageLog``：消息账本，双向各一条，**只存 sha12 摘要 + 长度 +
   路由元数据**（与 supervisor/llm_traces 隐私口径一致），永不存明文。
 
-租户边界：所有查询带 tenant_id；跨租户与不存在统一 404（防枚举）。
+小院边界：所有查询带 yard_id；跨小院与不存在统一 404（防枚举）。
 """
 
 from datetime import datetime
@@ -72,9 +72,9 @@ DIRECTION_OUT = "out"
 
 class BotConfig(Base, TimestampMixin):
     __tablename__ = "bot_configs"
-    __table_args__ = (UniqueConstraint("tenant_id", "name", name="uq_bot_configs_tenant_name"),)
+    __table_args__ = (UniqueConstraint("yard_id", "name", name="uq_bot_configs_yard_name"),)
 
-    tenant_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    yard_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     # wecom_aibot|dingtalk|feishu
     platform: Mapped[str] = mapped_column(String(30), nullable=False)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
@@ -87,7 +87,7 @@ class BotConfig(Base, TimestampMixin):
     credentials_enc: Mapped[str] = mapped_column(Text, nullable=False)
     # auto|assistant|team：auto 走 supervisor 三级路由，其余走指定对象
     binding_mode: Mapped[str] = mapped_column(String(20), default=BINDING_AUTO, nullable=False)
-    # binding_mode != auto 时指向 tenant_agents.id 或 agent_teams.id
+    # binding_mode != auto 时指向 yard_agents.id 或 agent_teams.id
     bound_agent_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     # 陌生会话是否需要管理员批准（默认 True：陌生群/陌生人只回欢迎语）
     require_approval: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
@@ -100,11 +100,11 @@ class BotConversation(Base, TimestampMixin):
     __tablename__ = "bot_conversations"
     __table_args__ = (
         UniqueConstraint(
-            "tenant_id", "platform", "external_conv_id", name="uq_bot_conv_tenant_platform_ext"
+            "yard_id", "platform", "external_conv_id", name="uq_bot_conv_yard_platform_ext"
         ),
     )
 
-    tenant_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    yard_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     bot_config_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     platform: Mapped[str] = mapped_column(String(30), nullable=False)
     # 平台侧会话标识（企微 chatid / 钉钉 conversationId / 飞书 chat_id）
@@ -126,7 +126,7 @@ class BotConversation(Base, TimestampMixin):
 class BotMessageLog(Base, TimestampMixin):
     __tablename__ = "bot_message_logs"
 
-    tenant_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    yard_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     conversation_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     # in（用户→平台→我们）| out（我们→平台→用户）
     direction: Mapped[str] = mapped_column(String(5), nullable=False)

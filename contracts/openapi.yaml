@@ -122,12 +122,88 @@ paths:
               schema: {}
       security:
       - HTTPBearer: []
-  /api/v1/tenants/current:
+    patch:
+      tags:
+      - v1
+      summary: Update Me
+      operationId: update_me_api_v1_auth_me_patch
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProfileUpdateRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/auth/register:
+    post:
+      tags:
+      - v1
+      summary: Register
+      description: 公开注册：必须指定 yard_id；按小院注册模式进入待审核或直接加入。
+      operationId: register_api_v1_auth_register_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/auth/change-password:
+    post:
+      tags:
+      - v1
+      summary: Change Password
+      operationId: change_password_api_v1_auth_change_password_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/yards/current:
     get:
       tags:
       - v1
-      summary: Current Tenant
-      operationId: current_tenant_api_v1_tenants_current_get
+      summary: Current Yard
+      operationId: current_yard_api_v1_yards_current_get
       responses:
         '200':
           description: Successful Response
@@ -136,12 +212,12 @@ paths:
               schema: {}
       security:
       - HTTPBearer: []
-  /api/v1/tenants/current/members:
+  /api/v1/yards/current/members:
     get:
       tags:
       - v1
       summary: List Members
-      operationId: list_members_api_v1_tenants_current_members_get
+      operationId: list_members_api_v1_yards_current_members_get
       security:
       - HTTPBearer: []
       parameters:
@@ -182,7 +258,7 @@ paths:
       tags:
       - v1
       summary: Add Member
-      operationId: add_member_api_v1_tenants_current_members_post
+      operationId: add_member_api_v1_yards_current_members_post
       security:
       - HTTPBearer: []
       requestBody:
@@ -190,7 +266,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/AddMemberRequest'
+              $ref: '#/components/schemas/MemberCreateRequest'
       responses:
         '201':
           description: Successful Response
@@ -203,87 +279,27 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /api/v1/tenants/current/members/batch:
-    post:
+  /api/v1/yards/current/members/{user_id}:
+    patch:
       tags:
       - v1
-      summary: Batch Add Members
-      description: 批量添加已有账号：逐条独立成败，返回成功列表与失败原因。
-      operationId: batch_add_members_api_v1_tenants_current_members_batch_post
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/BatchAddMembersRequest'
-        required: true
-      responses:
-        '201':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-      security:
-      - HTTPBearer: []
-  /api/v1/tenants/current/invitations:
-    get:
-      tags:
-      - v1
-      summary: List Invitations
-      operationId: list_invitations_api_v1_tenants_current_invitations_get
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-      security:
-      - HTTPBearer: []
-    post:
-      tags:
-      - v1
-      summary: Create Invitation
-      operationId: create_invitation_api_v1_tenants_current_invitations_post
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/InvitationCreateRequest'
-        required: true
-      responses:
-        '201':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-      security:
-      - HTTPBearer: []
-  /api/v1/tenants/current/invitations/{invitation_id}:
-    delete:
-      tags:
-      - v1
-      summary: Revoke Invitation
-      operationId: revoke_invitation_api_v1_tenants_current_invitations__invitation_id__delete
+      summary: Update Member
+      operationId: update_member_api_v1_yards_current_members__user_id__patch
       security:
       - HTTPBearer: []
       parameters:
-      - name: invitation_id
+      - name: user_id
         in: path
         required: true
         schema:
           type: string
-          title: Invitation Id
+          title: User Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MemberUpdateRequest'
       responses:
         '200':
           description: Successful Response
@@ -296,12 +312,11 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /api/v1/tenants/current/members/{user_id}:
     delete:
       tags:
       - v1
       summary: Remove Member
-      operationId: remove_member_api_v1_tenants_current_members__user_id__delete
+      operationId: remove_member_api_v1_yards_current_members__user_id__delete
       security:
       - HTTPBearer: []
       parameters:
@@ -323,12 +338,159 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /api/v1/tenants/quota:
+  /api/v1/yards/current/members/{user_id}/reset-password:
+    post:
+      tags:
+      - v1
+      summary: Reset Member Password
+      operationId: reset_member_password_api_v1_yards_current_members__user_id__reset_password_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: User Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/yards/current/registrations:
     get:
       tags:
       - v1
-      summary: Get Quota
-      operationId: get_quota_api_v1_tenants_quota_get
+      summary: List Registrations
+      operationId: list_registrations_api_v1_yards_current_registrations_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: pending|approved|rejected
+          title: Status
+        description: pending|approved|rejected
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/yards/current/registrations/{registration_id}/approve:
+    post:
+      tags:
+      - v1
+      summary: Approve Registration
+      operationId: approve_registration_api_v1_yards_current_registrations__registration_id__approve_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: registration_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Registration Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/yards/current/registrations/{registration_id}/reject:
+    post:
+      tags:
+      - v1
+      summary: Reject Registration
+      operationId: reject_registration_api_v1_yards_current_registrations__registration_id__reject_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: registration_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Registration Id
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - $ref: '#/components/schemas/RegistrationRejectRequest'
+              - type: 'null'
+              title: Req
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/yards/current/members/batch:
+    post:
+      tags:
+      - v1
+      summary: Batch Add Members
+      description: 批量添加已有账号：逐条独立成败，返回成功列表与失败原因。
+      operationId: batch_add_members_api_v1_yards_current_members_batch_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchAddMembersRequest'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/yards/current/invitations:
+    get:
+      tags:
+      - v1
+      summary: List Invitations
+      operationId: list_invitations_api_v1_yards_current_invitations_get
       responses:
         '200':
           description: Successful Response
@@ -337,22 +499,88 @@ paths:
               schema: {}
       security:
       - HTTPBearer: []
-  /api/v1/admin/quotas/{tenant_id}:
-    patch:
+    post:
       tags:
       - v1
-      summary: Admin Patch Quota
-      description: 运营调整租户配额限额（ge=0）；每次调整写审计，返回调整后的配额状态。
-      operationId: admin_patch_quota_api_v1_admin_quotas__tenant_id__patch
+      summary: Create Invitation
+      operationId: create_invitation_api_v1_yards_current_invitations_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvitationCreateRequest'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/yards/current/invitations/{invitation_id}:
+    delete:
+      tags:
+      - v1
+      summary: Revoke Invitation
+      operationId: revoke_invitation_api_v1_yards_current_invitations__invitation_id__delete
       security:
       - HTTPBearer: []
       parameters:
-      - name: tenant_id
+      - name: invitation_id
         in: path
         required: true
         schema:
           type: string
-          title: Tenant Id
+          title: Invitation Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/yards/quota:
+    get:
+      tags:
+      - v1
+      summary: Get Quota
+      operationId: get_quota_api_v1_yards_quota_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/admin/quotas/{yard_id}:
+    patch:
+      tags:
+      - v1
+      summary: Admin Patch Quota
+      description: 运营调整小院配额限额（ge=0）；每次调整写审计，返回调整后的配额状态。
+      operationId: admin_patch_quota_api_v1_admin_quotas__yard_id__patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: yard_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Yard Id
       requestBody:
         required: true
         content:
@@ -371,17 +599,347 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /api/v1/tenants/signup:
+  /api/v1/yards/current/owner/overview:
+    get:
+      tags:
+      - v1
+      - owner
+      summary: Overview
+      operationId: overview_api_v1_yards_current_owner_overview_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/yards/current/owner/member-usage:
+    get:
+      tags:
+      - v1
+      - owner
+      summary: Member Usage
+      operationId: member_usage_api_v1_yards_current_owner_member_usage_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: days
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 90
+          minimum: 1
+          default: 7
+          title: Days
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/yards/current/owner/daily-usage:
+    get:
+      tags:
+      - v1
+      - owner
+      summary: Daily Usage
+      operationId: daily_usage_api_v1_yards_current_owner_daily_usage_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: days
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 90
+          minimum: 1
+          default: 7
+          title: Days
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/yards/current/owner/agent-usage:
+    get:
+      tags:
+      - v1
+      - owner
+      summary: Agent Usage
+      operationId: agent_usage_api_v1_yards_current_owner_agent_usage_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: days
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 90
+          minimum: 1
+          default: 7
+          title: Days
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/yards/current/owner/sessions:
+    get:
+      tags:
+      - v1
+      - owner
+      summary: List Sessions
+      operationId: list_sessions_api_v1_yards_current_owner_sessions_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: user_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 36
+          - type: 'null'
+          title: User Id
+      - name: keyword
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 100
+          - type: 'null'
+          title: Keyword
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          description: 页码
+          default: 1
+          title: Page
+        description: 页码
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          description: 每页条数
+          default: 20
+          title: Page Size
+        description: 每页条数
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/yards/current/owner/sessions/{session_id}/messages:
+    get:
+      tags:
+      - v1
+      - owner
+      summary: Session Messages
+      operationId: session_messages_api_v1_yards_current_owner_sessions__session_id__messages_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      - name: reason
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/yards/current/owner/grants:
+    get:
+      tags:
+      - v1
+      - owner
+      summary: List Grants
+      operationId: list_grants_api_v1_yards_current_owner_grants_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/yards/current/owner/grants/{user_id}:
+    put:
+      tags:
+      - v1
+      - owner
+      summary: Update Grants
+      operationId: update_grants_api_v1_yards_current_owner_grants__user_id__put
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: User Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GrantsUpdateRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/yards/current/owner/transfer:
     post:
       tags:
       - v1
-      summary: Tenant Signup
-      operationId: tenant_signup_api_v1_tenants_signup_post
+      - owner
+      summary: Transfer Owner
+      operationId: transfer_owner_api_v1_yards_current_owner_transfer_post
       requestBody:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/TenantSignupRequest'
+              $ref: '#/components/schemas/TransferRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/yards/current/owner/audit:
+    get:
+      tags:
+      - v1
+      - owner
+      summary: Recent Audit
+      operationId: recent_audit_api_v1_yards_current_owner_audit_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 50
+          title: Limit
+      - name: actor_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 36
+          - type: 'null'
+          title: Actor Id
+      - name: action
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 100
+          - type: 'null'
+          title: Action
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/yards/signup:
+    post:
+      tags:
+      - v1
+      summary: Yard Signup
+      operationId: yard_signup_api_v1_yards_signup_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/YardSignupRequest'
         required: true
       responses:
         '201':
@@ -439,6 +997,153 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/InvitationAcceptRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/yards/current/settings:
+    get:
+      tags:
+      - v1
+      summary: Get Settings
+      operationId: get_settings_api_v1_yards_current_settings_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/yards/current/settings/{key}:
+    put:
+      tags:
+      - v1
+      summary: Update Setting
+      operationId: update_setting_api_v1_yards_current_settings__key__put
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: key
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+              title: Payload
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/yards/current/roles:
+    get:
+      tags:
+      - v1
+      summary: List Roles
+      operationId: list_roles_api_v1_yards_current_roles_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+    post:
+      tags:
+      - v1
+      summary: Create Role
+      operationId: create_role_api_v1_yards_current_roles_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoleCreateRequest'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/yards/current/roles/{code}:
+    put:
+      tags:
+      - v1
+      summary: Update Role
+      operationId: update_role_api_v1_yards_current_roles__code__put
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: code
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoleUpdateRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - v1
+      summary: Delete Role
+      operationId: delete_role_api_v1_yards_current_roles__code__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: code
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Code
       responses:
         '200':
           description: Successful Response
@@ -601,7 +1306,7 @@ paths:
       - v1
       - tasks
       summary: Stream Task Events
-      description: "SSE 任务事件流（text/event-stream）。\n\n- 权限与 GET /{task_id}/events 完全一致：同一 get_tenant_context 依赖 +\n  TaskService.get\
+      description: "SSE 任务事件流（text/event-stream）。\n\n- 权限与 GET /{task_id}/events 完全一致：同一 get_yard_context 依赖 +\n  TaskService.get\
         \ 可见性检查（阅读本文前先检查，失败按普通 JSON 错误返回）。\n- 本端点不套统一 {data, request_id} 信封：SSE 帧由 event:/data: 行构成，\n  帧协议与命名见 stream.py\
         \ 模块注释（stream-init/task-event/task-status/stream-end）。\n- 支持 Last-Event-ID 重连续传，并以注释帧心跳保活。\n- 断连仅停止推送，任务继续执行；取消仍须显式调用\
         \ POST /{task_id}/cancel。"
@@ -802,6 +1507,35 @@ paths:
       - knowledge
       summary: Delete Document
       operationId: delete_document_api_v1_knowledge_documents__document_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: document_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Document Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/knowledge/documents/{document_id}/chunks:
+    get:
+      tags:
+      - v1
+      - knowledge
+      summary: Get Document Chunks
+      description: 获取文档经过 MarkItDown 转换与结构化切块后的分段预览列表（含每段 Token 计数）。
+      operationId: get_document_chunks_api_v1_knowledge_documents__document_id__chunks_get
       security:
       - HTTPBearer: []
       parameters:
@@ -1183,7 +1917,7 @@ paths:
       - v1
       - evolution
       summary: Suggest Skills
-      description: 'AI 技能总结（v1.3-B C1，tenant_admin）：近 7 天证据 → 候选卡 → 审核队列。
+      description: 'AI 技能总结（v1.3-B C1，yard_admin）：近 7 天证据 → 候选卡 → 审核队列。
 
 
         路径说明：DESIGN C1 写作 /evolution/skills/suggest，但本仓库 evolution 路由
@@ -1681,9 +2415,9 @@ paths:
       - llm
       - llm-suppliers
       summary: Set Active Provider
-      description: '设置本租户当前生效供应商（租户级），即时生效、无需重启；
+      description: '设置本小院当前生效供应商（小院级），即时生效、无需重启；
 
-        租户管理员可将平台全局行设为本租户生效。'
+        小院管理员可将平台全局行设为本小院生效。'
       operationId: set_active_provider_api_v1_llm_providers_active_post
       requestBody:
         content:
@@ -1728,7 +2462,7 @@ paths:
       - v1
       - llm
       summary: List Traces
-      description: 本租户近 N 天调用轨迹（最新在前；limit 上限 200）。
+      description: 本小院近 N 天调用轨迹（最新在前；limit 上限 200）。
       operationId: list_traces_api_v1_llm_traces_get
       security:
       - HTTPBearer: []
@@ -1811,6 +2545,38 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/llm/usage/overview:
+    get:
+      tags:
+      - v1
+      - llm
+      summary: Usage Overview
+      description: 小院全员可读的 Token 全景统计（今日消耗、总消耗、按场景/按智能体/按模型聚合）。
+      operationId: usage_overview_api_v1_llm_usage_overview_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: days
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 180
+          minimum: 1
+          default: 30
+          title: Days
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/llm/status:
     get:
       tags:
@@ -1843,7 +2609,7 @@ paths:
       - v1
       - tool-approvals
       summary: List Approvals
-      description: 本租户审批单列表（租户成员可见；审批动作需审批角色）。
+      description: 本小院审批单列表（小院成员可见；审批动作需审批角色）。
       operationId: list_approvals_api_v1_tool_approvals_get
       security:
       - HTTPBearer: []
@@ -2299,9 +3065,9 @@ paths:
       description: '插件详情（含 manifest 正文，审核人看 steps 用）。
 
 
-        解析顺序：先按当前租户找 workflow 记录，未命中回落全局插件；
+        解析顺序：先按当前小院找 workflow 记录，未命中回落全局插件；
 
-        租户级记录仅本租户/平台管理员可见（跨租户与不存在同样 404，防枚举）。'
+        小院级记录仅本小院/平台管理员可见（跨小院与不存在同样 404，防枚举）。'
       operationId: get_plugin_detail_api_v1_plugins__plugin_id__get
       security:
       - HTTPBearer: []
@@ -2401,7 +3167,7 @@ paths:
       - v1
       - plugins
       summary: Register Workflow Plugin
-      description: 注册声明式 workflow（tenant_admin）：校验步骤/工具 → pending_review 草稿。
+      description: 注册声明式 workflow（yard_admin）：校验步骤/工具 → pending_review 草稿。
       operationId: register_workflow_plugin_api_v1_plugins_register_post
       requestBody:
         content:
@@ -2445,7 +3211,7 @@ paths:
       - v1
       - plugins
       summary: Review Workflow Plugin
-      description: 发布闸：approve → enabled；reject → rejected（tenant_admin/manual 审核）。
+      description: 发布闸：approve → enabled；reject → rejected（yard_admin/manual 审核）。
       operationId: review_workflow_plugin_api_v1_plugins__plugin_id__review_post
       security:
       - HTTPBearer: []
@@ -2480,7 +3246,7 @@ paths:
       - v1
       - plugins
       summary: Run Workflow Plugin
-      description: 同步解释执行（enabled 才可跑）→ {outputs, final}；租户成员可跑，风险由工具闸兜底。
+      description: 同步解释执行（enabled 才可跑）→ {outputs, final}；小院成员可跑，风险由工具闸兜底。
       operationId: run_workflow_plugin_api_v1_plugins__plugin_id__run_post
       security:
       - HTTPBearer: []
@@ -2509,17 +3275,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /api/v1/admin/tenants:
+  /api/v1/admin/yards:
     get:
       tags:
       - v1
       - admin
-      summary: Admin Tenant List
-      description: '平台管理员全局只读：租户列表 + 每租户聚合计数（成员数/任务数）。
+      summary: Admin Yard List
+      description: '平台管理员全局只读：小院列表 + 每小院聚合计数（成员数/任务数）。
 
 
-        ADR-0002 收敛方案：只给"管理租户"入口，不含任何租户业务正文。'
-      operationId: admin_tenant_list_api_v1_admin_tenants_get
+        ADR-0002 收敛方案：只给"管理小院"入口，不含任何小院业务正文。'
+      operationId: admin_yard_list_api_v1_admin_yards_get
       responses:
         '200':
           description: Successful Response
@@ -2570,7 +3336,7 @@ paths:
       - v1
       - agents
       summary: List Agents
-      description: '列出已启用的 Agent 定义（租户内可见）。
+      description: '列出已启用的 Agent 定义（小院内可见）。
 
 
         每个 Agent 附 ``skills`` 字段：出生自带技能的精简列表
@@ -2591,7 +3357,7 @@ paths:
       - v1
       - agents
       summary: Run Agent
-      description: 同步运行指定 Agent：平台注册表优先，miss 则回落本租户已发布声明式 Agent。
+      description: 同步运行指定 Agent：平台注册表优先，miss 则回落本小院已发布声明式 Agent。
       operationId: run_agent_api_v1_agents__code__run_post
       security:
       - HTTPBearer: []
@@ -2626,7 +3392,7 @@ paths:
       - v1
       - agents
       summary: List Declarative Agents
-      description: 本租户声明式 Agent 列表（含 draft）。
+      description: 本小院声明式 Agent 列表（含 draft；隐藏软删除；private 仅创建者可见）。
       operationId: list_declarative_agents_api_v1_agents_declarative_get
       responses:
         '200':
@@ -2641,7 +3407,14 @@ paths:
       - v1
       - agents
       summary: Create Declarative Agent
-      description: 创建声明式 Agent（一律 draft；返回含服务端计算的 risk_level）。
+      description: '创建声明式 Agent（一律 draft；返回含服务端计算的 risk_level）。
+
+
+        成员也能建：可见性由 ``_resolve_visibility`` 按角色判定——管理员可建 public
+
+        或 private，普通成员只能建 private（"只能自己使用"），请求 public 直接 403
+
+        而不是静默降级。'
       operationId: create_declarative_agent_api_v1_agents_declarative_post
       requestBody:
         content:
@@ -2671,7 +3444,7 @@ paths:
       - v1
       - agents
       summary: Update Declarative Agent
-      description: 编辑声明式 Agent：重算 risk_level，version 不变；跨租户 404。
+      description: 编辑声明式 Agent：重算 risk_level，version 不变；跨小院 404。
       operationId: update_declarative_agent_api_v1_agents_declarative__agent_id__patch
       security:
       - HTTPBearer: []
@@ -2702,14 +3475,86 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - v1
+      - agents
+      summary: Delete Declarative Agent
+      description: '删除助手（管理员或私有助手创建者，本小院范围）：软删除 status=''deleted''。
+
+
+        行保留——chat 历史 choice_json、班组 members_json、运行 checkpoint 仍引用
+
+        本行 id，硬删会在用户可见历史里留悬空引用；name 确定性改名释放唯一约束。'
+      operationId: delete_declarative_agent_api_v1_agents_declarative__agent_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: agent_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Agent Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/agents/declarative/{agent_id}/publish:
     post:
       tags:
       - v1
       - agents
       summary: Publish Declarative Agent
-      description: 发布（分级）：低风险自批 published；高风险只能进 pending_platform_review。
+      description: '发布（分级）：低风险自批 published；高风险只能进 pending_platform_review。
+
+
+        普通成员只能发布自己的低风险私有助手（``publish_agent`` 里判定），
+
+        这样"@ 我自建的小助手"才成立；公开助手与高风险仍归管理员/平台。'
       operationId: publish_declarative_agent_api_v1_agents_declarative__agent_id__publish_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: agent_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Agent Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agents/declarative/{agent_id}/duplicate:
+    post:
+      tags:
+      - v1
+      - agents
+      summary: Duplicate Declarative Agent
+      description: '复制助手：新编码 + ``原名-N`` 名称服务端生成，副本一律 draft。
+
+
+        复制等于把 persona/模板/技能白名单整份读走，因此与编辑同权：管理员可复制
+
+        任意助手，成员只能复制自己的私有助手。'
+      operationId: duplicate_declarative_agent_api_v1_agents_declarative__agent_id__duplicate_post
       security:
       - HTTPBearer: []
       parameters:
@@ -2737,8 +3582,99 @@ paths:
       - v1
       - agents
       summary: Deprecate Declarative Agent
-      description: 停用：published 立即退出可运行态。
+      description: 停用：published 立即退出可运行态（管理员或私有助手创建者）。
       operationId: deprecate_declarative_agent_api_v1_agents_declarative__agent_id__deprecate_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: agent_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Agent Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agents/declarative/{agent_id}/cover:
+    post:
+      tags:
+      - v1
+      - agents
+      summary: Upload Declarative Cover
+      description: 设置卡片首图（PNG/JPG/WEBP，≤2MB）：与编辑同权，出参带回新的 cover_image_url。
+      operationId: upload_declarative_cover_api_v1_agents_declarative__agent_id__cover_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: agent_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Agent Id
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_upload_declarative_cover_api_v1_agents_declarative__agent_id__cover_post'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - v1
+      - agents
+      summary: Read Declarative Cover
+      description: 取首图字节（<img> 走登录态取图，未设图 404 让前端回落 emoji）。
+      operationId: read_declarative_cover_api_v1_agents_declarative__agent_id__cover_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: agent_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Agent Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - v1
+      - agents
+      summary: Clear Declarative Cover
+      description: 清除首图（连文件一起删）。
+      operationId: clear_declarative_cover_api_v1_agents_declarative__agent_id__cover_delete
       security:
       - HTTPBearer: []
       parameters:
@@ -2766,7 +3702,7 @@ paths:
       - v1
       - agents
       summary: Get Agent Review Queue
-      description: 平台审核队列：所有租户 pending_platform_review 的声明式 Agent。
+      description: 平台审核队列：所有小院 pending_platform_review 的声明式 Agent。
       operationId: get_agent_review_queue_api_v1_agents_admin_agent_review_queue_get
       responses:
         '200':
@@ -2840,7 +3776,7 @@ paths:
       - v1
       - agents
       summary: Get Run Steps
-      description: 运行步骤列表（租户成员可读；跨租户/不存在一律 404 防枚举）。
+      description: 运行步骤列表（小院成员可读；跨小院/不存在一律 404 防枚举）。
       operationId: get_run_steps_api_v1_agents_declarative_runs__run_id__steps_get
       security:
       - HTTPBearer: []
@@ -2981,7 +3917,7 @@ paths:
       - agents
       - agents-factory
       summary: List Runs
-      description: 本租户工厂运行列表（最新在前；租户成员均可读，便于跟踪进度）。
+      description: 本小院工厂运行列表（最新在前；小院成员均可读，便于跟踪进度）。
       operationId: list_runs_api_v1_agents_factory_runs_get
       responses:
         '200':
@@ -3031,7 +3967,7 @@ paths:
       description: '人工采纳蓝图：逐项结果 + 汇总；publish=true 走 declarative 分级发布。
 
 
-        权限：仅 run 创建者或 tenant_admin（platform_admin 直通）；跨租户 404。'
+        权限：仅 run 创建者或 yard_admin（platform_admin 直通）；跨小院 404。'
       operationId: apply_run_api_v1_agents_factory_runs__run_id__apply_post
       security:
       - HTTPBearer: []
@@ -3066,7 +4002,7 @@ paths:
       - v1
       - agents
       summary: Supervisor Ask
-      description: 问总控：规则→LLM→兜底三级路由到本租户最合适的助手/班组并执行。
+      description: 问总控：规则→LLM→兜底三级路由到本小院最合适的助手/班组并执行。
       operationId: supervisor_ask_api_v1_agents_supervisor_ask_post
       requestBody:
         content:
@@ -3111,7 +4047,7 @@ paths:
       - agents
       - agent-teams
       summary: List Teams
-      description: 本租户班组列表（租户成员均可读）。
+      description: 本小院班组列表（小院成员均可读）。
       operationId: list_teams_api_v1_agents_teams_get
       responses:
         '200':
@@ -3127,7 +4063,7 @@ paths:
       - agents
       - agent-teams
       summary: Create Team
-      description: 创建班组（成员 2..8、同租户重名 409、跨租户成员 404）。
+      description: 创建班组（成员 2..8、同小院重名 409、跨小院成员 404）。
       operationId: create_team_api_v1_agents_teams_post
       requestBody:
         content:
@@ -3417,7 +4353,7 @@ paths:
       - v1
       - market
       summary: Get Catalog
-      description: 种子包目录：风险服务端现算，installed 只反映本租户（跨租户不可见）。
+      description: 种子包目录：风险服务端现算，installed 只反映本小院（跨小院不可见）。
       operationId: get_catalog_api_v1_market_catalog_get
       responses:
         '200':
@@ -3443,6 +4379,238 @@ paths:
               type: object
               title: Body
         required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/market/items/search:
+    post:
+      tags:
+      - v1
+      - market
+      summary: Search Market Items
+      description: 检索市场条目：默认只查内置与本地缓存；显式要“网上/开源”才联网。
+      operationId: search_market_items_api_v1_market_items_search_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - additionalProperties: true
+                type: object
+              - type: 'null'
+              title: Body
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/market/items/{item_key}:
+    get:
+      tags:
+      - v1
+      - market
+      summary: Get Market Item
+      description: 条目详情（含 definition/manifest 正文，供安装前预览）。
+      operationId: get_market_item_api_v1_market_items__item_key__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: item_key
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Item Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/market/items/{item_key}/install:
+    post:
+      tags:
+      - v1
+      - market
+      summary: Install Market Item
+      description: 安装条目：skill 内置/已核验直接发布，其余待审；插件仅管理员/负责人。
+      operationId: install_market_item_api_v1_market_items__item_key__install_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: item_key
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Item Key
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - type: object
+                additionalProperties: true
+              - type: 'null'
+              title: Body
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/market/installed:
+    get:
+      tags:
+      - v1
+      - market
+      summary: List Installed Items
+      description: 本小院已安装/导入的 Skill 与插件摘要。
+      operationId: list_installed_items_api_v1_market_installed_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/market/skills/import:
+    post:
+      tags:
+      - v1
+      - market
+      summary: Import Skill
+      description: 上传 .md/.markdown/.txt 技能文件（≤256KB），默认生成待审 Skill。
+      operationId: import_skill_api_v1_market_skills_import_post
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_import_skill_api_v1_market_skills_import_post'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/market/plugins/import:
+    post:
+      tags:
+      - v1
+      - market
+      summary: Import Plugin
+      description: 上传插件 zip（≤2MB）：需 market:install + market:review，落地待审插件。
+      operationId: import_plugin_api_v1_market_plugins_import_post
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_import_plugin_api_v1_market_plugins_import_post'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/market/github/search:
+    post:
+      tags:
+      - v1
+      - market
+      summary: Github Search
+      description: GitHub 仓库检索（服务端代理，绝不回传 token）；离线时返回空 + warning。
+      operationId: github_search_api_v1_market_github_search_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - additionalProperties: true
+                type: object
+              - type: 'null'
+              title: Body
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/market/github/preview:
+    post:
+      tags:
+      - v1
+      - market
+      summary: Github Preview
+      description: 预览仓库 SKILL.md 并生成 definition_json（只读文本，不执行脚本）。
+      operationId: github_preview_api_v1_market_github_preview_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - additionalProperties: true
+                type: object
+              - type: 'null'
+              title: Body
       responses:
         '200':
           description: Successful Response
@@ -3517,12 +4685,12 @@ paths:
       - v1
       - devices
       summary: Create Alert Workorder
-      description: '告警一键开工单（租户全员可用；工单执行仍过高危审批闸门）。
+      description: '告警一键开工单（小院全员可用；工单执行仍过高危审批闸门）。
 
 
         幂等：已开过工单的告警直接返回既有工单号（created=false），不重复创建。
 
-        跨租户与不存在统一 404（不泄露其他租户告警是否存在）。'
+        跨小院与不存在统一 404（不泄露其他小院告警是否存在）。'
       operationId: create_alert_workorder_api_v1_devices_alerts__alert_id__create_workorder_post
       security:
       - HTTPBearer: []
@@ -3774,7 +4942,7 @@ paths:
 
         理由：readings 是设备生命周期附属遥测，设备删除后无独立查询场景；平台无归档
 
-        设施，保留孤儿数据只会造成跨租户重名困惑。需要历史留存的应先导出 readings。'
+        设施，保留孤儿数据只会造成跨小院重名困惑。需要历史留存的应先导出 readings。'
       operationId: delete_device_api_v1_devices__device_id__delete
       security:
       - HTTPBearer: []
@@ -3895,7 +5063,7 @@ paths:
       description: '设备数据上报：token 错 401 / 设备禁用 403 / 超频 429。
 
 
-        租户边界：device_id 本身即资源定位，token 与 token_hash 比对是唯一鉴权面。'
+        小院边界：device_id 本身即资源定位，token 与 token_hash 比对是唯一鉴权面。'
       operationId: ingest_api_v1_devices__device_id__ingest_post
       parameters:
       - name: device_id
@@ -4030,7 +5198,7 @@ paths:
       - v1
       - mcp
       summary: List Servers
-      description: 本租户 MCP 服务器列表（掩码出参 + 已缓存工具数）。
+      description: 本小院 MCP 服务器列表（掩码出参 + 已缓存工具数）。
       operationId: list_servers_api_v1_settings_mcp_servers_get
       responses:
         '200':
@@ -4362,7 +5530,14 @@ paths:
       - v1
       - chat
       summary: Send Message
-      description: 发消息并取回回复（同步一问一答；前端流式不可用时走此端点）。
+      description: '发消息并取回回复：不带 ``policy`` 走单聊（三级路由 / @ 定向），带则进群聊。
+
+
+        群聊一支的响应比单聊多 turn_id/policy/member_count/messages/answered_names/
+
+        not_answered/notice（每位应答者一条助手消息，未回答者一条诚实说明）；
+
+        单聊一支的形状与历史完全一致：{session, user_message, assistant_message}。'
       operationId: send_message_api_v1_chat_sessions__session_id__messages_post
       security:
       - HTTPBearer: []
@@ -4397,14 +5572,14 @@ paths:
       - v1
       - chat
       summary: Send Message Stream
-      description: '发消息并以 SSE 流式返回过程步骤与最终回答。
+      description: '发消息并以 SSE 流式返回过程步骤与最终回答（带 policy 即群聊一轮）。
 
 
         这里只做"发言先落库"，随后把**纯数据**交给流：FastAPI 在端点返回 Response
 
         时就关闭了请求级 Session（``get_db`` 的 teardown），而响应体之后才被发送——
 
-        流执行期间不能持有请求级 Session 的 ORM 对象。'
+        流执行期间不能持有请求级 Session 的 ORM 对象（群聊名单同理必须先取成字典列表）。'
       operationId: send_message_stream_api_v1_chat_sessions__session_id__messages_stream_post
       security:
       - HTTPBearer: []
@@ -4421,6 +5596,156 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/MessageSendRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/chat/sessions/{session_id}/participants:
+    get:
+      tags:
+      - v1
+      - chat
+      summary: Get Participants
+      description: 群聊成员名单（position 升序；会话私有边界同消息）。
+      operationId: get_participants_api_v1_chat_sessions__session_id__participants_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    put:
+      tags:
+      - v1
+      - chat
+      summary: Set Participants
+      description: '整表覆盖成员名单（PUT 幂等，顺序即 position；空数组=清空群聊名单）。
+
+
+        成员必须是**本小院已发布助手**：跨小院/未发布/班组 id 一律
+
+        400 GROUP_PARTICIPANT_INVALID（候选集复用 supervisor，不另写一份边界）。
+
+        响应与 GET 同形状，前端覆盖一次即可刷新，不用再回读。'
+      operationId: set_participants_api_v1_chat_sessions__session_id__participants_put
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ParticipantSetRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/chat/sessions/{session_id}/messages/group:
+    post:
+      tags:
+      - v1
+      - chat
+      summary: Send Group Message
+      description: '群聊一轮（同步版；与 ``/messages`` 带 policy 完全同链路，只是 policy 必有值）。
+
+
+        策略/名单校验在发言落库**之前**——请求本身不合法（空名单、点名不在名单）
+
+        就 4xx 返回，不留一条没人回答的用户消息。'
+      operationId: send_group_message_api_v1_chat_sessions__session_id__messages_group_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GroupTurnRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/chat/sessions/{session_id}/messages/group/stream:
+    post:
+      tags:
+      - v1
+      - chat
+      summary: Send Group Message Stream
+      description: '群聊一轮的 SSE 版：chat-init → step/member-event* → message* → chat-end。
+
+
+        与单聊流同一口径：端点只做"发言先落库 + 名单取成纯数据"，响应体流执行期间
+
+        不再持有请求级 Session 的 ORM 对象（FastAPI 在返回 Response 时就关闭了它）。'
+      operationId: send_group_message_stream_api_v1_chat_sessions__session_id__messages_group_stream_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GroupTurnRequest'
       responses:
         '200':
           description: Successful Response
@@ -4531,6 +5856,136 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/chat/sessions/{session_id}/documents:
+    post:
+      tags:
+      - v1
+      - chat
+      summary: Create Document
+      description: 按 DocModel 生成文档（md/docx/xlsx/pptx/pdf），落为会话附件并返回卡片载荷。
+      operationId: create_document_api_v1_chat_sessions__session_id__documents_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DocumentCreateRequest'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/chat/sessions/{session_id}/attachments/{attachment_id}/preview:
+    get:
+      tags:
+      - v1
+      - chat
+      summary: Preview Document
+      description: '在线预览：直接由 DocModel 快照渲染自包含 HTML（CSP sandbox，无脚本无外链）。
+
+
+        上传附件没有 DocModel 快照 → 415 DOC_PREVIEW_UNSUPPORTED，请走下载。'
+      operationId: preview_document_api_v1_chat_sessions__session_id__attachments__attachment_id__preview_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      - name: attachment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Attachment Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            text/html:
+              schema:
+                type: string
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/chat/sessions/{session_id}/attachments/{attachment_id}/download:
+    get:
+      tags:
+      - v1
+      - chat
+      summary: Download Document
+      description: 原文件下载（中文文件名按 RFC 5987 编码，越权与不存在统一 404）。
+      operationId: download_document_api_v1_chat_sessions__session_id__attachments__attachment_id__download_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      - name: attachment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Attachment Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/chat/mention-candidates:
+    get:
+      tags:
+      - v1
+      - chat
+      summary: Mention Candidates
+      description: '@ 点名候选（本小院对当前用户可见的已发布助手 + 班组，id 升序）。
+
+
+        可见性口径**完全复用** supervisor/declarative 那份过滤（公开/本院共享/
+
+        自己的私有），不在 chat 模块另写一份 SQL——两份边界迟早漂移，漂移即越权。'
+      operationId: mention_candidates_api_v1_chat_mention_candidates_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
   /api/v1/pairing/codes:
     post:
       tags:
@@ -4912,30 +6367,60 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/search/status:
+    get:
+      tags:
+      - v1
+      - search
+      summary: Get Network Status
+      description: 联网状态 + 当前供应商 + 今日配额（登录即可）。
+      operationId: get_network_status_api_v1_search_status_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Get Network Status Api V1 Search Status Get
+      security:
+      - HTTPBearer: []
+  /api/v1/search/test:
+    post:
+      tags:
+      - v1
+      - search
+      summary: Test Search
+      description: 真实搜一条，返回供应商 / 结果数 / 耗时；失败原样抛 AppError。
+      operationId: test_search_api_v1_search_test_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - $ref: '#/components/schemas/SearchTestRequest'
+              - type: 'null'
+              title: Payload
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Test Search Api V1 Search Test Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
 components:
   schemas:
-    AddMemberRequest:
-      properties:
-        username:
-          type: string
-          maxLength: 64
-          minLength: 1
-          title: Username
-        role:
-          type: string
-          title: Role
-          description: tenant_admin|expert|operator|viewer|service_worker
-        display_name:
-          anyOf:
-          - type: string
-            maxLength: 64
-          - type: 'null'
-          title: Display Name
-      type: object
-      required:
-      - username
-      - role
-      title: AddMemberRequest
     AgentRunRequest:
       properties:
         input:
@@ -5013,7 +6498,7 @@ components:
         role:
           type: string
           title: Role
-          description: tenant_admin|expert|operator|viewer|service_worker
+          description: yard_admin|expert|operator|viewer|service_worker
         display_name:
           anyOf:
           - type: string
@@ -5025,6 +6510,26 @@ components:
       - username
       - role
       title: BatchMemberItem
+    Body_import_plugin_api_v1_market_plugins_import_post:
+      properties:
+        file:
+          type: string
+          format: binary
+          title: File
+      type: object
+      required:
+      - file
+      title: Body_import_plugin_api_v1_market_plugins_import_post
+    Body_import_skill_api_v1_market_skills_import_post:
+      properties:
+        file:
+          type: string
+          format: binary
+          title: File
+      type: object
+      required:
+      - file
+      title: Body_import_skill_api_v1_market_skills_import_post
     Body_upload_attachment_api_v1_chat_sessions__session_id__attachments_post:
       properties:
         file:
@@ -5035,6 +6540,16 @@ components:
       required:
       - file
       title: Body_upload_attachment_api_v1_chat_sessions__session_id__attachments_post
+    Body_upload_declarative_cover_api_v1_agents_declarative__agent_id__cover_post:
+      properties:
+        file:
+          type: string
+          format: binary
+          title: File
+      type: object
+      required:
+      - file
+      title: Body_upload_declarative_cover_api_v1_agents_declarative__agent_id__cover_post
     Body_upload_document_api_v1_knowledge_documents_post:
       properties:
         file:
@@ -5096,6 +6611,23 @@ components:
       required:
       - action
       title: CandidateReview
+    ChangePasswordRequest:
+      properties:
+        old_password:
+          type: string
+          maxLength: 128
+          minLength: 1
+          title: Old Password
+        new_password:
+          type: string
+          maxLength: 128
+          minLength: 1
+          title: New Password
+      type: object
+      required:
+      - old_password
+      - new_password
+      title: ChangePasswordRequest
     ConnectorConfigIn:
       properties:
         url:
@@ -5276,6 +6808,23 @@ components:
           description: 仅 connector 设备可换配置
       type: object
       title: DevicePatch
+    DocumentCreateRequest:
+      properties:
+        format:
+          type: string
+          maxLength: 10
+          title: Format
+          default: docx
+        model:
+          additionalProperties: true
+          type: object
+          title: Model
+      additionalProperties: false
+      type: object
+      required:
+      - model
+      title: DocumentCreateRequest
+      description: 按 DocModel 生成文档：format 缺省 word，model 为结构化文档内容。
     FactoryApplyRequest:
       properties:
         codes:
@@ -5389,6 +6938,57 @@ components:
       - metric
       title: FieldMapEntry
       description: 厂商字段 → 统一指标的映射条目。
+    GrantsUpdateRequest:
+      properties:
+        grants:
+          items:
+            type: string
+          type: array
+          maxItems: 3
+          title: Grants
+      additionalProperties: false
+      type: object
+      title: GrantsUpdateRequest
+    GroupTurnRequest:
+      properties:
+        content:
+          type: string
+          maxLength: 8000
+          minLength: 1
+          title: Content
+        attachment_ids:
+          items:
+            type: string
+          type: array
+          maxItems: 10
+          title: Attachment Ids
+        policy:
+          type: string
+          title: Policy
+          default: all
+        target:
+          anyOf:
+          - type: string
+            maxLength: 100
+          - type: 'null'
+          title: Target
+        target_code:
+          anyOf:
+          - type: string
+            maxLength: 100
+          - type: 'null'
+          title: Target Code
+      additionalProperties: false
+      type: object
+      required:
+      - content
+      title: GroupTurnRequest
+      description: '群聊一轮发言（``/messages/group*`` 端点）：policy 必有值。
+
+
+        与 ``/messages`` 的差别只在默认值——群聊端点没有"不带 policy 即单聊"这层
+
+        语义，缺省按 all（把问题抛给在场每位助手）执行。'
     HTTPValidationError:
       properties:
         detail:
@@ -5450,7 +7050,7 @@ components:
         role:
           type: string
           title: Role
-          description: tenant_admin|expert|operator|viewer|service_worker
+          description: yard_admin|expert|operator|viewer|service_worker
         expires_in_days:
           type: integer
           maximum: 30.0
@@ -5479,12 +7079,12 @@ components:
           maxLength: 128
           minLength: 1
           title: Password
-        tenant_id:
+        yard_id:
           anyOf:
           - type: string
           - type: 'null'
-          title: Tenant Id
-          description: 多租户用户登录时指定；单租户用户自动选择
+          title: Yard Id
+          description: 多小院用户登录时指定；单小院用户自动选择
       type: object
       required:
       - username
@@ -5557,6 +7157,92 @@ components:
       type: object
       title: McpServerUpdate
       description: 编辑请求：改名/停用/换 url（重填即换，headers 整体重填即换）；全可选。
+    MemberCreateRequest:
+      properties:
+        username:
+          type: string
+          maxLength: 32
+          minLength: 3
+          title: Username
+        display_name:
+          anyOf:
+          - type: string
+            maxLength: 64
+          - type: 'null'
+          title: Display Name
+        email:
+          anyOf:
+          - type: string
+            maxLength: 255
+          - type: 'null'
+          title: Email
+        phone:
+          anyOf:
+          - type: string
+            maxLength: 32
+          - type: 'null'
+          title: Phone
+        password:
+          anyOf:
+          - type: string
+            maxLength: 128
+            minLength: 1
+          - type: 'null'
+          title: Password
+        role:
+          type: string
+          title: Role
+          description: yard_admin|expert|operator|viewer
+          default: viewer
+        note:
+          anyOf:
+          - type: string
+            maxLength: 300
+          - type: 'null'
+          title: Note
+      type: object
+      required:
+      - username
+      title: MemberCreateRequest
+    MemberUpdateRequest:
+      properties:
+        display_name:
+          anyOf:
+          - type: string
+            maxLength: 64
+          - type: 'null'
+          title: Display Name
+        email:
+          anyOf:
+          - type: string
+            maxLength: 255
+          - type: 'null'
+          title: Email
+        phone:
+          anyOf:
+          - type: string
+            maxLength: 32
+          - type: 'null'
+          title: Phone
+        role:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Role
+        status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+          description: active|disabled
+        note:
+          anyOf:
+          - type: string
+            maxLength: 300
+          - type: 'null'
+          title: Note
+      type: object
+      title: MemberUpdateRequest
     MessageSendRequest:
       properties:
         content:
@@ -5570,12 +7256,39 @@ components:
           type: array
           maxItems: 10
           title: Attachment Ids
+        policy:
+          anyOf:
+          - type: string
+            maxLength: 10
+          - type: 'null'
+          title: Policy
+        target:
+          anyOf:
+          - type: string
+            maxLength: 100
+          - type: 'null'
+          title: Target
+        target_code:
+          anyOf:
+          - type: string
+            maxLength: 100
+          - type: 'null'
+          title: Target Code
       additionalProperties: false
       type: object
       required:
       - content
       title: MessageSendRequest
-      description: 发消息：content 为问题原文；attachment_ids 为随消息引用的附件。
+      description: '发消息：content 为问题原文；attachment_ids 为随消息引用的附件。
+
+
+        新增三个可选字段（都不带时请求形状与历史完全一致）：
+
+        - ``policy``：群聊本轮应答策略（all|named|auto）；不带即单聊；
+
+        - ``target``：群聊 ``named`` 的点名对象；
+
+        - ``target_code``：@ 点名定向执行的对象（单聊与群聊通用）。'
     PairExchangeRequest:
       properties:
         code:
@@ -5596,6 +7309,18 @@ components:
       - device_name
       title: PairExchangeRequest
       description: 设备侧交换请求：扫码得到的配对码明文 + 设备自报名称。
+    ParticipantSetRequest:
+      properties:
+        agent_ids:
+          items:
+            type: string
+          type: array
+          maxItems: 32
+          title: Agent Ids
+      additionalProperties: false
+      type: object
+      title: ParticipantSetRequest
+      description: 整表覆盖会话的群聊成员名单（PUT 幂等：空数组 = 清空名单）。
     PluginRegister:
       properties:
         manifest:
@@ -5749,6 +7474,29 @@ components:
       type: object
       title: PolicyProfile
       description: 待匹配画像：任一字段都可缺省，缺省导致对应条件无法判断。
+    ProfileUpdateRequest:
+      properties:
+        display_name:
+          anyOf:
+          - type: string
+            maxLength: 64
+          - type: 'null'
+          title: Display Name
+        email:
+          anyOf:
+          - type: string
+            maxLength: 255
+          - type: 'null'
+          title: Email
+        phone:
+          anyOf:
+          - type: string
+            maxLength: 32
+          - type: 'null'
+          title: Phone
+      type: object
+      title: ProfileUpdateRequest
+      description: 自助资料：只允许改动显示名与联系方式。
     PushChannelCreate:
       properties:
         name:
@@ -5881,7 +7629,7 @@ components:
           description: 任务限额
       type: object
       title: QuotaAdminPatchRequest
-      description: 运营调整租户配额限额：三个限额字段均 ge=0，至少提供一个。
+      description: 运营调整小院配额限额：三个限额字段均 ge=0，至少提供一个。
     RefreshRequest:
       properties:
         refresh_token:
@@ -5892,6 +7640,102 @@ components:
       required:
       - refresh_token
       title: RefreshRequest
+    RegisterRequest:
+      properties:
+        username:
+          type: string
+          maxLength: 32
+          minLength: 3
+          title: Username
+        password:
+          type: string
+          maxLength: 128
+          minLength: 1
+          title: Password
+        email:
+          anyOf:
+          - type: string
+            maxLength: 255
+          - type: 'null'
+          title: Email
+        phone:
+          anyOf:
+          - type: string
+            maxLength: 32
+          - type: 'null'
+          title: Phone
+        display_name:
+          anyOf:
+          - type: string
+            maxLength: 64
+          - type: 'null'
+          title: Display Name
+        yard_id:
+          type: string
+          maxLength: 36
+          minLength: 1
+          title: Yard Id
+        note:
+          anyOf:
+          - type: string
+            maxLength: 300
+          - type: 'null'
+          title: Note
+      type: object
+      required:
+      - username
+      - password
+      - yard_id
+      title: RegisterRequest
+    RegistrationRejectRequest:
+      properties:
+        reason:
+          anyOf:
+          - type: string
+            maxLength: 300
+          - type: 'null'
+          title: Reason
+      type: object
+      title: RegistrationRejectRequest
+    RoleCreateRequest:
+      properties:
+        code:
+          type: string
+          maxLength: 32
+          minLength: 3
+          title: Code
+        name:
+          type: string
+          maxLength: 64
+          minLength: 1
+          title: Name
+        permissions:
+          items:
+            type: string
+          type: array
+          title: Permissions
+      type: object
+      required:
+      - code
+      - name
+      title: RoleCreateRequest
+    RoleUpdateRequest:
+      properties:
+        name:
+          anyOf:
+          - type: string
+            maxLength: 64
+          - type: 'null'
+          title: Name
+        permissions:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Permissions
+      type: object
+      title: RoleUpdateRequest
     RolloutCreate:
       properties:
         rollout_version:
@@ -5903,7 +7747,7 @@ components:
         strategy:
           type: string
           enum:
-          - tenant_allowlist
+          - yard_allowlist
           - percentage
           title: Strategy
         percentage:
@@ -5914,14 +7758,14 @@ components:
           - type: 'null'
           title: Percentage
           description: 百分比策略 0-100
-        tenant_ids:
+        yard_ids:
           anyOf:
           - items:
               type: string
             type: array
           - type: 'null'
-          title: Tenant Ids
-          description: 名单策略的租户 ID 列表
+          title: Yard Ids
+          description: 名单策略的小院 ID 列表
       type: object
       required:
       - rollout_version
@@ -6019,6 +7863,22 @@ components:
       required:
       - query
       title: SearchRequest
+    SearchTestRequest:
+      properties:
+        query:
+          anyOf:
+          - type: string
+            maxLength: 500
+          - type: 'null'
+          title: Query
+        count:
+          type: integer
+          maximum: 8.0
+          minimum: 1.0
+          title: Count
+          default: 3
+      type: object
+      title: SearchTestRequest
     SessionCreateRequest:
       properties:
         title:
@@ -6027,10 +7887,29 @@ components:
             maxLength: 200
           - type: 'null'
           title: Title
+        target:
+          type: string
+          enum:
+          - auto
+          - agent
+          - team
+          title: Target
+          default: auto
+        target_code:
+          anyOf:
+          - type: string
+            maxLength: 100
+          - type: 'null'
+          title: Target Code
       additionalProperties: false
       type: object
       title: SessionCreateRequest
-      description: 建会话：title 可空（首条消息自动继承标题）。
+      description: '建会话：title 可空（首条消息自动继承标题）。
+
+
+        target/target_code 标记会话的固定执行对象（@ 点名弹窗/「使用」弹窗建会话时带），
+
+        会话列表据此区分「普通对话 / 某个智能体 / 群聊」。'
     SessionUpdateRequest:
       properties:
         title:
@@ -6175,11 +8054,11 @@ components:
         scope:
           type: string
           enum:
-          - tenant
+          - yard
           - global
           title: Scope
-          description: tenant=仅本租户可见，global=全局共享（仅平台管理员）
-          default: tenant
+          description: yard=仅本小院可见，global=全局共享（仅平台管理员）
+          default: yard
       additionalProperties: false
       type: object
       required:
@@ -6228,7 +8107,7 @@ components:
       description: '模型列表探测入参：api_key 只在本次请求内存中瞬时使用，绝不落库/日志/审计。
 
 
-        api_key 缺省时：若传了 supplier_id 则用该供应商已存密钥（租户可见范围内）；
+        api_key 缺省时：若传了 supplier_id 则用该供应商已存密钥（小院可见范围内）；
 
         两者都没有则不带鉴权头探测（本机 Ollama / LM Studio 通常无需 Key）。'
     SupplierTestBody:
@@ -6434,41 +8313,18 @@ components:
       type: object
       title: TeamUpdateRequest
       description: 编辑班组：全部可选；members 传则整体替换（保持顺序语义简单）。
-    TenantSignupRequest:
+    TransferRequest:
       properties:
-        tenant_name:
+        user_id:
           type: string
-          maxLength: 64
-          minLength: 2
-          title: Tenant Name
-        admin_username:
-          type: string
-          maxLength: 32
-          minLength: 3
-          title: Admin Username
-        password:
-          type: string
-          maxLength: 128
+          maxLength: 36
           minLength: 1
-          title: Password
-        contact:
-          anyOf:
-          - type: string
-            maxLength: 128
-          - type: 'null'
-          title: Contact
+          title: User Id
+      additionalProperties: false
       type: object
       required:
-      - tenant_name
-      - admin_username
-      - password
-      title: TenantSignupRequest
-      description: '公开自助注册请求。
-
-
-        密码长度不在此写死：由 signup 业务层按 settings.password_min_length 校验
-
-        （生产环境再强制不低于 10 位）。'
+      - user_id
+      title: TransferRequest
     ValidationError:
       properties:
         loc:
@@ -6490,6 +8346,41 @@ components:
       - msg
       - type
       title: ValidationError
+    YardSignupRequest:
+      properties:
+        yard_name:
+          type: string
+          maxLength: 64
+          minLength: 2
+          title: Yard Name
+        admin_username:
+          type: string
+          maxLength: 32
+          minLength: 3
+          title: Admin Username
+        password:
+          type: string
+          maxLength: 128
+          minLength: 1
+          title: Password
+        contact:
+          anyOf:
+          - type: string
+            maxLength: 128
+          - type: 'null'
+          title: Contact
+      type: object
+      required:
+      - yard_name
+      - admin_username
+      - password
+      title: YardSignupRequest
+      description: '公开自助注册请求。
+
+
+        密码长度不在此写死：由 signup 业务层按 settings.password_min_length 校验
+
+        （生产环境再强制不低于 10 位）。'
   securitySchemes:
     HTTPBearer:
       type: http

@@ -7,5 +7,5 @@ IM 平台（企微智能机器人 / 钉钉 Stream / 飞书长连接）以**出�
   supervisor 路由 → 分段回复 → 审计只存 sha12）；
 - ``service``：配置 CRUD（凭据 Fernet 加密 + 掩码回显 + fail 熔断）；
 - ``manager``：进程内连接器管家（Redis 选主，只有 leader 建连）；
-- ``router``：``/bots`` 管理接口（租户管理员口径同 pairing）。
+- ``router``：``/bots`` 管理接口（小院管理员口径同 pairing）。
 """

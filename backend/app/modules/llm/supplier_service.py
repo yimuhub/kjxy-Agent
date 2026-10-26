@@ -1,4 +1,4 @@
-"""模型供应商服务：CRUD、连通性探测、租户 active 解析、Provider 构建。
+"""模型供应商服务：CRUD、连通性探测、小院 active 解析、Provider 构建。
 
 - API Key 明文只在内存中短暂使用（加密落库 / 探测时），绝不打日志、绝不返回。
 - 供应商的增删改、启用/禁用、active 切换都会失效 Provider 缓存，配置即时生效、无需重启。
@@ -21,7 +21,7 @@ from app.modules.llm.supplier_crypto import (
     encrypt_api_key,
     mask_api_key,
 )
-from app.modules.llm.supplier_models import Supplier, TenantActiveSupplier
+from app.modules.llm.supplier_models import Supplier, YardActiveSupplier
 from app.modules.llm.supplier_schemas import (
     STATUS_DISABLED,
     STATUS_ENABLED,
@@ -83,69 +83,65 @@ def _validated_base_url(raw: str) -> str:
 # ---------- 查询 ----------
 
 
-def _visible_query(db: Session, tenant_id: str | None):
-    """租户可见供应商：全局共享 + 本租户。"""
-    if tenant_id:
+def _visible_query(db: Session, yard_id: str | None):
+    """小院可见供应商：全局共享 + 本小院。"""
+    if yard_id:
         return db.query(Supplier).filter(
-            or_(Supplier.tenant_id.is_(None), Supplier.tenant_id == tenant_id)
+            or_(Supplier.yard_id.is_(None), Supplier.yard_id == yard_id)
         )
-    return db.query(Supplier).filter(Supplier.tenant_id.is_(None))
+    return db.query(Supplier).filter(Supplier.yard_id.is_(None))
 
 
-def get_supplier(db: Session, tenant_id: str | None, supplier_id: str) -> Supplier:
-    row = _visible_query(db, tenant_id).filter(Supplier.id == supplier_id).first()
+def get_supplier(db: Session, yard_id: str | None, supplier_id: str) -> Supplier:
+    row = _visible_query(db, yard_id).filter(Supplier.id == supplier_id).first()
     if not row:
         raise AppError("SUPPLIER_NOT_FOUND", "供应商不存在。", http_status=404)
     return row
 
 
 def _writable_supplier(
-    db: Session, tenant_id: str | None, supplier_id: str, *, is_platform_admin: bool
+    db: Session, yard_id: str | None, supplier_id: str, *, is_platform_admin: bool
 ) -> Supplier:
     """写操作专用「角色+归属」双校验（ADR-0005）：
 
-    - 先走可见性查询（全局 + 本租户），跨租户行天然不可见；
-    - 非平台管理员不得改写平台全局行（tenant_id 为 NULL）。
+    - 先走可见性查询（全局 + 本小院），跨小院行天然不可见；
+    - 非平台管理员不得改写平台全局行（yard_id 为 NULL）。
     越权与不存在统一 404（平台惯例：不向无权方泄露资源存在性）。
     """
-    row = get_supplier(db, tenant_id, supplier_id)
-    if not is_platform_admin and row.tenant_id is None:
+    row = get_supplier(db, yard_id, supplier_id)
+    if not is_platform_admin and row.yard_id is None:
         raise AppError("SUPPLIER_NOT_FOUND", "供应商不存在。", http_status=404)
     return row
 
 
-def get_active_supplier_id(db: Session, tenant_id: str) -> str | None:
-    row = db.query(TenantActiveSupplier).filter_by(tenant_id=tenant_id).first()
+def get_active_supplier_id(db: Session, yard_id: str) -> str | None:
+    row = db.query(YardActiveSupplier).filter_by(yard_id=yard_id).first()
     return row.supplier_id if row else None
 
 
-def resolve_active_supplier(db: Session, tenant_id: str) -> Supplier | None:
-    """热更新解析：租户 active supplier → 全局 active（priority 最高）→ None（回退 settings）。"""
-    active_id = get_active_supplier_id(db, tenant_id)
+def resolve_active_supplier(db: Session, yard_id: str) -> Supplier | None:
+    """热更新解析：小院 active supplier → 全局 active（priority 最高）→ None（回退 settings）。"""
+    active_id = get_active_supplier_id(db, yard_id)
     if active_id:
         row = db.query(Supplier).filter(Supplier.id == active_id).first()
-        if (
-            row
-            and row.status == STATUS_ENABLED
-            and (row.tenant_id is None or row.tenant_id == tenant_id)
-        ):
+        if row and row.status == STATUS_ENABLED and (row.yard_id is None or row.yard_id == yard_id):
             return row
         # active 指向的供应商不可用：继续走全局兜底
     return (
         db.query(Supplier)
-        .filter(Supplier.tenant_id.is_(None), Supplier.status == STATUS_ENABLED)
+        .filter(Supplier.yard_id.is_(None), Supplier.status == STATUS_ENABLED)
         .order_by(Supplier.priority.desc(), Supplier.created_at.asc())
         .first()
     )
 
 
 def supplier_to_out(
-    db: Session, row: Supplier, tenant_id: str, *, is_platform_admin: bool = False
+    db: Session, row: Supplier, yard_id: str, *, is_platform_admin: bool = False
 ) -> SupplierOut:
     masked = mask_api_key(decrypt_api_key(row.api_key_enc))
     return SupplierOut(
         id=row.id,
-        tenant_id=row.tenant_id,
+        yard_id=row.yard_id,
         name=row.name,
         provider_type=row.provider_type,
         base_url=row.base_url,
@@ -154,9 +150,9 @@ def supplier_to_out(
         models=row.models,
         priority=row.priority,
         status=row.status,
-        is_active=get_active_supplier_id(db, tenant_id) == row.id if tenant_id else False,
-        # 租户管理员视角：全局共享行只读；平台管理员不受限
-        readonly=(not is_platform_admin) and row.tenant_id is None,
+        is_active=get_active_supplier_id(db, yard_id) == row.id if yard_id else False,
+        # 小院管理员视角：全局共享行只读；平台管理员不受限
+        readonly=(not is_platform_admin) and row.yard_id is None,
         consecutive_failures=row.consecutive_failures or 0,
         test_time=row.test_time.isoformat() if row.test_time else None,
         response_time_ms=row.response_time_ms,
@@ -171,36 +167,36 @@ def supplier_to_out(
 
 
 def list_suppliers(
-    db: Session, tenant_id: str | None, *, is_platform_admin: bool = False
+    db: Session, yard_id: str | None, *, is_platform_admin: bool = False
 ) -> list[SupplierOut]:
     rows = (
-        _visible_query(db, tenant_id)
+        _visible_query(db, yard_id)
         .order_by(Supplier.priority.desc(), Supplier.created_at.asc())
         .all()
     )
     return [
-        supplier_to_out(db, r, tenant_id or "", is_platform_admin=is_platform_admin) for r in rows
+        supplier_to_out(db, r, yard_id or "", is_platform_admin=is_platform_admin) for r in rows
     ]
 
 
 def create_supplier(
     db: Session,
-    tenant_id: str | None,
+    yard_id: str | None,
     payload: SupplierCreate,
     *,
     is_platform_admin: bool,
 ) -> SupplierOut:
-    scope_tenant_id: str | None
+    scope_yard_id: str | None
     if payload.scope == "global":
         if not is_platform_admin:
             raise AppError("FORBIDDEN", "只有平台管理员可以创建全局共享供应商。", http_status=403)
-        scope_tenant_id = None
+        scope_yard_id = None
     else:
-        if not tenant_id:
-            raise AppError("TENANT_REQUIRED", "创建租户供应商需要租户上下文。", http_status=400)
-        scope_tenant_id = tenant_id
+        if not yard_id:
+            raise AppError("YARD_REQUIRED", "创建小院供应商需要小院上下文。", http_status=400)
+        scope_yard_id = yard_id
     row = Supplier(
-        tenant_id=scope_tenant_id,
+        yard_id=scope_yard_id,
         name=payload.name.strip(),
         provider_type=payload.provider_type,
         base_url=_validated_base_url(payload.base_url),
@@ -213,18 +209,18 @@ def create_supplier(
     db.add(row)
     db.flush()
     invalidate_supplier_cache()
-    return supplier_to_out(db, row, tenant_id or "")
+    return supplier_to_out(db, row, yard_id or "")
 
 
 def update_supplier(
     db: Session,
-    tenant_id: str | None,
+    yard_id: str | None,
     supplier_id: str,
     payload: SupplierUpdate,
     *,
     is_platform_admin: bool = False,
 ) -> SupplierOut:
-    row = _writable_supplier(db, tenant_id, supplier_id, is_platform_admin=is_platform_admin)
+    row = _writable_supplier(db, yard_id, supplier_id, is_platform_admin=is_platform_admin)
     data = payload.model_dump(exclude_unset=True)
     api_key = data.pop("api_key", None)
     for field in ("name", "provider_type", "base_url", "model_id", "models", "priority"):
@@ -246,14 +242,14 @@ def update_supplier(
         row.supports_tools = bool(data["supports_tools"])
     db.flush()
     invalidate_supplier_cache(supplier_id=row.id)
-    return supplier_to_out(db, row, tenant_id or "")
+    return supplier_to_out(db, row, yard_id or "")
 
 
 def delete_supplier(
-    db: Session, tenant_id: str | None, supplier_id: str, *, is_platform_admin: bool = False
+    db: Session, yard_id: str | None, supplier_id: str, *, is_platform_admin: bool = False
 ) -> None:
-    row = _writable_supplier(db, tenant_id, supplier_id, is_platform_admin=is_platform_admin)
-    db.query(TenantActiveSupplier).filter(TenantActiveSupplier.supplier_id == row.id).delete()
+    row = _writable_supplier(db, yard_id, supplier_id, is_platform_admin=is_platform_admin)
+    db.query(YardActiveSupplier).filter(YardActiveSupplier.supplier_id == row.id).delete()
     db.delete(row)
     db.flush()
     invalidate_supplier_cache(supplier_id=row.id)
@@ -261,36 +257,36 @@ def delete_supplier(
 
 def set_supplier_status(
     db: Session,
-    tenant_id: str | None,
+    yard_id: str | None,
     supplier_id: str,
     status: int,
     *,
     is_platform_admin: bool = False,
 ) -> SupplierOut:
-    row = _writable_supplier(db, tenant_id, supplier_id, is_platform_admin=is_platform_admin)
+    row = _writable_supplier(db, yard_id, supplier_id, is_platform_admin=is_platform_admin)
     row.status = status
     if status == STATUS_ENABLED:
         row.consecutive_failures = 0
     db.flush()
     invalidate_supplier_cache(supplier_id=row.id)
-    return supplier_to_out(db, row, tenant_id or "")
+    return supplier_to_out(db, row, yard_id or "")
 
 
 def set_active_supplier(
-    db: Session, tenant_id: str, supplier_id: str, *, is_platform_admin: bool = False
+    db: Session, yard_id: str, supplier_id: str, *, is_platform_admin: bool = False
 ) -> SupplierOut:
-    # 刻意用可见性查询（非 writable）：租户可选用平台全局行作为本租户生效供应商
-    row = get_supplier(db, tenant_id, supplier_id)
+    # 刻意用可见性查询（非 writable）：小院可选用平台全局行作为本小院生效供应商
+    row = get_supplier(db, yard_id, supplier_id)
     if row.status != STATUS_ENABLED:
         raise AppError("SUPPLIER_DISABLED", "该供应商已禁用，请先启用。", http_status=400)
-    active = db.query(TenantActiveSupplier).filter_by(tenant_id=tenant_id).first()
+    active = db.query(YardActiveSupplier).filter_by(yard_id=yard_id).first()
     if active:
         active.supplier_id = row.id
     else:
-        db.add(TenantActiveSupplier(tenant_id=tenant_id, supplier_id=row.id))
+        db.add(YardActiveSupplier(yard_id=yard_id, supplier_id=row.id))
     db.flush()
     invalidate_supplier_cache()  # active 映射变更：整体失效，保证解析即时生效
-    out = supplier_to_out(db, row, tenant_id, is_platform_admin=is_platform_admin)
+    out = supplier_to_out(db, row, yard_id, is_platform_admin=is_platform_admin)
     out.is_active = True
     return out
 
@@ -455,12 +451,12 @@ async def probe_upstream(
 
 
 async def test_saved_supplier(
-    db: Session, tenant_id: str | None, supplier_id: str, *, is_platform_admin: bool = False
+    db: Session, yard_id: str | None, supplier_id: str, *, is_platform_admin: bool = False
 ) -> tuple[SupplierOut, SupplierTestResult]:
     """对已存供应商探测，结果写回 test_time/response_time_ms/last_error；
     连续失败 3 次自动禁用。探测会改写供应商行，故与编辑同权：
-    租户管理员对平台全局行不可探测（404）。"""
-    row = _writable_supplier(db, tenant_id, supplier_id, is_platform_admin=is_platform_admin)
+    小院管理员对平台全局行不可探测（404）。"""
+    row = _writable_supplier(db, yard_id, supplier_id, is_platform_admin=is_platform_admin)
     api_key = decrypt_api_key(row.api_key_enc)
     try:
         result = await probe_upstream(row.base_url, api_key, row.model_id)
@@ -483,7 +479,7 @@ async def test_saved_supplier(
             )
     db.flush()
     invalidate_supplier_cache(supplier_id=row.id)
-    return supplier_to_out(db, row, tenant_id or ""), result
+    return supplier_to_out(db, row, yard_id or ""), result
 
 
 # ---------- Provider 构建与模板 ----------

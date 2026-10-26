@@ -2,7 +2,7 @@
 
 流程：
 1. 工具注册表拦截 external_side_effect 调用时，调用 get_or_create_pending_approval
-   建单（同租户+同工具+同参数哈希去重），调用方拿到 approval_id 去走人工审批。
+   建单（同小院+同工具+同参数哈希去重），调用方拿到 approval_id 去走人工审批。
 2. 审批人调 approve/reject；通过后调用方凭已批准单重试，_is_approved 放行。
 """
 
@@ -45,7 +45,7 @@ def params_hash(params: dict | None) -> str:
 def get_or_create_pending_approval(
     db: Session,
     *,
-    tenant_id: str,
+    yard_id: str,
     tool_code: str,
     params: dict | None,
     requested_by: str,
@@ -53,12 +53,12 @@ def get_or_create_pending_approval(
     reason: str | None = None,
     request_id: str = "req_unknown",
 ) -> ToolApproval:
-    """获取或创建 pending 审批单；幂等（同租户+工具+参数哈希复用未关闭单）。"""
+    """获取或创建 pending 审批单；幂等（同小院+工具+参数哈希复用未关闭单）。"""
     phash = params_hash(params)
     existing = (
         db.query(ToolApproval)
         .filter(
-            ToolApproval.tenant_id == tenant_id,
+            ToolApproval.yard_id == yard_id,
             ToolApproval.tool_code == tool_code,
             ToolApproval.params_hash == phash,
             ToolApproval.status == APPROVAL_PENDING,
@@ -74,7 +74,7 @@ def get_or_create_pending_approval(
         return existing
 
     approval = ToolApproval(
-        tenant_id=tenant_id,
+        yard_id=yard_id,
         tool_code=tool_code,
         params_json=dict(params or {}),
         params_hash=phash,
@@ -87,7 +87,7 @@ def get_or_create_pending_approval(
     db.flush()
     log_audit(
         db,
-        tenant_id=tenant_id,
+        yard_id=yard_id,
         actor_id=requested_by,
         action="tool_approval_requested",
         resource_type="tool_approval",
@@ -100,10 +100,10 @@ def get_or_create_pending_approval(
     return approval
 
 
-def get_approval(db: Session, tenant_id: str, approval_id: str) -> ToolApproval:
+def get_approval(db: Session, yard_id: str, approval_id: str) -> ToolApproval:
     approval = (
         db.query(ToolApproval)
-        .filter(ToolApproval.id == approval_id, ToolApproval.tenant_id == tenant_id)
+        .filter(ToolApproval.id == approval_id, ToolApproval.yard_id == yard_id)
         .first()
     )
     if approval is None:
@@ -113,13 +113,13 @@ def get_approval(db: Session, tenant_id: str, approval_id: str) -> ToolApproval:
 
 def list_approvals(
     db: Session,
-    tenant_id: str,
+    yard_id: str,
     *,
     status: str | None = None,
     page: int = 1,
     page_size: int = 20,
 ) -> tuple[list[ToolApproval], int]:
-    q = db.query(ToolApproval).filter(ToolApproval.tenant_id == tenant_id)
+    q = db.query(ToolApproval).filter(ToolApproval.yard_id == yard_id)
     if status:
         q = q.filter(ToolApproval.status == status)
     total = q.count()
@@ -133,7 +133,7 @@ def list_approvals(
 
 
 def has_approved_approval(
-    db: Session, *, tenant_id: str, tool_code: str, params: dict | None
+    db: Session, *, yard_id: str, tool_code: str, params: dict | None
 ) -> bool:
     """是否存在针对同一调用的、仍有效的已批准单（批准后重试放行用）。
 
@@ -145,7 +145,7 @@ def has_approved_approval(
     now = _utcnow()
 
     filters = [
-        ToolApproval.tenant_id == tenant_id,
+        ToolApproval.yard_id == yard_id,
         ToolApproval.tool_code == tool_code,
         ToolApproval.params_hash == params_hash(params),
         ToolApproval.status == APPROVAL_APPROVED,
@@ -188,21 +188,21 @@ def has_approved_approval(
     return True
 
 
-def count_other_approvers(db: Session, tenant_id: str, exclude_user_id: str) -> int:
-    """本租户除 exclude_user_id 外，具备审批资格（tenant_admin/expert）的 active 成员数。
+def count_other_approvers(db: Session, yard_id: str, exclude_user_id: str) -> int:
+    """本小院除 exclude_user_id 外，具备审批资格（yard_admin/expert）的 active 成员数。
 
     用于四眼原则的单人空间豁免（solo 策略）：发起人之外没有别的可审批人时，
     禁止自批等于流程死锁，此时允许自批并在审计中明确标记 self_approved（可追责）。
     """
-    from app.modules.tenants.models import TenantMembership
+    from app.modules.yards.models import YardMembership
 
     return int(
         db.scalar(
-            select(func.count(TenantMembership.id)).where(
-                TenantMembership.tenant_id == tenant_id,
-                TenantMembership.status == "active",
-                TenantMembership.user_id != exclude_user_id,
-                TenantMembership.role.in_(("tenant_admin", "expert")),
+            select(func.count(YardMembership.id)).where(
+                YardMembership.yard_id == yard_id,
+                YardMembership.status == "active",
+                YardMembership.user_id != exclude_user_id,
+                YardMembership.role.in_(("yard_admin", "yard_owner", "expert")),
             )
         )
         or 0
@@ -224,7 +224,7 @@ def self_decide_allowed(db: Session, approval: ToolApproval, decided_by: str) ->
     if policy == "never":
         return False
     # solo：本空间发起人之外无其他可审批人 → 豁免
-    return count_other_approvers(db, approval.tenant_id, decided_by) == 0
+    return count_other_approvers(db, approval.yard_id, decided_by) == 0
 
 
 def _ensure_decidable(
@@ -258,7 +258,7 @@ def _claim_pending(db: Session, approval: ToolApproval, values: dict) -> None:
         db.query(ToolApproval)
         .filter(
             ToolApproval.id == approval.id,
-            ToolApproval.tenant_id == approval.tenant_id,
+            ToolApproval.yard_id == approval.yard_id,
             ToolApproval.status == APPROVAL_PENDING,
         )
         .update(values, synchronize_session=False)
@@ -304,7 +304,7 @@ def approve_approval(
     )
     log_audit(
         db,
-        tenant_id=approval.tenant_id,
+        yard_id=approval.yard_id,
         actor_id=decided_by,
         action="tool_approval_approved",
         resource_type="tool_approval",
@@ -342,7 +342,7 @@ def reject_approval(
     )
     log_audit(
         db,
-        tenant_id=approval.tenant_id,
+        yard_id=approval.yard_id,
         actor_id=decided_by,
         action="tool_approval_rejected",
         resource_type="tool_approval",
@@ -374,7 +374,7 @@ def cancel_approval(
     db.flush()
     log_audit(
         db,
-        tenant_id=approval.tenant_id,
+        yard_id=approval.yard_id,
         actor_id=actor_id,
         action="tool_approval_cancelled",
         resource_type="tool_approval",

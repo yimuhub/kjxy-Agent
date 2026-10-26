@@ -214,7 +214,7 @@ def _check_signup() -> dict[str, str]:
         return _check(
             "signup_enabled",
             "warn",
-            "生产环境仍开放租户自助注册",
+            "生产环境仍开放小院自助注册",
             "试运行/公网部署请设置 SIGNUP_ENABLED=false 改为邀请制。",
         )
     return _check("signup_enabled", "ok", "开发/测试环境开放自助注册（生产建议关闭）")

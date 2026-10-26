@@ -7,7 +7,7 @@
   `pip install lark-oapi`（诚实口径，绝不静默降级）；
 - 已安装：用 `lark.ws.Client(app_id, app_secret, event_handler=...)` 建连，
   收 im.message.receive_v1 事件 → 归一化 InboundMessage；出站走
-  开放 API（tenant_access_token + im/v1/messages），httpx 可 MockTransport 测。
+  开放 API（yard_access_token + im/v1/messages），httpx 可 MockTransport 测。
 """
 
 from __future__ import annotations
@@ -100,7 +100,7 @@ class FeishuAdapter:
 
     async def send(self, conversation_id: str, text: str) -> None:  # pragma: no cover
         """出站发消息（im/v1/messages）；httpx 可测部分在 service 层封装。"""
-        raise NotImplementedError("由 manager 注入带 tenant_access_token 的 http 发送实现")
+        raise NotImplementedError("由 manager 注入带 yard_access_token 的 http 发送实现")
 
     async def close(self) -> None:
         return None

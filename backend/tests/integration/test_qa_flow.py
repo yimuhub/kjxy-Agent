@@ -24,7 +24,7 @@ class QaChunk(Base, TimestampMixin):
 
     __tablename__ = "test_qa_chunks"
 
-    tenant_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    yard_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     document_id: Mapped[str] = mapped_column(String(36), nullable=False)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     source: Mapped[str] = mapped_column(String(200), nullable=False)
@@ -37,8 +37,8 @@ def _keyword_search_tool(db):
     async def _tool(payload: dict, context=None):
         question = str(payload.get("question", ""))
         top_k = int(payload.get("top_k", 5))
-        tenant_id = getattr(context, "tenant_id", None)
-        rows = db.query(QaChunk).filter(QaChunk.tenant_id == tenant_id).all()
+        yard_id = getattr(context, "yard_id", None)
+        rows = db.query(QaChunk).filter(QaChunk.yard_id == yard_id).all()
         scored = []
         for r in rows:
             tokens = {question[i : i + 2] for i in range(len(question) - 1)}
@@ -88,7 +88,7 @@ def qa_client(db_session):
 
 @pytest.fixture()
 def auth_headers():
-    token = create_access_token(user_id="u1", tenant_id="t1", roles=["member"])
+    token = create_access_token(user_id="u1", yard_id="t1", roles=["member"])
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -96,7 +96,7 @@ def auth_headers():
 def seed_chunks(db_session):
     db_session.add(
         QaChunk(
-            tenant_id="t1",
+            yard_id="t1",
             document_id="doc-wheat",
             title="小麦春季田间管理",
             source="县农技推广站",
@@ -105,19 +105,19 @@ def seed_chunks(db_session):
     )
     db_session.add(
         QaChunk(
-            tenant_id="t1",
+            yard_id="t1",
             document_id="doc-corn",
             title="玉米播种技术",
             source="县农技推广站",
             content="玉米播种深度以3到5厘米为宜，墒情差时可适当加深。",
         )
     )
-    # 其他租户的数据：必须被隔离
+    # 其他小院的数据：必须被隔离
     db_session.add(
         QaChunk(
-            tenant_id="t2",
+            yard_id="t2",
             document_id="doc-other",
-            title="他租户资料",
+            title="他小院资料",
             source="他处",
             content="小麦返青期每亩追施尿素50公斤（错误示范数据）。",
         )
@@ -155,7 +155,7 @@ def test_qa_flow_sync(qa_client, auth_headers, stub_tool_registry, db_session):
     data = resp.json()["data"]
     assert data["answer"]
     assert data["needs_expert_review"] is False
-    # 只命中本租户的小麦片段，玉米与他租户数据未被引用
+    # 只命中本小院的小麦片段，玉米与他小院数据未被引用
     assert len(data["citations"]) == 1
     c = data["citations"][0]
     assert c["document_id"] == "doc-wheat"
@@ -212,7 +212,7 @@ def test_qa_flow_async_creates_task(
 
     task = db_session.query(Task).filter(Task.id == data["task_id"]).one()
     assert task.task_type == "knowledge_qa"
-    assert task.tenant_id == "t1"
+    assert task.yard_id == "t1"
     assert task.status == "queued"
 
 
@@ -237,7 +237,7 @@ def test_qa_flow_real_knowledge_search(qa_client, auth_headers, db_session):
     provider = get_embedding_provider()
     content = "小麦返青期结合浇水，每亩追施尿素10公斤，促进早发稳长。"
     doc = KnowledgeDocument(
-        tenant_id="t1",
+        yard_id="t1",
         title="小麦春季田间管理",
         storage_key="test/seed.md",
         mime_type="text/markdown",
@@ -250,12 +250,12 @@ def test_qa_flow_real_knowledge_search(qa_client, auth_headers, db_session):
     db_session.flush()
     db_session.add(
         KnowledgeChunk(
-            tenant_id="t1",
+            yard_id="t1",
             document_id=doc.id,
             chunk_index=0,
             content=content,
             page_number=2,
-            trust_level="tenant_material",
+            trust_level="yard_material",
             embedding=provider.embed([content])[0],
         )
     )

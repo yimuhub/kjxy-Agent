@@ -11,20 +11,20 @@ os.environ.setdefault("APP_SECRET_KEY", "test-secret-key-min-32-chars-for-unit-t
 import pytest  # noqa: E402
 from app.core.security import create_access_token  # noqa: E402
 from app.modules.bots.models import BotConversation, BotMessageLog  # noqa: E402
-from app.modules.tenants.repository import create_tenant  # noqa: E402
+from app.modules.yards.repository import create_yard  # noqa: E402
 
-TENANT = "t-bots-a"
+YARD = "t-bots-a"
 
 
 @pytest.fixture()
-def tenant(db_session):
-    t = create_tenant(db_session, name="机器人租户A")
+def yard(db_session):
+    t = create_yard(db_session, name="机器人小院A")
     db_session.commit()
     return t
 
 
-def _hdr(roles: tuple[str, ...] = ("tenant_admin",)) -> dict:
-    token = create_access_token(user_id="u-bots", tenant_id=TENANT, roles=list(roles))
+def _hdr(roles: tuple[str, ...] = ("yard_admin",)) -> dict:
+    token = create_access_token(user_id="u-bots", yard_id=YARD, roles=list(roles))
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -43,12 +43,12 @@ def _create(client, **over) -> dict:  # noqa: ANN003, ANN202
 # ---------------------------------------------------------------------------
 
 
-def test_admin_only(client, tenant):
+def test_admin_only(client, yard):
     assert client.get("/api/v1/bots", headers=_hdr(roles=("user",))).status_code == 403
     assert client.get("/api/v1/bots", headers=_hdr()).status_code == 200
 
 
-def test_create_masks_credentials(client, tenant):
+def test_create_masks_credentials(client, yard):
     resp = _create(client)
     assert resp.status_code == 201, resp.text
     data = resp.json()["data"]
@@ -58,15 +58,15 @@ def test_create_masks_credentials(client, tenant):
     assert data["status"] == "offline" and data["enabled"] is True
 
 
-def test_create_missing_credentials_400(client, tenant):
+def test_create_missing_credentials_400(client, yard):
     resp = _create(client, credentials={})
     assert resp.status_code == 400
     resp2 = _create(client, credentials={"bot_id": "only-id"})
     assert resp2.status_code == 400 and "secret" in resp2.text
 
 
-def test_binding_requires_existing_target(client, tenant):
-    """指定助手/班组绑定必须给出目标，且目标必须是本租户已发布助手/启用班组。"""
+def test_binding_requires_existing_target(client, yard):
+    """指定助手/班组绑定必须给出目标，且目标必须是本小院已发布助手/启用班组。"""
     missing = _create(client, binding_mode="assistant")
     assert missing.status_code == 400, missing.text
     assert missing.json()["error"]["code"] == "INVALID_REQUEST"
@@ -76,11 +76,11 @@ def test_binding_requires_existing_target(client, tenant):
     assert "不存在" in ghost.json()["error"]["message"]
 
 
-def test_binding_to_published_agent_and_switch_back_to_auto(client, tenant, db_session):
-    from app.modules.agents.models import TenantAgent
+def test_binding_to_published_agent_and_switch_back_to_auto(client, yard, db_session):
+    from app.modules.agents.models import YardAgent
 
-    agent = TenantAgent(
-        tenant_id=TENANT,
+    agent = YardAgent(
+        yard_id=YARD,
         agent_code="pest_alert",
         name="病虫害预警",
         persona_prompt="你是植保专家。",
@@ -104,7 +104,7 @@ def test_binding_to_published_agent_and_switch_back_to_auto(client, tenant, db_s
     assert patched.json()["data"]["bound_agent_id"] is None
 
 
-def test_update_toggle_and_circuit_clear(client, tenant):
+def test_update_toggle_and_circuit_clear(client, yard):
     bot_id = _create(client).json()["data"]["id"]
     # 通过 PATCH 走正常启停路径（启用联动 manager.spawn 在测试环境为 no-op）
     r = client.patch(f"/api/v1/bots/{bot_id}", json={"enabled": False}, headers=_hdr())
@@ -113,7 +113,7 @@ def test_update_toggle_and_circuit_clear(client, tenant):
     assert r2.json()["data"]["enabled"] is True
 
 
-def test_status_and_delete(client, tenant):
+def test_status_and_delete(client, yard):
     bot_id = _create(client).json()["data"]["id"]
     st = client.get(f"/api/v1/bots/{bot_id}/status", headers=_hdr())
     assert st.status_code == 200 and st.json()["data"]["status"] == "offline"
@@ -121,7 +121,7 @@ def test_status_and_delete(client, tenant):
     assert client.get(f"/api/v1/bots/{bot_id}/status", headers=_hdr()).status_code == 404
 
 
-def test_wecom_test_endpoint_local_validation(client, tenant, monkeypatch):
+def test_wecom_test_endpoint_local_validation(client, yard, monkeypatch):
     # wecom 测试为本地校验（真连由 manager 长连接负责），不外呼
     bot_id = _create(client).json()["data"]["id"]
     r = client.post(f"/api/v1/bots/{bot_id}/test", headers=_hdr())
@@ -149,10 +149,10 @@ def test_wecom_test_endpoint_local_validation(client, tenant, monkeypatch):
     assert r2.json()["data"]["ok"] is False
 
 
-def test_conversation_approval_flow(client, tenant, db_session):
+def test_conversation_approval_flow(client, yard, db_session):
     bot_id = _create(client).json()["data"]["id"]
     conv = BotConversation(
-        tenant_id=TENANT,
+        yard_id=YARD,
         bot_config_id=bot_id,
         platform="wecom_aibot",
         external_conv_id="chat-x",
@@ -164,7 +164,7 @@ def test_conversation_approval_flow(client, tenant, db_session):
     db_session.flush()  # 生成 conv.id 后账本才能引用
     db_session.add(
         BotMessageLog(
-            tenant_id=TENANT,
+            yard_id=YARD,
             conversation_id=conv.id,
             direction="in",
             content_sha12="a" * 12,
@@ -194,11 +194,9 @@ def test_conversation_approval_flow(client, tenant, db_session):
     assert conv.context_cache_json is None  # 吊销即清上下文明文
 
 
-def test_cross_tenant_isolation(client, tenant, db_session):
+def test_cross_yard_isolation(client, yard, db_session):
     bot_id = _create(client).json()["data"]["id"]
-    other_token = create_access_token(
-        user_id="u-evil", tenant_id="t-bots-evil", roles=["tenant_admin"]
-    )
+    other_token = create_access_token(user_id="u-evil", yard_id="t-bots-evil", roles=["yard_admin"])
     hdr = {"Authorization": f"Bearer {other_token}"}
     assert client.get(f"/api/v1/bots/{bot_id}/status", headers=hdr).status_code == 404
     assert (
@@ -207,7 +205,7 @@ def test_cross_tenant_isolation(client, tenant, db_session):
     )
 
 
-def test_dingtalk_open_failure_reported(client, tenant, monkeypatch):
+def test_dingtalk_open_failure_reported(client, yard, monkeypatch):
     # 钉钉 test 的真外呼分支：注入假 _ding_reachable，验证 API 组装正确
     from app.modules.bots import router as bots_router
 

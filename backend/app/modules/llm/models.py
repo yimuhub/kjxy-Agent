@@ -16,7 +16,7 @@ from app.db.base import Base, TimestampMixin, _utcnow
 class LLMCall(Base, TimestampMixin):
     __tablename__ = "llm_calls"
 
-    tenant_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    yard_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     task_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     provider: Mapped[str] = mapped_column(String(50), nullable=False)  # fake|openai_compatible
     model: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -48,9 +48,12 @@ class LLMTrace(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow
     )
-    # 平台级无租户上下文调用理论上不存在（complete_with_logging 强制租户），
-    # 列仍按可空建模：观测数据缺失租户归属时宁缺勿错填。
-    tenant_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    # 平台级无小院上下文调用理论上不存在（complete_with_logging 强制小院），
+    # 列仍按可空建模：观测数据缺失小院归属时宁缺勿错填。
+    yard_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    # 负责人驾驶舱：调用归属用户/会话（历史数据可空，新调用尽量透传）
+    user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    session_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     # 命中的供应商行 id（settings 兜底 provider 无供应商 → null，不编造）
     provider_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     model: Mapped[str] = mapped_column(String(100), nullable=False, default="unknown")

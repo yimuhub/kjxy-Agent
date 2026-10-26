@@ -10,7 +10,7 @@ from app.modules.tools.registry import tool_registry
 
 
 def _auth():
-    token = create_access_token(user_id="u1", tenant_id="t1", roles=["tenant_admin"])
+    token = create_access_token(user_id="u1", yard_id="t1", roles=["yard_admin"])
     return {"Authorization": f"Bearer {token}"}
 
 

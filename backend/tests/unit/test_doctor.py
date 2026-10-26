@@ -5,13 +5,13 @@ from app.core.security import create_access_token
 
 
 def _hdr(roles=("platform_admin",), user_id="u-doctor"):
-    token = create_access_token(user_id=user_id, tenant_id=None, roles=list(roles))
+    token = create_access_token(user_id=user_id, yard_id=None, roles=list(roles))
     return {"Authorization": f"Bearer {token}"}
 
 
 class TestAdminDoctor:
     def test_requires_platform_admin(self, client):
-        resp = client.get("/api/v1/admin/doctor", headers=_hdr(roles=("tenant_admin",)))
+        resp = client.get("/api/v1/admin/doctor", headers=_hdr(roles=("yard_admin",)))
         assert resp.status_code == 403
 
     def test_anonymous_rejected(self, client):

@@ -1,9 +1,9 @@
-"""推送通道 HTTP 接口：``/settings/push-channels``（tenant_admin 专属 CRUD）。
+"""推送通道 HTTP 接口：``/settings/push-channels``（yard_admin 专属 CRUD）。
 
 安全口径：
 - URL 提交后响应只回掩码（``url_masked``），**无轮换端点，重填 URL 即换**；
 - 保存/换 URL 时 SSRF 校验（localhost/元数据等直接 400 SSRF_BLOCKED）；
-- 跨租户与不存在统一 404；同租户重名 409；审计只记 kind/events，绝不记 URL。
+- 跨小院与不存在统一 404；同小院重名 409；审计只记 kind/events，绝不记 URL。
 """
 
 from typing import Any
@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.deps import TenantContext, get_db_session, get_tenant_context
+from app.core.deps import YardContext, get_db_session, get_yard_context
 from app.core.errors import AppError
 from app.core.responses import ok
 from app.modules.audit.service import log_audit
@@ -22,19 +22,19 @@ from app.modules.push.schemas import PushChannelCreate, PushChannelUpdate
 
 router = APIRouter(prefix="/settings", tags=["push"])
 
-_ADMIN_ROLES = {"platform_admin", "admin", "tenant_admin"}
+_ADMIN_ROLES = {"platform_admin", "admin", "yard_admin"}
 
 
-def _admin(ctx: TenantContext = Depends(get_tenant_context)) -> TenantContext:
+def _admin(ctx: YardContext = Depends(get_yard_context)) -> YardContext:
     if not set(ctx.roles) & _ADMIN_ROLES:
-        raise AppError("FORBIDDEN", "推送通道管理需要租户管理员权限。", http_status=403)
+        raise AppError("FORBIDDEN", "推送通道管理需要小院管理员权限。", http_status=403)
     return ctx
 
 
-def _audit(ctx: TenantContext, db: Session, action: str, resource_id: str, meta: dict) -> None:
+def _audit(ctx: YardContext, db: Session, action: str, resource_id: str, meta: dict) -> None:
     log_audit(
         db,
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         actor_id=ctx.user_id,
         action=action,
         resource_type="push_channel",
@@ -47,13 +47,13 @@ def _audit(ctx: TenantContext, db: Session, action: str, resource_id: str, meta:
 
 @router.get("/push-channels", response_model=None)
 def list_channels(
-    ctx: TenantContext = Depends(_admin),
+    ctx: YardContext = Depends(_admin),
     db: Session = Depends(get_db_session),
 ):
     rows = list(
         db.scalars(
             select(PushChannel)
-            .where(PushChannel.tenant_id == ctx.tenant_id)
+            .where(PushChannel.yard_id == ctx.yard_id)
             .order_by(PushChannel.created_at.desc())
         )
     )
@@ -63,20 +63,20 @@ def list_channels(
 @router.post("/push-channels", response_model=None)
 def create_channel(
     payload: PushChannelCreate,
-    ctx: TenantContext = Depends(_admin),
+    ctx: YardContext = Depends(_admin),
     db: Session = Depends(get_db_session),
 ):
     service.validate_kind(payload.kind)
     service.validate_events(payload.events)
     dup = db.scalars(
         select(PushChannel.id).where(
-            PushChannel.tenant_id == ctx.tenant_id, PushChannel.name == payload.name
+            PushChannel.yard_id == ctx.yard_id, PushChannel.name == payload.name
         )
     ).first()
     if dup:
-        raise AppError("DUPLICATE_NAME", "同租户下已存在同名推送通道。", http_status=409)
+        raise AppError("DUPLICATE_NAME", "同小院下已存在同名推送通道。", http_status=409)
     ch = PushChannel(
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         name=payload.name,
         kind=payload.kind,
         url_enc=service.prepare_url_enc(payload.url) if payload.url else None,
@@ -96,10 +96,10 @@ def create_channel(
 def update_channel(
     channel_id: str,
     payload: PushChannelUpdate,
-    ctx: TenantContext = Depends(_admin),
+    ctx: YardContext = Depends(_admin),
     db: Session = Depends(get_db_session),
 ):
-    ch = service.get_channel_or_404(db, ctx.tenant_id, channel_id)
+    ch = service.get_channel_or_404(db, ctx.yard_id, channel_id)
     changes: dict[str, Any] = payload.model_dump(exclude_unset=True)
     if "kind" in changes and changes["kind"] is not None:
         service.validate_kind(str(changes["kind"]))
@@ -115,13 +115,13 @@ def update_channel(
         if new_name != ch.name:
             dup = db.scalars(
                 select(PushChannel.id).where(
-                    PushChannel.tenant_id == ctx.tenant_id,
+                    PushChannel.yard_id == ctx.yard_id,
                     PushChannel.name == new_name,
                     PushChannel.id != ch.id,
                 )
             ).first()
             if dup:
-                raise AppError("DUPLICATE_NAME", "同租户下已存在同名推送通道。", http_status=409)
+                raise AppError("DUPLICATE_NAME", "同小院下已存在同名推送通道。", http_status=409)
     for field, value in changes.items():
         setattr(ch, field, value)
     _audit(
@@ -138,10 +138,10 @@ def update_channel(
 @router.delete("/push-channels/{channel_id}", response_model=None)
 def delete_channel(
     channel_id: str,
-    ctx: TenantContext = Depends(_admin),
+    ctx: YardContext = Depends(_admin),
     db: Session = Depends(get_db_session),
 ):
-    ch = service.get_channel_or_404(db, ctx.tenant_id, channel_id)
+    ch = service.get_channel_or_404(db, ctx.yard_id, channel_id)
     db.delete(ch)
     _audit(ctx, db, "push_channel_delete", channel_id, {"kind": ch.kind})
     db.commit()

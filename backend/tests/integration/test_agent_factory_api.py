@@ -15,13 +15,13 @@ from app.db.base import Base
 from app.main import create_app
 from app.modules.agents import factory_pipeline
 from app.modules.agents.factory_models import FactoryRun
-from app.modules.agents.models import TenantAgent
+from app.modules.agents.models import YardAgent
 from app.modules.audit.models import AuditLog
 from app.modules.knowledge.embedding import get_embedding_provider
 from app.modules.knowledge.models import KnowledgeChunk, KnowledgeDocument
 from app.modules.tasks import worker_tasks
 from app.modules.tasks.models import Task
-from app.modules.tenants.repository import create_tenant
+from app.modules.yards.repository import create_yard
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -30,8 +30,8 @@ BRIEF = "农机服务，侧重果园小型农机"
 FOCUS = "侧重农机服务"
 
 
-def _hdr(user_id="u-fac-1", tenant_id=None, roles=("tenant_admin",)):
-    token = create_access_token(user_id=user_id, tenant_id=tenant_id, roles=list(roles))
+def _hdr(user_id="u-fac-1", yard_id=None, roles=("yard_admin",)):
+    token = create_access_token(user_id=user_id, yard_id=yard_id, roles=list(roles))
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -72,10 +72,10 @@ def api_client(session_factory):
 
 
 @pytest.fixture()
-def tenant(session_factory):
+def yard(session_factory):
     db = session_factory()
     try:
-        t = create_tenant(db, name="工厂租户")
+        t = create_yard(db, name="工厂小院")
         db.commit()
         return SimpleNamespace(id=t.id)
     finally:
@@ -83,25 +83,25 @@ def tenant(session_factory):
 
 
 @pytest.fixture()
-def other_tenant(session_factory):
+def other_yard(session_factory):
     db = session_factory()
     try:
-        t = create_tenant(db, name="隔壁租户")
+        t = create_yard(db, name="隔壁小院")
         db.commit()
         return SimpleNamespace(id=t.id)
     finally:
         db.close()
 
 
-def _seed_knowledge(session_factory, tenant_id, texts):
+def _seed_knowledge(session_factory, yard_id, texts):
     """写入 ready 文档 + mock 向量 chunk：查询原文必命中 top1。"""
     embedding = get_embedding_provider()
     db = session_factory()
     try:
         doc = KnowledgeDocument(
-            tenant_id=tenant_id,
+            yard_id=yard_id,
             title="工厂知识",
-            storage_key=f"fac-{tenant_id}",
+            storage_key=f"fac-{yard_id}",
             mime_type="text/plain",
             source="upload",
             status="ready",
@@ -113,12 +113,12 @@ def _seed_knowledge(session_factory, tenant_id, texts):
         for i, text in enumerate(texts):
             db.add(
                 KnowledgeChunk(
-                    tenant_id=tenant_id,
+                    yard_id=yard_id,
                     document_id=doc.id,
                     chunk_index=i,
                     content=text,
                     page_number=1,
-                    trust_level="tenant_material",
+                    trust_level="yard_material",
                     embedding=list(embedding.embed([text])[0]),
                 )
             )
@@ -128,14 +128,14 @@ def _seed_knowledge(session_factory, tenant_id, texts):
         db.close()
 
 
-def _generate(api_client, tenant, brief=BRIEF, focus=FOCUS, headers=None):
+def _generate(api_client, yard, brief=BRIEF, focus=FOCUS, headers=None):
     body = {"industry_brief": brief}
     if focus is not None:
         body["focus"] = focus
     return api_client.post(
         "/api/v1/agents/factory/generate",
         json=body,
-        headers=headers or _hdr(tenant_id=tenant.id),
+        headers=headers or _hdr(yard_id=yard.id),
     )
 
 
@@ -148,9 +148,9 @@ def _run_worker(task_id):
         db.close()
 
 
-def _completed_run(api_client, tenant, headers=None):
+def _completed_run(api_client, yard, headers=None):
     """generate + worker 同步执行到 completed，返回 (run_id, task_id)。"""
-    resp = _generate(api_client, tenant, headers=headers)
+    resp = _generate(api_client, yard, headers=headers)
     assert resp.status_code == 202, resp.text
     ids = resp.json()["data"]
     task = _run_worker(ids["task_id"])
@@ -158,18 +158,18 @@ def _completed_run(api_client, tenant, headers=None):
     return ids["run_id"], ids["task_id"]
 
 
-def _run_detail(api_client, run_id, tenant, headers=None):
+def _run_detail(api_client, run_id, yard, headers=None):
     resp = api_client.get(
-        f"/api/v1/agents/factory/runs/{run_id}", headers=headers or _hdr(tenant_id=tenant.id)
+        f"/api/v1/agents/factory/runs/{run_id}", headers=headers or _hdr(yard_id=yard.id)
     )
     assert resp.status_code == 200, resp.text
     return resp.json()["data"]
 
 
-def test_generate_completes_blueprint_milestones_and_audit(api_client, session_factory, tenant):
-    run_id, task_id = _completed_run(api_client, tenant)
+def test_generate_completes_blueprint_milestones_and_audit(api_client, session_factory, yard):
+    run_id, task_id = _completed_run(api_client, yard)
 
-    data = _run_detail(api_client, run_id, tenant)
+    data = _run_detail(api_client, run_id, yard)
     assert data["status"] == "completed"
     # FakeLLM 输出非 JSON → 必须诚实落 heuristic，不得伪报 llm
     assert data["generated_by"] == "heuristic"
@@ -207,14 +207,14 @@ def test_generate_completes_blueprint_milestones_and_audit(api_client, session_f
     # 草稿真的落库（created_from=factory）
     db = worker_tasks._get_session_factory()()
     try:
-        drafts = db.query(TenantAgent).filter(TenantAgent.tenant_id == tenant.id).all()
+        drafts = db.query(YardAgent).filter(YardAgent.yard_id == yard.id).all()
         assert {i["agent_id"] for i in agents} == {a.id for a in drafts}
         assert all(a.created_from == "factory" and a.status == "draft" for a in drafts)
     finally:
         db.close()
 
     # 里程碑：SSE 读取的同一张 task_events 表可读 planning/generating/completed
-    events = api_client.get(f"/api/v1/tasks/{task_id}/events", headers=_hdr(tenant_id=tenant.id))
+    events = api_client.get(f"/api/v1/tasks/{task_id}/events", headers=_hdr(yard_id=yard.id))
     assert events.status_code == 200
     milestones = [
         e["payload_json"]["milestone"]
@@ -229,7 +229,7 @@ def test_generate_completes_blueprint_milestones_and_audit(api_client, session_f
         actions = {
             row[0]
             for row in db.query(AuditLog.action)
-            .filter(AuditLog.tenant_id == tenant.id, AuditLog.action.like("factory_%"))
+            .filter(AuditLog.yard_id == yard.id, AuditLog.action.like("factory_%"))
             .all()
         }
         assert {"factory_generate", "factory_run_completed"} <= actions
@@ -237,10 +237,10 @@ def test_generate_completes_blueprint_milestones_and_audit(api_client, session_f
         db.close()
 
 
-def test_sse_stream_frames_contain_milestones(api_client, tenant):
-    _, task_id = _completed_run(api_client, tenant)
+def test_sse_stream_frames_contain_milestones(api_client, yard):
+    _, task_id = _completed_run(api_client, yard)
     with api_client.stream(
-        "GET", f"/api/v1/tasks/{task_id}/events/stream", headers=_hdr(tenant_id=tenant.id)
+        "GET", f"/api/v1/tasks/{task_id}/events/stream", headers=_hdr(yard_id=yard.id)
     ) as stream:
         body = "".join(stream.iter_text())
     assert "event: stream-init" in body
@@ -249,36 +249,36 @@ def test_sse_stream_frames_contain_milestones(api_client, tenant):
     assert "event: stream-end" in body
 
 
-def test_coverage_probe_with_seeded_knowledge(api_client, session_factory, tenant):
+def test_coverage_probe_with_seeded_knowledge(api_client, session_factory, yard):
     from app.modules.agents.factory_blueprint import heuristic_blueprint
 
     texts = sorted(
         {q for item in heuristic_blueprint(BRIEF, FOCUS) for q in item["suggested_questions"]}
     )
-    _seed_knowledge(session_factory, tenant.id, texts)
+    _seed_knowledge(session_factory, yard.id, texts)
 
-    run_id, _ = _completed_run(api_client, tenant)
-    agents = _run_detail(api_client, run_id, tenant)["blueprint_json"]["agents"]
+    run_id, _ = _completed_run(api_client, yard)
+    agents = _run_detail(api_client, run_id, yard)["blueprint_json"]["agents"]
     assert all(i["knowledge_coverage"] >= 1 for i in agents)
     assert all(i["needs_knowledge"] is False for i in agents)
 
 
-def test_apply_publish_low_risk_then_answer_with_citations(api_client, session_factory, tenant):
+def test_apply_publish_low_risk_then_answer_with_citations(api_client, session_factory, yard):
     from app.modules.agents.factory_blueprint import heuristic_blueprint
 
     texts = sorted(
         {q for item in heuristic_blueprint(BRIEF, FOCUS) for q in item["suggested_questions"]}
     )
-    docs = _seed_knowledge(session_factory, tenant.id, texts)
+    docs = _seed_knowledge(session_factory, yard.id, texts)
 
-    run_id, _ = _completed_run(api_client, tenant)
-    agents = _run_detail(api_client, run_id, tenant)["blueprint_json"]["agents"]
+    run_id, _ = _completed_run(api_client, yard)
+    agents = _run_detail(api_client, run_id, yard)["blueprint_json"]["agents"]
     chosen = agents[0]
 
     resp = api_client.post(
         f"/api/v1/agents/factory/runs/{run_id}/apply",
         json={"codes": [chosen["agent_code"]], "publish": True},
-        headers=_hdr(tenant_id=tenant.id),
+        headers=_hdr(yard_id=yard.id),
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()["data"]
@@ -289,24 +289,24 @@ def test_apply_publish_low_risk_then_answer_with_citations(api_client, session_f
     assert result["agent_id"] == chosen["agent_id"]
 
     # approved_by 留痕 + factory_apply 审计
-    detail = _run_detail(api_client, run_id, tenant)
+    detail = _run_detail(api_client, run_id, yard)
     assert detail["approved_by"] == "u-fac-1"
     db = worker_tasks._get_session_factory()()
     try:
         assert (
             db.query(AuditLog)
-            .filter(AuditLog.action == "factory_apply", AuditLog.tenant_id == tenant.id)
+            .filter(AuditLog.action == "factory_apply", AuditLog.yard_id == yard.id)
             .count()
             == 1
         )
     finally:
         db.close()
 
-    # 发布后可直接运行：回答带真实引用（FakeLLM + 租户知识检索）
+    # 发布后可直接运行：回答带真实引用（FakeLLM + 小院知识检索）
     answer = api_client.post(
         f"/api/v1/agents/{chosen['agent_code']}/run",
         json={"input": {"question": texts[0], "top_k": 3}},
-        headers=_hdr(tenant_id=tenant.id),
+        headers=_hdr(yard_id=yard.id),
     )
     assert answer.status_code == 200, answer.text
     payload = answer.json()["data"]
@@ -315,33 +315,33 @@ def test_apply_publish_low_risk_then_answer_with_citations(api_client, session_f
     assert payload["citations"] and payload["citations"][0]["document_id"] == docs.id
 
 
-def test_apply_publish_false_keeps_draft(api_client, session_factory, tenant):
-    run_id, _ = _completed_run(api_client, tenant)
-    agents = _run_detail(api_client, run_id, tenant)["blueprint_json"]["agents"]
+def test_apply_publish_false_keeps_draft(api_client, session_factory, yard):
+    run_id, _ = _completed_run(api_client, yard)
+    agents = _run_detail(api_client, run_id, yard)["blueprint_json"]["agents"]
     codes = [i["agent_code"] for i in agents[:2]]
 
     resp = api_client.post(
         f"/api/v1/agents/factory/runs/{run_id}/apply",
         json={"codes": codes, "publish": False},
-        headers=_hdr(tenant_id=tenant.id),
+        headers=_hdr(yard_id=yard.id),
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()["data"]
     assert body["draft"] == 2 and body["published"] == 0
     assert all(r["status"] == "draft" for r in body["results"])
-    detail = _run_detail(api_client, run_id, tenant)
+    detail = _run_detail(api_client, run_id, yard)
     assert detail["approved_by"] is None  # 只留草稿不算审批动作
 
 
 def test_apply_unknown_code_reports_per_item_without_breaking_others(
-    api_client, session_factory, tenant
+    api_client, session_factory, yard
 ):
-    run_id, _ = _completed_run(api_client, tenant)
-    agents = _run_detail(api_client, run_id, tenant)["blueprint_json"]["agents"]
+    run_id, _ = _completed_run(api_client, yard)
+    agents = _run_detail(api_client, run_id, yard)["blueprint_json"]["agents"]
     resp = api_client.post(
         f"/api/v1/agents/factory/runs/{run_id}/apply",
         json={"codes": ["no_such_code", agents[0]["agent_code"]], "publish": True},
-        headers=_hdr(tenant_id=tenant.id),
+        headers=_hdr(yard_id=yard.id),
     )
     assert resp.status_code == 200
     body = resp.json()["data"]
@@ -349,64 +349,64 @@ def test_apply_unknown_code_reports_per_item_without_breaking_others(
     assert body["results"][0]["error"] == "code_not_in_blueprint"
 
 
-def test_apply_cross_tenant_404(api_client, session_factory, tenant, other_tenant):
-    run_id, _ = _completed_run(api_client, tenant)
+def test_apply_cross_yard_404(api_client, session_factory, yard, other_yard):
+    run_id, _ = _completed_run(api_client, yard)
     resp = api_client.post(
         f"/api/v1/agents/factory/runs/{run_id}/apply",
         json={"codes": ["anything"], "publish": True},
-        headers=_hdr(user_id="u-other", tenant_id=other_tenant.id),
+        headers=_hdr(user_id="u-other", yard_id=other_yard.id),
     )
     assert resp.status_code == 404
     assert resp.json()["error"]["code"] == "FACTORY_RUN_NOT_FOUND"
-    # 列表/详情同样租户隔离
+    # 列表/详情同样小院隔离
     listed = api_client.get(
-        "/api/v1/agents/factory/runs", headers=_hdr(user_id="u-other", tenant_id=other_tenant.id)
+        "/api/v1/agents/factory/runs", headers=_hdr(user_id="u-other", yard_id=other_yard.id)
     )
     assert listed.json()["data"]["runs"] == []
 
 
-def test_apply_limited_to_creator_or_tenant_admin(api_client, session_factory, tenant):
-    run_id, _ = _completed_run(api_client, tenant)
-    agents = _run_detail(api_client, run_id, tenant)["blueprint_json"]["agents"]
+def test_apply_limited_to_creator_or_yard_admin(api_client, session_factory, yard):
+    run_id, _ = _completed_run(api_client, yard)
+    agents = _run_detail(api_client, run_id, yard)["blueprint_json"]["agents"]
     payload = {"codes": [agents[0]["agent_code"]], "publish": False}
 
-    # 同租户普通成员（非创建者）→ 403
+    # 同小院普通成员（非创建者）→ 403
     denied = api_client.post(
         f"/api/v1/agents/factory/runs/{run_id}/apply",
         json=payload,
-        headers=_hdr(user_id="u-plain", tenant_id=tenant.id, roles=("operator",)),
+        headers=_hdr(user_id="u-plain", yard_id=yard.id, roles=("operator",)),
     )
     assert denied.status_code == 403
     assert denied.json()["error"]["code"] == "FORBIDDEN"
 
-    # 同租户另一位 tenant_admin（非创建者）→ 放行
+    # 同小院另一位 yard_admin（非创建者）→ 放行
     allowed = api_client.post(
         f"/api/v1/agents/factory/runs/{run_id}/apply",
         json=payload,
-        headers=_hdr(user_id="u-fac-2", tenant_id=tenant.id),
+        headers=_hdr(user_id="u-fac-2", yard_id=yard.id),
     )
     assert allowed.status_code == 200, allowed.text
     assert allowed.json()["data"]["applied"] == 1
 
 
-def test_apply_requires_completed_run(api_client, session_factory, tenant):
-    resp = _generate(api_client, tenant)
+def test_apply_requires_completed_run(api_client, session_factory, yard):
+    resp = _generate(api_client, yard)
     run_id = resp.json()["data"]["run_id"]
     # 未经 worker 执行：run 仍是 claimed → 409 不可采纳
     apply_resp = api_client.post(
         f"/api/v1/agents/factory/runs/{run_id}/apply",
         json={"codes": ["x"], "publish": False},
-        headers=_hdr(tenant_id=tenant.id),
+        headers=_hdr(yard_id=yard.id),
     )
     assert apply_resp.status_code == 409
     assert apply_resp.json()["error"]["code"] == "FACTORY_RUN_NOT_READY"
 
 
-def test_generate_validation_and_gate(api_client, tenant):
+def test_generate_validation_and_gate(api_client, yard):
     missing = api_client.post(
         "/api/v1/agents/factory/generate",
         json={"focus": "无行业描述"},
-        headers=_hdr(tenant_id=tenant.id),
+        headers=_hdr(yard_id=yard.id),
     )
     assert missing.status_code == 400
     assert missing.json()["error"]["code"] == "INVALID_REQUEST"
@@ -414,21 +414,21 @@ def test_generate_validation_and_gate(api_client, tenant):
     blank = api_client.post(
         "/api/v1/agents/factory/generate",
         json={"industry_brief": "   "},
-        headers=_hdr(tenant_id=tenant.id),
+        headers=_hdr(yard_id=yard.id),
     )
     assert blank.status_code == 400
 
     forbidden = api_client.post(
         "/api/v1/agents/factory/generate",
         json={"industry_brief": BRIEF},
-        headers=_hdr(user_id="u-plain", tenant_id=tenant.id, roles=("operator",)),
+        headers=_hdr(user_id="u-plain", yard_id=yard.id, roles=("operator",)),
     )
     assert forbidden.status_code == 403
 
 
-def test_list_runs_summary_shape(api_client, session_factory, tenant):
-    _, _ = _completed_run(api_client, tenant)
-    listed = api_client.get("/api/v1/agents/factory/runs", headers=_hdr(tenant_id=tenant.id))
+def test_list_runs_summary_shape(api_client, session_factory, yard):
+    _, _ = _completed_run(api_client, yard)
+    listed = api_client.get("/api/v1/agents/factory/runs", headers=_hdr(yard_id=yard.id))
     assert listed.status_code == 200
     runs = listed.json()["data"]["runs"]
     assert len(runs) == 1
@@ -440,12 +440,12 @@ def test_list_runs_summary_shape(api_client, session_factory, tenant):
     assert row["industry_brief"] == BRIEF
 
 
-def test_failure_marks_run_failed_honestly(api_client, session_factory, tenant, monkeypatch):
+def test_failure_marks_run_failed_honestly(api_client, session_factory, yard, monkeypatch):
     def boom(*args, **kwargs):
         raise RuntimeError("装配炸弹")
 
     monkeypatch.setattr(factory_pipeline.declarative, "create_agent", boom)
-    resp = _generate(api_client, tenant)
+    resp = _generate(api_client, yard)
     ids = resp.json()["data"]
     task_row = _run_worker(ids["task_id"])
 
@@ -456,13 +456,11 @@ def test_failure_marks_run_failed_honestly(api_client, session_factory, tenant, 
         run_row = db.get(FactoryRun, ids["run_id"])
         assert run_row.status == "failed"
         assert "装配炸弹" in (run_row.error or "")
-        assert db.query(TenantAgent).filter(TenantAgent.tenant_id == tenant.id).count() == 0
+        assert db.query(YardAgent).filter(YardAgent.yard_id == yard.id).count() == 0
     finally:
         db.close()
 
-    events = api_client.get(
-        f"/api/v1/tasks/{ids['task_id']}/events", headers=_hdr(tenant_id=tenant.id)
-    )
+    events = api_client.get(f"/api/v1/tasks/{ids['task_id']}/events", headers=_hdr(yard_id=yard.id))
     milestones = [
         e["payload_json"]["milestone"]
         for e in events.json()["data"]

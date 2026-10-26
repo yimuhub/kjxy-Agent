@@ -26,14 +26,14 @@
 | `INTERNAL_ERROR` | 500 | 服务端未知错误 |
 | `SERVICE_UNAVAILABLE` | 503 | 依赖不可用（降级提示） |
 
-## 认证 / 租户
+## 认证 / 小院
 
 | code | HTTP | 说明 |
 |---|---|---|
 | `INVALID_CREDENTIALS` | 401 | 用户名或密码错误 |
 | `ACCOUNT_DISABLED` | 403 | 账号已停用 |
-| `TENANT_REQUIRED` | 400 | 用户归属多租户，登录需指定 tenant_id |
-| `TENANT_FORBIDDEN` | 403 | 用户不属于该租户 |
+| `YARD_REQUIRED` | 400 | 用户归属多小院，登录需指定 yard_id |
+| `YARD_FORBIDDEN` | 403 | 用户不属于该小院 |
 | `MEMBER_EXISTS` | 409 | 成员已存在 |
 
 ## 任务
@@ -86,7 +86,7 @@
 
 | code | HTTP | 说明 |
 |---|---|---|
-| `RUN_NOT_FOUND` | 404 | 运行步骤不存在或跨租户（防枚举） |
+| `RUN_NOT_FOUND` | 404 | 运行步骤不存在或跨小院（防枚举） |
 | `RUN_ALREADY_COMPLETED` | 409 | 运行已完成（final ok），拒绝断点续跑重放 |
 | `RUN_CHECKPOINT_INVALID` | 409 | checkpoint 数据不完整或属于另一版本配置，无法续跑 |
 
@@ -113,9 +113,86 @@
 
 | code | HTTP | 说明 |
 |---|---|---|
-| `PLUGIN_NOT_FOUND` | 404 | 插件不存在或跨租户访问（workflow 按当前租户校验） |
+| `PLUGIN_NOT_FOUND` | 404 | 插件不存在或跨小院访问（workflow 按当前小院校验） |
 | `PLUGIN_MANIFEST_INVALID` | 400/422 | manifest 校验失败（注册路径 400：步骤>8/未知或 mcp 工具/save_as 非法等） |
 | `PLUGIN_TYPE_UNSUPPORTED` | 422 | 不支持的插件类型 |
 | `PLUGIN_CONFLICT` | 409 | plugin_id 被其他类型占用 |
 | `INVALID_PLUGIN_TRANSITION` | 409 | 非法插件审核状态转移（仅 pending_review 可审） |
 | `PLUGIN_NOT_ENABLED` | 409 | 插件未通过发布闸（enabled）不可运行 |
+
+## 小院助手 / 群聊（v2.0）
+
+| code | HTTP | 说明 |
+|---|---|---|
+| `AGENT_NOT_FOUND` | 404 | 声明式助手不存在、已删除或无权访问（防枚举） |
+| `AGENT_STATE_CONFLICT` | 409 | 已停用的助手不可编辑/发布；非待审核状态不可驳回 |
+| `AGENT_CODE_TAKEN` | 409 | agent_code 与平台内置 Agent 冲突 |
+| `AGENT_VERSION_CONFLICT` | 409 | 同小院同编码该版本已存在 |
+| `DUPLICATE_NAME` | 409 | 同小院已存在同名助手；details 带 {id, agent_code, name, status} 供前端弹「复用/复制/重命名」 |
+| `AGENT_REVIEW_REQUIRED` | 403 | 私有助手含高风险能力，需小院管理员发布 |
+| `AGENT_COVER_MISSING` | 404 | 助手未设置首图或首图文件已丢失 |
+| `CHAT_ATTACHMENT_NOT_FOUND` | 404 | 附件不存在或无权访问 |
+| `GROUP_PARTICIPANTS_TOO_MANY` | 400 | 群聊成员超过上限（8） |
+| `GROUP_PARTICIPANT_INVALID` | 400 | 成员必须是本小院可见的已发布助手；details 含 unknown_agent_ids |
+| `GROUP_NO_PARTICIPANTS` | 400 | 名单为空时发起群聊轮 |
+| `GROUP_TARGET_REQUIRED` | 400 | named 策略未指定应答对象 |
+| `GROUP_TARGET_NOT_PARTICIPANT` | 404 | 点名对象不在名单内 |
+| `GROUP_MEMBER_TIMEOUT` | — | 消息级 error_code：成员回答超时（视为未回答） |
+| `GROUP_MEMBER_ERROR` | — | 消息级 error_code：成员执行失败（视为未回答） |
+| `GROUP_MEMBER_DECLINED` | — | 消息级 error_code：成员自判不开口（auto 判退） |
+| `GROUP_NO_ANSWER` | — | 消息级 error_code：本轮无人回答 |
+
+## 对话文档生成（v2.1）
+
+| code | HTTP | 说明 |
+|---|---|---|
+| `DOC_MODEL_INVALID` | 400 | DocModel 校验失败（标题/块类型/表头列数/条目为空等）；details.errors 带前 5 条原因 |
+| `DOC_TOO_LARGE` | 400 | 文档内容或生成文件超过上限（正文总字符 / `upload_max_mb`） |
+| `DOC_FORMAT_UNSUPPORTED` | 400 | 不支持的导出格式；details.supported 列出 md/docx/xlsx/pptx/pdf |
+| `DOC_RENDER_FAILED` | 500 | 写出器渲染失败（附 request_id，可重试或换格式） |
+| `DOC_NOT_FOUND` | 404 | 文档不存在、跨会话或无权访问（防枚举，统一 404） |
+| `DOC_PREVIEW_UNSUPPORTED` | 415 | 该附件没有 DocModel 快照（用户上传件），不支持在线预览，请下载 |
+
+## 联网搜索与市场（v2.2 / v3.0）
+
+| code | HTTP | 说明 |
+|---|---|---|
+| `NETWORK_UNAVAILABLE` | 409 | 设备/网络不可用（GitHub 检索、开源导入）；details.mode=`local`，前端提示本地部署形态并引导本地 Skill 管理 |
+| `SEARCH_PROVIDER_UNAVAILABLE` | 503 | 搜索未配置供应商或全部供应商不可达；details 带 primary/failures |
+| `SEARCH_QUOTA_EXCEEDED` | 429 | 当日联网搜索配额用尽（按小院与 UTC 日期计数） |
+| `WEB_FETCH_BLOCKED` | 400 | `web.fetch` 目标非公网（回环/私网/link-local/元数据/保留地址）或重定向越界 |
+| `MARKET_FORBIDDEN` | 403 | 插件安装仅限小院管理员/负责人 |
+| `MARKET_ITEM_NOT_FOUND` | 404 | 市场条目不存在或已下架 |
+| `MARKET_ITEM_INVALID` | 422 | 条目缺少可安装的 definition/manifest |
+| `MARKET_ITEM_BLOCKED` | 403 | 条目被风控拦截，禁止安装 |
+| `MARKET_AGENT_UNSUPPORTED` | 400 | Agent 安装仅支持内置种子包编码 |
+| `IMPORT_TYPE_UNSUPPORTED` | 422 | 本地技能仅支持 .md/.markdown/.txt |
+| `IMPORT_TOO_LARGE` | 413 | 技能 >256KB、插件包 >2MB 或解压后 >5MB |
+| `IMPORT_INVALID` | 400 | 导入内容非 UTF-8/非法文件 |
+| `IMPORT_CONFLICT` | 409 | 同名条目过多，无法生成唯一编码 |
+| `PLUGIN_IMPORT_UNSAFE` | 422 | 插件包含绝对路径/`..`/盘符/符号链接/非法名 |
+| `PLUGIN_IMPORT_FORBIDDEN_FILE` | 422 | 插件包含可执行或非白名单文件类型 |
+| `PLUGIN_IMPORT_INVALID` | 400 | 非法 zip、加密包或损坏压缩流 |
+| `SKILL_NOT_FOUND` | 404 | GitHub 仓库中未找到可用的 SKILL.md |
+| `SKILL_TOO_LARGE` | 413 | SKILL.md 超过 256KB |
+| `REPO_NOT_FOUND` | 404 | GitHub 仓库不存在或不可访问 |
+
+## 身份、角色与负责人（v3.0）
+
+| code | HTTP | 说明 |
+|---|---|---|
+| `ACCOUNT_PENDING` | 403 | 账号等待注册审核，暂不可登录 |
+| `EMAIL_TAKEN` / `PHONE_TAKEN` | 409 | 邮箱/手机号已被占用（全局唯一） |
+| `PASSWORD_UNCHANGED` | 400 | 新密码与当前密码相同 |
+| `INVALID_OLD_PASSWORD` | 400 | 自助改密时旧密码不正确 |
+| `REGISTRATION_CLOSED` | 403 | 该小院关闭自助注册 |
+| `MEMBER_EXISTS` | 409 | 用户已是本小院成员 |
+| `ROLE_NOT_FOUND` | 404 | 角色不存在 |
+| `ROLE_EXISTS` | 409 | 角色编码已存在或与系统角色冲突 |
+| `ROLE_LIMIT` | 400 | 自定义角色数量超限（20） |
+| `ROLE_IN_USE` | 409 | 仍有成员使用该角色，不能删除 |
+| `INVALID_GRANTS` | 400 | 授予了不可授予的敏感权限；details.grantable |
+| `AUDIT_REASON_REQUIRED` | 400 | 查看会话正文必须填写 2–200 字原因 |
+| `OWNER_TRANSFER_INVALID` | 400 | 负责人转让目标非法（不能转给自己） |
+| `TARGET_NOT_YARD_ADMIN` | 400 | 转让目标不是本小院在职管理员 |
+| `YARD_NAME_TAKEN` | 409 | 小院名称已被占用（自助开通） |

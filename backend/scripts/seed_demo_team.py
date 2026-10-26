@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""演示班组种子脚本（W2）：为租户创建「棚室管家班组」并可真跑一次接力。
+"""演示班组种子脚本（W2）：为小院创建「棚室管家班组」并可真跑一次接力。
 
 班组结构（顺序接力）：解读员（装载 sensor.query 工具）→ 诊断员 → 审核员
-（is_critic=true）。三个成员都是最小声明式助手：低风险（只读工具 + tenant
-知识范围）走 tenant_admin 自批路径直接 publish。
+（is_critic=true）。三个成员都是最小声明式助手：低风险（只读工具 + yard
+知识范围）走 yard_admin 自批路径直接 publish。
 
-幂等：agent_code 与班组名按租户查找，已存在即复用（发布状态不满足时补发
+幂等：agent_code 与班组名按小院查找，已存在即复用（发布状态不满足时补发
 布）；重复执行只打印复用结果，不产生重复行。
 
 用法（backend/ 目录）：
     ../.venv/bin/python scripts/seed_demo_team.py                 # 只建/复用班组
     ../.venv/bin/python scripts/seed_demo_team.py --run "棚室夜间温度低怎么办"  # 并真跑一次
-    ../.venv/bin/python scripts/seed_demo_team.py --tenant-id <uuid>  # 指定租户（默认第一个）
+    ../.venv/bin/python scripts/seed_demo_team.py --yard-id <uuid>  # 指定小院（默认第一个）
 
 LLM 走 .env 的 LLM_PROVIDER=fake（离线确定性模板文），可验证接力拼接与
 critic 意见并入。
@@ -32,12 +32,12 @@ sys.path.insert(0, str(BACKEND_DIR))
 os.environ.setdefault("LLM_PROVIDER", "fake")
 os.environ.setdefault("EMBEDDING_PROVIDER", "mock")
 
-from app.core.deps import TenantContext  # noqa: E402
+from app.core.deps import YardContext  # noqa: E402
 from app.db.session import SessionLocal  # noqa: E402
 from app.modules.agents import declarative  # noqa: E402
 from app.modules.agents.declarative import STATUS_PUBLISHED, DeclarativeAgentCreate  # noqa: E402
 from app.modules.agents.teams import service as teams  # noqa: E402
-from app.modules.tenants.models import Tenant  # noqa: E402
+from app.modules.yards.models import Yard  # noqa: E402
 from sqlalchemy import select  # noqa: E402
 
 ACTOR_ID = "seed-demo-team"
@@ -79,37 +79,37 @@ _DEMO_MEMBERS: list[dict[str, object]] = [
 ]
 
 
-def _resolve_tenant_id(db, explicit: str | None) -> str:
+def _resolve_yard_id(db, explicit: str | None) -> str:
     if explicit:
-        tenant = db.get(Tenant, explicit)
-        if tenant is None:
-            raise SystemExit(f"租户不存在：{explicit}")
-        return tenant.id
-    tenant = db.scalar(select(Tenant).order_by(Tenant.created_at.asc()))
-    if tenant is None:
-        raise SystemExit("库中没有任何租户，请先初始化租户再跑本脚本。")
-    return tenant.id
+        yard = db.get(Yard, explicit)
+        if yard is None:
+            raise SystemExit(f"小院不存在：{explicit}")
+        return yard.id
+    yard = db.scalar(select(Yard).order_by(Yard.created_at.asc()))
+    if yard is None:
+        raise SystemExit("库中没有任何小院，请先初始化小院再跑本脚本。")
+    return yard.id
 
 
-def _ensure_published_agent(db, tenant_id: str, spec: dict[str, object]) -> str:
-    """按 agent_code 找/建演示助手，并确保 published（低风险 tenant_admin 自批）。"""
+def _ensure_published_agent(db, yard_id: str, spec: dict[str, object]) -> str:
+    """按 agent_code 找/建演示助手，并确保 published（低风险 yard_admin 自批）。"""
     agent = db.scalar(
-        select(declarative.TenantAgent)
+        select(declarative.YardAgent)
         .where(
-            declarative.TenantAgent.tenant_id == tenant_id,
-            declarative.TenantAgent.agent_code == str(spec["agent_code"]),
+            declarative.YardAgent.yard_id == yard_id,
+            declarative.YardAgent.agent_code == str(spec["agent_code"]),
         )
-        .order_by(declarative.TenantAgent.created_at.desc())
+        .order_by(declarative.YardAgent.created_at.desc())
     )
     if agent is not None:
         if agent.status != STATUS_PUBLISHED:
             # 半程崩溃残留（draft）：补走低风险自批发布，保证幂等可重入
             agent = declarative.publish_agent(
                 db,
-                tenant_id=tenant_id,
+                yard_id=yard_id,
                 actor_id=ACTOR_ID,
                 agent_id=agent.id,
-                roles=["tenant_admin"],
+                roles=["yard_admin"],
                 request_id="seed-demo-team",
             )
             db.commit()
@@ -122,18 +122,18 @@ def _ensure_published_agent(db, tenant_id: str, spec: dict[str, object]) -> str:
         persona_prompt=str(spec["persona_prompt"]),
         task_prompt_template=str(spec["task_prompt_template"]),
         allowed_tools=list(spec["allowed_tools"]),
-        knowledge_scopes=["tenant"],
+        knowledge_scopes=["yard"],
     )
     agent = declarative.create_agent(
-        db, tenant_id=tenant_id, actor_id=ACTOR_ID, req=req, request_id="seed-demo-team"
+        db, yard_id=yard_id, actor_id=ACTOR_ID, req=req, request_id="seed-demo-team"
     )
-    # 只读工具/无工具 + tenant 范围 → risk=low → tenant_admin 自批 published
+    # 只读工具/无工具 + yard 范围 → risk=low → yard_admin 自批 published
     agent = declarative.publish_agent(
         db,
-        tenant_id=tenant_id,
+        yard_id=yard_id,
         actor_id=ACTOR_ID,
         agent_id=agent.id,
-        roles=["tenant_admin"],
+        roles=["yard_admin"],
         request_id="seed-demo-team",
     )
     db.commit()
@@ -145,19 +145,19 @@ def _ensure_published_agent(db, tenant_id: str, spec: dict[str, object]) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--tenant-id", default=None, help="租户 id（默认取库中第一个租户）")
+    parser.add_argument("--yard-id", default=None, help="小院 id（默认取库中第一个小院）")
     parser.add_argument("--run", default=None, metavar="问题", help="建队后真跑一次班组接力")
     args = parser.parse_args()
 
     db = SessionLocal()
     try:
-        tenant_id = _resolve_tenant_id(db, args.tenant_id)
-        print(f"租户：{tenant_id}")
+        yard_id = _resolve_yard_id(db, args.yard_id)
+        print(f"小院：{yard_id}")
 
         print("确保三个演示成员助手（幂等）：")
         members: list[dict[str, object]] = []
         for spec in _DEMO_MEMBERS:
-            agent_id = _ensure_published_agent(db, tenant_id, spec)
+            agent_id = _ensure_published_agent(db, yard_id, spec)
             members.append(
                 {
                     "agent_id": agent_id,
@@ -169,7 +169,7 @@ def main() -> int:
 
         existing = db.scalar(
             select(teams.AgentTeam).where(
-                teams.AgentTeam.tenant_id == tenant_id, teams.AgentTeam.name == TEAM_NAME
+                teams.AgentTeam.yard_id == yard_id, teams.AgentTeam.name == TEAM_NAME
             )
         )
         if existing is not None:
@@ -178,7 +178,7 @@ def main() -> int:
         else:
             team = teams.create_team(
                 db,
-                tenant_id=tenant_id,
+                yard_id=yard_id,
                 actor_id=ACTOR_ID,
                 name=TEAM_NAME,
                 description="棚室生产多 Agent 接力班组：解读 → 诊断 → 审核。",
@@ -192,13 +192,13 @@ def main() -> int:
             print("完成（未指定 --run，仅建/复用班组）。")
             return 0
 
-        ctx = TenantContext(
-            tenant_id=tenant_id,
+        ctx = YardContext(
+            yard_id=yard_id,
             user_id=ACTOR_ID,
-            roles=["tenant_admin"],
+            roles=["yard_admin"],
             request_id="seed-demo-run",
         )
-        teams.require_members_runnable(db, tenant_id=tenant_id, members=list(team.members_json))
+        teams.require_members_runnable(db, yard_id=yard_id, members=list(team.members_json))
         run = teams.create_team_run(db, team=team, user_input=args.run, ctx=ctx)
         run = asyncio.run(teams.continue_team_run(db, run=run, ctx=ctx))
         print(f"\n班组运行 {run.id}：status={run.status}")

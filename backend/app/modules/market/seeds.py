@@ -1,19 +1,19 @@
 """内置农业 Agent 种子包（技能市场 B1）。
 
 14 个中文农业科技 Agent 的只读种子定义：全部只挂只读工具（knowledge.search；
-苗情/灌溉/棚室三个数据面角色额外挂 sensor.query）、知识范围限定 tenant，
+苗情/灌溉/棚室三个数据面角色额外挂 sensor.query）、知识范围限定 yard，
 经 declarative.assess_risk 判定一律低风险（ADR-0005
-分级审核：内置种子包全部设计为低风险，tenant_admin 可自批装载发布）。
+分级审核：内置种子包全部设计为低风险，yard_admin 可自批装载发布）。
 
 字段与 declarative 的 DeclarativeAgentCreate 入参对齐；domain 与
-suggested_questions 是种子包展示元数据，不落 TenantAgent 表。
+suggested_questions 是种子包展示元数据，不落 YardAgent 表。
 装载时 agent_code 由装载接口统一加 ``SEED_CODE_PREFIX`` 前缀入库，
 既防撞内置六角色编码，也便于来源识别。
 """
 
 from typing import Any
 
-#: 装载落库前缀：seed_xxx 一眼可辨来源，且避免与租户自建/内置编码冲突
+#: 装载落库前缀：seed_xxx 一眼可辨来源，且避免与小院自建/内置编码冲突
 SEED_CODE_PREFIX = "seed_"
 
 #: 八大领域分类（catalog 展示与测试校验共用）
@@ -74,7 +74,7 @@ def _seed(
         "persona_prompt": persona_prompt,
         "task_prompt_template": task_prompt_template,
         "allowed_tools": ["knowledge.search", *(extra_tools or [])],
-        "knowledge_scopes": ["tenant"],
+        "knowledge_scopes": ["yard"],
         "domain": domain,
         "suggested_questions": suggested_questions,
     }

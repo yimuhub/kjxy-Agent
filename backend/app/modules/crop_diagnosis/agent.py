@@ -1,7 +1,7 @@
 """作物诊断 Agent（code=crop_diagnosis，version=1.0.0）。
 
 统一运行接口：async run(input_data, context) -> AgentResult。
-db 会话从 context.metadata["db"] 获取；所有知识查询经 service 层带 tenant_id 隔离。
+db 会话从 context.metadata["db"] 获取；所有知识查询经 service 层带 yard_id 隔离。
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ class CropDiagnosisAgent:
         try:
             raw = diagnose(
                 db,
-                tenant_id=context.tenant_id,
+                yard_id=context.yard_id,
                 user_id=context.actor_id,
                 input_data=input_data or {},
             )

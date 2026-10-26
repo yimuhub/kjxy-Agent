@@ -28,9 +28,9 @@ def _clean_rate_window():
     service._rate_window.reset()
 
 
-def _device(db, tenant_id="t1", name="气象站A", **kw) -> Device:
+def _device(db, yard_id="t1", name="气象站A", **kw) -> Device:
     dev = Device(
-        tenant_id=tenant_id,
+        yard_id=yard_id,
         name=name,
         source_type=kw.pop("source_type", "webhook"),
         device_type="weather",
@@ -169,7 +169,7 @@ def _cfg(**kw) -> ConnectorConfigIn:
 
 def test_prepare_config_encrypts_headers_and_masks_output():
     stored = connector.prepare_config(
-        _cfg(headers={"X-Api-Key": "super-secret-key-9876", "X-Tenant": "abc"})
+        _cfg(headers={"X-Api-Key": "super-secret-key-9876", "X-Yard": "abc"})
     )
     enc = stored["headers_enc"]["X-Api-Key"]
     assert enc != "super-secret-key-9876" and "super-secret" not in str(stored)
@@ -223,7 +223,7 @@ def test_ingest_values_rate_limit_window(db_session, monkeypatch):
 def test_alert_trigger_and_dedupe(db_session):
     dev = _device(db_session)
     rule = DeviceAlertRule(
-        tenant_id="t1", device_id=dev.id, metric="temp", op="gt", threshold=30.0, enabled=True
+        yard_id="t1", device_id=dev.id, metric="temp", op="gt", threshold=30.0, enabled=True
     )
     db_session.add(rule)
     db_session.commit()
@@ -246,14 +246,14 @@ def test_alert_trigger_and_dedupe(db_session):
     assert res3["alerts_triggered"] == 0
 
 
-def test_alert_rule_scope_device_vs_tenant(db_session):
+def test_alert_rule_scope_device_vs_yard(db_session):
     dev1 = _device(db_session, name="A")
     dev2 = _device(db_session, name="B")
     db_session.add(
-        DeviceAlertRule(tenant_id="t1", device_id=dev1.id, metric="temp", op="lt", threshold=5.0)
+        DeviceAlertRule(yard_id="t1", device_id=dev1.id, metric="temp", op="lt", threshold=5.0)
     )
     db_session.add(
-        DeviceAlertRule(tenant_id="t1", device_id=None, metric="pest_count", op="gt", threshold=50)
+        DeviceAlertRule(yard_id="t1", device_id=None, metric="pest_count", op="gt", threshold=50)
     )
     db_session.commit()
     now_iso = datetime.now(UTC).isoformat()
@@ -261,7 +261,7 @@ def test_alert_rule_scope_device_vs_tenant(db_session):
         db_session, dev2, {"temp": 1, "pest_count": 90}, reported_at=now_iso
     )
     db_session.commit()
-    assert res["alerts_triggered"] == 1  # 只有租户级虫情规则命中 dev2
+    assert res["alerts_triggered"] == 1  # 只有小院级虫情规则命中 dev2
 
 
 # ---------------------------------------------------------------------------
@@ -310,14 +310,14 @@ def test_fetch_and_ingest_normalizes_records(db_session, monkeypatch):
     }
 
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.headers.get("X-Tenant") == "abc"
+        assert request.headers.get("X-Yard") == "abc"
         return httpx.Response(200, json=payload)
 
     # 用一个假 httpx 模块属性注入 transport（URL 保持公网形态，DNS 在离线环境放行）
     stored = dict(dev.connector_config_json or {})
     from app.modules.llm.supplier_crypto import encrypt_api_key
 
-    stored["headers_enc"] = {"X-Tenant": encrypt_api_key("abc")}
+    stored["headers_enc"] = {"X-Yard": encrypt_api_key("abc")}
     # time_field 补进配置
     stored["time_field"] = "ts"
     dev.connector_config_json = stored

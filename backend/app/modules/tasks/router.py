@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.config import settings
-from app.core.deps import TenantContext, get_db_session, get_tenant_context
+from app.core.deps import YardContext, get_db_session, get_yard_context
 from app.core.errors import AppError
 from app.core.logging import get_logger
 from app.core.pagination import pagination_params
@@ -84,13 +84,13 @@ def _commit_or_rollback(db: Session, fn):
 def create_task(
     payload: TaskCreate,
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db: Session = Depends(get_db_session),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     is_replay = False
     if idempotency_key:
-        existing = TaskService.get_by_idempotency_key(db, ctx.tenant_id, idempotency_key)
+        existing = TaskService.get_by_idempotency_key(db, ctx.yard_id, idempotency_key)
         if existing is not None:
             is_replay = True
 
@@ -115,7 +115,7 @@ def create_task(
 @router.get("")
 def list_tasks(
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db: Session = Depends(get_db_session),
     status: str | None = Query(default=None, description="按状态过滤"),
     page_page_size: tuple[int, int] = Depends(pagination_params),
@@ -130,7 +130,7 @@ def list_tasks(
 def get_task(
     task_id: str,
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db: Session = Depends(get_db_session),
 ):
     task = TaskService.get(db, ctx, task_id)
@@ -141,7 +141,7 @@ def get_task(
 def list_task_events(
     task_id: str,
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db: Session = Depends(get_db_session),
 ):
     events = TaskService.list_events(db, ctx, task_id)
@@ -153,12 +153,12 @@ def list_task_events(
 def stream_task_events(
     task_id: str,
     last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db: Session = Depends(get_db_session),
 ) -> StreamingResponse:
     """SSE 任务事件流（text/event-stream）。
 
-    - 权限与 GET /{task_id}/events 完全一致：同一 get_tenant_context 依赖 +
+    - 权限与 GET /{task_id}/events 完全一致：同一 get_yard_context 依赖 +
       TaskService.get 可见性检查（阅读本文前先检查，失败按普通 JSON 错误返回）。
     - 本端点不套统一 {data, request_id} 信封：SSE 帧由 event:/data: 行构成，
       帧协议与命名见 stream.py 模块注释（stream-init/task-event/task-status/stream-end）。
@@ -166,14 +166,14 @@ def stream_task_events(
     - 断连仅停止推送，任务继续执行；取消仍须显式调用 POST /{task_id}/cancel。
     """
     task = TaskService.get(db, ctx, task_id)
-    return build_stream_response(task.tenant_id, task.id, last_event_id=last_event_id)
+    return build_stream_response(task.yard_id, task.id, last_event_id=last_event_id)
 
 
 @router.post("/{task_id}/cancel")
 def cancel_task(
     task_id: str,
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db: Session = Depends(get_db_session),
 ):
     task = _commit_or_rollback(
@@ -186,7 +186,7 @@ def cancel_task(
 def retry_task(
     task_id: str,
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db: Session = Depends(get_db_session),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):

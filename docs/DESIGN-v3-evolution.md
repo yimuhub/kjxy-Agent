@@ -24,7 +24,7 @@
 - **永远禁止（无论开关）**：169.254.0.0/16 与 fe80::/10（云元数据/链路本地）、组播、
   0.0.0.0、其余保留段；DNS 重绑定双查逻辑保持
 - 调用方分级：LLM 供应商（保存/测试/运行时/探测）→ allow_local=True；
-  设备连接器、推送通道、MCP 服务器 → 保持 default 严格（租户管理员配供应商属可信输入，
+  设备连接器、推送通道、MCP 服务器 → 保持 default 严格（小院管理员配供应商属可信输入，
   本地推理 Ollama/LM Studio 是正当场景；元数据地址仍封死）
 - 错误文案区分：命中元数据/保留 → 「禁止访问元数据或保留地址」；
   非放行内网（strict 场景）→ 维持原文案
@@ -32,7 +32,7 @@
 ## C. 自生长闭环（evolution + plugins）
 
 ### C1 Skill 自动总结（复用现有 evolution_skills，无新表）
-- `POST /api/v1/evolution/skills/suggest` body `{focus_hint?}`（tenant_admin）：
+- `POST /api/v1/evolution/skills/suggest` body `{focus_hint?}`（yard_admin）：
   聚合近 7 天证据（成功 run 的任务样本 top、失败错误类别、高频工具序列）→
   LLM 产出 1-3 张技能候选卡 → 落 `evolution_skills`：status=`pending_review`、
   created_from=`auto:suggest`、definition_json={title,when_to_use,procedure[],
@@ -51,23 +51,23 @@ manifest_json（workflow 型）：
  "steps":[{"kind":"tool","tool":"sensor.query","args":{},"save_as":"r1"},
           {"kind":"llm","prompt":"基于 {{r1}} 给出建议 {{question}}"}]}
 ```
-- 注册：`POST /api/v1/plugins/register` body {manifest}（tenant_admin）→ 校验（步骤 ≤8、
-  工具必须在注册表且租户可用、无 mcp__/未知工具直接 400）→ 落库 status=`pending_review`、
+- 注册：`POST /api/v1/plugins/register` body {manifest}（yard_admin）→ 校验（步骤 ≤8、
+  工具必须在注册表且小院可用、无 mcp__/未知工具直接 400）→ 落库 status=`pending_review`、
   type='workflow'、checksum=manifest sha256、created 走 created_by 审计
-- 审核：`POST /api/v1/plugins/{id}/review` {decision:approve|reject}（tenant_admin 批准；
+- 审核：`POST /api/v1/plugins/{id}/review` {decision:approve|reject}（yard_admin 批准；
   运行时高风险工具仍走既有逐次审批闸——发布闸与运行闸双保险，同 MCP 模式）
 - approve → status=`enabled`；reject → status=`rejected`
 - 執行：`POST /api/v1/plugins/{id}/run` {params}（enabled 才可跑）→ 顺序解释执行 steps
   （tool→tool_registry.execute 全复用风险闸/审计；llm→complete_with_logging；
   save_as 入上下文，模板 {{var}} 插值）→ {outputs:{...}, final:"末步文本"}；同步执行
-- 自动生成：`POST /api/v1/plugins/suggest`（tenant_admin）：挖掘近 7 天 agent_run_steps
+- 自动生成：`POST /api/v1/plugins/suggest`（yard_admin）：挖掘近 7 天 agent_run_steps
   中「同一助手重复出现的工具调用序列」（≥3 次、长度≥2）→ 合成 workflow 草稿
   status=`pending_review` + manifest._auto={pattern,occurrences,source_runs sha12 列表}
   （**只产草稿走审核，绝不自动启用**——诚实：自动化止步于建议，启用永远经人）
 - 插件列表（现有 GET /plugins）响应补 created_from 语义字段（auto/manual）
 
 ### 硬约束（全线）
-- 不加新 pip/npm 依赖；租户边界；中文注释；审计不存正文全文（sha12 摘要）
+- 不加新 pip/npm 依赖；小院边界；中文注释；审计不存正文全文（sha12 摘要）
 - 迁移：本波**预计无新表**；若实现中确需列变更，迁移号 0018 并说明理由
 - 门禁：backend ruff+mypy+pytest（基线 589）+ generate_openapi；前端 lint 0 error + build
 - 禁止 git 操作；禁止动进程

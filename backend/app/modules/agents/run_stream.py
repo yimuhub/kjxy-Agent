@@ -53,16 +53,16 @@ def _status_of(rows: list[dict[str, Any]]) -> str:
     return "running"
 
 
-def _read_snapshot(tenant_id: str, run_id: str) -> list[dict[str, Any]]:
-    """短 session 读一次快照（租户边界内步骤行序列化，step_index 升序）。"""
+def _read_snapshot(yard_id: str, run_id: str) -> list[dict[str, Any]]:
+    """短 session 读一次快照（小院边界内步骤行序列化，step_index 升序）。"""
     db: Session = _get_session_factory()()
     try:
-        return [rs.step_out(row) for row in rs.list_steps(db, tenant_id=tenant_id, run_id=run_id)]
+        return [rs.step_out(row) for row in rs.list_steps(db, yard_id=yard_id, run_id=run_id)]
     finally:
         db.close()
 
 
-async def _stream_frames(tenant_id: str, run_id: str) -> AsyncIterator[str]:
+async def _stream_frames(yard_id: str, run_id: str) -> AsyncIterator[str]:
     seen: set[str] = set()
     loop = asyncio.get_running_loop()
     deadline = loop.time() + MAX_STREAM_SECONDS
@@ -94,10 +94,10 @@ async def _stream_frames(tenant_id: str, run_id: str) -> AsyncIterator[str]:
         return frames
 
     try:
-        rows = _read_snapshot(tenant_id, run_id)
+        rows = _read_snapshot(yard_id, run_id)
         status = _status_of(rows)
         if not rows and status == "running":
-            # 尚无任何步骤：可能是 run 未开始，也可能是 run_id 不存在/跨租户。
+            # 尚无任何步骤：可能是 run 未开始，也可能是 run_id 不存在/跨小院。
             # SSE 语义下不 404：发一帧提示后按追尾窗口等待（与 tasks/stream 风格一致）。
             yield _sse_frame("steps-note", {"note": "no_steps_yet"})
         yield _sse_frame("steps-init", {"status": status, "step_count": len(rows)})
@@ -108,7 +108,7 @@ async def _stream_frames(tenant_id: str, run_id: str) -> AsyncIterator[str]:
             return
 
         while True:
-            rows = _read_snapshot(tenant_id, run_id)
+            rows = _read_snapshot(yard_id, run_id)
             status = _status_of(rows)
             emitted = False
             for frame in _collect_new(rows):
@@ -136,9 +136,9 @@ async def _stream_frames(tenant_id: str, run_id: str) -> AsyncIterator[str]:
         yield _sse_frame("steps-end", {"status": "error", "reason": "snapshot_error"})
 
 
-def build_stream_response(tenant_id: str, run_id: str) -> StreamingResponse:
+def build_stream_response(yard_id: str, run_id: str) -> StreamingResponse:
     return StreamingResponse(
-        _stream_frames(tenant_id, run_id),
+        _stream_frames(yard_id, run_id),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

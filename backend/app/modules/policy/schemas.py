@@ -14,7 +14,7 @@ class PolicyOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    tenant_id: str | None
+    yard_id: str | None
     scope: str
     province: str | None
     city: str | None
@@ -121,7 +121,7 @@ class ApplicationDraftOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    tenant_id: str
+    yard_id: str
     policy_id: str
     applicant_name: str
     applicant_type: str | None

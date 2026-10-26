@@ -12,7 +12,7 @@
 | 目录 | 主责 |
 |---|---|
 | `contracts/`、根工程文件、Compose/CI | 技术负责人 |
-| `backend/app/modules/auth/`、`tenants/` | 身份与租户 |
+| `backend/app/modules/auth/`、`yards/` | 身份与小院 |
 | `backend/app/modules/tasks/`、`agents/`、`workers/` | 任务与编排 |
 | `backend/app/modules/llm/`、`tools/` | 模型与工具 |
 | `backend/app/modules/knowledge/` | 知识库 / RAG |
@@ -27,7 +27,7 @@
 - 后端：ruff + 类型注解；endpoint 只做鉴权/校验/service 调用，不写复杂业务逻辑。
 - 文件命名：`models.py`（ORM）、`schemas.py`（Pydantic 输入输出）、`service.py`（业务编排）、`repository.py`（持久化查询）、`router.py`（接口）。
 - 所有数据库变更必须提交 Alembic migration，不修改已共享的旧 migration。
-- 不得写入真实密钥；不得执行模型生成的任意代码；不得绕过租户边界。
+- 不得写入真实密钥；不得执行模型生成的任意代码；不得绕过小院边界。
 
 ## 提交前自查
 

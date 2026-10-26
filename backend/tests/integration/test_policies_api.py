@@ -1,20 +1,20 @@
-"""政策模块集成测试：采集 → 列表（租户隔离/过期/状态过滤）→ 匹配全链路。"""
+"""政策模块集成测试：采集 → 列表（小院隔离/过期/状态过滤）→ 匹配全链路。"""
 
 from datetime import UTC, datetime, timedelta
 
 from app.core.security import create_access_token
 
-TENANT_1 = "tenant-1"
-TENANT_2 = "tenant-2"
+YARD_1 = "yard-1"
+YARD_2 = "yard-2"
 USER_1 = "user-1"
 
 
-def _token(user_id: str, tenant_id: str) -> str:
-    return create_access_token(user_id=user_id, tenant_id=tenant_id, roles=["operator"])
+def _token(user_id: str, yard_id: str) -> str:
+    return create_access_token(user_id=user_id, yard_id=yard_id, roles=["operator"])
 
 
-def _headers(tenant_id: str = TENANT_1) -> dict:
-    return {"Authorization": f"Bearer {_token(USER_1, tenant_id)}"}
+def _headers(yard_id: str = YARD_1) -> dict:
+    return {"Authorization": f"Bearer {_token(USER_1, yard_id)}"}
 
 
 def _payload(**kw) -> dict:
@@ -44,28 +44,28 @@ def test_ingest_then_list_then_match(client):
     policy_id = resp.json()["data"]["id"]
     assert resp.json()["data"]["source_hash"]
 
-    # 去重：同租户同名同机构 → 409
+    # 去重：同小院同名同机构 → 409
     dup = client.post("/api/v1/policies", json=_payload(), headers=_headers())
     assert dup.status_code == 409
     assert dup.json()["error"]["code"] == "POLICY_DUPLICATE"
 
-    # 他租户采集同名同机构 → 允许
-    other = client.post("/api/v1/policies", json=_payload(), headers=_headers(TENANT_2))
+    # 他小院采集同名同机构 → 允许
+    other = client.post("/api/v1/policies", json=_payload(), headers=_headers(YARD_2))
     assert other.status_code == 201
 
-    # 列表：本租户只看到自己的一条
+    # 列表：本小院只看到自己的一条
     listing = client.get("/api/v1/policies", headers=_headers())
     assert listing.status_code == 200
     names = [i["policy_name"] for i in listing.json()["data"]]
     assert names == ["水稻规模化种植补贴"]
     assert listing.json()["meta"]["total"] == 1
 
-    # 他租户列表：只看到他自己的一条
-    listing2 = client.get("/api/v1/policies", headers=_headers(TENANT_2))
+    # 他小院列表：只看到他自己的一条
+    listing2 = client.get("/api/v1/policies", headers=_headers(YARD_2))
     assert listing2.json()["meta"]["total"] == 1
 
-    # 详情：他租户拿本租户 id → 404
-    not_found = client.get(f"/api/v1/policies/{policy_id}", headers=_headers(TENANT_2))
+    # 详情：他小院拿本小院 id → 404
+    not_found = client.get(f"/api/v1/policies/{policy_id}", headers=_headers(YARD_2))
     assert not_found.status_code == 404
 
     # 匹配：全命中 → eligible

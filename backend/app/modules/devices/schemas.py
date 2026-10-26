@@ -101,7 +101,7 @@ class ConnectorConfigOut(BaseModel):
 
 class DeviceOut(BaseModel):
     id: str
-    tenant_id: str
+    yard_id: str
     name: str
     device_type: str
     source_type: str
@@ -149,7 +149,7 @@ class RulePatch(BaseModel):
 
 class RuleOut(BaseModel):
     id: str
-    tenant_id: str
+    yard_id: str
     device_id: str | None
     metric: str
     op: str
@@ -162,7 +162,7 @@ class RuleOut(BaseModel):
 
 class AlertOut(BaseModel):
     id: str
-    tenant_id: str
+    yard_id: str
     rule_id: str | None
     device_id: str
     device_name: str | None = None

@@ -2,7 +2,7 @@
 
 from app.modules.chat import service
 from app.modules.chat.models import MSG_OK, ROLE_ASSISTANT, ROLE_USER, ChatMessage
-from app.modules.tenants.repository import create_tenant
+from app.modules.yards.repository import create_yard
 
 
 def test_derive_title_takes_first_nonblank_line():
@@ -25,14 +25,14 @@ def test_next_seq_starts_at_one(db_session):
 
 
 def test_next_seq_increments_and_message_out_shape(db_session):
-    t = create_tenant(db_session, name="对话单测租户")
+    t = create_yard(db_session, name="对话单测小院")
     db_session.commit()
-    sess = service.create_session(db_session, tenant_id=t.id, created_by="u1")
+    sess = service.create_session(db_session, yard_id=t.id, created_by="u1")
     db_session.commit()
     assert service.next_seq(db_session, sess.id) == 1
     m = ChatMessage(
         session_id=sess.id,
-        tenant_id=t.id,
+        yard_id=t.id,
         seq=1,
         role=ROLE_USER,
         content="你好",
@@ -51,12 +51,12 @@ def test_next_seq_increments_and_message_out_shape(db_session):
 
 
 def test_message_out_assistant_carries_routing_fields(db_session):
-    t = create_tenant(db_session, name="对话单测租户")
+    t = create_yard(db_session, name="对话单测小院")
     db_session.commit()
-    sess = service.create_session(db_session, tenant_id=t.id, created_by="u1")
+    sess = service.create_session(db_session, yard_id=t.id, created_by="u1")
     m = ChatMessage(
         session_id=sess.id,
-        tenant_id=t.id,
+        yard_id=t.id,
         seq=1,
         role=ROLE_ASSISTANT,
         content="答案",

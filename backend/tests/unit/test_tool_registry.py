@@ -1,6 +1,6 @@
 """ToolRegistry 机制测试。
 
-app.modules.tenants.permissions 由租户 Agent 另行交付；测试期若缺失则用本地
+app.modules.yards.permissions 由小院 Agent 另行交付；测试期若缺失则用本地
 最小映射兜底（正式代码直接 import 该模块，见完成报告）。
 """
 
@@ -11,18 +11,18 @@ import types
 import pytest
 
 try:
-    from app.modules.tenants import permissions as _permissions  # noqa: F401
+    from app.modules.yards import permissions as _permissions  # noqa: F401
 except ImportError:
-    _stub = types.ModuleType("app.modules.tenants.permissions")
+    _stub = types.ModuleType("app.modules.yards.permissions")
 
     def has_permission(roles, permission: str) -> bool:
-        # 与 app.modules.tenants.permissions 同签名：单个权限点判定
+        # 与 app.modules.yards.permissions 同签名：单个权限点判定
         return permission in {"knowledge:read"} or "admin" in roles
 
     _stub.has_permission = has_permission
-    sys.modules["app.modules.tenants.permissions"] = _stub
+    sys.modules["app.modules.yards.permissions"] = _stub
 
-from app.core.deps import TenantContext  # noqa: E402
+from app.core.deps import YardContext  # noqa: E402
 from app.core.errors import AppError  # noqa: E402
 from app.modules.audit.models import AuditLog  # noqa: E402
 from app.modules.tools import models as tool_models  # noqa: E401,F401 触发建表
@@ -34,10 +34,8 @@ from app.modules.tools.registry import (  # noqa: E402
 )
 
 
-def _ctx(roles=("admin",)) -> TenantContext:
-    return TenantContext(
-        tenant_id="t-001", user_id="u-001", roles=list(roles), request_id="req-test"
-    )
+def _ctx(roles=("admin",)) -> YardContext:
+    return YardContext(yard_id="t-001", user_id="u-001", roles=list(roles), request_id="req-test")
 
 
 def _echo_def(**kw) -> ToolDef:

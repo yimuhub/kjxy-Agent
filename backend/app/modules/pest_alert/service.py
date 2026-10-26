@@ -1,7 +1,7 @@
 """虫情预警业务逻辑：无状态纯函数。
 
-默认实现：knowledge.search 检索租户知识库 + Fake LLM 拼装回答，
-不调用真实 LLM、不建表、不写 migration，所有查询强制带 tenant_id 隔离。
+默认实现：knowledge.search 检索小院知识库 + Fake LLM 拼装回答，
+不调用真实 LLM、不建表、不写 migration，所有查询强制带 yard_id 隔离。
 
 TODO：把 run_pest_alert 内的检索/拼装替换为真实业务逻辑
 （输入解析、领域规则、真实 LLM 调用走 app.modules.llm.service.complete_with_logging）。
@@ -15,7 +15,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.core.deps import TenantContext
+from app.core.deps import YardContext
 from app.core.logging import get_logger
 from app.modules.knowledge.service import search as knowledge_search
 from app.modules.llm.providers_fake import FakeProvider
@@ -29,10 +29,10 @@ DEFAULT_TOOLS = ["knowledge.search"]
 
 
 def _retrieve_evidence(
-    db: Session, tenant_id: str, user_id: str, query: str, top_k: int
+    db: Session, yard_id: str, user_id: str, query: str, top_k: int
 ) -> tuple[list[dict[str, Any]], list[str]]:
-    """租户知识库检索。TODO：按业务替换检索策略 / 数据源。"""
-    ctx = TenantContext(tenant_id=tenant_id, user_id=user_id, roles=[], request_id="")
+    """小院知识库检索。TODO：按业务替换检索策略 / 数据源。"""
+    ctx = YardContext(yard_id=yard_id, user_id=user_id, roles=[], request_id="")
     warnings: list[str] = []
     try:
         hits = knowledge_search(db, ctx, query, top_k=top_k)
@@ -87,14 +87,14 @@ def _fake_llm_answer(question: str, evidence: list[dict[str, Any]]) -> str:
 
 
 def run_pest_alert(
-    db: Session, tenant_id: str, user_id: str, input_data: dict[str, Any]
+    db: Session, yard_id: str, user_id: str, input_data: dict[str, Any]
 ) -> dict[str, Any]:
     """虫情预警纯函数入口。TODO：替换为真实业务逻辑。
 
     参数 input_data 须符合 PestAlertInput；返回 dict 符合 PestAlertOutput。
     """
     parsed = PestAlertInput(**(input_data or {}))
-    evidence, warnings = _retrieve_evidence(db, tenant_id, user_id, parsed.query, parsed.top_k)
+    evidence, warnings = _retrieve_evidence(db, yard_id, user_id, parsed.query, parsed.top_k)
     if not evidence:
         warnings.append("未检索到相关知识，回答为模板拼装，请核验。")
     answer = _fake_llm_answer(parsed.query, evidence)

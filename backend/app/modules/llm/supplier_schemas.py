@@ -15,7 +15,7 @@ STATUS_DISABLED = 2
 
 
 class SupplierCreate(BaseModel):
-    # 归属（tenant_id）只能来自登录上下文，请求体出现任何未知字段一律 4xx 拒绝（ADR-0005）
+    # 归属（yard_id）只能来自登录上下文，请求体出现任何未知字段一律 4xx 拒绝（ADR-0005）
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=40, description="逻辑名，如 deepseek-main")
@@ -29,13 +29,13 @@ class SupplierCreate(BaseModel):
         default=None, max_length=2000, description="模型白名单，逗号分隔；空=全量"
     )
     priority: int = Field(default=0, description="越大越优先")
-    scope: Literal["tenant", "global"] = Field(
-        default="tenant", description="tenant=仅本租户可见，global=全局共享（仅平台管理员）"
+    scope: Literal["yard", "global"] = Field(
+        default="yard", description="yard=仅本小院可见，global=全局共享（仅平台管理员）"
     )
 
 
 class SupplierUpdate(BaseModel):
-    # 同 SupplierCreate：禁止通过请求体伪造 tenant_id 等归属字段
+    # 同 SupplierCreate：禁止通过请求体伪造 yard_id 等归属字段
     model_config = ConfigDict(extra="forbid")
 
     name: str | None = Field(default=None, min_length=1, max_length=40)
@@ -53,7 +53,7 @@ class SupplierUpdate(BaseModel):
 
 class SupplierOut(BaseModel):
     id: str
-    tenant_id: str | None
+    yard_id: str | None
     name: str
     provider_type: str
     base_url: str
@@ -65,7 +65,7 @@ class SupplierOut(BaseModel):
     is_active: bool = False
     # function-calling 能力位（默认 false：未显式声明的供应商不进工具循环）
     supports_tools: bool = False
-    # 租户管理员视角：平台全局行（tenant_id 为 NULL）只读（不可增删改/探测，仅可设为本租户生效）；
+    # 小院管理员视角：平台全局行（yard_id 为 NULL）只读（不可增删改/探测，仅可设为本小院生效）；
     # 平台管理员恒为 false。默认 false，兼容未感知该字段的旧前端。
     readonly: bool = False
     consecutive_failures: int = 0
@@ -117,7 +117,7 @@ ProbeProviderType = Literal[
 class SupplierProbeModelsBody(BaseModel):
     """模型列表探测入参：api_key 只在本次请求内存中瞬时使用，绝不落库/日志/审计。
 
-    api_key 缺省时：若传了 supplier_id 则用该供应商已存密钥（租户可见范围内）；
+    api_key 缺省时：若传了 supplier_id 则用该供应商已存密钥（小院可见范围内）；
     两者都没有则不带鉴权头探测（本机 Ollama / LM Studio 通常无需 Key）。
     """
 

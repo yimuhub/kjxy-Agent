@@ -1,7 +1,7 @@
 """政策申报材料草案单元测试（第三期 Worker B）。
 
 覆盖：草案生成（checklist / missing / notes / 恒 draft）、
-缺失项识别、租户隔离（看不到其他租户的政策与草案）。
+缺失项识别、小院隔离（看不到其他小院的政策与草案）。
 """
 
 from app.core.security import create_access_token
@@ -17,14 +17,14 @@ MATERIALS = {
 }
 
 
-def _headers(tenant_id: str = "t1", user_id: str = "u1"):
-    token = create_access_token(user_id=user_id, tenant_id=tenant_id, roles=["tenant_admin"])
+def _headers(yard_id: str = "t1", user_id: str = "u1"):
+    token = create_access_token(user_id=user_id, yard_id=yard_id, roles=["yard_admin"])
     return {"Authorization": f"Bearer {token}"}
 
 
-def _seed_policy(db_session, tenant_id="t1", **overrides):
+def _seed_policy(db_session, yard_id="t1", **overrides):
     data = {
-        "tenant_id": tenant_id,
+        "yard_id": yard_id,
         "policy_name": "高标准农田建设补贴",
         "publish_department": "农业农村局",
         "status": "active",
@@ -162,41 +162,41 @@ def test_get_draft_not_found(client, db_session):
     assert r.json()["error"]["code"] == "DRAFT_NOT_FOUND"
 
 
-# ---------- 租户隔离 ----------
+# ---------- 小院隔离 ----------
 
 
-def test_other_tenant_policy_invisible(client, db_session):
-    policy = _seed_policy(db_session, tenant_id="other-tenant")
+def test_other_yard_policy_invisible(client, db_session):
+    policy = _seed_policy(db_session, yard_id="other-yard")
     r = client.post(
         f"/api/v1/policies/{policy.id}/application-drafts",
         json=_draft_payload(),
-        headers=_headers(tenant_id="t1"),
+        headers=_headers(yard_id="t1"),
     )
     assert r.status_code == 404
     assert r.json()["error"]["code"] == "POLICY_NOT_FOUND"
 
 
-def test_global_policy_visible_to_tenants(client, db_session):
-    policy = _seed_policy(db_session, tenant_id=None)
+def test_global_policy_visible_to_yards(client, db_session):
+    policy = _seed_policy(db_session, yard_id=None)
     r = client.post(
         f"/api/v1/policies/{policy.id}/application-drafts",
         json=_draft_payload(),
-        headers=_headers(tenant_id="t1"),
+        headers=_headers(yard_id="t1"),
     )
     assert r.status_code == 200, r.text
 
 
-def test_draft_isolated_between_tenants(client, db_session):
-    policy = _seed_policy(db_session, tenant_id=None)
+def test_draft_isolated_between_yards(client, db_session):
+    policy = _seed_policy(db_session, yard_id=None)
     created = client.post(
         f"/api/v1/policies/{policy.id}/application-drafts",
         json=_draft_payload(),
-        headers=_headers(tenant_id="t1"),
+        headers=_headers(yard_id="t1"),
     ).json()["data"]
 
     r = client.get(
         f"/api/v1/policies/application-drafts/{created['draft_id']}",
-        headers=_headers(tenant_id="other-tenant"),
+        headers=_headers(yard_id="other-yard"),
     )
     assert r.status_code == 404
     assert r.json()["error"]["code"] == "DRAFT_NOT_FOUND"

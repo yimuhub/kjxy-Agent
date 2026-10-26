@@ -21,12 +21,12 @@ def _make_task(
     *,
     status: str,
     age_minutes: int,
-    tenant: str = "t-reap",
+    yard: str = "t-reap",
     task_type: str = "mock.echo",
 ) -> Task:
     ts = datetime.now(UTC) - timedelta(minutes=age_minutes)
     task = Task(
-        tenant_id=tenant,
+        yard_id=yard,
         created_by="u-reap",
         task_type=task_type,
         status=status,

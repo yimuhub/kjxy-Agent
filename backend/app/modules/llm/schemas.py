@@ -35,13 +35,18 @@ class ToolCall(BaseModel):
 
 
 class LLMMetadata(BaseModel):
-    tenant_id: str | None = None
+    yard_id: str | None = None
+    user_id: str | None = None
+    session_id: str | None = None
     task_id: str | None = None
     request_id: str | None = None
     # W4 观测透传：调用用途（declarative|factory|eval|…，缺省 platform）与调用方引用
     # （声明式=agent_code，工厂=factory run id）。只进 llm_traces，不影响 provider 行为。
     purpose: str | None = None
     agent_ref: str | None = None
+    # 模型绑定：声明式助手指定的供应商行 id；provider 解析优先该供应商，
+    # 不可用（他院/禁用/已删）由 get_provider 回退小院 active 解析链。
+    supplier_id: str | None = None
 
     model_config = {"extra": "ignore"}
 

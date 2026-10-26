@@ -18,11 +18,11 @@ const ok = (data: unknown, meta?: unknown): unknown => ({
 const pageMeta = (total: number, page = 1, page_size = 20) => ({ page, page_size, total })
 
 const MOCK_USER = { user_id: 'u-demo-1', username: 'demo', display_name: '演示用户', status: 'active' }
-const MOCK_TENANT = {
-  tenant_id: 't-demo-1',
-  tenant_name: '演示科技小院',
+const MOCK_YARD = {
+  yard_id: 't-demo-1',
+  yard_name: '演示科技小院',
   name: '演示科技小院',
-  roles: ['tenant_admin'],
+  roles: ['yard_admin'],
   status: 'active',
 }
 
@@ -91,7 +91,7 @@ const MOCK_HITS = [
     chunk_id: 'c1d2e3f4-9d65-45bd-9c04-e1fbc2f4f8a1',
     document_id: 'b0f3c76e-9d65-45bd-9c04-e1fbc2f4f8a1',
     title: '水稻栽培技术资料',
-    source: 'tenant_upload',
+    source: 'yard_upload',
     quote: '分蘖期……（用于核验的短片段）',
     score: 0.91,
     trust_level: 'high',
@@ -106,7 +106,7 @@ const MOCK_QA = {
       chunk_id: 'c1d2e3f4-9d65-45bd-9c04-e1fbc2f4f8a1',
       document_id: 'b0f3c76e-9d65-45bd-9c04-e1fbc2f4f8a1',
       title: '水稻栽培技术资料',
-      source: 'tenant_upload',
+      source: 'yard_upload',
       quote: '分蘖期……（用于核验的短片段）',
       page_number: 12,
     },
@@ -126,7 +126,7 @@ const MOCK_SKILLS = [
 ]
 
 const MOCK_MEMBERS = [
-  { user_id: 'u-demo-1', username: 'demo', display_name: '演示用户', role: 'tenant_admin', joined_at: '2026-10-01T00:00:00Z' },
+  { user_id: 'u-demo-1', username: 'demo', display_name: '演示用户', role: 'yard_admin', joined_at: '2026-10-01T00:00:00Z' },
   { user_id: 'u-demo-2', username: 'expert_wang', display_name: '王专家', role: 'expert', joined_at: '2026-10-05T00:00:00Z' },
 ]
 
@@ -159,19 +159,19 @@ export function getMockAdapter(): AxiosAdapter {
     })
 
     if (method === 'post' && url === '/auth/login')
-      return respond(ok({ access_token: 'mock-access', refresh_token: 'mock-refresh', token_type: 'bearer', user: MOCK_USER, roles: ['tenant_admin'], tenants: [MOCK_TENANT] }))
+      return respond(ok({ access_token: 'mock-access', refresh_token: 'mock-refresh', token_type: 'bearer', user: MOCK_USER, roles: ['yard_admin'], yards: [MOCK_YARD] }))
     if (method === 'post' && url === '/auth/refresh')
       return respond(ok({ access_token: 'mock-access', refresh_token: 'mock-refresh' }))
     if (method === 'post' && url === '/auth/logout') return respond(ok(null))
     if (method === 'get' && url === '/auth/me')
-      return respond(ok({ user: MOCK_USER, roles: ['tenant_admin'], tenants: [MOCK_TENANT] }))
+      return respond(ok({ user: MOCK_USER, roles: ['yard_admin'], yards: [MOCK_YARD] }))
 
-    if (method === 'get' && url === '/tenants/current') return respond(ok(MOCK_TENANT))
-    if (method === 'get' && url === '/tenants/current/members')
+    if (method === 'get' && url === '/yards/current') return respond(ok(MOCK_YARD))
+    if (method === 'get' && url === '/yards/current/members')
       return respond(ok(MOCK_MEMBERS, pageMeta(MOCK_MEMBERS.length)))
-    if (method === 'post' && url === '/tenants/current/members')
+    if (method === 'post' && url === '/yards/current/members')
       return respond(ok({ user_id: 'u-demo-new', username: 'new_member', role: 'operator' }), 201)
-    if (method === 'delete' && url.startsWith('/tenants/current/members/')) return respond(ok(null))
+    if (method === 'delete' && url.startsWith('/yards/current/members/')) return respond(ok(null))
 
     if (method === 'post' && url === '/tasks') return respond(ok({ ...MOCK_TASKS[0], id: 'task-new' }), 201)
     if (method === 'get' && url === '/tasks') return respond(ok(MOCK_TASKS, pageMeta(MOCK_TASKS.length)))

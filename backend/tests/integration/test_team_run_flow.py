@@ -1,7 +1,7 @@
 """班组接力协作集成测试（W2，HTTP 端到端，fake provider 全离线）。
 
 覆盖：
-1. CRUD 校验：<2 成员 400 / 重名 409 / 跨租户 404 / 停用班组 409；
+1. CRUD 校验：<2 成员 400 / 重名 409 / 跨小院 404 / 停用班组 409；
 2. 顺序接力拼接正确：成员输入含「【角色】：输出」段、critic 附审核指令，
    末位 critic 答案=其输出；critic 在中间时答案=末位输出+审核意见并入；
 3. 成员失败 → team_run failed 停在断点；retry 只跑失败成员：
@@ -20,16 +20,16 @@ from app.modules.devices import agent_tool
 from app.modules.llm import providers_fake
 from app.modules.llm.models import LLMCall
 from app.modules.tasks import worker_tasks
-from app.modules.tenants.repository import create_tenant
 from app.modules.tools.registry import tool_registry
+from app.modules.yards.repository import create_yard
 from sqlalchemy.orm import sessionmaker
 
 TEAMS = "/api/v1/agents/teams"
 TEAM_RUNS = "/api/v1/agents/team-runs"
 
 
-def _hdr(user_id: str = "u-team-admin", tenant_id: str | None = None):
-    token = create_access_token(user_id=user_id, tenant_id=tenant_id, roles=["tenant_admin"])
+def _hdr(user_id: str = "u-team-admin", yard_id: str | None = None):
+    token = create_access_token(user_id=user_id, yard_id=yard_id, roles=["yard_admin"])
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -41,21 +41,21 @@ def _script_isolation():
 
 
 @pytest.fixture()
-def tenant(db_session):
-    t = create_tenant(db_session, name="班组集成租户")
+def yard(db_session):
+    t = create_yard(db_session, name="班组集成小院")
     db_session.commit()
     return t
 
 
 @pytest.fixture()
-def other_tenant(db_session):
-    t = create_tenant(db_session, name="隔壁班组租户")
+def other_yard(db_session):
+    t = create_yard(db_session, name="隔壁班组小院")
     db_session.commit()
     return t
 
 
-def _mk_published(client, tenant, code: str, name: str, tools: list[str] | None = None) -> str:
-    """建+发一个低风险声明式助手（knowledge_scopes 必填，租户自批路径）。"""
+def _mk_published(client, yard, code: str, name: str, tools: list[str] | None = None) -> str:
+    """建+发一个低风险声明式助手（knowledge_scopes 必填，小院自批路径）。"""
     created = client.post(
         "/api/v1/agents/declarative",
         json={
@@ -64,30 +64,30 @@ def _mk_published(client, tenant, code: str, name: str, tools: list[str] | None 
             "persona_prompt": f"你是{name}。",
             "task_prompt_template": f"请完成{name}任务：{{{{question}}}}",
             "allowed_tools": tools or [],
-            "knowledge_scopes": ["tenant"],
+            "knowledge_scopes": ["yard"],
         },
-        headers=_hdr(tenant_id=tenant.id),
+        headers=_hdr(yard_id=yard.id),
     )
     assert created.status_code == 200, created.text
     agent_id = created.json()["data"]["id"]
     pub = client.post(
-        f"/api/v1/agents/declarative/{agent_id}/publish", headers=_hdr(tenant_id=tenant.id)
+        f"/api/v1/agents/declarative/{agent_id}/publish", headers=_hdr(yard_id=yard.id)
     )
     assert pub.json()["data"]["status"] == "published"
     return agent_id
 
 
-def _mk_team(client, tenant, name: str, members: list[dict], **kw):
+def _mk_team(client, yard, name: str, members: list[dict], **kw):
     return client.post(
-        TEAMS, json={"name": name, "members": members, **kw}, headers=_hdr(tenant_id=tenant.id)
+        TEAMS, json={"name": name, "members": members, **kw}, headers=_hdr(yard_id=yard.id)
     )
 
 
-def _three_members(client, tenant):
+def _three_members(client, yard):
     """解读员 → 诊断员 → 审核员(critic)：三名无工具助手（单轮旧路径）。"""
-    a1 = _mk_published(client, tenant, "tm_reader", "解读员")
-    a2 = _mk_published(client, tenant, "tm_diag", "诊断员")
-    a3 = _mk_published(client, tenant, "tm_critic", "审核员")
+    a1 = _mk_published(client, yard, "tm_reader", "解读员")
+    a2 = _mk_published(client, yard, "tm_diag", "诊断员")
+    a3 = _mk_published(client, yard, "tm_critic", "审核员")
     return [
         {"agent_id": a1, "role_name": "解读员"},
         {"agent_id": a2, "role_name": "诊断员"},
@@ -95,14 +95,14 @@ def _three_members(client, tenant):
     ]
 
 
-def _run_team(client, tenant, team_id, question="棚室温度怎么样"):
+def _run_team(client, yard, team_id, question="棚室温度怎么样"):
     return client.post(
-        f"{TEAMS}/{team_id}/run", json={"input": question}, headers=_hdr(tenant_id=tenant.id)
+        f"{TEAMS}/{team_id}/run", json={"input": question}, headers=_hdr(yard_id=yard.id)
     )
 
 
-def _get_run(client, tenant, run_id):
-    return client.get(f"{TEAM_RUNS}/{run_id}", headers=_hdr(tenant_id=tenant.id))
+def _get_run(client, yard, run_id):
+    return client.get(f"{TEAM_RUNS}/{run_id}", headers=_hdr(yard_id=yard.id))
 
 
 # ---------------------------------------------------------------------------
@@ -110,44 +110,44 @@ def _get_run(client, tenant, run_id):
 # ---------------------------------------------------------------------------
 
 
-def test_team_crud_validations(client, tenant, other_tenant):
-    members = _three_members(client, tenant)
+def test_team_crud_validations(client, yard, other_yard):
+    members = _three_members(client, yard)
 
     # <2 成员 → 400
-    thin = _mk_team(client, tenant, "薄队", members[:1])
+    thin = _mk_team(client, yard, "薄队", members[:1])
     assert thin.status_code == 400 and thin.json()["error"]["code"] == "TEAM_MEMBER_COUNT"
 
-    ok = _mk_team(client, tenant, "棚室管家班组", members, description="接力演示")
+    ok = _mk_team(client, yard, "棚室管家班组", members, description="接力演示")
     assert ok.status_code == 200, ok.text
     team = ok.json()["data"]
     assert [m["role_name"] for m in team["members"]] == ["解读员", "诊断员", "审核员"]
 
-    # 同租户重名 → 409
-    dup = _mk_team(client, tenant, "棚室管家班组", members)
+    # 同小院重名 → 409
+    dup = _mk_team(client, yard, "棚室管家班组", members)
     assert dup.status_code == 409 and dup.json()["error"]["code"] == "TEAM_NAME_CONFLICT"
 
-    # 跨租户：详情/编辑/删除/运行一律 404（防枚举）
-    other_hdr = _hdr("u-other", other_tenant.id)
+    # 跨小院：详情/编辑/删除/运行一律 404（防枚举）
+    other_hdr = _hdr("u-other", other_yard.id)
     assert client.get(f"{TEAMS}/{team['id']}", headers=other_hdr).status_code == 404
     assert (
         client.patch(f"{TEAMS}/{team['id']}", json={"name": "窃取改名"}, headers=other_hdr)
     ).status_code == 404
     assert client.delete(f"{TEAMS}/{team['id']}", headers=other_hdr).status_code == 404
-    assert _run_team(client, other_tenant, team["id"]).status_code == 404
+    assert _run_team(client, other_yard, team["id"]).status_code == 404
 
     # 停用 → 运行 409
     off = client.patch(
-        f"{TEAMS}/{team['id']}", json={"enabled": False}, headers=_hdr(tenant_id=tenant.id)
+        f"{TEAMS}/{team['id']}", json={"enabled": False}, headers=_hdr(yard_id=yard.id)
     )
     assert off.json()["data"]["enabled"] is False
-    disabled = _run_team(client, tenant, team["id"])
+    disabled = _run_team(client, yard, team["id"])
     assert disabled.status_code == 409 and disabled.json()["error"]["code"] == "TEAM_DISABLED"
-    client.patch(f"{TEAMS}/{team['id']}", json={"enabled": True}, headers=_hdr(tenant_id=tenant.id))
+    client.patch(f"{TEAMS}/{team['id']}", json={"enabled": True}, headers=_hdr(yard_id=yard.id))
 
     # 删除后详情 404（历史列表接口不再可见）
     did = off.json()["data"]["id"]
-    assert client.delete(f"{TEAMS}/{did}", headers=_hdr(tenant_id=tenant.id)).status_code == 200
-    assert client.get(f"{TEAMS}/{did}", headers=_hdr(tenant_id=tenant.id)).status_code == 404
+    assert client.delete(f"{TEAMS}/{did}", headers=_hdr(yard_id=yard.id)).status_code == 200
+    assert client.get(f"{TEAMS}/{did}", headers=_hdr(yard_id=yard.id)).status_code == 404
 
 
 # ---------------------------------------------------------------------------
@@ -155,14 +155,14 @@ def test_team_crud_validations(client, tenant, other_tenant):
 # ---------------------------------------------------------------------------
 
 
-def test_relay_order_and_final_critic_answer(client, tenant):
-    members = _three_members(client, tenant)
-    team = _mk_team(client, tenant, "接力一队", members).json()["data"]
+def test_relay_order_and_final_critic_answer(client, yard):
+    members = _three_members(client, yard)
+    team = _mk_team(client, yard, "接力一队", members).json()["data"]
 
     providers_fake.set_scripted_tool_responses(
         [{"content": "输出甲"}, {"content": "输出乙"}, {"content": "审核结论：修订丙"}]
     )
-    resp = _run_team(client, tenant, team["id"])
+    resp = _run_team(client, yard, team["id"])
     assert resp.status_code == 200, resp.text
     data = resp.json()["data"]
     assert data["status"] == "completed"
@@ -179,25 +179,25 @@ def test_relay_order_and_final_critic_answer(client, tenant):
     assert "【审核要求】" in ms[2]["input_preview"]
 
     # 列表 + 详情 + 审计
-    runs = client.get(f"{TEAMS}/{team['id']}/runs", headers=_hdr(tenant_id=tenant.id))
+    runs = client.get(f"{TEAMS}/{team['id']}/runs", headers=_hdr(yard_id=yard.id))
     assert [r["id"] for r in runs.json()["data"]["runs"]] == [data["id"]]
-    detail = _get_run(client, tenant, data["id"])
+    detail = _get_run(client, yard, data["id"])
     assert (
         detail.json()["data"]["status"] == "completed"
         and len(detail.json()["data"]["members"]) == 3
     )
 
 
-def test_team_run_audit_written(client, db_session, tenant):
-    members = _three_members(client, tenant)
-    team = _mk_team(client, tenant, "审计队", members).json()["data"]
+def test_team_run_audit_written(client, db_session, yard):
+    members = _three_members(client, yard)
+    team = _mk_team(client, yard, "审计队", members).json()["data"]
     providers_fake.set_scripted_tool_responses(
         [{"content": "A"}, {"content": "B"}, {"content": "C审"}]
     )
-    run = _run_team(client, tenant, team["id"]).json()["data"]
+    run = _run_team(client, yard, team["id"]).json()["data"]
     row = (
         db_session.query(AuditLog)
-        .filter(AuditLog.action == "team_run", AuditLog.tenant_id == tenant.id)
+        .filter(AuditLog.action == "team_run", AuditLog.yard_id == yard.id)
         .first()
     )
     assert row is not None and row.result == "success"
@@ -209,13 +209,13 @@ def test_team_run_audit_written(client, db_session, tenant):
 # ---------------------------------------------------------------------------
 
 
-def test_critic_in_middle_merged_into_answer(client, tenant):
-    a1 = _mk_published(client, tenant, "mm_r", "解读员")
-    a2 = _mk_published(client, tenant, "mm_c", "审核员")
-    a3 = _mk_published(client, tenant, "mm_s", "汇总员")
+def test_critic_in_middle_merged_into_answer(client, yard):
+    a1 = _mk_published(client, yard, "mm_r", "解读员")
+    a2 = _mk_published(client, yard, "mm_c", "审核员")
+    a3 = _mk_published(client, yard, "mm_s", "汇总员")
     team = _mk_team(
         client,
-        tenant,
+        yard,
         "接力二队",
         [
             {"agent_id": a1, "role_name": "解读员"},
@@ -226,7 +226,7 @@ def test_critic_in_middle_merged_into_answer(client, tenant):
     providers_fake.set_scripted_tool_responses(
         [{"content": "输出甲"}, {"content": "审核意见丙"}, {"content": "最终输出乙"}]
     )
-    data = _run_team(client, tenant, team["id"]).json()["data"]
+    data = _run_team(client, yard, team["id"]).json()["data"]
     # 末位非 critic → 末位输出 + 审核意见并入（固定拼接策略）
     assert data["answer"] == "最终输出乙\n\n---\n【审核意见·审核员】\n审核意见丙"
     # critic 的输出同样并入后续成员接力上下文
@@ -238,12 +238,12 @@ def test_critic_in_middle_merged_into_answer(client, tenant):
 # ---------------------------------------------------------------------------
 
 
-def test_failure_stops_at_breakpoint_and_retry_skips_ok_members(client, db_session, tenant):
-    a1 = _mk_published(client, tenant, "fr_r", "解读员")
-    a2 = _mk_published(client, tenant, "fr_d", "诊断员")
+def test_failure_stops_at_breakpoint_and_retry_skips_ok_members(client, db_session, yard):
+    a1 = _mk_published(client, yard, "fr_r", "解读员")
+    a2 = _mk_published(client, yard, "fr_d", "诊断员")
     team = _mk_team(
         client,
-        tenant,
+        yard,
         "断点队",
         [{"agent_id": a1, "role_name": "解读员"}, {"agent_id": a2, "role_name": "诊断员"}],
     ).json()["data"]
@@ -251,12 +251,12 @@ def test_failure_stops_at_breakpoint_and_retry_skips_ok_members(client, db_sessi
     providers_fake.set_scripted_tool_responses(
         [{"content": "成员一输出"}, {"error": {"code": "LLM_ERROR", "message": "上游断了（模拟）"}}]
     )
-    failed = _run_team(client, tenant, team["id"])
+    failed = _run_team(client, yard, team["id"])
     assert failed.status_code == 502
     assert failed.json()["error"]["code"] == "LLM_ERROR"
     run_id = failed.json()["error"]["details"]["team_run_id"]
 
-    run = _get_run(client, tenant, run_id).json()["data"]
+    run = _get_run(client, yard, run_id).json()["data"]
     assert run["status"] == "failed" and "LLM_ERROR" in (run["last_error"] or "")
     m1, m2 = run["members"]
     assert m1["status"] == "ok" and m1["output"] == "成员一输出"
@@ -266,7 +266,7 @@ def test_failure_stops_at_breakpoint_and_retry_skips_ok_members(client, db_sessi
 
     # 修复上游后续跑：只跑失败成员（并续到队尾）
     providers_fake.set_scripted_tool_responses([{"content": "诊断员续跑输出"}])
-    retried = client.post(f"{TEAM_RUNS}/{run_id}/retry", headers=_hdr(tenant_id=tenant.id))
+    retried = client.post(f"{TEAM_RUNS}/{run_id}/retry", headers=_hdr(yard_id=yard.id))
     assert retried.status_code == 200, retried.text
     done = retried.json()["data"]
     assert done["status"] == "completed" and done["answer"] == "诊断员续跑输出"
@@ -282,13 +282,13 @@ def test_failure_stops_at_breakpoint_and_retry_skips_ok_members(client, db_sessi
     # retry 审计 + 已完成再 retry → 409
     audit = (
         db_session.query(AuditLog)
-        .filter(AuditLog.action == "team_run_retry", AuditLog.tenant_id == tenant.id)
+        .filter(AuditLog.action == "team_run_retry", AuditLog.yard_id == yard.id)
         .first()
     )
     assert audit is not None and audit.result == "success"
     assert audit.metadata_json["skipped_ok_members"] == 1
     assert audit.metadata_json["from_member_index"] == 1
-    again = client.post(f"{TEAM_RUNS}/{run_id}/retry", headers=_hdr(tenant_id=tenant.id))
+    again = client.post(f"{TEAM_RUNS}/{run_id}/retry", headers=_hdr(yard_id=yard.id))
     assert again.status_code == 409
     assert again.json()["error"]["code"] == "TEAM_RUN_ALREADY_COMPLETED"
 
@@ -315,13 +315,13 @@ def sensor_spy(db_session, monkeypatch):
     return counter
 
 
-def test_tool_member_retry_resumes_checkpoint_without_replay(client, tenant, sensor_spy):
-    a_tool = _mk_published(client, tenant, "ck_reader", "解读员", tools=["sensor.query"])
-    a_d = _mk_published(client, tenant, "ck_diag", "诊断员")
-    a_c = _mk_published(client, tenant, "ck_critic", "审核员")
+def test_tool_member_retry_resumes_checkpoint_without_replay(client, yard, sensor_spy):
+    a_tool = _mk_published(client, yard, "ck_reader", "解读员", tools=["sensor.query"])
+    a_d = _mk_published(client, yard, "ck_diag", "诊断员")
+    a_c = _mk_published(client, yard, "ck_critic", "审核员")
     team = _mk_team(
         client,
-        tenant,
+        yard,
         "checkpoint 队",
         [
             {"agent_id": a_tool, "role_name": "解读员"},
@@ -337,10 +337,10 @@ def test_tool_member_retry_resumes_checkpoint_without_replay(client, tenant, sen
             {"error": {"code": "LLM_ERROR", "message": "上游中断（模拟）"}},
         ]
     )
-    failed = _run_team(client, tenant, team["id"])
+    failed = _run_team(client, yard, team["id"])
     assert failed.status_code == 502
     run_id = failed.json()["error"]["details"]["team_run_id"]
-    run = _get_run(client, tenant, run_id).json()["data"]
+    run = _get_run(client, yard, run_id).json()["data"]
     assert run["status"] == "failed"
     assert run["members"][0]["status"] == "error"
     m1_task = run["members"][0]["task_id"]
@@ -349,7 +349,7 @@ def test_tool_member_retry_resumes_checkpoint_without_replay(client, tenant, sen
     steps_url = f"/api/v1/agents/declarative/runs/{m1_task}/steps"
     shape = [
         (s["step_type"], s["status"])
-        for s in client.get(steps_url, headers=_hdr(tenant_id=tenant.id)).json()["data"]["steps"]
+        for s in client.get(steps_url, headers=_hdr(yard_id=yard.id)).json()["data"]["steps"]
     ]
     assert shape == [("llm_call", "ok"), ("tool_call", "ok"), ("llm_call", "error")]
 
@@ -357,14 +357,14 @@ def test_tool_member_retry_resumes_checkpoint_without_replay(client, tenant, sen
     providers_fake.set_scripted_tool_responses(
         [{"content": "续跑读数结论"}, {"content": "诊断意见"}, {"content": "审核通过，无需修订"}]
     )
-    retried = client.post(f"{TEAM_RUNS}/{run_id}/retry", headers=_hdr(tenant_id=tenant.id))
+    retried = client.post(f"{TEAM_RUNS}/{run_id}/retry", headers=_hdr(yard_id=yard.id))
     assert retried.status_code == 200, retried.text
     done = retried.json()["data"]
     assert done["status"] == "completed"
     assert done["answer"] == "审核通过，无需修订"
     assert done["members"][0]["task_id"] == m1_task  # 同一 run 续跑而非新开
     assert sensor_spy["n"] == 1  # 关键断言：副作用工具未重放
-    after = client.get(steps_url, headers=_hdr(tenant_id=tenant.id)).json()["data"]["steps"]
+    after = client.get(steps_url, headers=_hdr(yard_id=yard.id)).json()["data"]["steps"]
     assert [(s["step_type"], s["status"]) for s in after] == [
         ("llm_call", "ok"),
         ("tool_call", "ok"),
@@ -422,12 +422,12 @@ def test_factory_as_team_builds_runnable_team(fac_env):
     api_client, factory = fac_env
     db = factory()
     try:
-        t = create_tenant(db, name="装配班组租户")
+        t = create_yard(db, name="装配班组小院")
         db.commit()
-        tenant = SimpleNamespace(id=t.id)
+        yard = SimpleNamespace(id=t.id)
     finally:
         db.close()
-    hdr = _hdr("u-fac-team", tenant.id)
+    hdr = _hdr("u-fac-team", yard.id)
 
     gen = api_client.post(
         "/api/v1/agents/factory/generate",
@@ -483,19 +483,19 @@ def test_factory_as_team_builds_runnable_team(fac_env):
 # ---------------------------------------------------------------------------
 
 
-def test_team_stream_replays_member_events(client, db_session, tenant):
-    members = _three_members(client, tenant)
-    team = _mk_team(client, tenant, "推流队", members).json()["data"]
+def test_team_stream_replays_member_events(client, db_session, yard):
+    members = _three_members(client, yard)
+    team = _mk_team(client, yard, "推流队", members).json()["data"]
     providers_fake.set_scripted_tool_responses(
         [{"content": "A出"}, {"content": "B出"}, {"content": "C审"}]
     )
-    run = _run_team(client, tenant, team["id"]).json()["data"]
+    run = _run_team(client, yard, team["id"]).json()["data"]
 
     worker_tasks._session_factory = sessionmaker(bind=db_session.get_bind(), autoflush=False)
     try:
-        resp = client.get(f"{TEAM_RUNS}/{run['id']}/stream", headers=_hdr(tenant_id=tenant.id))
+        resp = client.get(f"{TEAM_RUNS}/{run['id']}/stream", headers=_hdr(yard_id=yard.id))
         # 未知 run 也在注入窗内：SSE 生成器走全局 sessionmaker，须与测试库同源
-        ghost = client.get(f"{TEAM_RUNS}/no-such-run/stream", headers=_hdr(tenant_id=tenant.id))
+        ghost = client.get(f"{TEAM_RUNS}/no-such-run/stream", headers=_hdr(yard_id=yard.id))
     finally:
         worker_tasks._session_factory = None
     assert resp.status_code == 200

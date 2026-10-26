@@ -45,7 +45,7 @@ def _run_agent(monkeypatch, question: str, hits: list[dict], answer: str = "按�
 
     monkeypatch.setattr(qa, "_generate_answer", _fake_generate)
     agent = qa.AgricultureQAAgent()
-    ctx = qa.QAAgentContext(tenant_id="t-risk", user_id="u", roles=["operator"], request_id="r")
+    ctx = qa.QAAgentContext(yard_id="t-risk", user_id="u", roles=["operator"], request_id="r")
     return asyncio.run(agent.run({"question": question, "top_k": 5}, ctx))
 
 
@@ -109,7 +109,7 @@ def test_conflict_values_force_expert_review(monkeypatch):
 
 
 def test_conflict_unit_helper_requires_both_sources():
-    """无 expert_correction、或无 upload/tenant_material、或数值一致 → 不判冲突。"""
+    """无 expert_correction、或无 upload/yard_material、或数值一致 → 不判冲突。"""
     # 只有一类来源
     only_upload = [_hit("d1", "c1", "upload", "药种比 1:30")]
     assert qa._detect_conflicting_values("按 1:50", only_upload) is None
@@ -128,10 +128,10 @@ def test_conflict_unit_helper_requires_both_sources():
     assert qa._detect_conflicting_values("维持原方案", no_values) is None
 
 
-def test_conflict_with_tenant_material_source():
-    """tenant_material 也属于"旧资料"侧，参与冲突判定。"""
+def test_conflict_with_yard_material_source():
+    """yard_material 也属于"旧资料"侧，参与冲突判定。"""
     pair = [
-        _hit("d1", "c1", "tenant_material", "亩用 100毫升"),
+        _hit("d1", "c1", "yard_material", "亩用 100毫升"),
         _hit("d2", "c2", "expert_correction", "更正：亩用 50毫升"),
     ]
     msg = qa._detect_conflicting_values("酌情处理", pair)

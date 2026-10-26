@@ -1,9 +1,9 @@
-"""租户动态 MCP 工具 → 平台工具注册表的桥（W5a）。
+"""小院动态 MCP 工具 → 平台工具注册表的桥（W5a）。
 
 wire_name 约定：``mcp__<server_id 前 8 位>__<MCP 工具名>``——该串**同时就是**
 ``allowed_tools`` 里写的工具 code 与发给模型的 OpenAI function 名（``_wire_name``
 对无点号的 mcp code 是恒等映射）。动态工具**不进全局 BUILTIN/内存注册表**：
-按租户从 ``mcp_servers.tool_cache_json`` 快照作用域内解析（宁缺勿幻——连接测试
+按小院从 ``mcp_servers.tool_cache_json`` 快照作用域内解析（宁缺勿幻——连接测试
 没刷进缓存的工具，模型看不到、也调不到）。
 
 双层风险纪律（与既有分级吻合，测试锁定）：
@@ -24,7 +24,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.deps import TenantContext
+from app.core.deps import YardContext
 from app.core.errors import AppError
 from app.core.logging import get_logger
 from app.modules.audit.service import log_audit
@@ -38,7 +38,7 @@ log = get_logger(__name__)
 MCP_WIRE_PREFIX = "mcp__"
 #: 连接级连续失败自动停用阈值（对齐 devices/push 连接器纪律）
 MCP_MAX_FAILURES = 5
-#: wire_name 中 server 短 id 长度（uuid 前 8 位；同租户碰撞概率可忽略，命中多个取最早）
+#: wire_name 中 server 短 id 长度（uuid 前 8 位；同小院碰撞概率可忽略，命中多个取最早）
 SERVER_ID_PREFIX_LEN = 8
 
 
@@ -59,19 +59,19 @@ def parse_wire_name(code: str) -> tuple[str, str] | None:
 
 
 # ---------------------------------------------------------------------------
-# 服务器解析与配置解密（作用域：本租户 + enabled + 未熔断）
+# 服务器解析与配置解密（作用域：本小院 + enabled + 未熔断）
 # ---------------------------------------------------------------------------
 
 
 def resolve_server(
-    db: Session, tenant_id: str, server_id_prefix: str, tool_name: str
+    db: Session, yard_id: str, server_id_prefix: str, tool_name: str
 ) -> tuple[McpServer, dict[str, Any]] | None:
     """按短 id + 工具缓存命中定位服务器；仅 enabled 且未熔断的可见（纯读）。"""
     rows = list(
         db.scalars(
             select(McpServer)
             .where(
-                McpServer.tenant_id == tenant_id,
+                McpServer.yard_id == yard_id,
                 McpServer.enabled.is_(True),
                 McpServer.consecutive_failures < MCP_MAX_FAILURES,
             )
@@ -118,7 +118,7 @@ def record_connection_failure(db: Session, srv: McpServer, reason: str, *, reque
     )
     log_audit(
         db,
-        tenant_id=srv.tenant_id,
+        yard_id=srv.yard_id,
         actor_id=None,
         action="mcp_server_failed",
         resource_type="mcp_server",
@@ -134,7 +134,7 @@ def record_connection_failure(db: Session, srv: McpServer, reason: str, *, reque
         )
         log_audit(
             db,
-            tenant_id=srv.tenant_id,
+            yard_id=srv.yard_id,
             actor_id=None,
             action="mcp_server_disabled",
             resource_type="mcp_server",
@@ -177,7 +177,7 @@ def remote_call(
 
 
 def execute_mcp_tool(
-    db: Session, wire_name: str, args: dict[str, Any], ctx: TenantContext
+    db: Session, wire_name: str, args: dict[str, Any], ctx: YardContext
 ) -> dict[str, Any]:
     """执行一次 MCP 工具调用（registry 全通道里的 ToolDef.func 落到这里）。
 
@@ -189,7 +189,7 @@ def execute_mcp_tool(
     if parsed is None:
         raise AppError("TOOL_NOT_FOUND", f"非法 MCP 工具名：{wire_name}。", http_status=404)
     server8, tool_name = parsed
-    found = resolve_server(db, ctx.tenant_id, server8, tool_name)
+    found = resolve_server(db, ctx.yard_id, server8, tool_name)
     if found is None:
         raise AppError(
             "MCP_ERROR",
@@ -231,8 +231,8 @@ def execute_mcp_tool(
 # ---------------------------------------------------------------------------
 
 
-def lookup_mcp_tool(db: Session, tenant_id: str, code: str) -> ToolDef | None:
-    """mcp__ wire_name → 租户作用域 ToolDef（缓存命中才可见）；否则 None。
+def lookup_mcp_tool(db: Session, yard_id: str, code: str) -> ToolDef | None:
+    """mcp__ wire_name → 小院作用域 ToolDef（缓存命中才可见）；否则 None。
 
     风险档固定 external_side_effect + side_effect：发布层 assess_risk 判 high 走
     平台审核，运行层照走 registry 人工审批闸——两层都不因"MCP 工具看起来只是查询"
@@ -242,7 +242,7 @@ def lookup_mcp_tool(db: Session, tenant_id: str, code: str) -> ToolDef | None:
     if parsed is None:
         return None
     server8, tool_name = parsed
-    found = resolve_server(db, tenant_id, server8, tool_name)
+    found = resolve_server(db, yard_id, server8, tool_name)
     if found is None:
         return None
     srv, entry = found
@@ -255,7 +255,7 @@ def lookup_mcp_tool(db: Session, tenant_id: str, code: str) -> ToolDef | None:
         else {"type": "object", "additionalProperties": False}
     )
 
-    async def _func(params: dict, ctx: TenantContext) -> dict:
+    async def _func(params: dict, ctx: YardContext) -> dict:
         # 整轮（解密→出网→熔断计数）进线程池，避免 15s 超时冻结事件循环。
         # SQLite 连接 check_same_thread=False（db/session.py）；等待期间主线程不会
         # 并发使用同一 Session（工具循环串行执行，路由请求同理），计数写入挂

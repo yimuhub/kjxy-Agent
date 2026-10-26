@@ -9,7 +9,7 @@ from app.db.base import Base, TimestampMixin
 class AuditLog(Base, TimestampMixin):
     __tablename__ = "audit_logs"
 
-    tenant_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    yard_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     actor_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     action: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     resource_type: Mapped[str] = mapped_column(String(100), nullable=False)

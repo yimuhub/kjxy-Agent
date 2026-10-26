@@ -8,7 +8,7 @@ unittest.mock.patch("app.modules.evolution.service.run_eval_set") 统一 mock �
 from unittest.mock import patch
 
 import pytest
-from app.core.deps import TenantContext
+from app.core.deps import YardContext
 from app.core.errors import AppError
 from app.eval.runner import CaseResult, EvalReport
 from app.modules.audit.models import AuditLog
@@ -18,12 +18,12 @@ from app.modules.evolution.models import EvalRun
 _PATCH_TARGET = "app.modules.evolution.service.run_eval_set"
 
 
-def _member_ctx() -> TenantContext:
-    return TenantContext(tenant_id="t1", user_id="u1", roles=["member"], request_id="req_gate")
+def _member_ctx() -> YardContext:
+    return YardContext(yard_id="t1", user_id="u1", roles=["member"], request_id="req_gate")
 
 
-def _expert_ctx() -> TenantContext:
-    return TenantContext(tenant_id="t1", user_id="u1", roles=["expert"], request_id="req_gate")
+def _expert_ctx() -> YardContext:
+    return YardContext(yard_id="t1", user_id="u1", roles=["expert"], request_id="req_gate")
 
 
 def _definition(evaluation: dict | None) -> dict:

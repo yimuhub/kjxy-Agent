@@ -9,7 +9,7 @@
       class="mb"
       :title="`平台管理员：${auth.user?.display_name || auth.user?.username}`"
       :description="
-        '平台管理员为全局只读（不读取租户业务正文）。要体验租户业务流程（问答、知识库、任务、政策），请使用租户账号登录。'
+        '平台管理员为全局只读（不读取小院业务正文）。要体验小院业务流程（问答、知识库、任务、政策），请使用小院账号登录。'
       "
     />
 
@@ -55,11 +55,11 @@
       <el-col :span="12">
         <el-card>
           <template #header>
-            <span>租户列表（{{ tenantList.count ?? 0 }}）</span>
+            <span>小院列表（{{ yardList.count ?? 0 }}）</span>
           </template>
-          <AsyncState :state="tenantsState" empty-text="暂无租户" @retry="loadAll">
-            <el-table :data="tenantList.tenants ?? []" size="small">
-              <el-table-column prop="name" label="租户" min-width="140" />
+          <AsyncState :state="yardsState" empty-text="暂无小院" @retry="loadAll">
+            <el-table :data="yardList.yards ?? []" size="small">
+              <el-table-column prop="name" label="小院" min-width="140" />
               <el-table-column prop="province" label="地区" width="90" />
               <el-table-column prop="active_members" label="成员" width="70" />
               <el-table-column prop="task_total" label="任务" width="70" />
@@ -77,18 +77,18 @@
     </el-row>
 
     <el-card v-if="showDemoAccounts" class="switch-card">
-      <template #header>快速切换体验租户功能</template>
+      <template #header>快速切换体验小院功能</template>
       <div class="switch-row">
-        <el-tag>租户管理员</el-tag>
-        <code>tenant_admin / tenant123</code>
-        <el-button link type="primary" @click="switchToTenant">
+        <el-tag>小院管理员</el-tag>
+        <code>yard_admin / yard123</code>
+        <el-button link type="primary" @click="switchToYard">
           退出后用该账号登录 →
         </el-button>
       </div>
       <div class="switch-row">
         <el-tag>农业专家</el-tag>
         <code>expert / expert123</code>
-        <el-button link type="primary" @click="switchToTenant">退出后用该账号登录 →</el-button>
+        <el-button link type="primary" @click="switchToYard">退出后用该账号登录 →</el-button>
       </div>
     </el-card>
   </div>
@@ -102,7 +102,7 @@ import { adminApi } from '@/api/modules'
 import { useAuthStore } from '@/stores/auth'
 import AsyncState from '@/components/AsyncState.vue'
 import { classifyError, type ViewState } from '@/utils/status'
-import type { AdminStats, AdminTenantList } from '@/types/api'
+import type { AdminStats, AdminYardList } from '@/types/api'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -110,9 +110,9 @@ const auth = useAuthStore()
 const showDemoAccounts = !import.meta.env.PROD
 
 const statsState = ref<ViewState>('loading')
-const tenantsState = ref<ViewState>('loading')
+const yardsState = ref<ViewState>('loading')
 const stats = reactive<AdminStats>({})
-const tenantList = reactive<AdminTenantList>({ count: 0, tenants: [] })
+const yardList = reactive<AdminYardList>({ count: 0, yards: [] })
 
 const llmByProvider = computed(() =>
   Object.entries(stats.llm?.by_provider ?? {}).map(([provider, count]) => ({
@@ -135,7 +135,7 @@ function taskStatusLabel(status: string): string {
 
 async function loadAll() {
   statsState.value = 'loading'
-  tenantsState.value = 'loading'
+  yardsState.value = 'loading'
   try {
     Object.assign(stats, await adminApi.stats())
     statsState.value = 'ready'
@@ -143,17 +143,17 @@ async function loadAll() {
     statsState.value = classifyError(e)
   }
   try {
-    const t = await adminApi.tenants()
-    tenantList.count = t.count
-    tenantList.tenants = t.tenants
-    tenantsState.value = t.tenants.length ? 'ready' : 'empty'
+    const t = await adminApi.yards()
+    yardList.count = t.count
+    yardList.yards = t.yards
+    yardsState.value = t.yards.length ? 'ready' : 'empty'
   } catch (e) {
-    tenantsState.value = classifyError(e)
+    yardsState.value = classifyError(e)
   }
 }
 
-async function switchToTenant() {
-  await ElMessageBox.confirm('退出当前账号后用租户账号登录？', '切换账号', {
+async function switchToYard() {
+  await ElMessageBox.confirm('退出当前账号后用小院账号登录？', '切换账号', {
     confirmButtonText: '退出登录',
     cancelButtonText: '取消',
   })

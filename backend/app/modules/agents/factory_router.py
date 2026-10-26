@@ -1,11 +1,11 @@
 """Agent 工厂 REST API（/agents/factory*，挂载于 agents 路由之下）。
 
 - POST /agents/factory/generate：建 FactoryRun + agent_factory 任务并立即返回
-  {task_id, run_id}（tenant_admin；tasks 配额检查 + 审计 action=factory_generate）。
-- GET  /agents/factory/runs：本租户运行列表（含蓝图摘要，不含 blueprint_json）。
+  {task_id, run_id}（yard_admin；tasks 配额检查 + 审计 action=factory_generate）。
+- GET  /agents/factory/runs：本小院运行列表（含蓝图摘要，不含 blueprint_json）。
 - GET  /agents/factory/runs/{run_id}：详情（含完整 blueprint_json）。
 - POST /agents/factory/runs/{run_id}/apply：人工采纳——仅 run 创建者或
-  tenant_admin；publish=true 逐项走 declarative 分级发布（低风险自批 published，
+  yard_admin；publish=true 逐项走 declarative 分级发布（低风险自批 published，
   高风险进 pending_platform_review），publish=false 保持 draft；审计
   action=factory_apply。
 
@@ -25,10 +25,10 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import (
     CurrentUser,
-    TenantContext,
+    YardContext,
     get_current_user,
     get_db_session,
-    get_tenant_context,
+    get_yard_context,
     require_roles,
 )
 from app.core.errors import AppError
@@ -40,12 +40,12 @@ from app.modules.agents.teams import service as teams_service
 from app.modules.audit.service import log_audit
 from app.modules.tasks.router import _enqueue_or_inline
 from app.modules.tasks.service import TaskService
-from app.modules.tenants.quota import check_and_consume
+from app.modules.yards.quota import check_and_consume
 
 router = APIRouter(prefix="/factory", tags=["agents-factory"])
 
-#: 工厂操作闸门：tenant_admin（require_roles 内置 platform_admin 直通）
-_factory_gate = require_roles("tenant_admin")
+#: 工厂操作闸门：yard_admin（require_roles 内置 platform_admin 直通）
+_factory_gate = require_roles("yard_admin")
 
 _BRIEF_PREVIEW_CHARS = 40
 
@@ -139,10 +139,10 @@ def _run_summary(run: FactoryRun) -> dict[str, Any]:
     }
 
 
-def _get_run(db: Session, tenant_id: str, run_id: str) -> FactoryRun:
-    """租户边界取运行；跨租户/不存在一律 404（防枚举）。"""
+def _get_run(db: Session, yard_id: str, run_id: str) -> FactoryRun:
+    """小院边界取运行；跨小院/不存在一律 404（防枚举）。"""
     run = db.scalar(
-        select(FactoryRun).where(FactoryRun.id == run_id, FactoryRun.tenant_id == tenant_id)
+        select(FactoryRun).where(FactoryRun.id == run_id, FactoryRun.yard_id == yard_id)
     )
     if run is None:
         raise AppError("FACTORY_RUN_NOT_FOUND", "工厂运行不存在或无权访问。", http_status=404)
@@ -153,16 +153,16 @@ def _get_run(db: Session, tenant_id: str, run_id: str) -> FactoryRun:
 def generate(
     payload: FactoryGenerateRequest,
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     user: CurrentUser = Depends(_factory_gate),
     db: Session = Depends(get_db_session),
 ):
     """发起一次工厂生成：建 run + agent_factory 任务，立即返回句柄（202）。"""
     # 配额：一次工厂生成 = 一次任务（超限 429 QUOTA_EXCEEDED）；
     # 蓝图阶段的 LLM 调用另按 llm_calls 计（complete_with_logging 内部扣减）。
-    check_and_consume(db, ctx.tenant_id, "tasks")
+    check_and_consume(db, ctx.yard_id, "tasks")
     run = FactoryRun(
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         industry_brief=payload.industry_brief,
         created_by=user.user_id,
     )
@@ -182,7 +182,7 @@ def generate(
         )
         log_audit(
             db,
-            tenant_id=ctx.tenant_id,
+            yard_id=ctx.yard_id,
             actor_id=user.user_id,
             action="factory_generate",
             resource_type="factory_run",
@@ -209,14 +209,14 @@ def generate(
 @router.get("/runs")
 def list_runs(
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db: Session = Depends(get_db_session),
 ):
-    """本租户工厂运行列表（最新在前；租户成员均可读，便于跟踪进度）。"""
+    """本小院工厂运行列表（最新在前；小院成员均可读，便于跟踪进度）。"""
     runs = list(
         db.scalars(
             select(FactoryRun)
-            .where(FactoryRun.tenant_id == ctx.tenant_id)
+            .where(FactoryRun.yard_id == ctx.yard_id)
             .order_by(FactoryRun.created_at.desc(), FactoryRun.id.desc())
         )
     )
@@ -227,11 +227,11 @@ def list_runs(
 def get_run(
     run_id: str,
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db: Session = Depends(get_db_session),
 ):
     """运行详情：完整 blueprint_json（未生成时为 null）+ 任务句柄反查提示。"""
-    run = _get_run(db, ctx.tenant_id, run_id)
+    run = _get_run(db, ctx.yard_id, run_id)
     data = _run_summary(run)
     data["blueprint_json"] = run.blueprint_json
     return ok(data, request)
@@ -242,19 +242,19 @@ def apply_run(
     run_id: str,
     payload: FactoryApplyRequest,
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db_session),
 ):
     """人工采纳蓝图：逐项结果 + 汇总；publish=true 走 declarative 分级发布。
 
-    权限：仅 run 创建者或 tenant_admin（platform_admin 直通）；跨租户 404。
+    权限：仅 run 创建者或 yard_admin（platform_admin 直通）；跨小院 404。
     """
-    run = _get_run(db, ctx.tenant_id, run_id)
-    is_admin = bool({"tenant_admin", "platform_admin"} & set(user.roles))
+    run = _get_run(db, ctx.yard_id, run_id)
+    is_admin = bool({"yard_admin", "yard_owner", "platform_admin"} & set(user.roles))
     if run.created_by != user.user_id and not is_admin:
         raise AppError(
-            "FORBIDDEN", "只有该工厂运行的创建者或租户管理员可以采纳蓝图。", http_status=403
+            "FORBIDDEN", "只有该工厂运行的创建者或小院管理员可以采纳蓝图。", http_status=403
         )
     if run.status != STATUS_COMPLETED:
         raise AppError(
@@ -287,12 +287,12 @@ def apply_run(
         entry["agent_id"] = item.get("agent_id")
         try:
             agent = declarative.get_agent(
-                db, tenant_id=ctx.tenant_id, agent_id=str(item.get("agent_id") or "")
+                db, yard_id=ctx.yard_id, agent_id=str(item.get("agent_id") or "")
             )
             if payload.publish:
                 agent = declarative.publish_agent(
                     db,
-                    tenant_id=ctx.tenant_id,
+                    yard_id=ctx.yard_id,
                     actor_id=user.user_id,
                     agent_id=agent.id,
                     roles=list(user.roles),
@@ -317,7 +317,7 @@ def apply_run(
         run.approved_by = user.user_id
     log_audit(
         db,
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         actor_id=user.user_id,
         action="factory_apply",
         resource_type="factory_run",
@@ -341,7 +341,7 @@ def apply_run(
         try:
             team = teams_service.create_team(
                 db,
-                tenant_id=ctx.tenant_id,
+                yard_id=ctx.yard_id,
                 actor_id=user.user_id,
                 name=payload.as_team.name,
                 members=members,

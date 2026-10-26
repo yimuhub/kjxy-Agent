@@ -1,9 +1,13 @@
 """聚合全部 ORM 模型，供 Alembic env.py 与测试建表使用。
 
 新增模块模型后，在此追加 import 即可。
+
+这里必须聚合**全部**建表模块：漏掉一个，Alembic 就会把库里那张表看成"模型没有的表"，
+下一次 --autogenerate 会生成 drop_table（供应商/MCP/插件/工坊/配额都曾漏过）。
 """
 
-from app.modules.agents.models import TenantAgent  # noqa: F401
+from app.modules.agents.factory_models import FactoryRun  # noqa: F401
+from app.modules.agents.models import YardAgent  # noqa: F401
 from app.modules.agents.run_steps import AgentRunStep  # noqa: F401
 from app.modules.agents.teams.models import AgentTeam, TeamRun, TeamRunMember  # noqa: F401
 from app.modules.audit.models import AuditLog  # noqa: F401
@@ -13,7 +17,12 @@ from app.modules.bots.models import (  # noqa: F401
     BotConversation,
     BotMessageLog,
 )
-from app.modules.chat.models import ChatMessage, ChatSession  # noqa: F401
+from app.modules.chat.models import (  # noqa: F401
+    ChatAttachment,
+    ChatMessage,
+    ChatParticipant,
+    ChatSession,
+)
 from app.modules.devices.models import (  # noqa: F401
     Device,
     DeviceAlert,
@@ -29,9 +38,21 @@ from app.modules.evolution.models import (  # noqa: F401
 )
 from app.modules.knowledge.models import KnowledgeChunk, KnowledgeDocument  # noqa: F401
 from app.modules.llm.models import LLMCall, LLMTrace  # noqa: F401
+from app.modules.llm.supplier_models import Supplier, YardActiveSupplier  # noqa: F401
+from app.modules.market.models import MarketItem  # noqa: F401
+from app.modules.mcp.models import McpServer  # noqa: F401
 from app.modules.pairing.models import PairCode, PairDevice  # noqa: F401
+from app.modules.plugins.models import PluginManifest  # noqa: F401
 from app.modules.policy.models import Policy, PolicyApplication  # noqa: F401
 from app.modules.push.models import PushChannel  # noqa: F401
 from app.modules.tasks.models import Task, TaskEvent  # noqa: F401
-from app.modules.tenants.models import Tenant, TenantMembership  # noqa: F401
 from app.modules.tools.models import ToolApproval, ToolDefinition  # noqa: F401
+from app.modules.yards.models import (  # noqa: F401
+    Yard,
+    YardJoinRequest,
+    YardMemberGrant,
+    YardMembership,
+    YardRole,
+    YardSettings,
+)
+from app.modules.yards.quota import YardQuota  # noqa: F401

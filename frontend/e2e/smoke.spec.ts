@@ -4,7 +4,7 @@ import { login } from './helpers'
 test.describe('认证与导航', () => {
   test('错误密码给出中文提示且停留在登录页', async ({ page }) => {
     await page.goto('/login')
-    await page.locator('input[autocomplete="username"]').fill('tenant_admin')
+    await page.locator('input[autocomplete="username"]').fill('yard_admin')
     await page.locator('input[autocomplete="current-password"]').fill('wrong-password')
     await page.getByRole('button', { name: '登录', exact: true }).click()
 
@@ -12,14 +12,17 @@ test.describe('认证与导航', () => {
     await expect(page).toHaveURL(/\/login/)
   })
 
-  test('登录后导航收敛为 9 个一级入口，二级菜单可跳转', async ({ page }) => {
+  test('登录后导航收敛为 11 个一级入口，二级菜单可跳转', async ({ page }) => {
     await login(page)
     await expect(page).toHaveTitle('概览 · 阗策 · 科技小院')
 
     const topLevel = page.locator(
       '#main-nav > .el-menu > .el-menu-item-group > ul > li',
     )
-    await expect(topLevel).toHaveCount(9)
+    await expect(topLevel).toHaveCount(11)
+
+    // 自我升级（/evolution）必须是一级可见入口，不能只藏在折叠菜单里
+    await expect(page.getByRole('menuitem', { name: '自我升级' })).toBeVisible()
 
     await page.getByRole('menuitem', { name: '能力中心' }).click()
     await page.getByRole('menuitem', { name: '专业助手' }).click()
@@ -30,6 +33,17 @@ test.describe('认证与导航', () => {
     await expect(
       page.locator('.el-menu-item.is-active'),
     ).toContainText('专业助手')
+  })
+
+  test('「我的智能体」可从左侧菜单进入且不弹网络错误', async ({ page }) => {
+    await login(page)
+    await page.getByRole('menuitem', { name: '能力中心' }).click()
+    await page.getByRole('menuitem', { name: '我的智能体' }).click()
+
+    await expect(page).toHaveURL(/\/agents\/custom$/)
+    await expect(page.getByRole('heading', { name: '我的智能体' })).toBeVisible()
+    // 接口失败时统一错误 toast 会出现；页面首屏加载不得报「网络连接失败」
+    await expect(page.locator('.el-message--error')).toHaveCount(0)
   })
 
   test('未知路径显示站内 404 并可返回概览', async ({ page }) => {
@@ -57,6 +71,7 @@ test.describe('认证与导航', () => {
       '/tasks',
       '/review',
       '/agents',
+      '/agents/custom',
       '/teams',
       '/market',
       '/agents/factory',
@@ -64,9 +79,11 @@ test.describe('认证与导航', () => {
       '/policies',
       '/evolution',
       '/quota',
+      '/library',
       '/members',
       '/settings',
       '/bots',
+      '/profile',
     ]
     for (const path of routes) {
       await page.goto(path)
@@ -80,24 +97,24 @@ test.describe('认证与导航', () => {
 })
 
 test.describe('成员邀请闭环', () => {
-  test('注册空间 → 生成邀请链接 → 新成员加入 → 链接不可复用', async ({
+  test('注册小院 → 生成邀请链接 → 新成员加入 → 链接不可复用', async ({
     page,
     browser,
   }) => {
     const suffix = Date.now().toString(36)
-    const tenantName = `E2E 空间 ${suffix}`
+    const yardName = `E2E 小院 ${suffix}`
     const adminUser = `e2e_${suffix}`
     const password = 'e2ePass123'
 
     await page.goto('/signup')
-    await page.getByPlaceholder('如：阳光生态农场').fill(tenantName)
+    await page.getByPlaceholder('如：阳光生态农场').fill(yardName)
     await page.getByPlaceholder('3-32 位字母、数字或下划线').fill(adminUser)
     await page.getByPlaceholder('至少 6 位').fill(password)
     await page.getByPlaceholder('请再次输入密码').fill(password)
     await page.getByRole('button', { name: '注册并进入' }).click()
 
     await expect(page).toHaveURL(/\/$/)
-    await expect(page.locator('.el-breadcrumb')).toContainText(tenantName)
+    await expect(page.locator('.el-breadcrumb')).toContainText(yardName)
 
     await page.goto('/members')
     await expect(page.locator('.el-table')).toContainText(adminUser)
@@ -118,7 +135,7 @@ test.describe('成员邀请闭环', () => {
     const invitee = await browser.newContext()
     const inviteePage = await invitee.newPage()
     await inviteePage.goto(inviteUrl)
-    await expect(inviteePage.locator('.el-alert')).toContainText(tenantName)
+    await expect(inviteePage.locator('.el-alert')).toContainText(yardName)
     await inviteePage
       .getByPlaceholder('3-32 位字母、数字或下划线')
       .fill(`join_${suffix}`)
@@ -127,7 +144,7 @@ test.describe('成员邀请闭环', () => {
     await inviteePage.getByRole('button', { name: '接受邀请并进入' }).click()
 
     await expect(inviteePage).toHaveURL(/\/$/)
-    await expect(inviteePage.locator('.el-breadcrumb')).toContainText(tenantName)
+    await expect(inviteePage.locator('.el-breadcrumb')).toContainText(yardName)
     await invitee.close()
 
     const reused = await browser.newContext()
@@ -135,5 +152,37 @@ test.describe('成员邀请闭环', () => {
     await reusedPage.goto(inviteUrl)
     await expect(reusedPage.getByText('邀请链接不可用')).toBeVisible()
     await reused.close()
+  })
+})
+
+test.describe('负责人驾驶舱与插件库', () => {
+  test('负责人可看到驾驶舱与插件/技能库，管理员不可进驾驶舱', async ({ page }) => {
+    const errors: string[] = []
+    page.on('console', msg => {
+      if (msg.type() === 'error') errors.push(msg.text())
+    })
+    page.on('pageerror', err => errors.push(err.message))
+
+    await login(page, 'admin', 'admin123')
+    await page.goto('/owner')
+    await expect(page.getByRole('heading', { name: '小院负责人驾驶舱' })).toBeVisible()
+    await expect(page.getByText('403 无权限访问')).toHaveCount(0)
+
+    await page.goto('/library')
+    await expect(page.getByRole('heading', { name: '插件与技能库' })).toBeVisible()
+    // 内置农业技能离线可检索（不依赖外网）
+    await expect(page.locator('.lib-card').first()).toBeVisible({ timeout: 15_000 })
+
+    await page.goto('/profile')
+    await expect(page.getByRole('heading', { name: '个人资料' })).toBeVisible()
+
+    expect(errors).toEqual([])
+  })
+
+  test('小院管理员访问驾驶舱被拦截', async ({ page }) => {
+    await login(page)
+    await page.goto('/owner')
+    // 路由守卫按角色拦截：停留在无权限页或回退到概览
+    await expect(page.getByRole('heading', { name: '小院负责人驾驶舱' })).toHaveCount(0)
   })
 })

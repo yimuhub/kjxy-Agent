@@ -4,8 +4,33 @@
       Agent 市场
     </h2>
     <p class="sub">
-      平台精选农业科技助手，一键装载到本租户。
+      平台精选农业科技助手，一键装载到本小院。
     </p>
+
+    <!-- 插件/技能库入口：Agent 市场保持独立，这里只做导流 -->
+    <el-card
+      class="library-entry"
+      shadow="never"
+    >
+      <div class="library-entry-body">
+        <div>
+          <div class="library-entry-title">
+            找插件与技能？
+          </div>
+          <div class="library-entry-desc">
+            内置技能、GitHub 与本地导入均可在插件与技能库中检索，安装后按风险进入专家审核。
+          </div>
+        </div>
+        <el-button
+          type="primary"
+          plain
+          aria-label="去插件与技能库"
+          @click="goLibrary"
+        >
+          去插件与技能库
+        </el-button>
+      </div>
+    </el-card>
 
     <!-- 筛选区：搜索 + 分类 + 全选未装 -->
     <el-card class="filter-card" shadow="never">
@@ -195,6 +220,10 @@
     })
   })
 
+  function goLibrary() {
+    router.push('/library')
+  }
+
   /** 当前筛选结果里未装载的助手（供「全选未装」） */
   const uninstalledInView = computed(() => filtered.value.filter(a => !a.installed))
 
@@ -275,6 +304,27 @@
   }
   .filter-card {
     margin-bottom: 16px;
+  }
+  .library-entry {
+    margin-bottom: 16px;
+  }
+  .library-entry-body {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .library-entry-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ds-text-1);
+  }
+  .library-entry-desc {
+    margin-top: 4px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--ds-text-2);
   }
   .filter-bar {
     display: flex;

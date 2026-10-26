@@ -16,7 +16,7 @@ import type { ApiResponse } from '@/types/api'
  *   - target=auto：走 supervisor 三级路由；assistant_message.choice = {kind,code?,name}、routed_by、reason
  *   - target=agent/team：直跑指定对象；routed_by='manual'
  *   - 执行失败：assistant_message.content = 中文错误说明，routed_by='error'（会话不死，可继续问）
- * - 全部登录可用（成员级），跨租户/跨用户会话一律 404
+ * - 全部登录可用（成员级），跨小院/跨用户会话一律 404
  *
  * ---------- 附件与流式（v1.8） ----------
  *
@@ -25,6 +25,18 @@ import type { ApiResponse } from '@/types/api'
  * - `DELETE /api/v1/chat/sessions/{id}/attachments/{aid}` → ok 包
  * - `POST /api/v1/chat/sessions/{id}/messages` body `{content, attachment_ids?}` → 同步一问一答（流式不可用时的兜底）
  * - `POST /api/v1/chat/sessions/{id}/messages/stream`（SSE）→ 过程步骤 + 最终回答
+ *
+ * ---------- 点名 / 多助手群聊 / 徽章下发（v2.0，后端并行开发中） ----------
+ *
+ * - 发送请求体新增两个可选字段：`target_code`（@ 点名对象，可传 id/code/展示名）、
+ *   `policy`（群聊本轮策略 all|named|auto）；**都不传 = 现有单聊三级路由，行为不变**。
+ * - `GET  /api/v1/chat/mention-candidates`
+ *      → `{data:{items:[{kind,id,code,name,display_name,visibility,emoji,blurb}]}}`
+ *      （private 助手的 display_name 由后端派生成「原名（用户名私有）」，前端不再拼）
+ * - `GET  /api/v1/chat/sessions/{id}/participants` → `{data:{items|list:[参与者]}}`（也可能裸数组）
+ * - `PUT  /api/v1/chat/sessions/{id}/participants` body `{agent_ids:[...]}` 有序整表覆盖（1..8 位，超出后端报错）
+ * - SSE 新增一帧 `member_event`：`{turn_id, member_index, role_name, agent_id, status, error_text}`
+ * - assistant 消息出参新增 `routed_label` / `routed_tone`（后端受控词表；老数据没有这两个字段时前端兜底）
  *
  * ----------------------------------------------------------------------
  * 约定：axios baseURL 已含 /api/v1（见 client.ts），本模块路径省略该前缀。
@@ -36,17 +48,127 @@ export type ChatTarget = 'auto' | 'agent' | 'team'
 /** 路由来源（诚实标记口径）：规则命中 / 智能分类 / 频率兜底 / 手动指定 / 对话直办 / 执行失败 */
 export type ChatRoutedBy = 'rules' | 'llm' | 'fallback' | 'manual' | 'local' | 'error'
 
+/**
+ * 徽章色调白名单：与后端 routed_tone 受控词表对齐，同时正好是 el-tag 的合法 type。
+ * 白名单而非映射表：新值一律落 'info'，避免未知色调把消息渲染打断。
+ */
+export type RoutedTone = 'success' | 'primary' | 'warning' | 'info' | 'danger'
+const ROUTED_TONES: readonly RoutedTone[] = ['success', 'primary', 'warning', 'info', 'danger']
+
+/** routed_tone 收敛为合法 el-tag type；未知/缺失走 info（v1.8.0 徽章崩溃的根治点之一） */
+export function normalizeRoutedTone(tone?: string | null): RoutedTone {
+  return ROUTED_TONES.includes(tone as RoutedTone) ? (tone as RoutedTone) : 'info'
+}
+
+/** 群聊本轮应答策略：全员答 / 点名答 / 自愿答（named 必须带 target_code） */
+export type ChatGroupPolicy = 'all' | 'named' | 'auto'
+
+/** 点名候选对象类型：已发布助手 / 班组 */
+export type MentionKind = 'agent' | 'team'
+
+/** @ 点名候选（后端已派生 display_name 与可见性，前端不再加工） */
+export interface MentionCandidate {
+  kind: MentionKind
+  id: string
+  code?: string | null
+  name?: string | null
+  display_name?: string | null
+  visibility?: string | null
+  emoji?: string | null
+  blurb?: string | null
+}
+
+/** 点名候选列表响应：{items}（容忍后端改用 list 键或裸数组） */
+export interface MentionCandidateList {
+  items?: MentionCandidate[]
+  list?: MentionCandidate[]
+}
+
+/** 会话群聊参与者（GET/PUT participants 出参） */
+export interface ChatParticipant {
+  id?: string
+  session_id?: string
+  agent_id?: string
+  agent_code?: string | null
+  agent_name?: string | null
+  position?: number | null
+}
+
+/** 参与者列表响应：包 items / 包 list / 裸数组三种形状都可能 */
+export type ParticipantListPayload =
+  | { items?: ChatParticipant[]; list?: ChatParticipant[] }
+  | ChatParticipant[]
+
+/** 成员事件三态（未知取值收敛为 unknown，界面走兜底分支） */
+export type MemberEventStatus = 'running' | 'done' | 'error' | 'unknown'
+
+/** member_event 帧载荷 */
+export interface ChatMemberEvent {
+  turn_id?: string | null
+  member_index?: number | string | null
+  role_name?: string | null
+  agent_id?: string | null
+  status?: string | null
+  error_text?: string | null
+}
+
+/**
+ * 后端 MEMBER_RUNNING / MEMBER_DONE / MEMBER_ERROR 等取值 → 前端三态词表。
+ * 只认这三态，其余一律 unknown，不崩。
+ */
+const MEMBER_STATUS_WORDS: Record<string, MemberEventStatus> = {
+  running: 'running',
+  started: 'running',
+  pending: 'running',
+  done: 'done',
+  completed: 'done',
+  finished: 'done',
+  ok: 'done',
+  success: 'done',
+  error: 'error',
+  failed: 'error',
+  failure: 'error',
+}
+
+/** 去掉 MEMBER_ 前缀与分隔符后查三态词表 */
+export function normalizeMemberStatus(raw?: string | null): MemberEventStatus {
+  const key = String(raw ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/^member[_-]?/, '')
+  return MEMBER_STATUS_WORDS[key] ?? 'unknown'
+}
+
 /** 消息执行状态：正常 / 失败 / 被中止 */
 export type ChatMessageStatus = 'ok' | 'failed' | 'aborted'
+
+/** 单条消息或会话的 Token 消耗统计 */
+export interface ChatTokenUsage {
+  input_tokens: number
+  output_tokens: number
+  total_tokens: number
+  model?: string | null
+  latency_ms?: number | null
+  estimated?: boolean
+}
 
 /** 会话对象（列表项与创建/改名返回同构） */
 export interface ChatSession {
   id: string
   title: string
-  target: ChatTarget
+  /** 会话固定执行对象：auto=自动路由，agent=锁定某助手，team=班组（见后端 0028） */
+  target?: ChatTarget
   target_code?: string | null
+  /** target=agent 时后端解析出的助手展示名 */
+  target_name?: string | null
+  /** 群聊成员数（>0 即群聊；与 target 取值正交） */
+  participant_count?: number
   updated_at: string
   last_excerpt?: string | null
+  message_count?: number
+  input_tokens?: number
+  output_tokens?: number
+  total_tokens?: number
 }
 
 /** 会话列表响应体：{items}，新→旧 */
@@ -78,6 +200,10 @@ export interface ChatAttachment {
   status: ChatAttachmentStatus
   chars: number
   error?: string | null
+  /** 生成文档的格式（md/docx/xlsx/pptx/pdf）；上传附件为空 */
+  doc_format?: string | null
+  /** 是否由对话生成（可在线预览） */
+  generated?: boolean
   created_at?: string
 }
 
@@ -150,8 +276,22 @@ export interface ChatMarketCard {
   actions: ChatCardAction[]
 }
 
+/** 文档卡片（对话内生成 Word/Excel/PPT/PDF/Markdown） */
+export interface ChatDocumentCard {
+  type: 'document'
+  attachment_id: string
+  session_id: string
+  filename: string
+  /** md | docx | xlsx | pptx | pdf */
+  format: string
+  mime: string
+  size_bytes: number
+  previewable: boolean
+  actions: ChatCardAction[]
+}
+
 /** 结构化载荷（助手消息的 payload 字段） */
-export type ChatCard = ChatCapabilityCard | ChatMarketCard
+export type ChatCard = ChatCapabilityCard | ChatMarketCard | ChatDocumentCard
 
 /** 消息对象；choice/routed_by/reason 仅助手消息携带 */
 export interface ChatMessage {
@@ -162,11 +302,16 @@ export interface ChatMessage {
   status?: ChatMessageStatus
   choice?: ChatChoice | null
   routed_by?: ChatRoutedBy | null
+  /** 后端受控词表下发的徽章文案（v2.0 起优先于本地映射表） */
+  routed_label?: string | null
+  /** 后端受控词表下发的徽章色调；未知值由 normalizeRoutedTone 收敛 */
+  routed_tone?: string | null
   reason?: string | null
   error_code?: string | null
   payload?: ChatCard | null
   steps?: ChatStep[] | null
   attachments?: ChatAttachmentRef[] | null
+  token_usage?: ChatTokenUsage | null
   created_at?: string
 }
 
@@ -188,9 +333,75 @@ export interface CreateSessionPayload {
   target_code?: string
 }
 
+/**
+ * 发送消息入参扩展（v2.0）：两个字段都可缺省。
+ * 缺省时请求体不出现任何新键，后端按现有单聊三级路由处理，行为完全不变。
+ */
+export interface SendMessageExtras {
+  /** @ 点名的助手：可传 id/code/展示名；named 策略必填 */
+  target_code?: string | null
+  /** 群聊本轮应答策略：不传 = 单聊三级路由 */
+  policy?: ChatGroupPolicy | null
+}
+
+/** SSE 帧名：与后端协议保持一致，集中一处便于改 */
+export const CHAT_SSE_EVENTS = {
+  init: 'chat-init',
+  step: 'step',
+  card: 'card',
+  message: 'message',
+  error: 'error',
+  /** 群聊成员事件帧（v2.0 新增） */
+  memberEvent: 'member_event',
+  end: 'chat-end',
+} as const
+
+/** @ 候选端点路径（后端为集合资源，不挂在会话下） */
+export const MENTION_CANDIDATES_PATH = '/chat/mention-candidates'
+
+/** 群聊成员条上限（与后端一致：1..8，超出后端报错，前端也先拦住） */
+export const MAX_GROUP_MEMBERS = 8
+
+/** target_code 取值优先级：code > id > display_name/name（契约说这三种后端都认） */
+export function mentionTargetCode(c?: MentionCandidate | null): string {
+  return c?.code || c?.id || c?.display_name || c?.name || ''
+}
+
+/** 展示名：优先用后端派生好的 display_name（private 助手已带「（xx私有）」后缀） */
+export function mentionDisplayName(c?: MentionCandidate | null): string {
+  return c?.display_name || c?.name || c?.code || c?.id || ''
+}
+
 /** 解包成功信封 {data, request_id} -> data */
 function unwrap<T>(promise: Promise<AxiosResponse<ApiResponse<T>>>): Promise<T> {
   return promise.then(res => res.data.data)
+}
+
+/**
+ * 列表载荷形状收敛：后端可能包一层 items / list，也可能直接返回裸数组。
+ * 只在这一处兼容，接口上线后若有出入只改这里。
+ */
+function pickRows<T>(payload: unknown): T[] {
+  if (Array.isArray(payload)) return payload as T[]
+  if (payload && typeof payload === 'object') {
+    const obj = payload as Record<string, unknown>
+    for (const key of ['items', 'list']) {
+      if (Array.isArray(obj[key])) return obj[key] as T[]
+    }
+  }
+  return []
+}
+
+/** 发送请求体构造：单聊（不传新字段）与群聊/点名共用一条通路 */
+export function buildSendBody(
+  content: string,
+  attachmentIds: string[] = [],
+  extras: SendMessageExtras = {},
+): Record<string, unknown> {
+  const body: Record<string, unknown> = { content, attachment_ids: attachmentIds }
+  if (extras.target_code) body.target_code = extras.target_code
+  if (extras.policy) body.policy = extras.policy
+  return body
 }
 
 /** 发送失败由页面做「撤回气泡+保留草稿」处理，屏蔽全局重复 toast */
@@ -216,11 +427,16 @@ export const chatApi = {
     return unwrap(api.get<ApiResponse<ChatMessageList>>(`/chat/sessions/${id}/messages`))
   },
   /** 发送消息：同步等待，返回一问一答；执行失败也返回 200 + routed_by='error' */
-  sendMessage(id: string, content: string, attachmentIds: string[] = []): Promise<ChatSendResult> {
+  sendMessage(
+    id: string,
+    content: string,
+    attachmentIds: string[] = [],
+    extras: SendMessageExtras = {},
+  ): Promise<ChatSendResult> {
     return unwrap(
       api.post<ApiResponse<ChatSendResult>>(
         `/chat/sessions/${id}/messages`,
-        { content, attachment_ids: attachmentIds },
+        buildSendBody(content, attachmentIds, extras),
         silentCfg,
       ),
     )
@@ -246,8 +462,76 @@ export const chatApi = {
       .delete<ApiResponse<null>>(`/chat/sessions/${id}/attachments/${attachmentId}`, silentCfg)
       .then(() => undefined)
   },
+  /** 生成文档（DocModel → md/docx/xlsx/pptx/pdf），返回文档卡片与预览/下载地址 */
+  createDocument(
+    sessionId: string,
+    format: string,
+    model: Record<string, unknown>,
+  ): Promise<ChatDocumentCard> {
+    return unwrap(
+      api.post<ApiResponse<ChatDocumentCard>>(
+        `/chat/sessions/${sessionId}/documents`,
+        { format, model },
+        silentCfg,
+      ),
+    )
+  },
+  /** 在线预览（后端返回自包含 HTML；前端交给无脚本沙箱 iframe 的 srcdoc 渲染） */
+  async previewDocument(sessionId: string, attachmentId: string): Promise<string> {
+    const res = await api.get<string>(
+      `/chat/sessions/${sessionId}/attachments/${attachmentId}/preview`,
+      { ...silentCfg, responseType: 'text' },
+    )
+    return typeof res.data === 'string' ? res.data : String(res.data)
+  },
+  /** 下载原文件（带登录态，越权 404） */
+  async downloadDocument(sessionId: string, attachmentId: string): Promise<Blob> {
+    const res = await api.get<Blob>(
+      `/chat/sessions/${sessionId}/attachments/${attachmentId}/download`,
+      { ...silentCfg, responseType: 'blob' },
+    )
+    return res.data
+  },
   /** 流式发送的完整地址（fetch/SSE 用） */
   streamUrl(id: string): string {
     return apiUrl(`/chat/sessions/${id}/messages/stream`)
+  },
+  /**
+   * @ 点名候选：本小院可见的已发布助手 + 班组。
+   * 后端尚未上线：任何失败都只让候选为空（输入区不崩、不弹 toast）。
+   */
+  async mentionCandidates(): Promise<MentionCandidate[]> {
+    try {
+      const res = await api.get<ApiResponse<MentionCandidateList>>(
+        MENTION_CANDIDATES_PATH,
+        silentCfg,
+      )
+      return pickRows<MentionCandidate>(res.data.data)
+    } catch {
+      /* 端点不可用时只让候选为空：输入区不崩、不弹 toast */
+      return []
+    }
+  },
+  /** 会话群聊成员（按 position 排序；升序由后端保证，前端再排一次防乱序） */
+  async listParticipants(sessionId: string): Promise<ChatParticipant[]> {
+    const payload = await unwrap<ParticipantListPayload>(
+      api.get<ApiResponse<ParticipantListPayload>>(
+        `/chat/sessions/${sessionId}/participants`,
+        silentCfg,
+      ),
+    )
+    return pickRows<ChatParticipant>(payload).sort(
+      (a, b) => (a.position ?? 0) - (b.position ?? 0),
+    )
+  },
+  /** 成员整表覆盖：有序 agent_ids（1..8 位），超出后端报错并走 toast */
+  saveParticipants(sessionId: string, agentIds: string[]): Promise<ChatParticipant[]> {
+    return unwrap<ParticipantListPayload>(
+      api.put<ApiResponse<ParticipantListPayload>>(
+        `/chat/sessions/${sessionId}/participants`,
+        { agent_ids: agentIds },
+        silentCfg,
+      ),
+    ).then(payload => pickRows<ChatParticipant>(payload))
   },
 }

@@ -638,3 +638,151 @@ contract:  contracts/openapi.yaml → 132 paths，新增邀请/批量成员接�
   折叠回看、能力卡片发布（状态 → 已发布）、市场卡片（待选择 / 已装载）均正常，
   控制台无异常。
 - `contracts/openapi.yaml` 重新生成（135 paths）。
+
+---
+
+## 13. 小院助手与群聊（2026-10-26，v2.0.0）
+
+按 `docs/plan-yard-assistants-v1.9.md` 的四个拍板决策落地：D1 改名**含标识符全改**、
+D2 本轮**四波全做（含群聊）**、D3 重名**自动加 -2/-3 后缀**、D4 **每波完成后 bump**
+（终点 2.0.0）。
+
+### 13.1 分波状态
+
+| 波次 | 内容 | 状态 |
+|---|---|---|
+| W1 小院化 | tenant→yard 全量改名（迁移 0022 + JWT 双读 + 登录体别名 + 在途任务兜底的兼容窗口）；助手名称唯一（迁移 0023、409 `DUPLICATE_NAME`、复用/复制/重命名、存量重名 -2/-3 清洗、对话内生成撞名自动后缀） | ✅ |
+| W2 助手能力 | public/private 可见性 + 私有展示名派生「（用户名+私有）」（迁移 0024）；每助手独立绑大模型（`supplier_id` 接通运行时）+ 技能多选；卡片/列表切换 + 首图上传与带登录态取图（迁移 0026）；成员自建助手（强制 private） | ✅ |
+| W3 对话体验 | `ChatPanel` 组件化 + chat store 可实例化（弹窗/主对话状态隔离）；@ 点名（`/chat/mention-candidates` + `target_code` 定向 + 后端下发徽章文案兜底）；「试跑」→「使用」弹出式对话 | ✅ |
+| W4 群聊 | `chat_participants` 成员模型（迁移 0025）+ `all`/`named`/`auto` 应答策略 + `member_event` 并行应答 + 成本护栏 + 名单按请求者可见性校验（私有助手仅创建者可拉入） | ✅ |
+
+### 13.2 本轮修复的缺陷
+
+- **对话内生成能力被名称唯一「误伤」**：重复 e2e 运行残留同名助手后，
+  `generate_capability` 直接抛 `DUPLICATE_NAME` 让流式对话硬报错；已按 D3 口径
+  改为自动加「-2」「-3」…后缀落草稿，卡片注明调整（回归用例
+  `test_capability_duplicate_name_auto_suffixes`）。
+- **mention 路由挂载缺失**：`chat/mention_router` 此前只 import 未
+  `include_router`，`/chat/mention-candidates` 404；已补挂载。
+- **群聊名单与 @ 点名可见性口径不一致**：名单校验原先不看请求者身份，导致
+  「自己的私有助手拉不进群聊 / 别人的私有助手能拉进来」；已统一为
+  `supervisor.list_candidates(user_id=...)` 口径（#33，两向回归用例）。
+
+### 13.3 验收证据
+
+- 后端 `855 passed`；Ruff / Ruff format / mypy（225 文件）全绿。
+- 前端 ESLint 0 error、`vue-tsc`、`vite build` 通过；Playwright 10 passed
+  （串行，含「弹窗与主对话状态互不污染」2 条新旅程）。
+- `contracts/openapi.yaml` 重新生成（141 paths）；新增 17 个错误码登记
+  `contracts/error-codes.md`。
+- 版本号对齐 `2.0.0`（`pyproject.toml`、Tauri `tauri.conf.json`、`Cargo.toml`、
+  桌面端 `package.json`、`uv.lock`）。
+
+### 13.4 战略项状态（§11.6 延续）
+
+v2.0 未新增延后项；既有待办不变：可观测性与评测、长任务引擎（P1-13）、
+Agent 互操作、企业身份、商业化、桌面端签名 Secrets 对齐（发布前必须确认）。
+
+---
+
+## 14. 对话文档生成与体验收口（2026-10-27，v2.1.0）
+
+### 14.1 文档生成（P0 + P1 一次交付）
+
+- **统一模型**：`backend/app/modules/docs/model.py` 的 `DocModel` 是所有格式与在线
+  预览的唯一事实源；块类型 7 种，标题/块数/表格/总文本均有护栏
+  （`DOC_MODEL_INVALID` / `DOC_TOO_LARGE`）。
+- **五种写出器**：md / docx（python-docx）/ xlsx（openpyxl）/ pptx（python-pptx）/
+  pdf（reportlab + STSong-Light）。依赖仅 MIT 与 BSD-3；GPL/AGPL 项目（pandoc、
+  LibreOffice、PyMuPDF、borb）未引入，商业分发无传染风险。
+- **对话接入**：`INTENT_DOC`（产出动词 + 文档名词，疑问句降级；能力名词优先）→
+  `chat/document.py` 让模型拟 DocModel（失败确定性兜底）→ 落 `chat_attachments`
+  （0029）→ 卡片 `type=document`。Token 计入消息级统计。
+- **预览/下载**：预览由 DocModel 渲染自包含 HTML（全量转义、无脚本、CSP sandbox），
+  前端装 `sandbox=""` iframe；下载走鉴权端点，跨用户/跨会话统一 404
+  （`DOC_NOT_FOUND`），中文文件名 RFC 5987 编码。
+- **能力边界**：上传附件无 DocModel 快照 → 415 `DOC_PREVIEW_UNSUPPORTED`；
+  生成文件沿用 `upload_max_mb` 体积上限。
+
+### 14.2 体验修复（本轮用户反馈）
+
+| 问题 | 根因 | 修复 |
+|---|---|---|
+| tooltip 深底深字 | EP 暗色 popper `color: var(--el-bg-color)` 被桥接成深色 | `design-system.css` 显式 `color: var(--ds-text-1)` |
+| 会话列表无类型标识 | 只有标题与时间 | `target/target_code/participant_count` + 左列徽章（群聊 N/助手/班组/对话） |
+| 消息不能复制 | 无入口 | 用户与助手消息各带复制按钮（Clipboard API + 回退） |
+| 会话列表变竖条 | 徽章 `chat` 类名撞页面根 `.chat` 的高度/布局规则 | 色调类改 `s-kind--*`，条目高度恢复 64px |
+| 「自我升级」菜单消失 | DIY 菜单改名+下沉、本地布局固化旧结构 | 恢复一级菜单；存储键 `v4`；归一化同步标题/图标 |
+| 专业助手页冗余 | 「小院助手」与「我的智能体」功能重复 | 移除该分区与创建/编辑弹窗，仅留 4 位专业助手与审核队列 |
+| 我的智能体网络错误 | vite 退出 + 后端旧进程 404 + 开发库缺列 500 | 重启服务、执行迁移；用量接口失败不阻塞页面 |
+
+### 14.3 验收证据
+
+- 后端 `885 passed`；Ruff / Ruff format / mypy（235 文件）全绿；新增
+  `tests/unit/test_docs_renderers.py`、`tests/integration/test_chat_documents.py`。
+- 前端 ESLint 0 error、`vue-tsc`、`vite build` 通过；Playwright 12 passed
+  （串行，新增「生成 Word → 卡片 → 预览 → 下载」）。
+- `contracts/openapi.yaml` 146 paths；`contracts/error-codes.md` 新增 `DOC_*` 6 个。
+- 版本号对齐 `2.1.0`（`pyproject.toml`、Tauri `tauri.conf.json`、`Cargo.toml`、
+  桌面端 `package.json`、`uv.lock`）；迁移 `0029` 已在开发库应用。
+
+### 14.4 战略项状态
+
+未新增延后项；§13.4 的待办保持：可观测性与评测、长任务引擎、Agent 互操作、
+企业身份、商业化、桌面端签名 Secrets 对齐（发布前必须确认）。
+
+## 15. 联网、市场与身份权限（2026-10-27，v3.0.0）
+
+原计划分两波（2.2.0 联网+市场、3.0.0 身份+驾驶舱），本轮一次性交付并合并为
+**3.0.0**。方案与取舍见 `docs/plan-v3.0-search-market-rbac.md`。
+
+### 15.1 交付范围
+
+| 域 | 结果 |
+|---|---|
+| 联网搜索 | SearXNG / Tavily / Brave 三供应商 + 降级 + 配额 + 缓存；`web.search` / `web.fetch` 工具；`/search/status`、`/search/test` |
+| 出网安全 | 严格公网校验、逐跳重定向复验、Content-Type 白名单、2MB 流式上限（`WEB_FETCH_BLOCKED`） |
+| 市场/技能库 | 12 个内置农业技能（MIT 改写）、GitHub 检索与预览、本地 Skill/插件导入、安装状态机、已安装列表 |
+| 身份 RBAC | `yard_owner` 负责人 + 6 个系统角色、DB 角色覆盖、逐人敏感授权、保护型权限、自定义角色 |
+| 成员/注册 | 建号/挂接/编辑/停用/软删/重置密码、脱敏、三模式注册与审核、个人中心、首登改密 |
+| 负责人驾驶舱 | 总览、按人/按日/按 Agent 用量、会话审计（强制原因 + 审计）、授权矩阵、负责人转让 |
+| 前端 | 插件与技能库、负责人驾驶舱、个人资料、成员/设置重写、注册页「加入小院」、离线提示 |
+
+### 15.2 安全审查与修复（本轮自查）
+
+| 问题 | 风险 | 处置 |
+|---|---|---|
+| 导入文件 `builtin/verified` 标记直接发布 | 任意导入者绕过专家审核投放提示词 | 移除信任，导入一律 `pending_review`；测试改为断言「标记被忽略」 |
+| 管理员可删除同为管理员的成员 | 与「只有负责人可管理管理员」冲突 | `remove_member` 增加角色层级校验（403） |
+| 改角色只增 `authz_version` 但无消费方 | 降权后旧 JWT 仍可访问 `require_roles` 旧端点 | 改角色/负责人转让递增 `token_version`，旧 access token 立即失效并由前端静默刷新 |
+| 注册拒绝无条件停用账号 | 可被 A 院管理员用来踢掉 B 院成员（跨院 DoS） | 仅当无其他 active 小院成员关系时才停用 |
+| zip 先整包解压再查 5MB | 压缩炸弹可瞬间占满内存 | 改为分块流式读取，按剩余预算截断 |
+| 「安全设置」只存不生效 | 密码最短长度/登录锁定是空开关 | 密码最小长度按「部署/生产/小院」取最大；登录限流叠加小院级阈值；注册限流阈值可配置 |
+| 自定义角色可建不可分配 | 角色配置形同虚设 | 允许分配给 owner/admin，且授予权限必须是操作者权限子集 |
+
+### 15.3 兼容与迁移
+
+- 新增 `yard_owner`；迁移 `0030` 将「唯一小院 + admin 账号」或「最早 yard_admin」
+  回填为负责人。历史令牌无 `ver` 时跳过版本校验，避免在途会话中断。
+- 演示数据 `seed` 幂等校正：admin 恒为演示小院负责人，其他 `yard_owner` 回退管理员。
+- 新增迁移 `0031_market_items`、`0032_trace_user`；`0030 → 0032` 升降级演练通过。
+- OpenAPI 176 paths；错误码新增联网/市场/身份/驾驶舱四组并登记。
+
+### 15.4 验收证据
+
+- 后端：`pytest` 全量 **1043 passed**；Ruff check/format、mypy（256 文件）全绿。
+- 前端：`vue-tsc --noEmit`、ESLint 0 error、`vite build` 通过。
+- E2E：Playwright **16 passed**（串行；新增成员创建、插件库预览、负责人驾驶舱与
+  权限拦截；修复两处模型时序导致的脆弱断言）。
+- 开发库已升级至 `0032`；演示账号：`admin/admin123`（负责人）、
+  `yard_admin/yard123`（管理员）、`expert/expert123`（专家）。
+
+### 15.5 已知边界
+
+- 联网搜索依赖外部供应商：默认 SearXNG 需本机/局域网服务；无网络时功能自动降级，
+  但 `search:manage` 可配置的 `searxng_url` 仍是管理员可信输入（可探测内网 HTTP）。
+- 登录/注册限流为进程内滑动窗口，多实例部署需在网关或 Redis 层集中限流。
+- 自定义角色只在 DB 权限判定中生效；仍使用 `require_roles` 的少数旧端点按 JWT
+  系统角色判断，建议后续统一迁移到 `require_yard_permission`。
+- 驾驶舱按人用量以 `chat_messages.token_usage_json` 与 `LLMTrace.user_id` 汇总，
+  历史（0032 之前）调用没有用户归属，不计入按人统计。

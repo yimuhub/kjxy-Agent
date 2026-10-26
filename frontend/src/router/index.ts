@@ -4,8 +4,8 @@ import { useAuthStore } from '@/stores/auth'
 import MainLayout from '@/layouts/MainLayout.vue'
 import Login from '@/views/Login.vue'
 
-/** 管理类页面：仅使用空间管理员与平台管理员 */
-const ADMIN_ROLES = ['tenant_admin', 'platform_admin']
+/** 管理类页面：仅小院管理员与平台管理员 */
+const ADMIN_ROLES = ['yard_owner', 'yard_admin', 'platform_admin']
 
 /** 业务页按路由懒加载，首屏只下载登录页与主框架 */
 const Dashboard = () => import('@/views/Dashboard.vue')
@@ -17,6 +17,7 @@ const ReviewView = () => import('@/views/ReviewView.vue')
 const MembersView = () => import('@/views/MembersView.vue')
 const SettingsView = () => import('@/views/SettingsView.vue')
 const AgentsView = () => import('@/views/AgentsView.vue')
+const CustomAgentsView = () => import('@/views/CustomAgentsView.vue')
 const TeamsView = () => import('@/views/TeamsView.vue')
 const AgentFactoryView = () => import('@/views/AgentFactoryView.vue')
 const DevicesView = () => import('@/views/DevicesView.vue')
@@ -27,6 +28,9 @@ const EvolutionView = () => import('@/views/EvolutionView.vue')
 const QuotaView = () => import('@/views/QuotaView.vue')
 const SignupView = () => import('@/views/SignupView.vue')
 const InviteAcceptView = () => import('@/views/InviteAcceptView.vue')
+const LibraryView = () => import('@/views/LibraryView.vue')
+const OwnerView = () => import('@/views/OwnerView.vue')
+const ProfileView = () => import('@/views/ProfileView.vue')
 const NotFoundView = () => import('@/views/NotFoundView.vue')
 
 // meta.roles 声明允许访问的角色；缺省表示所有登录用户可见
@@ -41,7 +45,7 @@ const routes: RouteRecordRaw[] = [
     path: '/signup',
     name: 'Signup',
     component: SignupView,
-    meta: { public: true, title: '使用空间注册' },
+    meta: { public: true, title: '小院注册' },
   },
   {
     path: '/invite/:token',
@@ -63,7 +67,14 @@ const routes: RouteRecordRaw[] = [
         path: 'review',
         name: 'Review',
         component: ReviewView,
-        meta: { title: '专家审核', roles: ['tenant_admin', 'platform_admin', 'expert'] },
+        meta: { title: '专家审核', roles: ['yard_owner', 'yard_admin', 'platform_admin', 'expert'] },
+      },
+      // 能力中心 - 我的智能体（用户自建 Agent 独立板块：卡片/列表双视图 + 单聊/多Agent群聊 + 多模型与1对N多技能绑定）
+      {
+        path: 'agents/custom',
+        name: 'CustomAgents',
+        component: CustomAgentsView,
+        meta: { title: '我的智能体' },
       },
       // 专业助手全员可见
       { path: 'agents', name: 'Agents', component: AgentsView, meta: { title: '专业助手' } },
@@ -73,7 +84,7 @@ const routes: RouteRecordRaw[] = [
         path: 'agents/factory',
         name: 'AgentFactory',
         component: AgentFactoryView,
-        meta: { title: 'Agent 工厂', roles: ['tenant_admin', 'platform_admin'] },
+        meta: { title: 'Agent 工厂', roles: ['yard_owner', 'yard_admin', 'platform_admin'] },
       },
       {
         path: 'market',
@@ -81,19 +92,28 @@ const routes: RouteRecordRaw[] = [
         component: MarketView,
         meta: { title: 'Agent 市场', roles: ADMIN_ROLES },
       },
+      {
+        path: 'library',
+        name: 'Library',
+        component: LibraryView,
+        meta: {
+          title: '插件与技能库',
+          roles: ['yard_owner', 'yard_admin', 'platform_admin', 'expert'],
+        },
+      },
       { path: 'devices', name: 'Devices', component: DevicesView, meta: { title: '设备中心' } },
       { path: 'policies', name: 'Policies', component: PolicyView, meta: { title: '政策服务' } },
       {
         path: 'evolution',
         name: 'Evolution',
         component: EvolutionView,
-        meta: { title: '自生长管理', roles: ADMIN_ROLES },
+        meta: { title: '技能与插件', roles: ADMIN_ROLES },
       },
       {
         path: 'quota',
         name: 'Quota',
         component: QuotaView,
-        meta: { title: '用量额度', roles: ADMIN_ROLES },
+        meta: { title: '用量额度' },
       },
       {
         path: 'members',
@@ -106,6 +126,18 @@ const routes: RouteRecordRaw[] = [
         name: 'Settings',
         component: SettingsView,
         meta: { title: '系统设置', roles: ADMIN_ROLES },
+      },
+      {
+        path: 'owner',
+        name: 'Owner',
+        component: OwnerView,
+        meta: { title: '负责人驾驶舱', roles: ['yard_owner', 'platform_admin'] },
+      },
+      {
+        path: 'profile',
+        name: 'Profile',
+        component: ProfileView,
+        meta: { title: '个人资料' },
       },
       {
         path: 'bots',
@@ -135,7 +167,6 @@ router.afterEach(to => {
 router.beforeEach(async to => {
   const auth = useAuthStore()
   if (to.meta.public) {
-    // 已登录用户访问登录/注册页时跳回站内；邀请页允许已登录用户继续（加入新空间）
     if ((to.path === '/login' || to.path === '/signup') && auth.isLoggedIn()) {
       const redirect = typeof to.query.redirect === 'string' ? to.query.redirect : '/'
       return redirect.startsWith('/') ? redirect : '/'
@@ -146,7 +177,6 @@ router.beforeEach(async to => {
     const query = to.fullPath !== '/' ? { redirect: to.fullPath } : undefined
     return { path: '/login', query }
   }
-  // 直达管理页 URL 时角色可能还没加载，先补一次 /auth/me
   if (!auth.meLoaded) {
     try {
       await auth.fetchMe()

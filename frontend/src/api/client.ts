@@ -49,7 +49,7 @@ export function extractErrorMessage(err: unknown): { code: string; message: stri
   return { code: 'UNKNOWN', message: '未知错误' }
 }
 
-/** 结构化错误详情（如 TENANT_REQUIRED 的 details.tenants） */
+/** 结构化错误详情（如 YARD_REQUIRED 的 details.yards） */
 export function extractErrorDetails(err: unknown): Record<string, unknown> | undefined {
   if (err instanceof AxiosError && err.response?.data) {
     const body = err.response.data as ApiError

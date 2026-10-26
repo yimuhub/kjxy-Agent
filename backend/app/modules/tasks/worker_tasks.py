@@ -179,7 +179,7 @@ def run_task_inline(task_id: str) -> None:
 
         context = {
             "task_id": task.id,
-            "tenant_id": task.tenant_id,
+            "yard_id": task.yard_id,
             "actor_id": task.created_by,
             "request_id": f"req_worker_{task.id[:8]}",
         }

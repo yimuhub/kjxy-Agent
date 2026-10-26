@@ -37,9 +37,9 @@ EVENT_LABELS = {
 
 class PushChannel(Base, TimestampMixin):
     __tablename__ = "push_channels"
-    __table_args__ = (UniqueConstraint("tenant_id", "name", name="uq_push_channels_tenant_name"),)
+    __table_args__ = (UniqueConstraint("yard_id", "name", name="uq_push_channels_yard_name"),)
 
-    tenant_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    yard_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     # wecom_robot|dingtalk|generic_webhook
     kind: Mapped[str] = mapped_column(String(30), nullable=False)

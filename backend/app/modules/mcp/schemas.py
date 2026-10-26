@@ -1,4 +1,4 @@
-"""MCP 服务器 Pydantic 契约。extra=forbid：tenant_id 等归属字段禁止由请求体注入。"""
+"""MCP 服务器 Pydantic 契约。extra=forbid：yard_id 等归属字段禁止由请求体注入。"""
 
 from pydantic import BaseModel, ConfigDict, Field
 

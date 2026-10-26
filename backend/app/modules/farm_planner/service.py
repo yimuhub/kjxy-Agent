@@ -1,7 +1,7 @@
 """农事规划业务逻辑：基于规则模板生成计划草案。
 
 - 不调用真实 LLM：任务时间窗由"作物生育期 + 计划周期"按规则模板推算。
-- 用 knowledge.search 检索租户知识库，补充农事要点作为 data_sources。
+- 用 knowledge.search 检索小院知识库，补充农事要点作为 data_sources。
 - 天气/土壤/地块数据缺失时在 warnings 中明确提示，绝不编造。
 - 无状态：不建表、不写库；版本链由调用方经 previous_plan 传递。
 - 模板数据在 templates.py（与工作区 service.py 内嵌数据一致）。
@@ -33,15 +33,15 @@ DISPATCH_NOTE = (
 )
 
 
-def _search_knowledge(db: Any, tenant_id: str, query: str, top_k: int = 5) -> list[dict]:
-    """租户内知识检索（农事要点补充）。异常时返回空列表，绝不阻断计划生成。"""
+def _search_knowledge(db: Any, yard_id: str, query: str, top_k: int = 5) -> list[dict]:
+    """小院内知识检索（农事要点补充）。异常时返回空列表，绝不阻断计划生成。"""
     if db is None:
         return []
     try:
-        from app.core.deps import TenantContext
+        from app.core.deps import YardContext
         from app.modules.knowledge.service import search as knowledge_search
 
-        tctx = TenantContext(tenant_id=tenant_id, user_id="", roles=[], request_id="farm_planner")
+        tctx = YardContext(yard_id=yard_id, user_id="", roles=[], request_id="farm_planner")
         hits = knowledge_search(db, tctx, query, top_k)
     except Exception as e:
         log.warning("farm_planner knowledge search failed: %s", e)
@@ -115,7 +115,7 @@ def _estimate_materials(
 
 
 def generate_plan(
-    db: Any, tenant_id: str, user_id: str, plan_input: PlanInput | dict[str, Any]
+    db: Any, yard_id: str, user_id: str, plan_input: PlanInput | dict[str, Any]
 ) -> dict[str, Any]:
     """生成农事计划草案（纯函数，无 DB 写入）。返回 PlanOutput.model_dump()。"""
     if isinstance(plan_input, dict):
@@ -174,11 +174,11 @@ def generate_plan(
                 )
             )
     query = f"{inp.crop} {inp.growth_stage} 农事管理"
-    hits = _search_knowledge(db, tenant_id, query)
+    hits = _search_knowledge(db, yard_id, query)
     data_sources = [DataSource(**h) for h in hits]
     if not hits:
         warnings.append(
-            "租户知识库中未检索到与“"
+            "小院知识库中未检索到与“"
             f"{query}"
             "”相关的农事要点，data_sources 为空；计划仅基于内置规则模板生成。"
         )
@@ -210,8 +210,8 @@ def generate_plan(
         dispatch_note=DISPATCH_NOTE,
     )
     log.info(
-        "farm_planner plan generated: tenant=%s user=%s crop=%s stage=%s suggestions=%d",
-        tenant_id,
+        "farm_planner plan generated: yard=%s user=%s crop=%s stage=%s suggestions=%d",
+        yard_id,
         user_id,
         inp.crop,
         inp.growth_stage,

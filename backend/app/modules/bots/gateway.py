@@ -21,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.deps import TenantContext
+from app.core.deps import YardContext
 from app.modules.audit.service import log_audit
 from app.modules.bots.models import (
     BINDING_TEAM,
@@ -74,14 +74,14 @@ def _get_or_create_conversation(
 ) -> BotConversation:
     conv = db.scalars(
         select(BotConversation).where(
-            BotConversation.tenant_id == bot.tenant_id,
+            BotConversation.yard_id == bot.yard_id,
             BotConversation.platform == msg.platform,
             BotConversation.external_conv_id == msg.external_conv_id,
         )
     ).first()
     if conv is None:
         conv = BotConversation(
-            tenant_id=bot.tenant_id,
+            yard_id=bot.yard_id,
             bot_config_id=bot.id,
             platform=msg.platform,
             external_conv_id=msg.external_conv_id[:191],
@@ -92,7 +92,7 @@ def _get_or_create_conversation(
         db.flush()
         log_audit(
             db,
-            tenant_id=bot.tenant_id,
+            yard_id=bot.yard_id,
             actor_id=None,
             action="bot_conversation_create",
             resource_type="bot_conversation",
@@ -140,7 +140,7 @@ def _log_msg(
 ) -> None:
     db.add(
         BotMessageLog(
-            tenant_id=bot.tenant_id,
+            yard_id=bot.yard_id,
             conversation_id=conv_id,
             direction=direction,
             content_sha12=_sha12(text),
@@ -160,10 +160,10 @@ def _strip_mentions(text: str) -> str:
     return text.strip()
 
 
-def _ctx_for_bot(bot: BotConfig, conv: BotConversation) -> TenantContext:
+def _ctx_for_bot(bot: BotConfig, conv: BotConversation) -> YardContext:
     """构造总控语境：虚拟执行者（bot:<id>），角色按系统内部调用口径。"""
-    return TenantContext(
-        tenant_id=bot.tenant_id,
+    return YardContext(
+        yard_id=bot.yard_id,
         user_id=f"bot:{bot.id}",
         roles=["operator"],
         request_id=conv.id,
@@ -229,7 +229,7 @@ async def handle_inbound(
     if override == "__list__":
         names = ""
         if list_candidates:
-            names = "、".join(c["name"] for c in list_candidates(bot.tenant_id)[:10]) or "无"
+            names = "、".join(c["name"] for c in list_candidates(bot.yard_id)[:10]) or "无"
         reply = f"可选助手：{names}。用法：/use 名称"
         await send(conv.external_conv_id, reply)
         _log_msg(

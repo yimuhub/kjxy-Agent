@@ -28,9 +28,9 @@ VALID_TRANSPORTS = (TRANSPORT_STREAMABLE_HTTP,)
 
 class McpServer(Base, TimestampMixin):
     __tablename__ = "mcp_servers"
-    __table_args__ = (UniqueConstraint("tenant_id", "name", name="uq_mcp_servers_tenant_name"),)
+    __table_args__ = (UniqueConstraint("yard_id", "name", name="uq_mcp_servers_yard_name"),)
 
-    tenant_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    yard_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     # MCP 端点 URL 的 Fernet 密文（可空：仅出现在先建后补的极端场景，创建接口必填）
     url_enc: Mapped[str | None] = mapped_column(Text, nullable=True)

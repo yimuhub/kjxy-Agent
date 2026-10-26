@@ -1,4 +1,4 @@
-"""sensor.query Agents 工具：本租户设备读数概况与窗口统计（只读）。
+"""sensor.query Agents 工具：本小院设备读数概况与窗口统计（只读）。
 
 注册时机与 knowledge.search 一致：应用启动装配（main._startup_wiring）调用
 ``register_sensor_query_tool()``，向进程级 ``tool_registry`` 注册实现；
@@ -6,8 +6,8 @@
 供 GET /tools 列表与 declarative.assess_risk 的 builtin 回退查询使用
 （两处 schema 由 tests/unit/test_device_agent_tool.py 断言一致，防漂移）。
 
-租户边界：入参不带租户——tenant_id 只取自 TenantContext，且对
-devices / readings / device_alert_rules 每张表的查询都强制带租户过滤。
+小院边界：入参不带小院——yard_id 只取自 YardContext，且对
+devices / readings / device_alert_rules 每张表的查询都强制带小院过滤。
 
 诚实口径：非数值读数（如风向 "NE"）不参与 min/max/avg 与规则比对，
 样本数只统计数值样本；文本读数只在"最新值"里以 text 字段呈现。
@@ -27,7 +27,7 @@ from app.modules.devices.metrics import METRICS, normalize_code
 from app.modules.devices.models import Device, DeviceAlertRule, Reading
 
 if TYPE_CHECKING:
-    from app.core.deps import TenantContext
+    from app.core.deps import YardContext
 
 log = get_logger(__name__)
 
@@ -47,7 +47,7 @@ SENSOR_QUERY_INPUT_SCHEMA: dict = {
             "type": "string",
             "minLength": 1,
             "maxLength": 120,
-            "description": "设备名模糊匹配（仅限本租户设备）；缺省为本租户全部设备",
+            "description": "设备名模糊匹配（仅限本小院设备）；缺省为本小院全部设备",
         },
         "metric": {
             "type": "string",
@@ -78,10 +78,10 @@ def _iso(dt: datetime) -> str:
     return dt.isoformat()
 
 
-def _resolve_devices(db: Session, tenant_id: str, keyword: str | None) -> list[Device]:
+def _resolve_devices(db: Session, yard_id: str, keyword: str | None) -> list[Device]:
     stmt = (
         select(Device)
-        .where(Device.tenant_id == tenant_id)
+        .where(Device.yard_id == yard_id)
         .order_by(Device.created_at.desc(), Device.name)
     )
     devices = list(db.scalars(stmt))
@@ -114,16 +114,16 @@ def _resolve_metrics(keyword: str | None) -> tuple[list[str] | None, str | None]
 
 
 def _window_rows(
-    db: Session, tenant_id: str, device_ids: list[str], codes: list[str] | None, start: datetime
+    db: Session, yard_id: str, device_ids: list[str], codes: list[str] | None, start: datetime
 ) -> dict[str, list[Reading]]:
-    """窗口内读数按设备分组（时间倒序、每设备限量）。device_ids 已限定租户。"""
+    """窗口内读数按设备分组（时间倒序、每设备限量）。device_ids 已限定小院。"""
     grouped: dict[str, list[Reading]] = {d: [] for d in device_ids}
     if not device_ids:
         return grouped
     stmt = (
         select(Reading)
         .where(
-            Reading.tenant_id == tenant_id,
+            Reading.yard_id == yard_id,
             Reading.device_id.in_(device_ids),
             Reading.collected_at >= start,
         )
@@ -161,7 +161,7 @@ def _metric_stat(metric: str, rows: list[Reading]) -> dict[str, Any]:
 
 def _eval_rules(
     db: Session,
-    tenant_id: str,
+    yard_id: str,
     devices: list[Device],
     codes: list[str] | None,
     start: datetime,
@@ -172,7 +172,7 @@ def _eval_rules(
     if not device_ids:
         return []
     stmt = select(DeviceAlertRule).where(
-        DeviceAlertRule.tenant_id == tenant_id,
+        DeviceAlertRule.yard_id == yard_id,
         DeviceAlertRule.enabled.is_(True),
     )
     if codes:
@@ -189,7 +189,7 @@ def _eval_rules(
             db.scalars(
                 select(Reading)
                 .where(
-                    Reading.tenant_id == tenant_id,
+                    Reading.yard_id == yard_id,
                     Reading.device_id.in_(scope_ids),
                     Reading.metric == rule.metric,
                     Reading.collected_at >= start,
@@ -267,17 +267,17 @@ def _summary_text(
     return "\n".join(lines)
 
 
-def query_sensor(db: Session, *, tenant_id: str, params: dict[str, Any]) -> dict[str, Any]:
-    """sensor.query 核心查询（纯 db 注入，便于单测）。所有查询强制租户过滤。"""
+def query_sensor(db: Session, *, yard_id: str, params: dict[str, Any]) -> dict[str, Any]:
+    """sensor.query 核心查询（纯 db 注入，便于单测）。所有查询强制小院过滤。"""
     hours_raw = params.get("hours")
     hours = 24 if hours_raw is None else int(hours_raw)
     hours = max(1, min(720, hours))
     start = datetime.now(UTC) - timedelta(hours=hours)
 
     keyword = str(params.get("device") or "").strip() or None
-    devices = _resolve_devices(db, tenant_id, keyword)
+    devices = _resolve_devices(db, yard_id, keyword)
     if keyword and not devices:
-        all_names = [d.name for d in _resolve_devices(db, tenant_id, None)]
+        all_names = [d.name for d in _resolve_devices(db, yard_id, None)]
         shown = "、".join(all_names[:20]) if all_names else "（无）"
         message = f"未找到设备「{keyword}」，现有设备：{shown}。"
         return {
@@ -298,7 +298,7 @@ def query_sensor(db: Session, *, tenant_id: str, params: dict[str, Any]) -> dict
             "summary_text": metric_error,
         }
 
-    grouped = _window_rows(db, tenant_id, [d.id for d in devices], codes, start)
+    grouped = _window_rows(db, yard_id, [d.id for d in devices], codes, start)
     devices_out: list[dict[str, Any]] = []
     for d in devices:
         rows = grouped.get(d.id, [])
@@ -325,7 +325,7 @@ def query_sensor(db: Session, *, tenant_id: str, params: dict[str, Any]) -> dict
         "devices": devices_out,
     }
     if bool(params.get("alert_rule")):
-        result["rules"] = _eval_rules(db, tenant_id, devices, codes, start)
+        result["rules"] = _eval_rules(db, yard_id, devices, codes, start)
     result["summary_text"] = _summary_text(hours, devices_out, list(result.get("rules") or []))
     return result
 
@@ -340,13 +340,13 @@ def _open_session() -> Session:
     return SessionLocal()
 
 
-def _sensor_query_tool_func(params: dict, ctx: TenantContext) -> dict:
+def _sensor_query_tool_func(params: dict, ctx: YardContext) -> dict:
     """sensor.query 工具执行函数（ToolFunc 约定：(params, ctx)）。"""
-    if not ctx.tenant_id:
-        raise AppError("TENANT_REQUIRED", "该操作需要租户上下文。", http_status=400)
+    if not ctx.yard_id:
+        raise AppError("YARD_REQUIRED", "该操作需要小院上下文。", http_status=400)
     db = _open_session()
     try:
-        return query_sensor(db, tenant_id=ctx.tenant_id, params=dict(params or {}))
+        return query_sensor(db, yard_id=ctx.yard_id, params=dict(params or {}))
     finally:
         db.close()
 
@@ -367,11 +367,11 @@ def register_sensor_query_tool() -> Any:
         version="1.0.0",
         name="传感器读数查询",
         description=(
-            "查询本租户设备的传感器读数：每设备最新值与窗口内 min/max/avg、样本数；"
+            "查询本小院设备的传感器读数：每设备最新值与窗口内 min/max/avg、样本数；"
             "支持设备名模糊、指标 code 或中文名片段过滤；可选附带告警规则命中评估。只读。"
         ),
         input_schema=SENSOR_QUERY_INPUT_SCHEMA,
-        # 读=租户成员（devices 读接口同口径），因此不设额外权限点
+        # 读=小院成员（devices 读接口同口径），因此不设额外权限点
         required_permissions=[],
         risk_level="read_only",
         side_effect=False,

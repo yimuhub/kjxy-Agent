@@ -75,9 +75,9 @@ def test_scan_discovers_and_registers(db_session, plugin_root):
 
     records = {r.plugin_id: r for r in service.list_plugins(db_session)}
     assert {"crops.rice", "demo.hello", "bad.checksum"} <= set(records)
-    # 新插件默认 disabled，全局 scope（tenant_id 为空）
+    # 新插件默认 disabled，全局 scope（yard_id 为空）
     assert records["demo.hello"].status == "disabled"
-    assert records["demo.hello"].tenant_id is None
+    assert records["demo.hello"].yard_id is None
     assert records["demo.hello"].checksum_ok is True
     assert records["bad.checksum"].checksum_ok is False
 
@@ -148,7 +148,7 @@ def test_get_active_domain_packs(db_session, plugin_root, tmp_path):
 
 
 def _admin_token() -> str:
-    return create_access_token(user_id="u-admin", tenant_id=None, roles=["platform_admin"])
+    return create_access_token(user_id="u-admin", yard_id=None, roles=["platform_admin"])
 
 
 def test_router_endpoints(client, plugin_root):
@@ -188,7 +188,7 @@ def test_router_endpoints(client, plugin_root):
 
 
 def test_router_mutation_requires_admin(client, plugin_root):
-    user_token = create_access_token(user_id="u-1", tenant_id="t-1", roles=["operator"])
+    user_token = create_access_token(user_id="u-1", yard_id="t-1", roles=["operator"])
     headers = {"Authorization": f"Bearer {user_token}"}
     r = client.post("/api/v1/plugins/demo.hello/enable", headers=headers)
     assert r.status_code == 403

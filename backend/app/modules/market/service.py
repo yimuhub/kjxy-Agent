@@ -3,7 +3,7 @@
 口径：
 - 逐码 创建 → 发布 → 审计 → 提交；已存在同码 skipped 不覆盖（幂等）；
 - 单码失败回滚该码（此前已提交的码不受影响），继续处理其余编码；
-- 权限：tenant_admin（platform_admin 直通）。非管理员在对话里只能拿到
+- 权限：yard_admin（platform_admin 直通）。非管理员在对话里只能拿到
   **建议卡片**，不落库（与能力中心的权限闸门一致）。
 """
 
@@ -13,11 +13,11 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.core.deps import TenantContext
+from app.core.deps import YardContext
 from app.core.errors import AppError
 from app.core.logging import get_logger
 from app.modules.agents import declarative
-from app.modules.agents.models import CREATED_FROM_TEMPLATE, TenantAgent
+from app.modules.agents.models import CREATED_FROM_TEMPLATE, YardAgent
 from app.modules.audit.service import log_audit
 from app.modules.market.seeds import SEED_AGENTS, SEED_CODE_PREFIX, find_seed
 
@@ -30,19 +30,19 @@ MAX_INSTALL_CODES = 20
 CARD_TYPE_MARKET = "market"
 
 
-def is_admin(ctx: TenantContext) -> bool:
-    return bool({"tenant_admin", "platform_admin"} & set(ctx.roles))
+def is_admin(ctx: YardContext) -> bool:
+    return bool({"yard_admin", "yard_owner", "platform_admin"} & set(ctx.roles))
 
 
-def installed_codes(db: Session, tenant_id: str) -> set[str]:
-    """本租户已存在的种子相关编码（含租户自建同码——一律视为已占用）。"""
+def installed_codes(db: Session, yard_id: str) -> set[str]:
+    """本小院已存在的种子相关编码（含小院自建同码——一律视为已占用）。"""
     candidates: list[str] = []
     for seed in SEED_AGENTS:
         code = str(seed["agent_code"])
         candidates.extend([code, SEED_CODE_PREFIX + code])
     rows = (
-        db.query(TenantAgent.agent_code)
-        .filter(TenantAgent.tenant_id == tenant_id, TenantAgent.agent_code.in_(candidates))
+        db.query(YardAgent.agent_code)
+        .filter(YardAgent.yard_id == yard_id, YardAgent.agent_code.in_(candidates))
         .all()
     )
     return {str(r[0]) for r in rows}
@@ -51,7 +51,7 @@ def installed_codes(db: Session, tenant_id: str) -> set[str]:
 def install_seed_codes(
     db: Session,
     *,
-    tenant_id: str,
+    yard_id: str,
     actor_id: str,
     roles: list[str],
     codes: list[str],
@@ -61,7 +61,7 @@ def install_seed_codes(
     installed: list[str] = []
     skipped: list[str] = []
     failed: list[dict[str, str]] = []
-    taken = installed_codes(db, tenant_id)
+    taken = installed_codes(db, yard_id)
 
     for code in codes:
         seed = find_seed(code)
@@ -88,14 +88,14 @@ def install_seed_codes(
             req = declarative.parse_create_request(payload)
             agent = declarative.create_agent(
                 db,
-                tenant_id=tenant_id,
+                yard_id=yard_id,
                 actor_id=actor_id,
                 req=req,
                 request_id=request_id,
             )
             declarative.publish_agent(
                 db,
-                tenant_id=tenant_id,
+                yard_id=yard_id,
                 actor_id=actor_id,
                 agent_id=agent.id,
                 roles=list(roles),
@@ -103,10 +103,10 @@ def install_seed_codes(
             )
             log_audit(
                 db,
-                tenant_id=tenant_id,
+                yard_id=yard_id,
                 actor_id=actor_id,
                 action="market_install",
-                resource_type="tenant_agent",
+                resource_type="yard_agent",
                 resource_id=agent.id,
                 result="success",
                 request_id=request_id,
@@ -144,7 +144,7 @@ def _match_seeds(text: str) -> list[dict[str, Any]]:
     return hits
 
 
-def install_from_chat(db: Session, *, ctx: TenantContext, request_text: str) -> dict[str, Any]:
+def install_from_chat(db: Session, *, ctx: YardContext, request_text: str) -> dict[str, Any]:
     """对话内装载市场能力：返回 {summary, name, card}。
 
     匹配不到 → 给出目录建议卡片（不猜、不乱装）；非管理员 → 只出建议卡片。
@@ -175,10 +175,10 @@ def install_from_chat(db: Session, *, ctx: TenantContext, request_text: str) -> 
     if not is_admin(ctx):
         log_audit(
             db,
-            tenant_id=ctx.tenant_id,
+            yard_id=ctx.yard_id,
             actor_id=ctx.user_id,
             action="chat_capability_requested",
-            resource_type="tenant_agent",
+            resource_type="yard_agent",
             resource_id="",
             result="success",
             request_id=ctx.request_id,
@@ -190,18 +190,18 @@ def install_from_chat(db: Session, *, ctx: TenantContext, request_text: str) -> 
             "name": name,
             "description": str(seed["description"]),
             "items": [{"code": code, "name": name}],
-            "note": "装载市场能力需要租户管理员权限，请联系管理员在能力市场确认。",
+            "note": "装载市场能力需要小院管理员权限，请联系管理员在能力市场确认。",
             "actions": [],
         }
         return {
-            "summary": f"已匹配到能力包「{name}」，装载需要租户管理员权限，请联系管理员确认。",
+            "summary": f"已匹配到能力包「{name}」，装载需要小院管理员权限，请联系管理员确认。",
             "name": name,
             "card": card,
         }
 
     result = install_seed_codes(
         db,
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         actor_id=ctx.user_id,
         roles=list(ctx.roles),
         codes=[code],

@@ -1,9 +1,9 @@
 """模型供应商管理路由：CRUD、启用/禁用、连通性测试、设为当前、预置模板。
 
 挂载到 /api/v1（经 app/modules/llm/router.py 的 /llm 前缀路由并入）。
-权限模型（ADR-0005）：入口按「角色」放行 platform_admin/admin/tenant_admin，
-数据归属在 service 层双校验——租户管理员只能写 tenant_id=本租户 的行，
-平台全局行对其只读（仅可设为本租户生效）；越权与不存在统一 404。
+权限模型（ADR-0005）：入口按「角色」放行 platform_admin/admin/yard_admin，
+数据归属在 service 层双校验——小院管理员只能写 yard_id=本小院 的行，
+平台全局行对其只读（仅可设为本小院生效）；越权与不存在统一 404。
 所有写操作与 set-active 记审计（action 前缀 supplier_，metadata 不含密钥）。
 返回的 Key 一律打码，绝不返回明文。
 """
@@ -29,7 +29,7 @@ from app.modules.llm.supplier_schemas import (
 
 router = APIRouter(tags=["llm-suppliers"])
 
-_admin_only = require_roles("platform_admin", "admin", "tenant_admin")
+_admin_only = require_roles("platform_admin", "admin", "yard_admin", "yard_owner")
 
 
 def _key_configured_dep():
@@ -50,7 +50,7 @@ def _audit(
     """供应商管理审计：metadata 只放 supplier_id/name/provider_type，绝不含密钥材料。"""
     log_audit(
         db,
-        tenant_id=user.tenant_id,
+        yard_id=user.yard_id,
         actor_id=user.user_id,
         action=action,
         resource_type="supplier",
@@ -72,7 +72,7 @@ def list_providers(
     _key=Depends(_key_configured_dep),
 ):
     user, is_platform_admin = ctx
-    items = supplier_service.list_suppliers(db, user.tenant_id, is_platform_admin=is_platform_admin)
+    items = supplier_service.list_suppliers(db, user.yard_id, is_platform_admin=is_platform_admin)
     return ok([s.model_dump() for s in items])
 
 
@@ -85,9 +85,9 @@ def create_provider(
 ):
     user, is_platform_admin = ctx
     try:
-        # 归属强制取登录租户上下文（scope=global 仅平台管理员，service 层把关）
+        # 归属强制取登录小院上下文（scope=global 仅平台管理员，service 层把关）
         out: SupplierOut = supplier_service.create_supplier(
-            db, user.tenant_id, payload, is_platform_admin=is_platform_admin
+            db, user.yard_id, payload, is_platform_admin=is_platform_admin
         )
         _audit(db, user, "supplier_create", out.id, _meta_of(out))
         db.commit()
@@ -108,7 +108,7 @@ def update_provider(
     user, is_platform_admin = ctx
     try:
         out = supplier_service.update_supplier(
-            db, user.tenant_id, supplier_id, payload, is_platform_admin=is_platform_admin
+            db, user.yard_id, supplier_id, payload, is_platform_admin=is_platform_admin
         )
         _audit(db, user, "supplier_update", out.id, _meta_of(out))
         db.commit()
@@ -128,7 +128,7 @@ def delete_provider(
     user, is_platform_admin = ctx
     try:
         supplier_service.delete_supplier(
-            db, user.tenant_id, supplier_id, is_platform_admin=is_platform_admin
+            db, user.yard_id, supplier_id, is_platform_admin=is_platform_admin
         )
         _audit(db, user, "supplier_delete", supplier_id, {"supplier_id": supplier_id})
         db.commit()
@@ -150,7 +150,7 @@ def enable_provider(
     user, is_platform_admin = ctx
     try:
         out = supplier_service.set_supplier_status(
-            db, user.tenant_id, supplier_id, STATUS_ENABLED, is_platform_admin=is_platform_admin
+            db, user.yard_id, supplier_id, STATUS_ENABLED, is_platform_admin=is_platform_admin
         )
         _audit(db, user, "supplier_enable", out.id, _meta_of(out))
         db.commit()
@@ -172,7 +172,7 @@ def disable_provider(
     user, is_platform_admin = ctx
     try:
         out = supplier_service.set_supplier_status(
-            db, user.tenant_id, supplier_id, STATUS_DISABLED, is_platform_admin=is_platform_admin
+            db, user.yard_id, supplier_id, STATUS_DISABLED, is_platform_admin=is_platform_admin
         )
         _audit(db, user, "supplier_disable", out.id, _meta_of(out))
         db.commit()
@@ -209,7 +209,7 @@ async def probe_provider_models(
     user, _is_platform_admin = ctx
     api_key = payload.api_key
     if not api_key and payload.supplier_id:
-        row = supplier_service.get_supplier(db, user.tenant_id, payload.supplier_id)
+        row = supplier_service.get_supplier(db, user.yard_id, payload.supplier_id)
         api_key = decrypt_api_key(row.api_key_enc)
     result = await supplier_service.probe_models(
         provider_type=payload.provider_type,
@@ -231,7 +231,7 @@ async def test_saved_provider(
     user, is_platform_admin = ctx
     try:
         out, result = await supplier_service.test_saved_supplier(
-            db, user.tenant_id, supplier_id, is_platform_admin=is_platform_admin
+            db, user.yard_id, supplier_id, is_platform_admin=is_platform_admin
         )
         _audit(db, user, "supplier_test", out.id, _meta_of(out))
         db.commit()
@@ -248,16 +248,16 @@ def set_active_provider(
     db=Depends(get_db_session),
     _key=Depends(_key_configured_dep),
 ):
-    """设置本租户当前生效供应商（租户级），即时生效、无需重启；
-    租户管理员可将平台全局行设为本租户生效。"""
+    """设置本小院当前生效供应商（小院级），即时生效、无需重启；
+    小院管理员可将平台全局行设为本小院生效。"""
     user, is_platform_admin = ctx
-    if not user.tenant_id:
+    if not user.yard_id:
         from app.core.errors import AppError
 
-        raise AppError("TENANT_REQUIRED", "设置生效供应商需要租户上下文。", http_status=400)
+        raise AppError("YARD_REQUIRED", "设置生效供应商需要小院上下文。", http_status=400)
     try:
         out = supplier_service.set_active_supplier(
-            db, user.tenant_id, payload.supplier_id, is_platform_admin=is_platform_admin
+            db, user.yard_id, payload.supplier_id, is_platform_admin=is_platform_admin
         )
         _audit(db, user, "supplier_set_active", out.id, _meta_of(out))
         db.commit()

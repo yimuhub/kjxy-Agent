@@ -1,6 +1,6 @@
 """政策模块模型（第三期：采集 / 匹配 / 申报的地基）。
 
-本文件只做数据结构定义：Policy 补 tenant_id 多租户隔离字段、
+本文件只做数据结构定义：Policy 补 yard_id 多小院隔离字段、
 新增 PolicyApplication 申报申请单模型。业务逻辑（采集、匹配、材料核对）
 在 service.py / router.py 中实现，不在此文件。
 """
@@ -19,8 +19,8 @@ class Policy(Base, TimestampMixin):
 
     __tablename__ = "policies"
 
-    # 多租户隔离。nullable=True 兼容迁移前的老数据；新写入必须带 tenant_id（业务层强制）。
-    tenant_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    # 多小院隔离。nullable=True 兼容迁移前的老数据；新写入必须带 yard_id（业务层强制）。
+    yard_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
 
     # 适用范围
     # national|province|city
@@ -74,7 +74,7 @@ class PolicyApplication(Base, TimestampMixin):
 
     __tablename__ = "policy_applications"
 
-    tenant_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    yard_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     policy_id: Mapped[str] = mapped_column(
         String(36), sa.ForeignKey("policies.id"), nullable=False, index=True
     )

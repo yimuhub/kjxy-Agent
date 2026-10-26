@@ -1,9 +1,9 @@
-"""模型供应商 ORM：suppliers（照抄 new-api Channel 精简）+ tenant_active_suppliers。
+"""模型供应商 ORM：suppliers（照抄 new-api Channel 精简）+ yard_active_suppliers。
 
-- suppliers.tenant_id 为 NULL 表示全局共享供应商，所有租户可见；
-  非空则仅归属租户可见。
+- suppliers.yard_id 为 NULL 表示全局共享供应商，所有小院可见；
+  非空则仅归属小院可见。
 - status：1=启用，2=禁用（连续探测失败 3 次自动置 2）。
-- tenant_active_suppliers：租户级"当前生效供应商"（一租户一行）。
+- yard_active_suppliers：小院级"当前生效供应商"（一小院一行）。
 """
 
 from datetime import datetime
@@ -17,8 +17,8 @@ from app.db.base import Base, TimestampMixin
 class Supplier(Base, TimestampMixin):
     __tablename__ = "suppliers"
 
-    # NULL=全局共享；非空=仅归属租户可见
-    tenant_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    # NULL=全局共享；非空=仅归属小院可见
+    yard_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(40), nullable=False)  # 逻辑名，如 deepseek-main
     provider_type: Mapped[str] = mapped_column(
         String(30), nullable=False
@@ -38,10 +38,10 @@ class Supplier(Base, TimestampMixin):
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
-class TenantActiveSupplier(Base, TimestampMixin):
-    __tablename__ = "tenant_active_suppliers"
+class YardActiveSupplier(Base, TimestampMixin):
+    __tablename__ = "yard_active_suppliers"
 
-    tenant_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True, index=True)
+    yard_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True, index=True)
     supplier_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("suppliers.id"), nullable=True
     )

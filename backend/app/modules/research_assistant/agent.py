@@ -8,7 +8,7 @@ code=research_assistant，version=1.0.0。
 - 统计假设必须随输出标明（见 service.ASSUMPTIONS）。
 - 输出恒带 needs_review=True：本分析为自动生成的草案，须经研究人员审核。
 
-租户隔离：本 Agent 为纯计算、不读库；但 run() 仍校验 context.tenant_id 非空。
+小院隔离：本 Agent 为纯计算、不读库；但 run() 仍校验 context.yard_id 非空。
 """
 
 from __future__ import annotations
@@ -35,12 +35,12 @@ class ResearchAssistantAgent:
     definition = get_definition("research_assistant")
 
     async def run(self, input_data: dict[str, Any], context: Any) -> AgentResult:
-        tenant_id = str(getattr(context, "tenant_id", "") or "")
-        if not tenant_id:
+        yard_id = str(getattr(context, "yard_id", "") or "")
+        if not yard_id:
             return AgentResult(
                 status="failed",
                 output={},
-                warnings=["tenant_id 不能为空：缺少租户上下文，拒绝执行。"],
+                warnings=["yard_id 不能为空：缺少小院上下文，拒绝执行。"],
             )
 
         try:

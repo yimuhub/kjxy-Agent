@@ -1,6 +1,6 @@
 """devices HTTP 接口。
 
-权限：读=租户成员（get_tenant_context）；写=tenant_admin（platform_admin 直通）。
+权限：读=小院成员（get_yard_context）；写=yard_admin（platform_admin 直通）。
 ingest 为设备侧通道：不走登录态，用 X-Device-Token/body.token 的 sha256 比对，
 禁用 403、令牌错 401、超频 429。
 
@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.core.deps import TenantContext, get_db_session, get_tenant_context
+from app.core.deps import YardContext, get_db_session, get_yard_context
 from app.core.errors import AppError
 from app.core.responses import ok
 from app.modules.audit.service import log_audit
@@ -34,16 +34,16 @@ from app.modules.devices.schemas import (
 
 router = APIRouter(prefix="/devices", tags=["devices"])
 
-_ADMIN_ROLES = {"platform_admin", "admin", "tenant_admin"}
+_ADMIN_ROLES = {"platform_admin", "admin", "yard_admin"}
 
 
-def _member(ctx: TenantContext = Depends(get_tenant_context)) -> TenantContext:
+def _member(ctx: YardContext = Depends(get_yard_context)) -> YardContext:
     return ctx
 
 
-def _admin(ctx: TenantContext = Depends(get_tenant_context)) -> TenantContext:
+def _admin(ctx: YardContext = Depends(get_yard_context)) -> YardContext:
     if not set(ctx.roles) & _ADMIN_ROLES:
-        raise AppError("FORBIDDEN", "该操作需要租户管理员权限。", http_status=403)
+        raise AppError("FORBIDDEN", "该操作需要小院管理员权限。", http_status=403)
     return ctx
 
 
@@ -55,12 +55,10 @@ def _iso(dt: datetime | None) -> str:
     return dt.isoformat()
 
 
-def _audit(
-    ctx: TenantContext, db: Session, action: str, resource_id: str | None, meta: dict
-) -> None:
+def _audit(ctx: YardContext, db: Session, action: str, resource_id: str | None, meta: dict) -> None:
     log_audit(
         db,
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         actor_id=ctx.user_id,
         action=action,
         resource_type="device",
@@ -81,7 +79,7 @@ def _device_out(db: Session, device: Device) -> dict[str, Any]:
 
 
 @router.get("/capabilities", response_model=None)
-def capabilities(ctx: TenantContext = Depends(_member)):
+def capabilities(ctx: YardContext = Depends(_member)):
     return ok(
         {
             "metrics": [{"code": m.code, "name": m.name, "unit": m.unit} for m in METRICS.values()],
@@ -111,25 +109,23 @@ def capabilities(ctx: TenantContext = Depends(_member)):
 
 @router.get("/alerts", response_model=None)
 def list_alerts(
-    ctx: TenantContext = Depends(_member),
+    ctx: YardContext = Depends(_member),
     db: Session = Depends(get_db_session),
     device_id: str | None = None,
     limit: int = Query(default=50, ge=1, le=200),
 ):
-    stmt = select(DeviceAlert).where(DeviceAlert.tenant_id == ctx.tenant_id)
+    stmt = select(DeviceAlert).where(DeviceAlert.yard_id == ctx.yard_id)
     if device_id:
         stmt = stmt.where(DeviceAlert.device_id == device_id)
     rows = list(db.scalars(stmt.order_by(DeviceAlert.triggered_at.desc()).limit(limit)))
-    names = {
-        d.id: d.name for d in db.scalars(select(Device).where(Device.tenant_id == ctx.tenant_id))
-    }
+    names = {d.id: d.name for d in db.scalars(select(Device).where(Device.yard_id == ctx.yard_id))}
     items = []
     for a in rows:
         info = METRICS.get(a.metric)
         items.append(
             AlertOut(
                 id=a.id,
-                tenant_id=a.tenant_id,
+                yard_id=a.yard_id,
                 rule_id=a.rule_id,
                 device_id=a.device_id,
                 device_name=names.get(a.device_id),
@@ -149,16 +145,16 @@ def list_alerts(
 @router.post("/alerts/{alert_id}/create-workorder", response_model=None)
 def create_alert_workorder(
     alert_id: str,
-    ctx: TenantContext = Depends(_member),
+    ctx: YardContext = Depends(_member),
     db: Session = Depends(get_db_session),
 ):
-    """告警一键开工单（租户全员可用；工单执行仍过高危审批闸门）。
+    """告警一键开工单（小院全员可用；工单执行仍过高危审批闸门）。
 
     幂等：已开过工单的告警直接返回既有工单号（created=false），不重复创建。
-    跨租户与不存在统一 404（不泄露其他租户告警是否存在）。
+    跨小院与不存在统一 404（不泄露其他小院告警是否存在）。
     """
     alert = db.get(DeviceAlert, alert_id)
-    if alert is None or alert.tenant_id != ctx.tenant_id:
+    if alert is None or alert.yard_id != ctx.yard_id:
         raise AppError("NOT_FOUND", "告警不存在。", http_status=404)
     existed = bool(alert.workorder_id)
     task = service.create_alert_workorder(db, ctx, alert)
@@ -175,7 +171,7 @@ def create_alert_workorder(
 
         push_service.dispatch(
             db,
-            tenant_id=ctx.tenant_id,
+            yard_id=ctx.yard_id,
             event_type="workorder_created",
             payload={
                 "title": f"工单 {task.id} 已创建并进入处理队列",
@@ -209,7 +205,7 @@ def create_alert_workorder(
 def _rule_out(r: DeviceAlertRule) -> dict[str, Any]:
     return RuleOut(
         id=r.id,
-        tenant_id=r.tenant_id,
+        yard_id=r.yard_id,
         device_id=r.device_id,
         metric=r.metric,
         op=r.op,
@@ -222,11 +218,11 @@ def _rule_out(r: DeviceAlertRule) -> dict[str, Any]:
 
 
 @router.get("/alert-rules", response_model=None)
-def list_rules(ctx: TenantContext = Depends(_member), db: Session = Depends(get_db_session)):
+def list_rules(ctx: YardContext = Depends(_member), db: Session = Depends(get_db_session)):
     rows = list(
         db.scalars(
             select(DeviceAlertRule)
-            .where(DeviceAlertRule.tenant_id == ctx.tenant_id)
+            .where(DeviceAlertRule.yard_id == ctx.yard_id)
             .order_by(DeviceAlertRule.created_at)
         )
     )
@@ -236,7 +232,7 @@ def list_rules(ctx: TenantContext = Depends(_member), db: Session = Depends(get_
 @router.post("/alert-rules", response_model=None)
 def create_rule(
     payload: RuleCreate,
-    ctx: TenantContext = Depends(_admin),
+    ctx: YardContext = Depends(_admin),
     db: Session = Depends(get_db_session),
 ):
     if payload.metric not in METRICS:
@@ -246,9 +242,9 @@ def create_rule(
             http_status=400,
         )
     if payload.device_id:
-        service.get_device_or_404(db, ctx.tenant_id, payload.device_id)  # 越权/不存在统一 404
+        service.get_device_or_404(db, ctx.yard_id, payload.device_id)  # 越权/不存在统一 404
     rule = DeviceAlertRule(
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         device_id=payload.device_id,
         metric=payload.metric,
         op=payload.op,
@@ -267,11 +263,11 @@ def create_rule(
 def patch_rule(
     rule_id: str,
     payload: RulePatch,
-    ctx: TenantContext = Depends(_admin),
+    ctx: YardContext = Depends(_admin),
     db: Session = Depends(get_db_session),
 ):
     rule = db.get(DeviceAlertRule, rule_id)
-    if rule is None or rule.tenant_id != ctx.tenant_id:
+    if rule is None or rule.yard_id != ctx.yard_id:
         raise AppError("NOT_FOUND", "告警规则不存在。", http_status=404)
     changes = payload.model_dump(exclude_unset=True)
     if "metric" in changes and changes["metric"] not in METRICS:
@@ -286,11 +282,11 @@ def patch_rule(
 @router.delete("/alert-rules/{rule_id}", response_model=None)
 def delete_rule(
     rule_id: str,
-    ctx: TenantContext = Depends(_admin),
+    ctx: YardContext = Depends(_admin),
     db: Session = Depends(get_db_session),
 ):
     rule = db.get(DeviceAlertRule, rule_id)
-    if rule is None or rule.tenant_id != ctx.tenant_id:
+    if rule is None or rule.yard_id != ctx.yard_id:
         raise AppError("NOT_FOUND", "告警规则不存在。", http_status=404)
     db.delete(rule)
     _audit(ctx, db, "alert_rule_delete", rule_id, {})
@@ -305,11 +301,11 @@ def delete_rule(
 
 @router.get("", response_model=None)
 def list_devices(
-    ctx: TenantContext = Depends(_member),
+    ctx: YardContext = Depends(_member),
     db: Session = Depends(get_db_session),
     enabled: bool | None = None,
 ):
-    stmt = select(Device).where(Device.tenant_id == ctx.tenant_id)
+    stmt = select(Device).where(Device.yard_id == ctx.yard_id)
     if enabled is not None:
         stmt = stmt.where(Device.enabled.is_(enabled))
     rows = list(db.scalars(stmt.order_by(Device.created_at.desc())))
@@ -319,17 +315,17 @@ def list_devices(
 @router.post("", response_model=None)
 def create_device(
     payload: DeviceCreate,
-    ctx: TenantContext = Depends(_admin),
+    ctx: YardContext = Depends(_admin),
     db: Session = Depends(get_db_session),
 ):
     payload.validate_shape()
     dup = db.scalars(
-        select(Device.id).where(Device.tenant_id == ctx.tenant_id, Device.name == payload.name)
+        select(Device.id).where(Device.yard_id == ctx.yard_id, Device.name == payload.name)
     ).first()
     if dup:
-        raise AppError("DUPLICATE_NAME", "同租户下已存在同名设备。", http_status=409)
+        raise AppError("DUPLICATE_NAME", "同小院下已存在同名设备。", http_status=409)
     device = Device(
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         name=payload.name,
         device_type=payload.device_type,
         source_type=payload.source_type,
@@ -365,10 +361,10 @@ def create_device(
 @router.get("/{device_id}", response_model=None)
 def get_device(
     device_id: str,
-    ctx: TenantContext = Depends(_member),
+    ctx: YardContext = Depends(_member),
     db: Session = Depends(get_db_session),
 ):
-    device = service.get_device_or_404(db, ctx.tenant_id, device_id)
+    device = service.get_device_or_404(db, ctx.yard_id, device_id)
     out = _device_out(db, device)
     out["latest"] = service.latest_summary(db, device)
     return ok(out)
@@ -378,10 +374,10 @@ def get_device(
 def patch_device(
     device_id: str,
     payload: DevicePatch,
-    ctx: TenantContext = Depends(_admin),
+    ctx: YardContext = Depends(_admin),
     db: Session = Depends(get_db_session),
 ):
-    device = service.get_device_or_404(db, ctx.tenant_id, device_id)
+    device = service.get_device_or_404(db, ctx.yard_id, device_id)
     changes = payload.model_dump(exclude_unset=True)
     connector_cfg = changes.pop("connector", None)
     if connector_cfg is not None:
@@ -400,11 +396,11 @@ def patch_device(
         if field == "name" and value != device.name:
             dup = db.scalars(
                 select(Device.id).where(
-                    Device.tenant_id == ctx.tenant_id, Device.name == value, Device.id != device.id
+                    Device.yard_id == ctx.yard_id, Device.name == value, Device.id != device.id
                 )
             ).first()
             if dup:
-                raise AppError("DUPLICATE_NAME", "同租户下已存在同名设备。", http_status=409)
+                raise AppError("DUPLICATE_NAME", "同小院下已存在同名设备。", http_status=409)
         setattr(device, field, value)
     updated_fields = sorted([*changes, *(["connector"] if connector_cfg else [])])
     _audit(ctx, db, "device_update", device.id, {"fields": updated_fields})
@@ -415,15 +411,15 @@ def patch_device(
 @router.delete("/{device_id}", response_model=None)
 def delete_device(
     device_id: str,
-    ctx: TenantContext = Depends(_admin),
+    ctx: YardContext = Depends(_admin),
     db: Session = Depends(get_db_session),
 ):
     """删除设备：级联删除其 readings / 告警 / 指向它的规则（决策：硬删，不做 90 天保留）。
 
     理由：readings 是设备生命周期附属遥测，设备删除后无独立查询场景；平台无归档
-    设施，保留孤儿数据只会造成跨租户重名困惑。需要历史留存的应先导出 readings。
+    设施，保留孤儿数据只会造成跨小院重名困惑。需要历史留存的应先导出 readings。
     """
-    device = service.get_device_or_404(db, ctx.tenant_id, device_id)
+    device = service.get_device_or_404(db, ctx.yard_id, device_id)
     db.execute(delete(Reading).where(Reading.device_id == device.id))
     db.execute(delete(DeviceAlert).where(DeviceAlert.device_id == device.id))
     db.execute(delete(DeviceAlertRule).where(DeviceAlertRule.device_id == device.id))
@@ -436,10 +432,10 @@ def delete_device(
 @router.post("/{device_id}/rotate-token", response_model=None)
 def rotate_token(
     device_id: str,
-    ctx: TenantContext = Depends(_admin),
+    ctx: YardContext = Depends(_admin),
     db: Session = Depends(get_db_session),
 ):
-    device = service.get_device_or_404(db, ctx.tenant_id, device_id)
+    device = service.get_device_or_404(db, ctx.yard_id, device_id)
     if not device.token_hash:
         raise AppError("INVALID_REQUEST", "该设备未启用 webhook 令牌。", http_status=400)
     plain, device.token_hash = service.issue_device_token()
@@ -455,10 +451,10 @@ def device_readings(
     start: str | None = None,
     end: str | None = None,
     limit: int = Query(default=200, ge=1, le=1000),
-    ctx: TenantContext = Depends(_member),
+    ctx: YardContext = Depends(_member),
     db: Session = Depends(get_db_session),
 ):
-    device = service.get_device_or_404(db, ctx.tenant_id, device_id)
+    device = service.get_device_or_404(db, ctx.yard_id, device_id)
     rows = service.list_readings(
         db,
         device,
@@ -496,7 +492,7 @@ def ingest(
 ):
     """设备数据上报：token 错 401 / 设备禁用 403 / 超频 429。
 
-    租户边界：device_id 本身即资源定位，token 与 token_hash 比对是唯一鉴权面。
+    小院边界：device_id 本身即资源定位，token 与 token_hash 比对是唯一鉴权面。
     """
     device = db.get(Device, device_id)
     if device is None:

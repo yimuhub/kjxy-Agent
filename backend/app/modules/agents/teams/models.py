@@ -4,7 +4,7 @@
 
 - ``AgentTeam``：班组定义。``members_json`` 是**有序**成员数组
   ``[{agent_id, role_name, instruction, is_critic}]``（数量 2..8 由服务层校验，
-  SQLite 侧无法用 CHECK 表达数组基数）；同租户内班组名唯一。
+  SQLite 侧无法用 CHECK 表达数组基数）；同小院内班组名唯一。
 - ``TeamRun``：一次班组运行。``members_json`` 为运行时成员快照——班组事后
   改名/换成员不影响既有 run 的续跑与审计口径；``current_member`` 指向当前
   执行位（断点位置）；成员失败即 ``failed`` 停在断点。
@@ -37,9 +37,9 @@ VALID_MEMBER_STATUSES = (MEMBER_PENDING, MEMBER_RUNNING, MEMBER_OK, MEMBER_ERROR
 
 class AgentTeam(Base, TimestampMixin):
     __tablename__ = "agent_teams"
-    __table_args__ = (UniqueConstraint("tenant_id", "name", name="uq_agent_teams_tenant_name"),)
+    __table_args__ = (UniqueConstraint("yard_id", "name", name="uq_agent_teams_yard_name"),)
 
-    tenant_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    yard_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     # 展示/选型提示（不参与调度：各成员仍走各自 Agent 的供应商解析链）
     model_hint: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -54,7 +54,7 @@ class TeamRun(Base, TimestampMixin):
     __tablename__ = "team_runs"
 
     team_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
-    tenant_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    yard_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     # 原始问题：每个成员的接力输入都以它为前缀重建
     input: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=RUN_RUNNING)

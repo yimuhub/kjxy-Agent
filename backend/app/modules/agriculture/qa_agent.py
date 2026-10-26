@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
-from app.core.deps import TenantContext as CoreTenantContext
+from app.core.deps import YardContext as CoreYardContext
 from app.core.logging import get_logger
 from app.modules.agriculture.prompts import SYSTEM_PROMPT, build_user_prompt
 from app.modules.agriculture.schemas import QAOutput
@@ -37,7 +37,7 @@ except ImportError:
 
     @dataclass
     class ProtocolAgentContext:  # type: ignore[no-redef]
-        tenant_id: str
+        yard_id: str
         user_id: str = ""
         roles: list[str] = field(default_factory=list)
         request_id: str = "req_unknown"
@@ -97,7 +97,7 @@ class QAAgentContext:
     同步问答场景下由本上下文承载；run() 同时兼容通过 getattr 读取的任意上下文。
     """
 
-    tenant_id: str
+    yard_id: str
     user_id: str
     roles: list[str] = field(default_factory=list)
     request_id: str = "req_unknown"
@@ -192,9 +192,9 @@ async def _maybe_await(value: Any) -> Any:
     return value
 
 
-def _tenant_context_from(context: Any) -> CoreTenantContext:
-    return CoreTenantContext(
-        tenant_id=str(getattr(context, "tenant_id", "") or ""),
+def _yard_context_from(context: Any) -> CoreYardContext:
+    return CoreYardContext(
+        yard_id=str(getattr(context, "yard_id", "") or ""),
         user_id=str(getattr(context, "user_id", "") or getattr(context, "actor_id", "") or ""),
         roles=list(getattr(context, "roles", []) or []),
         request_id=str(getattr(context, "request_id", "req_unknown") or "req_unknown"),
@@ -236,7 +236,7 @@ async def _search_knowledge(
         try:
             from app.modules.knowledge.service import search as knowledge_search
 
-            tctx = _tenant_context_from(context)
+            tctx = _yard_context_from(context)
             hits = knowledge_search(db, tctx, question, top_k)
             if hits:
                 return _finalize_hits([_hit_to_dict(h) for h in hits])
@@ -249,7 +249,7 @@ async def _search_knowledge(
         execute = getattr(registry, "execute", None)
         if callable(execute):
             try:
-                tctx = _tenant_context_from(context)
+                tctx = _yard_context_from(context)
                 raw = await _maybe_await(
                     execute(
                         db,
@@ -344,9 +344,11 @@ _RATIO_PATTERNS = (
     re.compile(r"\d+:\d+"),
     re.compile(r"\d+(?:\.\d+)?(?:kg|克|毫升|L|ml|亩)", re.IGNORECASE),
 )
-# 冲突判定所需的两类来源：新（专家纠错）与旧（普通上传/租户资料）
+# 冲突判定所需的两类来源：新（专家纠错）与旧（普通上传/小院资料）
 _EXPERT_SOURCE = "expert_correction"
-_LEGACY_SOURCES = ("upload", "tenant_material")
+# 保留 tenant_material：数据迁移改写前，迁移前缓存/序列化结果里的引用仍带旧拼写，
+# 冲突检测漏识别它会把"新旧资料打架"误判为无冲突（S4 红线漏报）。
+_LEGACY_SOURCES = ("upload", "yard_material", "tenant_material")
 
 
 def _extract_ratio_values(text: str) -> set[str]:
@@ -361,7 +363,7 @@ def _detect_conflicting_values(answer: str, citations: list[dict[str, Any]]) -> 
     """检测新旧资料对同一问题给出不同配比数值（S4 红线）。
 
     触发条件：citations 同时包含 source=expert_correction 与
-    source=upload/tenant_material 的文档，且答案区（答案正文 + 引用原文）
+    source=upload/yard_material（含历史拼写 tenant_material）的文档，且答案区（答案正文 + 引用原文）
     出现的多于一种配比/用量数值。命中时返回警示语（列出各值与来源），
     否则返回 None。宁可多提示不可漏报：多来源并存且数值不一致一律转专家。
     """
@@ -392,7 +394,7 @@ async def _generate_answer(
     question: str,
     hits: list[dict[str, Any]],
     *,
-    tenant_id: str,
+    yard_id: str,
     request_id: str,
     db: Any = None,
 ) -> str:
@@ -413,7 +415,7 @@ async def _generate_answer(
                 ChatMessage(role="system", content=SYSTEM_PROMPT),
                 ChatMessage(role="user", content=build_user_prompt(question, hits)),
             ],
-            metadata=LLMMetadata(tenant_id=tenant_id, request_id=request_id),
+            metadata=LLMMetadata(yard_id=yard_id, request_id=request_id),
         )
         try:
             result = await _maybe_await(complete_with_logging(db, req))
@@ -471,7 +473,7 @@ class AgricultureQAAgent:
         db = getattr(context, "db", None)
         if db is None and isinstance(metadata, dict):
             db = metadata.get("db")
-        tenant_id = str(getattr(context, "tenant_id", "") or "")
+        yard_id = str(getattr(context, "yard_id", "") or "")
         request_id = str(getattr(context, "request_id", "req_unknown") or "req_unknown")
 
         hits = await _search_knowledge(question, top_k, context, db)
@@ -498,7 +500,7 @@ class AgricultureQAAgent:
 
         try:
             answer = await _generate_answer(
-                question, hits, tenant_id=tenant_id, request_id=request_id, db=db
+                question, hits, yard_id=yard_id, request_id=request_id, db=db
             )
         except Exception as e:
             log.warning("llm generation failed, fallback to extractive summary: %s", e)

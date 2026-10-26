@@ -62,6 +62,13 @@ test.describe('对话附件与能力生成', () => {
     await toggle.click()
     await expect(page.locator('.msg-row.assistant .step').first()).toBeVisible()
 
+    // 一键复制：提问与回答各有一个复制按钮，点击后短暂显示「已复制」
+    const copyBtn = page.locator('.msg-row.assistant .msg-copy')
+    await expect(page.locator('.msg-row.user .msg-copy')).toHaveCount(1)
+    await expect(copyBtn).toHaveCount(1)
+    await copyBtn.click()
+    await expect(copyBtn).toContainText('已复制')
+
     expect(errors).toEqual([])
   })
 
@@ -97,6 +104,48 @@ test.describe('对话附件与能力生成', () => {
     await expect(publish).toBeVisible()
     await publish.click()
     await expect(card).toContainText('已发布')
+
+    expect(errors).toEqual([])
+  })
+
+  test('对话内生成 Word 文档并可预览、下载', async ({ page }) => {
+    // 文档内容由模型生成，往返时长随负载浮动
+    test.setTimeout(150_000)
+    const errors: string[] = []
+    // 预览在无脚本沙箱 iframe 中渲染：浏览器会主动记录「Blocked script execution」
+    // 安全提示——这正是隔离生效的证据，不算页面错误。
+    const sandboxNotice = /Blocked script execution in 'about:srcdoc'/
+    page.on('console', msg => {
+      if (msg.type() === 'error' && !sandboxNotice.test(msg.text())) errors.push(msg.text())
+    })
+    page.on('pageerror', err => errors.push(err.message))
+
+    await login(page)
+    await newChat(page)
+
+    await page.locator('textarea').fill('写一份设备巡检报告，用 Word 格式')
+    await page.locator('textarea').press('Enter')
+
+    // 文档卡片：类型、格式徽章、预览/下载动作
+    const card = page.locator('.card.document').last()
+    await expect(card).toBeVisible({ timeout: 90_000 })
+    await expect(card.locator('.kind')).toHaveText('生成文档')
+    await expect(card.locator('.fmt')).toHaveText('Word')
+    await expect(card.locator('.title')).toContainText('.docx')
+
+    // 在线预览：沙箱 iframe 渲染后端自包含 HTML
+    await card.getByRole('button', { name: '预览' }).click()
+    const dialog = page.locator('.doc-preview-dialog')
+    await expect(dialog).toBeVisible()
+    const frame = dialog.locator('iframe.doc-preview-frame')
+    await expect(frame).toBeVisible({ timeout: 30_000 })
+    await expect(frame).toHaveAttribute('sandbox', '')
+
+    // 下载：浏览器收到 docx 附件
+    const downloadPromise = page.waitForEvent('download', { timeout: 30_000 })
+    await dialog.getByRole('button', { name: '下载' }).click()
+    const download = await downloadPromise
+    expect(download.suggestedFilename()).toContain('.docx')
 
     expect(errors).toEqual([])
   })

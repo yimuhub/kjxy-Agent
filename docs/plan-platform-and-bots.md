@@ -55,7 +55,7 @@
    返回 `kjxy://pair?host=<ip:port>&code=<一次性码>`。
 2. 前端渲染二维码（qrcode 库，纯 canvas，无新依赖则后端出 PNG base64）。
 3. 手机壳扫码 → `POST /pairing/exchange` {code} → 服务端校验哈希、标记已用 →
-   换发 **pair token**（JWT：kind=pair，含设备名/租户/30 天有效期，可在管理页吊销）
+   换发 **pair token**（JWT：kind=pair，含设备名/小院/30 天有效期，可在管理页吊销）
    → 壳把 `http://<ip:port>` + token 存本地 → WebView 加载并带 `Authorization`。
 4. **局域网安全**：默认仅接受 RFC1918/链路本地来源访问 pair 换发接口；HTTP 明文仅限
    LAN 场景并在 UI 明示风险；服务器版建议 TLS（deploy/nginx 已带证书挂点）。
@@ -101,7 +101,7 @@
 ```
 入站: 平台回调 → POST /api/v1/bots/webhook/{platform}（签名校验→幂等→去@）
         ↓
-会话映射: bots_conversations（平台用户 ↔ 租户 ↔ 会话号，多轮上下文 6 轮滑窗）
+会话映射: bots_conversations（平台用户 ↔ 小院 ↔ 会话号，多轮上下文 6 轮滑窗）
         ↓
 执行: supervisor.ask(自动路由) 或 绑定指定助手/班组（对话内 /use <助手名> 切换）
         ↓
@@ -120,8 +120,8 @@
    引导用「企微 ↔ 微信互通」或公众号替代。文档写明原因（诚实口径）。
 
 ### 配置与安全
-- tenant_admin 在「设置 → 机器人」配置各平台凭据（Fernet 加密存储、掩码回显、
-  连通测试按钮），一租户可挂多机器人；绑定「默认应答方式」：总控自动路由 / 指定助手。
+- yard_admin 在「设置 → 机器人」配置各平台凭据（Fernet 加密存储、掩码回显、
+  连通测试按钮），一小院可挂多机器人；绑定「默认应答方式」：总控自动路由 / 指定助手。
 - 白名单：会话首次接入可选「需管理员在管理页批准」开关（防陌生人借用算力）。
 - 限频：每会话 6 msg/min、每机器人 60 msg/min（复用 push 的限频器）。
 - 危险操作：机器人侧只暴露 supervisor 只读问答；带副作用工具在机器人上下文**默认禁用**

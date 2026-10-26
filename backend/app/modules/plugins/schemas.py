@@ -6,7 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 PluginType = Literal["workflow", "knowledge_pack", "domain_pack"]
-# workflow 型（v1.3-B C2）扩展状态：pending_review|rejected 只出现在租户级 workflow 插件上
+# workflow 型（v1.3-B C2）扩展状态：pending_review|rejected 只出现在小院级 workflow 插件上
 PluginStatus = Literal["enabled", "disabled", "pending_review", "rejected"]
 
 
@@ -15,7 +15,7 @@ class PluginOut(BaseModel):
 
     id: str
     plugin_id: str
-    tenant_id: str | None
+    yard_id: str | None
     version: str
     type: str
     status: str

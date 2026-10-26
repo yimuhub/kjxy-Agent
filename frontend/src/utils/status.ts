@@ -48,7 +48,7 @@ export const ERROR_CODE_MESSAGES: Record<string, string> = {
   UNAUTHORIZED: '登录状态已失效，请重新登录',
   INVALID_CREDENTIALS: '用户名或密码错误',
   FORBIDDEN: '当前账号无权执行该操作',
-  TENANT_REQUIRED: '该账号归属多个使用空间，请选择后再登录',
+  YARD_REQUIRED: '该账号归属多个小院，请选择后再登录',
   NOT_FOUND: '内容不存在或已被删除',
   CONFLICT: '操作冲突，请刷新后重试',
   VALIDATION_ERROR: '提交的内容不符合要求，请检查后重试',

@@ -1,6 +1,6 @@
 """任务业务服务：创建 / 查询 / 取消 / 重试 / 状态机转移。
 
-- 所有查询强制 tenant_id 过滤，跨租户访问统一视为不存在（404 TASK_NOT_FOUND）。
+- 所有查询强制 yard_id 过滤，跨小院访问统一视为不存在（404 TASK_NOT_FOUND）。
 - 状态变化只允许经由 set_status；每次状态变化写入 task_events。
 - 本模块不直接依赖 Celery；任务投递由 worker_tasks.enqueue_task（带降级）完成。
 """
@@ -14,7 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
-from app.core.deps import TenantContext
+from app.core.deps import YardContext
 from app.core.errors import AppError
 from app.modules.audit.service import log_audit
 from app.modules.tasks import state_machine as sm
@@ -29,16 +29,14 @@ class TaskService:
     # ---------- 查询 ----------
 
     @staticmethod
-    def get_by_idempotency_key(db: Session, tenant_id: str, idempotency_key: str) -> Task | None:
-        stmt = select(Task).where(
-            Task.tenant_id == tenant_id, Task.idempotency_key == idempotency_key
-        )
+    def get_by_idempotency_key(db: Session, yard_id: str, idempotency_key: str) -> Task | None:
+        stmt = select(Task).where(Task.yard_id == yard_id, Task.idempotency_key == idempotency_key)
         return db.scalar(stmt)
 
     @staticmethod
-    def get(db: Session, ctx: TenantContext, task_id: str) -> Task:
-        """按 id + 租户取任务；不存在或跨租户 → 404 TASK_NOT_FOUND（防枚举）。"""
-        stmt = select(Task).where(Task.tenant_id == ctx.tenant_id, Task.id == task_id)
+    def get(db: Session, ctx: YardContext, task_id: str) -> Task:
+        """按 id + 小院取任务；不存在或跨小院 → 404 TASK_NOT_FOUND（防枚举）。"""
+        stmt = select(Task).where(Task.yard_id == ctx.yard_id, Task.id == task_id)
         task = db.scalar(stmt)
         if task is None:
             raise AppError("TASK_NOT_FOUND", "任务不存在或无权访问。", http_status=404)
@@ -47,14 +45,14 @@ class TaskService:
     @staticmethod
     def list_tasks(
         db: Session,
-        ctx: TenantContext,
+        ctx: YardContext,
         *,
         status: str | None = None,
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[list[Task], int]:
-        stmt = select(Task).where(Task.tenant_id == ctx.tenant_id)
-        count_stmt = select(func.count()).select_from(Task).where(Task.tenant_id == ctx.tenant_id)
+        stmt = select(Task).where(Task.yard_id == ctx.yard_id)
+        count_stmt = select(func.count()).select_from(Task).where(Task.yard_id == ctx.yard_id)
         if status:
             stmt = stmt.where(Task.status == status)
             count_stmt = count_stmt.where(Task.status == status)
@@ -63,11 +61,11 @@ class TaskService:
         return list(db.scalars(stmt)), total
 
     @staticmethod
-    def list_events(db: Session, ctx: TenantContext, task_id: str) -> list[TaskEvent]:
+    def list_events(db: Session, ctx: YardContext, task_id: str) -> list[TaskEvent]:
         task = TaskService.get(db, ctx, task_id)
         stmt = (
             select(TaskEvent)
-            .where(TaskEvent.tenant_id == ctx.tenant_id, TaskEvent.task_id == task.id)
+            .where(TaskEvent.yard_id == ctx.yard_id, TaskEvent.task_id == task.id)
             .order_by(TaskEvent.created_at.asc())
         )
         return list(db.scalars(stmt))
@@ -85,7 +83,7 @@ class TaskService:
         payload: dict | None = None,
     ) -> TaskEvent:
         event = TaskEvent(
-            tenant_id=task.tenant_id,
+            yard_id=task.yard_id,
             task_id=task.id,
             event_type=event_type,
             message=message,
@@ -99,21 +97,21 @@ class TaskService:
     @staticmethod
     def create(
         db: Session,
-        ctx: TenantContext,
+        ctx: YardContext,
         task_type: str,
         input: dict,  # noqa: A002 - 与 API 契约字段名保持一致
         priority: str = "normal",
         idempotency_key: str | None = None,
         request_id: str = "req_unknown",
     ) -> Task:
-        """创建任务。同一租户同一幂等键直接返回已存在的任务（不重复创建）。"""
+        """创建任务。同一小院同一幂等键直接返回已存在的任务（不重复创建）。"""
         if idempotency_key:
-            existing = TaskService.get_by_idempotency_key(db, ctx.tenant_id, idempotency_key)
+            existing = TaskService.get_by_idempotency_key(db, ctx.yard_id, idempotency_key)
             if existing is not None:
                 return existing
 
         task = Task(
-            tenant_id=ctx.tenant_id,
+            yard_id=ctx.yard_id,
             created_by=ctx.user_id,
             task_type=task_type,
             status=sm.STATUS_QUEUED,
@@ -132,7 +130,7 @@ class TaskService:
         )
         log_audit(
             db,
-            tenant_id=ctx.tenant_id,
+            yard_id=ctx.yard_id,
             actor_id=ctx.user_id,
             action="task.create",
             resource_type="task",
@@ -144,7 +142,7 @@ class TaskService:
         return task
 
     @staticmethod
-    def cancel(db: Session, ctx: TenantContext, task_id: str, *, request_id: str) -> Task:
+    def cancel(db: Session, ctx: YardContext, task_id: str, *, request_id: str) -> Task:
         """取消任务：仅 queued/running 可取消。running 的任务在 input_json.meta 中标记
         cancel_requested=True，供 Worker 在安全点感知取消。"""
         task = TaskService.get(db, ctx, task_id)
@@ -170,7 +168,7 @@ class TaskService:
         )
         log_audit(
             db,
-            tenant_id=ctx.tenant_id,
+            yard_id=ctx.yard_id,
             actor_id=ctx.user_id,
             action="task.cancel",
             resource_type="task",
@@ -184,7 +182,7 @@ class TaskService:
     @staticmethod
     def retry(
         db: Session,
-        ctx: TenantContext,
+        ctx: YardContext,
         task_id: str,
         *,
         request_id: str,
@@ -223,7 +221,7 @@ class TaskService:
         db.flush()
         log_audit(
             db,
-            tenant_id=ctx.tenant_id,
+            yard_id=ctx.yard_id,
             actor_id=ctx.user_id,
             action="task.retry",
             resource_type="task",

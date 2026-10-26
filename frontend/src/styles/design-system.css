@@ -553,9 +553,12 @@ a {
   background: var(--ds-bg-2);
   border-color: var(--ds-border);
 }
+/* el-tooltip 默认 effect=dark：EP 原生用 color: var(--el-bg-color) 反色，
+ * 而本项目把 --el-bg-color 桥接成了深色，导致「深底深字」看不清——显式给浅色文字 */
 .el-popper.is-dark {
   background: rgba(23, 28, 42, 0.96);
   border: 1px solid var(--ds-border);
+  color: var(--ds-text-1);
 }
 .el-popper.is-dark .el-popper__arrow::before {
   background: rgba(23, 28, 42, 0.96);

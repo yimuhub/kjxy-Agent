@@ -32,16 +32,16 @@ from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy import create_engine  # noqa: E402
 from sqlalchemy.orm import sessionmaker  # noqa: E402
 
-TENANT_1 = "tenant-sse-1"
-TENANT_2 = "tenant-sse-2"
+YARD_1 = "yard-sse-1"
+YARD_2 = "yard-sse-2"
 USER_1 = "user-sse-1"
 USER_2 = "user-sse-2"
 
 TERMINAL = {"succeeded", "failed", "cancelled"}
 
 
-def _token(tenant_id: str = TENANT_1, user_id: str = USER_1) -> str:
-    return create_access_token(user_id=user_id, tenant_id=tenant_id, roles=["operator"])
+def _token(yard_id: str = YARD_1, user_id: str = USER_1) -> str:
+    return create_access_token(user_id=user_id, yard_id=yard_id, roles=["operator"])
 
 
 @pytest.fixture()
@@ -81,8 +81,8 @@ def auth_headers():
 
 
 @pytest.fixture()
-def other_tenant_headers():
-    return {"Authorization": f"Bearer {_token(TENANT_2, USER_2)}"}
+def other_yard_headers():
+    return {"Authorization": f"Bearer {_token(YARD_2, USER_2)}"}
 
 
 @pytest.fixture(autouse=True)
@@ -111,7 +111,7 @@ def slow_handler():
             try:
                 session.add(
                     TaskEvent(
-                        tenant_id=context["tenant_id"],
+                        yard_id=context["yard_id"],
                         task_id=context["task_id"],
                         event_type="progress",
                         message=f"处理中（{int(pct)}%）",
@@ -320,14 +320,14 @@ def test_stream_timeout_emits_stream_end(api_client, auth_headers, no_celery, mo
 
 
 def test_stream_access_matches_events_endpoint(
-    api_client, auth_headers, no_celery, other_tenant_headers
+    api_client, auth_headers, no_celery, other_yard_headers
 ):
     created = _create(api_client, auth_headers, idem_key="sse-access").json()["data"]
     task_id = created["id"]
 
-    # 跨租户：与 events 端点同样 404 TASK_NOT_FOUND（防枚举，而不是 403）
+    # 跨小院：与 events 端点同样 404 TASK_NOT_FOUND（防枚举，而不是 403）
     for suffix in ("events", "events/stream"):
-        resp = api_client.get(f"/api/v1/tasks/{task_id}/{suffix}", headers=other_tenant_headers)
+        resp = api_client.get(f"/api/v1/tasks/{task_id}/{suffix}", headers=other_yard_headers)
         assert resp.status_code == 404, suffix
         assert resp.json()["error"]["code"] == "TASK_NOT_FOUND", suffix
 

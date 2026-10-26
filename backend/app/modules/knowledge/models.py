@@ -32,7 +32,7 @@ class EmbeddingType(TypeDecorator):
 class KnowledgeDocument(Base, TimestampMixin):
     __tablename__ = "knowledge_documents"
 
-    tenant_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    yard_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     storage_key: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     mime_type: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -54,7 +54,7 @@ class KnowledgeDocument(Base, TimestampMixin):
 class KnowledgeChunk(Base, TimestampMixin):
     __tablename__ = "knowledge_chunks"
 
-    tenant_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    yard_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     document_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("knowledge_documents.id"), index=True, nullable=False
     )
@@ -62,10 +62,10 @@ class KnowledgeChunk(Base, TimestampMixin):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     page_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     title_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    # 可信级别: verified_official | expert_reviewed | tenant_material |
+    # 可信级别: verified_official | expert_reviewed | yard_material |
     # case_observation | model_candidate | unknown
-    trust_level: Mapped[str] = mapped_column(String(32), nullable=False, default="tenant_material")
-    visibility: Mapped[str] = mapped_column(String(32), nullable=False, default="tenant")
+    trust_level: Mapped[str] = mapped_column(String(32), nullable=False, default="yard_material")
+    visibility: Mapped[str] = mapped_column(String(32), nullable=False, default="yard")
     metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     embedding: Mapped[list | None] = mapped_column(EmbeddingType(), nullable=True)
 

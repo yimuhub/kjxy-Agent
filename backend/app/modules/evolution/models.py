@@ -23,7 +23,7 @@ class Feedback(Base, TimestampMixin):
 
     __tablename__ = "evolution_feedback"
 
-    tenant_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    yard_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     task_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     actor_id: Mapped[str] = mapped_column(String(36), nullable=False)
     rating: Mapped[str | None] = mapped_column(String(10), nullable=True)  # up|down
@@ -37,7 +37,7 @@ class KnowledgeCandidate(Base, TimestampMixin):
 
     __tablename__ = "evolution_knowledge_candidates"
 
-    tenant_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    yard_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     source_feedback_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
@@ -55,12 +55,12 @@ class Skill(Base, TimestampMixin):
 
     __tablename__ = "evolution_skills"
     __table_args__ = (
-        # tenant_id 可空：PG 语义下 NULL 视为互不相等，P0 接受
+        # yard_id 可空：PG 语义下 NULL 视为互不相等，P0 接受
         # （平台级 skill_code+version 仍可能重复，由 service 层做显式唯一校验兜底）。
-        UniqueConstraint("tenant_id", "skill_code", "version", name="uq_skill_tenant_code_version"),
+        UniqueConstraint("yard_id", "skill_code", "version", name="uq_skill_yard_code_version"),
     )
 
-    tenant_id: Mapped[str | None] = mapped_column(String(36), nullable=True)  # 可空=平台级
+    yard_id: Mapped[str | None] = mapped_column(String(36), nullable=True)  # 可空=平台级
     skill_code: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     version: Mapped[str] = mapped_column(String(50), nullable=False)
     definition_json: Mapped[dict] = mapped_column("definition", JSON, nullable=False)
@@ -72,24 +72,24 @@ class Skill(Base, TimestampMixin):
 
 
 class SkillRollout(Base, TimestampMixin):
-    """Skill 灰度发布配置：同一 Skill 双版本并存，按策略把部分租户切到新版。
+    """Skill 灰度发布配置：同一 Skill 双版本并存，按策略把部分小院切到新版。
 
-    一个 (tenant_id, skill_code) 同一时刻最多一条未完成（active|paused）的灰度。
+    一个 (yard_id, skill_code) 同一时刻最多一条未完成（active|paused）的灰度。
     """
 
     __tablename__ = "evolution_skill_rollouts"
 
-    tenant_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    yard_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     skill_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("evolution_skills.id"), nullable=False
     )
     skill_code: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     stable_version: Mapped[str] = mapped_column(String(50), nullable=False)
     rollout_version: Mapped[str] = mapped_column(String(50), nullable=False)
-    # tenant_allowlist | percentage
+    # yard_allowlist | percentage
     strategy: Mapped[str] = mapped_column(String(20), nullable=False)
     percentage: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 0-100
-    tenant_allowlist: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    yard_allowlist: Mapped[list | None] = mapped_column(JSON, nullable=True)
     # active | paused | completed
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active", index=True)
 
@@ -102,9 +102,9 @@ class EvalRun(Base, TimestampMixin):
     """
 
     __tablename__ = "eval_runs"
-    __table_args__ = (Index("ix_eval_runs_lookup", "tenant_id", "skill_code", "skill_version"),)
+    __table_args__ = (Index("ix_eval_runs_lookup", "yard_id", "skill_code", "skill_version"),)
 
-    tenant_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    yard_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     skill_code: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     skill_version: Mapped[str] = mapped_column(String(50), nullable=False)
     test_set_id: Mapped[str] = mapped_column(String(100), nullable=False)

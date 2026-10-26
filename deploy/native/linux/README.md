@@ -26,7 +26,7 @@ make native-web
 ```
 
 浏览器打开 http://127.0.0.1:5173 ，演示账号：`admin/admin123`（平台管理员）、
-`tenant_admin/tenant123`、`expert/expert123`、`operator/operator123`。
+`yard_admin/yard123`、`expert/expert123`、`operator/operator123`。
 
 ## 长期运行
 

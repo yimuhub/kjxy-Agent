@@ -10,12 +10,12 @@
 
     ../.venv/bin/python scripts/run_evals.py                        # 当前 LLM（CI=fake）验管道
     ../.venv/bin/python scripts/run_evals.py --supplier-id <uuid>   # 指定供应商真打模型
-    ../.venv/bin/python scripts/run_evals.py --file evals/golden_v1.jsonl --tenant-id <uuid>
+    ../.venv/bin/python scripts/run_evals.py --file evals/golden_v1.jsonl --yard-id <uuid>
 
 口径说明（诚实边界）：
 - **默认不动配置**：LLM 走 .env / LLM_PROVIDER（CI 与开发机默认 fake）——只验证
   管道通（agent 可解析、可运行、报告可产出），关键词命中率预期为 0 不代表线上质量；
-- ``--supplier-id``：把该供应商设为租户 active 后再跑（**会改租户配置**，跑完请
+- ``--supplier-id``：把该供应商设为小院 active 后再跑（**会改小院配置**，跑完请
   按需切回），此时 llm_traces.purpose=eval 可观测真实调用；
 - 关键词判定为不区分大小写的子串命中；缺失 agent / 运行异常单独计错，不算命中。
 
@@ -60,11 +60,11 @@ def load_items(path: Path) -> list[dict]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="科技小院评估集骨架运行器（W4）")
     parser.add_argument("--file", default=str(DEFAULT_FILE), help="golden jsonl 路径")
-    parser.add_argument("--tenant-id", default=None, help="租户 id（默认取第一个租户）")
+    parser.add_argument("--yard-id", default=None, help="小院 id（默认取第一个小院）")
     parser.add_argument(
         "--supplier-id",
         default=None,
-        help="把该供应商设为租户 active 后真打模型（会改租户配置）；缺省沿用当前 LLM 配置",
+        help="把该供应商设为小院 active 后真打模型（会改小院配置）；缺省沿用当前 LLM 配置",
     )
     args = parser.parse_args(argv)
 
@@ -76,44 +76,44 @@ def main(argv: list[str] | None = None) -> int:
     os.environ.setdefault("LLM_PROVIDER", "fake")
     os.environ.setdefault("EMBEDDING_PROVIDER", "mock")
 
-    from app.core.deps import TenantContext
+    from app.core.deps import YardContext
     from app.db.session import SessionLocal
     from app.modules.agents import declarative
-    from app.modules.tenants.models import Tenant
+    from app.modules.yards.models import Yard
     from sqlalchemy import select
 
     items = load_items(Path(args.file))
     db = SessionLocal()
     try:
-        tenant_id = args.tenant_id
-        if not tenant_id:
-            tenant = db.scalar(select(Tenant).order_by(Tenant.created_at.asc()))
-            if tenant is None:
-                raise SystemExit("库中没有任何租户，无法运行评估。")
-            tenant_id = tenant.id
+        yard_id = args.yard_id
+        if not yard_id:
+            yard = db.scalar(select(Yard).order_by(Yard.created_at.asc()))
+            if yard is None:
+                raise SystemExit("库中没有任何小院，无法运行评估。")
+            yard_id = yard.id
 
         active_note = "当前 LLM 配置（默认 fake 只验管道）"
         if args.supplier_id:
             from app.modules.llm import supplier_service
 
-            supplier_service.set_active_supplier(db, tenant_id, args.supplier_id)
+            supplier_service.set_active_supplier(db, yard_id, args.supplier_id)
             db.commit()
-            active_note = f"租户 active 供应商已切换为 {args.supplier_id}（评估前会改配置）"
+            active_note = f"小院 active 供应商已切换为 {args.supplier_id}（评估前会改配置）"
 
         results: list[dict] = []
         for item in items:
             row = {"id": item["id"], "agent_code": item["agent_code"], "status": "", "hits": []}
             agent = declarative.get_published_by_code(
-                db, tenant_id=tenant_id, agent_code=str(item["agent_code"])
+                db, yard_id=yard_id, agent_code=str(item["agent_code"])
             )
             if agent is None:
                 row["status"] = "missing_agent"
                 results.append(row)
                 continue
-            ctx = TenantContext(
-                tenant_id=tenant_id,
+            ctx = YardContext(
+                yard_id=yard_id,
                 user_id="eval-runner",
-                roles=["tenant_admin"],
+                roles=["yard_admin"],
                 request_id=f"eval-{item['id']}",
             )
             try:

@@ -38,7 +38,7 @@ STEP_STATUSES = (STEP_OK, STEP_ERROR, STEP_SKIPPED)
 class AgentRunStep(Base, TimestampMixin):
     __tablename__ = "agent_run_steps"
 
-    tenant_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    yard_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     run_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     step_index: Mapped[int] = mapped_column(Integer, nullable=False)
     step_type: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -50,11 +50,11 @@ class AgentRunStep(Base, TimestampMixin):
     error_text: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
-def list_steps(db: Session, *, tenant_id: str, run_id: str) -> list[AgentRunStep]:
-    """租户边界内的全部步骤（step_index 升序）；跨租户天然查不到（→ 调用方 404）。"""
+def list_steps(db: Session, *, yard_id: str, run_id: str) -> list[AgentRunStep]:
+    """小院边界内的全部步骤（step_index 升序）；跨小院天然查不到（→ 调用方 404）。"""
     return list(
         db.query(AgentRunStep)
-        .filter(AgentRunStep.tenant_id == tenant_id, AgentRunStep.run_id == run_id)
+        .filter(AgentRunStep.yard_id == yard_id, AgentRunStep.run_id == run_id)
         .order_by(AgentRunStep.step_index.asc(), AgentRunStep.id.asc())
         .all()
     )
@@ -68,7 +68,7 @@ def is_run_completed(steps: list[AgentRunStep]) -> bool:
 def record_step(
     db: Session,
     *,
-    tenant_id: str,
+    yard_id: str,
     run_id: str,
     step_type: str,
     status: str = STEP_OK,
@@ -84,7 +84,7 @@ def record_step(
     if step_index is None:
         step_index = next_step_index(db, run_id=run_id)
     row = AgentRunStep(
-        tenant_id=tenant_id,
+        yard_id=yard_id,
         run_id=run_id,
         step_index=step_index,
         step_type=step_type,
@@ -104,7 +104,7 @@ def record_step(
 
 
 def next_step_index(db: Session, *, run_id: str) -> int:
-    """跨租户取号即可：step_index 仅是 run 内序号，租户归属由行上的 tenant_id 决定。"""
+    """跨小院取号即可：step_index 仅是 run 内序号，小院归属由行上的 yard_id 决定。"""
     from sqlalchemy import func
 
     current = (

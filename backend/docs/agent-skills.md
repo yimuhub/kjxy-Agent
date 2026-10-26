@@ -15,7 +15,7 @@
 
 | skill code | 名称 | 说明 | 风险等级 | 输入输出摘要 | 备注 |
 |---|---|---|---|---|---|
-| `knowledge.search` | 知识检索 | 在当前用户有权访问的知识范围内执行检索（实现由知识库模块注册；需权限 `knowledge:read`） | `read_only` | 输入：`query`（必填，检索问题，≤2000 字符）、`top_k`（1–20，默认 5）；输出：`hits[]`（命中的文档片段，含来源引用） | Agent 的 `allowed_knowledge_scopes` 为 `["tenant", "crop_public"]`；检索范围受租户授权约束 |
+| `knowledge.search` | 知识检索 | 在当前用户有权访问的知识范围内执行检索（实现由知识库模块注册；需权限 `knowledge:read`） | `read_only` | 输入：`query`（必填，检索问题，≤2000 字符）、`top_k`（1–20，默认 5）；输出：`hits[]`（命中的文档片段，含来源引用） | Agent 的 `allowed_knowledge_scopes` 为 `["yard", "crop_public"]`；检索范围受小院授权约束 |
 
 ## 2. 作物诊断辅助 Agent（crop_diagnosis）
 
@@ -23,7 +23,7 @@
 
 | skill code | 名称 | 说明 | 风险等级 | 输入输出摘要 | 备注 |
 |---|---|---|---|---|---|
-| `knowledge.search` | 知识检索 | 同上（需权限 `knowledge:read`） | `read_only` | 同上 | Agent 自身 `risk_level` 为 `medium`（输出供种植决策参考），但其 skill 本身为只读；`allowed_knowledge_scopes` 为 `["tenant", "crop_public"]` |
+| `knowledge.search` | 知识检索 | 同上（需权限 `knowledge:read`） | `read_only` | 同上 | Agent 自身 `risk_level` 为 `medium`（输出供种植决策参考），但其 skill 本身为只读；`allowed_knowledge_scopes` 为 `["yard", "crop_public"]` |
 
 ## 3. 农事规划 Agent（farm_planner）
 
@@ -69,12 +69,12 @@
 ### 6.2 我们的 `risk_level` 与 MCP hints 的对应关系
 
 `ToolRegistry.RISK_LEVELS` 共四级，执行时在代码层强制校验（harness 层；
-角色→工具映射由 `tenants/permissions.py` 承担，不重复造轮子）：
+角色→工具映射由 `yards/permissions.py` 承担，不重复造轮子）：
 
 | 我们的 risk_level | MCP hints 对应（等价描述） | 行为约束 |
 |---|---|---|
 | `read_only` | `readOnlyHint=true`，`destructiveHint=false` | 只读，无副作用，免审批。当前唯一已注册工具 `knowledge.search` 即此级 |
-| `draft` | `readOnlyHint=false`，`destructiveHint=false`，仅产生内部草稿/建议 | 可写租户内部数据但不对外生效（如计划草案、报告草稿），内部可见、未审核不流转 |
+| `draft` | `readOnlyHint=false`，`destructiveHint=false`，仅产生内部草稿/建议 | 可写小院内部数据但不对外生效（如计划草案、报告草稿），内部可见、未审核不流转 |
 | `write_reversible` | `destructiveHint=false`（或低破坏），`idempotentHint=true` 优先 | 可逆写入（如配置更新、状态回滚操作），执行留审计，可撤销 |
 | `external_side_effect` | `openWorldHint=true` 或 `destructiveHint=true`（保守默认） | **高风险**：调用前必须人工审批（`approvals` 审批单），未获批自动创建 pending 审批单并拒绝执行。示例：`workorder.dispatch`（作业工单下发，当前 dry-run 演示） |
 
@@ -91,4 +91,4 @@
 `skills` 列表会自动跳过它，且 Agent 运行时无法调用）。
 
 注意：`allowed_tools` 只是"允许调用"白名单，真正的权限仍由
-`tenants/permissions.py` 的角色→权限点校验在代码层强制执行。
+`yards/permissions.py` 的角色→权限点校验在代码层强制执行。

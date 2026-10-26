@@ -116,7 +116,7 @@ def channel_to_out(ch: PushChannel) -> dict[str, Any]:
             url_masked = "****（无法解密，请重新录入 URL）"
     return {
         "id": ch.id,
-        "tenant_id": ch.tenant_id,
+        "yard_id": ch.yard_id,
         "name": ch.name,
         "kind": ch.kind,
         "url_masked": url_masked,
@@ -153,10 +153,10 @@ def validate_events(events: list[str]) -> None:
             )
 
 
-def get_channel_or_404(db: Session, tenant_id: str, channel_id: str) -> PushChannel:
-    """跨租户与不存在统一 404（不泄露其他租户通道是否存在）。"""
+def get_channel_or_404(db: Session, yard_id: str, channel_id: str) -> PushChannel:
+    """跨小院与不存在统一 404（不泄露其他小院通道是否存在）。"""
     ch = db.get(PushChannel, channel_id)
-    if ch is None or ch.tenant_id != tenant_id:
+    if ch is None or ch.yard_id != yard_id:
         raise AppError("NOT_FOUND", "推送通道不存在。", http_status=404)
     return ch
 
@@ -216,7 +216,7 @@ def _record_failure(db: Session, ch: PushChannel, reason: str, request_id: str) 
     )
     log_audit(
         db,
-        tenant_id=ch.tenant_id,
+        yard_id=ch.yard_id,
         actor_id=None,
         action="push_channel_failed",
         resource_type="push_channel",
@@ -232,7 +232,7 @@ def _record_failure(db: Session, ch: PushChannel, reason: str, request_id: str) 
         )
         log_audit(
             db,
-            tenant_id=ch.tenant_id,
+            yard_id=ch.yard_id,
             actor_id=None,
             action="push_channel_disabled",
             resource_type="push_channel",
@@ -251,12 +251,12 @@ def _record_failure(db: Session, ch: PushChannel, reason: str, request_id: str) 
 def dispatch(
     db: Session,
     *,
-    tenant_id: str,
+    yard_id: str,
     event_type: str,
     payload: dict[str, Any],
     request_id: str = "",
 ) -> dict[str, int]:
-    """向该租户订阅了 ``event_type`` 的启用通道逐条推送。
+    """向该小院订阅了 ``event_type`` 的启用通道逐条推送。
 
     **发送失败绝不影响主流程**：整体 try/except（log_audit/db.add 只挂进调用方
     事务；外层若回滚，推送已发出但计数一并回滚——多实例语义一致，诚实接受）。
@@ -267,7 +267,7 @@ def dispatch(
         channels = list(
             db.scalars(
                 select(PushChannel).where(
-                    PushChannel.tenant_id == tenant_id,
+                    PushChannel.yard_id == yard_id,
                     PushChannel.enabled.is_(True),
                 )
             )
@@ -305,8 +305,8 @@ def dispatch(
         db.flush()
     except Exception as e:  # noqa: BLE001 —— dispatch 永不影响业务主流程
         log.warning(
-            "push dispatch crashed (ignored): tenant=%s event=%s err=%s",
-            tenant_id,
+            "push dispatch crashed (ignored): yard=%s event=%s err=%s",
+            yard_id,
             event_type,
             e,
         )

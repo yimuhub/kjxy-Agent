@@ -21,14 +21,14 @@
    `condition`（仅 contains/equals 两算子，显式拒绝取反）、`loop: {back_to, max_iterations≤10,
    exit_condition}`、`depends_on_mode: any_completed`（分支汇聚，多分支允许同名 output）、
    `type: approval`（人审闸门→任务转 awaiting_review，对齐 §7.5）。
-2. **执行引擎**：asyncio 复刻拓扑分层（同层按租户并发上限分批 gather）；黑板= dict，
+2. **执行引擎**：asyncio 复刻拓扑分层（同层按小院并发上限分批 gather）；黑板= dict，
    变量未定义在**校验期**报错（启动即知，不跑到一半炸）；循环节点回拨层级指针，
    `back_to` 必须在依赖链祖先上（构建期校验 safegard）。
 3. **双层验收**（每步可挂）：机械断言 `assert`（纯函数：产物块数/长度/contains/正则，
    硬失败打回定向返工 1 轮）→ LLM 验收 `acceptance`（逐条判 {pass, why 必须引用产出原话}，
    引用不出原话的"未满足"改判满足——防裁判幻觉口径）；验收不过只标 ⚠️+needs_review，
    不判执行 failed（质量信号与执行错误两级语义）。
-4. **安全边界**：工作流文件只从 `plugins/workflows/` 与租户配置目录加载；节点白名单=
+4. **安全边界**：工作流文件只从 `plugins/workflows/` 与小院配置目录加载；节点白名单=
    已注册 agent/tool code；步数/超时/token 预算从 agent_definitions 继承再取 min；
    不引入任何动态代码执行。定义变更走版本号+审计（对齐 §11.4 Skill 发布流程）。
 

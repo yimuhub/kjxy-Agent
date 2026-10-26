@@ -1,12 +1,12 @@
 """班组 REST API（挂载于 agents 路由之下，最终路径 /agents/teams* 与 /agents/team-runs*）。
 
-选型说明：班组与声明式 Agent/工厂同属 agents 域（成员就是 tenant_agents 行），
+选型说明：班组与声明式 Agent/工厂同属 agents 域（成员就是 yard_agents 行），
 故不新开顶层 /teams，而是挂在 /agents 下——鉴权依赖、错误码风格、审计口径
 与 declarative/factory 子路由完全同构，api/v1 总路由无需新增感知。
 
-- CRUD（tenant_admin）：POST/GET/PATCH/DELETE /agents/teams*
-- 运行（租户成员均可）：POST /agents/teams/{id}/run；GET /agents/teams/{id}/runs
-- 台账/续跑/推流（租户成员均可）：GET /agents/team-runs/{run_id}、
+- CRUD（yard_admin）：POST/GET/PATCH/DELETE /agents/teams*
+- 运行（小院成员均可）：POST /agents/teams/{id}/run；GET /agents/teams/{id}/runs
+- 台账/续跑/推流（小院成员均可）：GET /agents/team-runs/{run_id}、
   POST /agents/team-runs/{run_id}/retry、GET /agents/team-runs/{run_id}/stream
 
 运行是同步请求内执行（与声明式同步运行同一口径：只写审计 + llm_calls，
@@ -25,10 +25,10 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import (
     CurrentUser,
-    TenantContext,
+    YardContext,
     get_current_user,
     get_db_session,
-    get_tenant_context,
+    get_yard_context,
     require_roles,
 )
 from app.core.errors import AppError
@@ -41,8 +41,8 @@ from app.modules.audit.service import log_audit
 router = APIRouter(prefix="/teams", tags=["agent-teams"])
 runs_router = APIRouter(prefix="/team-runs", tags=["agent-teams"])
 
-#: 管理闸门：tenant_admin（require_roles 内置 platform_admin 直通）
-_team_admin_gate = require_roles("tenant_admin")
+#: 管理闸门：yard_admin（require_roles 内置 platform_admin 直通）
+_team_admin_gate = require_roles("yard_admin")
 
 
 class TeamCreateRequest(BaseModel):
@@ -93,7 +93,7 @@ class TeamRunRequest(BaseModel):
 
 def _audit_run(
     db: Session,
-    ctx: TenantContext,
+    ctx: YardContext,
     actor_id: str,
     *,
     action: str,
@@ -104,7 +104,7 @@ def _audit_run(
     """班组运行审计；永不影响主流程。"""
     log_audit(
         db,
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         actor_id=actor_id,
         action=action,
         resource_type="agent_team",
@@ -116,7 +116,7 @@ def _audit_run(
 
 
 # ---------------------------------------------------------------------------
-# 班组 CRUD（tenant_admin 管理；读取放开给租户成员——班组成员可跑即可见）
+# 班组 CRUD（yard_admin 管理；读取放开给小院成员——班组成员可跑即可见）
 # ---------------------------------------------------------------------------
 
 
@@ -124,15 +124,15 @@ def _audit_run(
 def create_team(
     payload: TeamCreateRequest,
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     user: CurrentUser = Depends(_team_admin_gate),
     db: Session = Depends(get_db_session),
 ):
-    """创建班组（成员 2..8、同租户重名 409、跨租户成员 404）。"""
+    """创建班组（成员 2..8、同小院重名 409、跨小院成员 404）。"""
     try:
         team = service.create_team(
             db,
-            tenant_id=ctx.tenant_id,
+            yard_id=ctx.yard_id,
             actor_id=user.user_id,
             name=payload.name,
             members=payload.members,
@@ -151,11 +151,11 @@ def create_team(
 @router.get("")
 def list_teams(
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db: Session = Depends(get_db_session),
 ):
-    """本租户班组列表（租户成员均可读）。"""
-    teams = service.list_teams(db, tenant_id=ctx.tenant_id)
+    """本小院班组列表（小院成员均可读）。"""
+    teams = service.list_teams(db, yard_id=ctx.yard_id)
     return ok({"teams": [service.team_out(t) for t in teams]}, request)
 
 
@@ -163,11 +163,11 @@ def list_teams(
 def get_team(
     team_id: str,
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db: Session = Depends(get_db_session),
 ):
     """班组详情（含成员定义与成员 Agent 摘要）。"""
-    team = service.get_team(db, tenant_id=ctx.tenant_id, team_id=team_id)
+    team = service.get_team(db, yard_id=ctx.yard_id, team_id=team_id)
     return ok(service.team_out(team), request)
 
 
@@ -176,7 +176,7 @@ def update_team(
     team_id: str,
     payload: TeamUpdateRequest,
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     user: CurrentUser = Depends(_team_admin_gate),
     db: Session = Depends(get_db_session),
 ):
@@ -185,7 +185,7 @@ def update_team(
     try:
         team = service.update_team(
             db,
-            tenant_id=ctx.tenant_id,
+            yard_id=ctx.yard_id,
             actor_id=user.user_id,
             team_id=team_id,
             fields=fields,
@@ -202,7 +202,7 @@ def update_team(
 def delete_team(
     team_id: str,
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     user: CurrentUser = Depends(_team_admin_gate),
     db: Session = Depends(get_db_session),
 ):
@@ -210,7 +210,7 @@ def delete_team(
     try:
         team = service.delete_team(
             db,
-            tenant_id=ctx.tenant_id,
+            yard_id=ctx.yard_id,
             actor_id=user.user_id,
             team_id=team_id,
             request_id=ctx.request_id,
@@ -232,7 +232,7 @@ async def run_team(
     team_id: str,
     payload: TeamRunRequest,
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db_session),
 ):
@@ -241,11 +241,11 @@ async def run_team(
     任一成员失败：HTTP 抛原始错误（run 已置 failed 停在断点，可 retry），
     与声明式运行失败 502 的口径一致。
     """
-    team = service.get_team(db, tenant_id=ctx.tenant_id, team_id=team_id)
+    team = service.get_team(db, yard_id=ctx.yard_id, team_id=team_id)
     if not team.enabled:
         raise AppError("TEAM_DISABLED", "班组已停用，不能发起运行。", http_status=409)
     specs = service.parse_members(team.members_json)
-    service.require_members_runnable(db, tenant_id=ctx.tenant_id, members=specs)
+    service.require_members_runnable(db, yard_id=ctx.yard_id, members=specs)
     run = service.create_team_run(db, team=team, user_input=payload.input, ctx=ctx)
     try:
         run = await service.continue_team_run(db, run=run, ctx=ctx)
@@ -281,17 +281,17 @@ async def run_team(
 def list_team_runs(
     team_id: str,
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db: Session = Depends(get_db_session),
 ):
     """本班组运行列表（摘要，最新在前）。"""
-    service.get_team(db, tenant_id=ctx.tenant_id, team_id=team_id)  # 边界：不存在 404
-    runs = service.list_team_runs(db, tenant_id=ctx.tenant_id, team_id=team_id)
+    service.get_team(db, yard_id=ctx.yard_id, team_id=team_id)  # 边界：不存在 404
+    runs = service.list_team_runs(db, yard_id=ctx.yard_id, team_id=team_id)
     return ok({"runs": [service.run_summary(r) for r in runs]}, request)
 
 
 # ---------------------------------------------------------------------------
-# 运行台账 / 断点续跑 / SSE（租户成员均可）
+# 运行台账 / 断点续跑 / SSE（小院成员均可）
 # ---------------------------------------------------------------------------
 
 
@@ -299,11 +299,11 @@ def list_team_runs(
 def get_team_run(
     run_id: str,
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db: Session = Depends(get_db_session),
 ):
     """运行详情：team_runs 主行 + 全部成员接力明细（含 task_id 供二跳）。"""
-    run = service.get_team_run(db, tenant_id=ctx.tenant_id, run_id=run_id)
+    run = service.get_team_run(db, yard_id=ctx.yard_id, run_id=run_id)
     return ok(service.run_out(run, service.members_of_run(db, run)), request)
 
 
@@ -311,7 +311,7 @@ def get_team_run(
 async def retry_team_run(
     run_id: str,
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db_session),
 ):
@@ -321,7 +321,7 @@ async def retry_team_run(
     失败 LLM 步原位重跑）；无步骤成员整段重跑（该路径无副作用工具）。
     审计 action=team_run_retry（记 skipped_ok 与续跑起点）。
     """
-    run = service.get_team_run(db, tenant_id=ctx.tenant_id, run_id=run_id)
+    run = service.get_team_run(db, yard_id=ctx.yard_id, run_id=run_id)
     if run.status == RUN_COMPLETED:
         raise AppError(
             "TEAM_RUN_ALREADY_COMPLETED", "该班组运行已完成，不允许重放。", http_status=409
@@ -330,7 +330,7 @@ async def retry_team_run(
         raise AppError(
             "TEAM_RUN_STATE_CONFLICT", "该班组运行仍在执行中，不能重复触发续跑。", http_status=409
         )
-    team = service.get_team(db, tenant_id=ctx.tenant_id, team_id=run.team_id)
+    team = service.get_team(db, yard_id=ctx.yard_id, team_id=run.team_id)
     if not team.enabled:
         raise AppError("TEAM_DISABLED", "班组已停用，不能续跑。", http_status=409)
     rows = service.members_of_run(db, run)
@@ -368,7 +368,7 @@ async def retry_team_run(
 @runs_router.get("/{run_id}/stream")
 def stream_team_run(
     run_id: str,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
 ):
     """成员级 SSE（复用 run_stream 帧协议；内部步经 agent_run_id 二跳，见 stream.py）。"""
-    return team_stream.build_stream_response(ctx.tenant_id, run_id)
+    return team_stream.build_stream_response(ctx.yard_id, run_id)

@@ -21,9 +21,9 @@ from app.modules.devices import service as devices_service  # noqa: E402
 from app.modules.devices.models import Device, DeviceAlert, DeviceAlertRule  # noqa: E402
 from app.modules.push import service as push_service  # noqa: E402
 from app.modules.push.models import PushChannel  # noqa: E402
-from app.modules.tenants.repository import create_tenant  # noqa: E402
+from app.modules.yards.repository import create_yard  # noqa: E402
 
-TENANT = "t-push"
+YARD = "t-push"
 KEY_URL = "https://push.invalid/hook?robot=SEC1a2b3c4d"
 
 
@@ -34,8 +34,8 @@ def _reset_window():
     push_service._rate_window.reset()
 
 
-def _hdr(user_id="u-push", tenant_id=TENANT, roles=("tenant_admin",)):
-    token = create_access_token(user_id=user_id, tenant_id=tenant_id, roles=list(roles))
+def _hdr(user_id="u-push", yard_id=YARD, roles=("yard_admin",)):
+    token = create_access_token(user_id=user_id, yard_id=yard_id, roles=list(roles))
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -49,7 +49,7 @@ def _mk_channel(
     enabled=True,
 ):
     ch = PushChannel(
-        tenant_id=TENANT,
+        yard_id=YARD,
         name=name,
         kind=kind,
         url_enc=push_service.prepare_url_enc(url) if url else None,
@@ -86,8 +86,8 @@ def _ok_handler(calls):
 
 
 @pytest.fixture()
-def tenant(db_session):
-    t = create_tenant(db_session, name="推送租户")
+def yard(db_session):
+    t = create_yard(db_session, name="推送小院")
     db_session.commit()
     return t
 
@@ -98,7 +98,7 @@ def _payload(**kw):
     return base
 
 
-def test_create_masks_url_and_never_echoes(client, tenant):
+def test_create_masks_url_and_never_echoes(client, yard):
     resp = client.post("/api/v1/settings/push-channels", json=_payload(), headers=_hdr())
     assert resp.status_code == 200, resp.text
     data = resp.json()["data"]
@@ -111,7 +111,7 @@ def test_create_masks_url_and_never_echoes(client, tenant):
     assert "SEC1a2b3c4d" not in json.dumps(lst, ensure_ascii=False)
 
 
-def test_audit_never_records_url(client, db_session, tenant):
+def test_audit_never_records_url(client, db_session, yard):
     resp = client.post("/api/v1/settings/push-channels", json=_payload(), headers=_hdr())
     assert resp.status_code == 200
     audit = db_session.query(AuditLog).filter(AuditLog.action == "push_channel_create").one()
@@ -119,7 +119,7 @@ def test_audit_never_records_url(client, db_session, tenant):
     assert audit.metadata_json["kind"] == "wecom_robot"
 
 
-def test_patch_url_replaces_and_resets_failures(client, db_session, tenant):
+def test_patch_url_replaces_and_resets_failures(client, db_session, yard):
     cid = client.post("/api/v1/settings/push-channels", json=_payload(), headers=_hdr()).json()[
         "data"
     ]["id"]
@@ -139,7 +139,7 @@ def test_patch_url_replaces_and_resets_failures(client, db_session, tenant):
     assert "newtoken" not in resp.text
 
 
-def test_duplicate_name_and_validation(client, tenant):
+def test_duplicate_name_and_validation(client, yard):
     resp = client.post("/api/v1/settings/push-channels", json=_payload(), headers=_hdr())
     assert resp.status_code == 200
     dup = client.post("/api/v1/settings/push-channels", json=_payload(), headers=_hdr())
@@ -159,7 +159,7 @@ def test_duplicate_name_and_validation(client, tenant):
 
 
 @pytest.mark.parametrize("bad_url", ["http://127.0.0.1:8080/hook", "http://localhost:8080/hook"])
-def test_ssrf_localhost_rejected(client, tenant, bad_url):
+def test_ssrf_localhost_rejected(client, yard, bad_url):
     resp = client.post(
         "/api/v1/settings/push-channels", json=_payload(name="bad", url=bad_url), headers=_hdr()
     )
@@ -167,15 +167,15 @@ def test_ssrf_localhost_rejected(client, tenant, bad_url):
     assert resp.json()["error"]["code"] == "SSRF_BLOCKED"
 
 
-def test_permissions_and_cross_tenant(client, tenant, db_session):
+def test_permissions_and_cross_yard(client, yard, db_session):
     # operator 连列表都不可见
     forbidden = client.get("/api/v1/settings/push-channels", headers=_hdr(roles=("operator",)))
     assert forbidden.status_code == 403
     created = client.post("/api/v1/settings/push-channels", json=_payload(), headers=_hdr())
     cid = created.json()["data"]["id"]
 
-    # 别的租户管理员：不存在口径（404，不泄露存在性）
-    other = _hdr("u-x", "t-other-tenant")
+    # 别的小院管理员：不存在口径（404，不泄露存在性）
+    other = _hdr("u-x", "t-other-yard")
     resp = client.patch(
         f"/api/v1/settings/push-channels/{cid}", json={"enabled": False}, headers=other
     )
@@ -199,7 +199,7 @@ def test_dispatch_wecom_payload_chinese(db_session):
     try:
         stats = push_service.dispatch(
             db_session,
-            tenant_id=TENANT,
+            yard_id=YARD,
             event_type="device_alert",
             payload={
                 "title": "【设备告警】1 号棚室：温度 当前 41.0℃高于阈值 35.0℃",
@@ -224,7 +224,7 @@ def test_dispatch_dingtalk_and_generic_shapes(db_session):
     try:
         push_service.dispatch(
             db_session,
-            tenant_id=TENANT,
+            yard_id=YARD,
             event_type="device_alert",
             payload={"title": "t", "value": 1},
         )
@@ -246,7 +246,7 @@ def test_dispatch_filters_unsubscribed_disabled_and_missing_url(db_session):
     push_service.httpx = _FakeHttpx(_ok_handler(calls))
     try:
         stats = push_service.dispatch(
-            db_session, tenant_id=TENANT, event_type="workorder_created", payload={"title": "x"}
+            db_session, yard_id=YARD, event_type="workorder_created", payload={"title": "x"}
         )
     finally:
         push_service.httpx = httpx
@@ -260,7 +260,7 @@ def test_dispatch_filters_unsubscribed_disabled_and_missing_url(db_session):
     push_service.httpx = _FakeHttpx(_ok_handler(calls))
     try:
         push_service.dispatch(
-            db_session, tenant_id=TENANT, event_type="workorder_created", payload={"title": "x"}
+            db_session, yard_id=YARD, event_type="workorder_created", payload={"title": "x"}
         )
     finally:
         push_service.httpx = httpx
@@ -276,11 +276,11 @@ def test_dispatch_circuit_breaker_after_5_failures(db_session):
     try:
         for _ in range(push_service.PUSH_MAX_FAILURES):
             push_service.dispatch(
-                db_session, tenant_id=TENANT, event_type="device_alert", payload={"title": "x"}
+                db_session, yard_id=YARD, event_type="device_alert", payload={"title": "x"}
             )
         db_session.commit()
         stats = push_service.dispatch(  # 已熔断：不再外呼
-            db_session, tenant_id=TENANT, event_type="device_alert", payload={"title": "x"}
+            db_session, yard_id=YARD, event_type="device_alert", payload={"title": "x"}
         )
     finally:
         push_service.httpx = httpx
@@ -290,7 +290,7 @@ def test_dispatch_circuit_breaker_after_5_failures(db_session):
     assert stats["sent"] == 0 and stats["failed"] == 0  # 停用后连失败都不再产生
     assert (
         db_session.query(AuditLog)
-        .filter(AuditLog.action == "push_channel_disabled", AuditLog.tenant_id == TENANT)
+        .filter(AuditLog.action == "push_channel_disabled", AuditLog.yard_id == YARD)
         .count()
         == 1
     )
@@ -304,7 +304,7 @@ def test_success_resets_and_decrypt_failure_counted(db_session):
     push_service.httpx = _FakeHttpx(_ok_handler(calls))
     try:
         push_service.dispatch(
-            db_session, tenant_id=TENANT, event_type="device_alert", payload={"title": "x"}
+            db_session, yard_id=YARD, event_type="device_alert", payload={"title": "x"}
         )
     finally:
         push_service.httpx = httpx
@@ -318,7 +318,7 @@ def test_success_resets_and_decrypt_failure_counted(db_session):
     broken.url_enc = "not-a-fernet-token"
     db_session.flush()
     stats = push_service.dispatch(
-        db_session, tenant_id=TENANT, event_type="device_alert", payload={"title": "x"}
+        db_session, yard_id=YARD, event_type="device_alert", payload={"title": "x"}
     )
     assert stats["failed"] == 1 and broken.enabled is True  # 单次解密失败远未到阈值
 
@@ -332,7 +332,7 @@ def test_rate_limit_10_per_60s_window(db_session):
         stats_last = None
         for _ in range(push_service.PUSH_MAX_MESSAGES_PER_WINDOW + 2):
             stats_last = push_service.dispatch(
-                db_session, tenant_id=TENANT, event_type="device_alert", payload={"title": "x"}
+                db_session, yard_id=YARD, event_type="device_alert", payload={"title": "x"}
             )
     finally:
         push_service.httpx = httpx
@@ -347,12 +347,10 @@ def test_rate_limit_10_per_60s_window(db_session):
 
 
 def _device_with_rule(db):
-    dev = Device(
-        tenant_id=TENANT, name="高温棚传感器", device_type="greenhouse", source_type="webhook"
-    )
+    dev = Device(yard_id=YARD, name="高温棚传感器", device_type="greenhouse", source_type="webhook")
     db.add(dev)
     db.flush()
-    rule = DeviceAlertRule(tenant_id=TENANT, metric="temp", op="gt", threshold=35.0, enabled=True)
+    rule = DeviceAlertRule(yard_id=YARD, metric="temp", op="gt", threshold=35.0, enabled=True)
     db.add(rule)
     db.flush()
     return dev, rule

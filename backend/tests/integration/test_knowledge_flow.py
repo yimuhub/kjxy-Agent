@@ -1,4 +1,4 @@
-"""知识库集成测试：上传 txt → 同步解析 → 检索命中；解析失败分支；跨租户隔离；HTTP 路由冒烟。"""
+"""知识库集成测试：上传 txt → 同步解析 → 检索命中；解析失败分支；跨小院隔离；HTTP 路由冒烟。"""
 
 import io
 
@@ -7,10 +7,10 @@ import pytest
 from app.core.config import settings
 from app.core.deps import (
     CurrentUser,
-    TenantContext,
+    YardContext,
     get_current_user,
     get_db_session,
-    get_tenant_context,
+    get_yard_context,
 )
 from app.core.errors import (
     AppError,
@@ -26,8 +26,8 @@ from fastapi import FastAPI, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.testclient import TestClient
 
-TENANT_A = "tenant-a"
-TENANT_B = "tenant-b"
+YARD_A = "yard-a"
+YARD_B = "yard-b"
 
 AGRI_TEXT = (
     "水稻分蘖期是决定有效穗数的关键时期。\n\n"
@@ -41,11 +41,11 @@ AGRI_TEXT = (
 )
 
 
-def _ctx(tenant_id: str, roles: list[str] | None = None) -> TenantContext:
-    return TenantContext(
-        tenant_id=tenant_id,
-        user_id=f"user-{tenant_id}",
-        roles=roles or ["tenant_admin"],
+def _ctx(yard_id: str, roles: list[str] | None = None) -> YardContext:
+    return YardContext(
+        yard_id=yard_id,
+        user_id=f"user-{yard_id}",
+        roles=roles or ["yard_admin"],
         request_id="req-test",
     )
 
@@ -69,8 +69,8 @@ def celery_memory_transport(monkeypatch):
     monkeypatch.setattr(celery_app.conf, "result_backend", "cache+memory://")
 
 
-def _upload_and_parse(db_session, storage_tmp, tenant_id: str = TENANT_A):
-    ctx = _ctx(tenant_id)
+def _upload_and_parse(db_session, storage_tmp, yard_id: str = YARD_A):
+    ctx = _ctx(yard_id)
     doc = service.upload_document(
         db_session,
         ctx,
@@ -99,7 +99,7 @@ def test_upload_parse_search_flow(db_session, storage_tmp):
     assert len(chunks) > 0
     target = chunks[0]
 
-    hits = service.search(db_session, _ctx(TENANT_A), target.content, top_k=5)
+    hits = service.search(db_session, _ctx(YARD_A), target.content, top_k=5)
     assert len(hits) > 0
     hit = hits[0]
     assert hit.chunk_id == target.id
@@ -107,18 +107,18 @@ def test_upload_parse_search_flow(db_session, storage_tmp):
     assert hit.document_id == doc.id
     assert hit.title == "水稻分蘖期管理资料"
     assert hit.source == "upload"
-    assert hit.trust_level == "tenant_material"
+    assert hit.trust_level == "yard_material"
     assert len(hit.quote) <= 200
     assert hit.quote
 
     # 普通关键词查询同样返回结果（不保证语义相关，Mock 向量无语义）
-    hits2 = service.search(db_session, _ctx(TENANT_A), "水稻分蘖期田间管理", top_k=5)
+    hits2 = service.search(db_session, _ctx(YARD_A), "水稻分蘖期田间管理", top_k=5)
     assert len(hits2) > 0
 
 
 def test_parse_failure_branch(db_session, storage_tmp, monkeypatch):
     """损坏的 PDF → failed + 用户可读 error_message（不含堆栈）。"""
-    ctx = _ctx(TENANT_A)
+    ctx = _ctx(YARD_A)
     doc = service.upload_document(
         db_session,
         ctx,
@@ -135,7 +135,7 @@ def test_parse_failure_branch(db_session, storage_tmp, monkeypatch):
 
 
 def test_unsupported_file_type(db_session, storage_tmp):
-    ctx = _ctx(TENANT_A)
+    ctx = _ctx(YARD_A)
     with pytest.raises(AppError) as exc_info:
         service.upload_document(
             db_session, ctx, _upload_file("evil.exe", b"MZ..."), title="x", request_id="req-3"
@@ -146,7 +146,7 @@ def test_unsupported_file_type(db_session, storage_tmp):
 
 def test_file_too_large(db_session, storage_tmp, monkeypatch):
     monkeypatch.setattr(settings, "upload_max_mb", 0)
-    ctx = _ctx(TENANT_A)
+    ctx = _ctx(YARD_A)
     with pytest.raises(AppError) as exc_info:
         service.upload_document(
             db_session, ctx, _upload_file("a.txt", b"hello"), title="x", request_id="req-4"
@@ -155,13 +155,13 @@ def test_file_too_large(db_session, storage_tmp, monkeypatch):
     assert exc_info.value.http_status == 413
 
 
-def test_cross_tenant_search_returns_empty(db_session, storage_tmp):
-    _upload_and_parse(db_session, storage_tmp, tenant_id=TENANT_A)
-    hits = service.search(db_session, _ctx(TENANT_B), "水稻分蘖期", top_k=5)
+def test_cross_yard_search_returns_empty(db_session, storage_tmp):
+    _upload_and_parse(db_session, storage_tmp, yard_id=YARD_A)
+    hits = service.search(db_session, _ctx(YARD_B), "水稻分蘖期", top_k=5)
     assert hits == []
 
 
-def _build_test_app(db_session, ctx: TenantContext) -> FastAPI:
+def _build_test_app(db_session, ctx: YardContext) -> FastAPI:
     app = FastAPI()
     app.add_middleware(RequestIDMiddleware)
     app.add_exception_handler(AppError, app_error_handler)
@@ -169,10 +169,10 @@ def _build_test_app(db_session, ctx: TenantContext) -> FastAPI:
     app.add_exception_handler(Exception, unhandled_error_handler)
     app.include_router(knowledge_router, prefix="/api/v1")
     app.dependency_overrides[get_db_session] = lambda: db_session
-    app.dependency_overrides[get_tenant_context] = lambda: ctx
+    app.dependency_overrides[get_yard_context] = lambda: ctx
     app.dependency_overrides[get_current_user] = lambda: CurrentUser(
         user_id=ctx.user_id,
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         roles=ctx.roles,
         request_id=ctx.request_id,
     )
@@ -181,7 +181,7 @@ def _build_test_app(db_session, ctx: TenantContext) -> FastAPI:
 
 def test_http_search_and_documents(db_session, storage_tmp):
     doc = _upload_and_parse(db_session, storage_tmp)
-    app = _build_test_app(db_session, _ctx(TENANT_A))
+    app = _build_test_app(db_session, _ctx(YARD_A))
     with TestClient(app, raise_server_exceptions=False) as client:
         r = client.post("/api/v1/knowledge/search", json={"query": "水稻分蘖期管理", "top_k": 5})
         assert r.status_code == 200, r.text
@@ -209,7 +209,7 @@ def test_http_search_and_documents(db_session, storage_tmp):
 
 
 def test_http_upload_multipart(db_session, storage_tmp):
-    app = _build_test_app(db_session, _ctx(TENANT_A))
+    app = _build_test_app(db_session, _ctx(YARD_A))
     with TestClient(app, raise_server_exceptions=False) as client:
         r = client.post(
             "/api/v1/knowledge/documents",
@@ -223,7 +223,7 @@ def test_http_upload_multipart(db_session, storage_tmp):
 def test_viewer_cannot_upload_or_delete(db_session, storage_tmp):
     """viewer 只有 knowledge:read，上传/删除必须 403（不得污染团队知识库）。"""
     doc = _upload_and_parse(db_session, storage_tmp)
-    app = _build_test_app(db_session, _ctx(TENANT_A, roles=["viewer"]))
+    app = _build_test_app(db_session, _ctx(YARD_A, roles=["viewer"]))
     with TestClient(app, raise_server_exceptions=False) as client:
         up = client.post(
             "/api/v1/knowledge/documents",
@@ -249,7 +249,7 @@ def test_tool_registration_and_func(db_session, storage_tmp, monkeypatch):
     assert tool_registry.get("knowledge.search").code == "knowledge.search"
 
     doc = _upload_and_parse(db_session, storage_tmp)
-    ctx = _ctx(TENANT_A)
+    ctx = _ctx(YARD_A)
 
     # 让工具函数使用测试会话而非默认 SessionLocal
     import app.db.session as session_module

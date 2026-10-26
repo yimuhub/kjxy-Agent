@@ -1,12 +1,12 @@
 """对话内生成能力：自然语言需求 → 声明式 Agent 草稿 → 能力卡片。
 
 权限口径（与能力中心完全一致，**不开权限旁路**）：
-- platform_admin / tenant_admin：创建 draft（发布仍走既有发布闸门）；
+- platform_admin / yard_admin：创建 draft（发布仍走既有发布闸门）；
 - 其他角色：不执行创建，只产出"建议卡片"，由管理员在能力中心确认后落地，
   并留审计 ``chat_capability_requested``（来源可追溯）。
 
 安全默认值：工具白名单固定 ``["knowledge.search"]``（只读检索）、知识范围
-固定 ``["tenant"]``——对应 risk=low；任何副作用工具必须由管理员在能力中心
+固定 ``["yard"]``——对应 risk=low；任何副作用工具必须由管理员在能力中心
 显式添加并重新评估（与手工创建的闸门一致）。
 """
 
@@ -19,7 +19,8 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.core.deps import TenantContext
+from app.core.deps import YardContext
+from app.core.errors import AppError
 from app.core.logging import get_logger
 from app.modules.agents import declarative
 from app.modules.agents.models import CREATED_FROM_CHAT
@@ -31,7 +32,7 @@ log = get_logger(__name__)
 
 #: 默认工具与知识范围（只读 → risk=low）
 DEFAULT_TOOLS: list[str] = ["knowledge.search"]
-DEFAULT_SCOPES: list[str] = ["tenant"]
+DEFAULT_SCOPES: list[str] = ["yard"]
 
 #: 卡片类型标识
 CARD_TYPE_CAPABILITY = "capability"
@@ -47,8 +48,8 @@ _MAX_DESC = 200
 _MAX_PROMPT = 1200
 
 
-def _is_admin(ctx: TenantContext) -> bool:
-    return bool({"tenant_admin", "platform_admin"} & set(ctx.roles))
+def _is_admin(ctx: YardContext) -> bool:
+    return bool({"yard_admin", "yard_owner", "platform_admin"} & set(ctx.roles))
 
 
 def _fallback_code() -> str:
@@ -82,7 +83,7 @@ def _fallback_spec(request_text: str) -> dict[str, Any]:
     }
 
 
-async def _spec_from_llm(db: Session, ctx: TenantContext, request_text: str) -> dict[str, Any]:
+async def _spec_from_llm(db: Session, ctx: YardContext, request_text: str) -> dict[str, Any]:
     """让模型把需求转成能力规格；失败一律降级到确定性兜底。"""
     prompt = (
         "你是农业智能平台的助手设计器。根据用户需求给出助手规格，只输出 JSON："
@@ -104,7 +105,7 @@ async def _spec_from_llm(db: Session, ctx: TenantContext, request_text: str) -> 
                     ),
                 ],
                 metadata=LLMMetadata(
-                    tenant_id=ctx.tenant_id,
+                    yard_id=ctx.yard_id,
                     task_id=f"chat-cap-{uuid.uuid4().hex[:12]}",
                     request_id=ctx.request_id,
                     purpose="chat_capability",
@@ -158,7 +159,7 @@ def _card(
     if state == CARD_CREATED and agent_id:
         actions = [
             {"key": "view", "label": "在能力中心查看"},
-            {"key": "publish", "label": "发布", "requires_role": "tenant_admin"},
+            {"key": "publish", "label": "发布", "requires_role": "yard_admin"},
         ]
     return {
         "type": CARD_TYPE_CAPABILITY,
@@ -176,7 +177,7 @@ def _card(
 
 
 async def generate_capability(
-    db: Session, *, ctx: TenantContext, request_text: str
+    db: Session, *, ctx: YardContext, request_text: str
 ) -> tuple[dict[str, Any], str]:
     """按需求生成能力草稿，返回 (卡片载荷, 面向用户的结果说明)。
 
@@ -189,10 +190,10 @@ async def generate_capability(
     if not _is_admin(ctx):
         log_audit(
             db,
-            tenant_id=ctx.tenant_id,
+            yard_id=ctx.yard_id,
             actor_id=ctx.user_id,
             action="chat_capability_requested",
-            resource_type="tenant_agent",
+            resource_type="yard_agent",
             resource_id="",
             result="success",
             request_id=ctx.request_id,
@@ -202,11 +203,11 @@ async def generate_capability(
             state=CARD_REQUESTED,
             name=name,
             description=description,
-            note="你的需求已整理成能力建议，需租户管理员确认后创建。",
+            note="你的需求已整理成能力建议，需小院管理员确认后创建。",
         )
         return card, (
             f"已把「{name}」整理成能力建议。"
-            "创建草稿需要租户管理员权限，请联系管理员在能力中心确认。"
+            "创建草稿需要小院管理员权限，请联系管理员在能力中心确认。"
         )
 
     body = {
@@ -221,20 +222,33 @@ async def generate_capability(
         "created_from": CREATED_FROM_CHAT,
     }
     req = declarative.parse_create_request(body)
-    agent = declarative.create_agent(
-        db,
-        tenant_id=ctx.tenant_id,
-        actor_id=ctx.user_id,
-        req=req,
-        request_id=ctx.request_id,
-    )
+    base_name = name
+    suffix = 2
+    while True:
+        try:
+            agent = declarative.create_agent(
+                db,
+                yard_id=ctx.yard_id,
+                actor_id=ctx.user_id,
+                req=req,
+                request_id=ctx.request_id,
+            )
+            break
+        except AppError as exc:
+            # 同名冲突按 D3 口径自动加「-2」「-3」…后缀重试；_require_name_free
+            # 在 db.add/flush 之前抛错，会话干净可安全重试。其他错误原样上抛。
+            if exc.code != "DUPLICATE_NAME" or suffix > 50:
+                raise
+            req.name = f"{base_name}-{suffix}"
+            suffix += 1
+    renamed = agent.name != name
     db.commit()
     log_audit(
         db,
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         actor_id=ctx.user_id,
         action="chat_capability_created",
-        resource_type="tenant_agent",
+        resource_type="yard_agent",
         resource_id=agent.id,
         result="success",
         request_id=ctx.request_id,
@@ -250,7 +264,11 @@ async def generate_capability(
         risk_level=agent.risk_level,
         status=agent.status,
         tools=list(agent.allowed_tools or []),
-        note="已创建草稿，可直接发布；发布后即可在对话中被路由到。",
+        note=(
+            f"同小院已有助手「{name}」，草稿名称已自动调整为「{agent.name}」。"
+            if renamed
+            else "已创建草稿，可直接发布；发布后即可在对话中被路由到。"
+        ),
     )
     return card, (
         f"已创建能力草稿「{agent.name}」（编码 {agent.agent_code}，"

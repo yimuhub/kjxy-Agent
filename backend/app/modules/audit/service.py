@@ -11,7 +11,7 @@ log = get_logger(__name__)
 def log_audit(
     db: Session,
     *,
-    tenant_id: str | None,
+    yard_id: str | None,
     actor_id: str | None,
     action: str,
     resource_type: str,
@@ -23,7 +23,7 @@ def log_audit(
     try:
         db.add(
             AuditLog(
-                tenant_id=tenant_id,
+                yard_id=yard_id,
                 actor_id=actor_id,
                 action=action,
                 resource_type=resource_type,

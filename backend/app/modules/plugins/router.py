@@ -5,10 +5,10 @@ from fastapi.responses import JSONResponse
 
 from app.core.deps import (
     CurrentUser,
-    TenantContext,
+    YardContext,
     get_current_user,
     get_db_session,
-    get_tenant_context,
+    get_yard_context,
     require_roles,
 )
 from app.core.errors import AppError
@@ -27,13 +27,13 @@ from app.modules.plugins.schemas import (
 router = APIRouter(prefix="/plugins", tags=["plugins"])
 
 _admin_only = require_roles("platform_admin", "admin")
-#: workflow 闸门：tenant_admin（require_roles 内置 platform_admin 直通）
-_wf_admin_gate = require_roles("tenant_admin")
+#: workflow 闸门：yard_admin（require_roles 内置 platform_admin 直通）
+_wf_admin_gate = require_roles("yard_admin")
 
 
 def _visible_to(record: PluginManifest, user: CurrentUser) -> bool:
-    """列表可见性：全局插件人人可见；租户级 workflow 仅本租户/平台管理员可见。"""
-    if record.tenant_id is None or record.tenant_id == user.tenant_id:
+    """列表可见性：全局插件人人可见；小院级 workflow 仅本小院/平台管理员可见。"""
+    if record.yard_id is None or record.yard_id == user.yard_id:
         return True
     return "platform_admin" in (user.roles or [])
 
@@ -62,16 +62,16 @@ def get_plugin_detail(
 ):
     """插件详情（含 manifest 正文，审核人看 steps 用）。
 
-    解析顺序：先按当前租户找 workflow 记录，未命中回落全局插件；
-    租户级记录仅本租户/平台管理员可见（跨租户与不存在同样 404，防枚举）。
+    解析顺序：先按当前小院找 workflow 记录，未命中回落全局插件；
+    小院级记录仅本小院/平台管理员可见（跨小院与不存在同样 404，防枚举）。
     """
     record: PluginManifest | None = None
-    if user.tenant_id:
-        record = workflow.find_tenant_plugin_or_none(db, user.tenant_id, plugin_id)
+    if user.yard_id:
+        record = workflow.find_yard_plugin_or_none(db, user.yard_id, plugin_id)
     if record is None:
         record = (
             db.query(PluginManifest)
-            .filter(PluginManifest.plugin_id == plugin_id, PluginManifest.tenant_id.is_(None))
+            .filter(PluginManifest.plugin_id == plugin_id, PluginManifest.yard_id.is_(None))
             .first()
         )
     if record is None or not _visible_to(record, user):
@@ -139,11 +139,11 @@ def disable_plugin(
 @router.post("/register", status_code=201)
 def register_workflow_plugin(
     body: PluginRegister,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     _user=Depends(_wf_admin_gate),
     db=Depends(get_db_session),
 ):
-    """注册声明式 workflow（tenant_admin）：校验步骤/工具 → pending_review 草稿。"""
+    """注册声明式 workflow（yard_admin）：校验步骤/工具 → pending_review 草稿。"""
     record = workflow.register_workflow(db, ctx, body.manifest)
     try:
         db.commit()
@@ -158,7 +158,7 @@ def register_workflow_plugin(
 
 @router.post("/suggest", status_code=201)
 def suggest_plugins(
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     _user=Depends(_wf_admin_gate),
     db=Depends(get_db_session),
 ):
@@ -186,11 +186,11 @@ def suggest_plugins(
 def review_workflow_plugin(
     plugin_id: str,
     body: PluginReviewIn,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     _user=Depends(_wf_admin_gate),
     db=Depends(get_db_session),
 ):
-    """发布闸：approve → enabled；reject → rejected（tenant_admin/manual 审核）。"""
+    """发布闸：approve → enabled；reject → rejected（yard_admin/manual 审核）。"""
     record = workflow.review_workflow(db, ctx, plugin_id, body.decision)
     try:
         db.commit()
@@ -204,10 +204,10 @@ def review_workflow_plugin(
 async def run_workflow_plugin(
     plugin_id: str,
     body: PluginRunIn,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db=Depends(get_db_session),
 ):
-    """同步解释执行（enabled 才可跑）→ {outputs, final}；租户成员可跑，风险由工具闸兜底。"""
+    """同步解释执行（enabled 才可跑）→ {outputs, final}；小院成员可跑，风险由工具闸兜底。"""
     result = await workflow.run_workflow(db, ctx, plugin_id, body.params)
     try:
         db.commit()

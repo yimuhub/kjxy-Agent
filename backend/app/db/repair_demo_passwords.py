@@ -2,7 +2,7 @@
 
 背景：seed() 是幂等的——只要 admin 已存在就整体跳过，永远不会修复
 "密码漂移"（比如某次 seed 用的旧密码、或密码被人改过）。本脚本只做
-一件事：把 admin / tenant_admin / expert / operator 四个用户名的密码
+一件事：把 admin / yard_admin / expert / operator 四个用户名的密码
 哈希重置为 SEED_USERS 里记录的文档值，其余用户一律不动。
 
 用法（项目根目录 / Mac 本机部署目录）：

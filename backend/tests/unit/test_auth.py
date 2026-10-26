@@ -17,9 +17,9 @@ from app.modules.audit.models import AuditLog  # noqa: F401  注册模型
 from app.modules.auth import repository as auth_repo
 from app.modules.auth import service as auth_service
 from app.modules.auth.models import User  # noqa: F401  注册模型
-from app.modules.tenants import repository as tenant_repo
-from app.modules.tenants.models import Tenant, TenantMembership  # noqa: F401  注册模型
-from app.modules.tenants.permissions import ALL_PERMISSIONS, PERMISSIONS, has_permission
+from app.modules.yards import repository as yard_repo
+from app.modules.yards.models import Yard, YardMembership  # noqa: F401  注册模型
+from app.modules.yards.permissions import ALL_PERMISSIONS, PERMISSIONS, has_permission
 
 # ---------- 密码哈希 ----------
 
@@ -39,16 +39,16 @@ def test_verify_password_bad_hash_returns_false():
 
 
 def test_jwt_access_roundtrip():
-    token = create_access_token(user_id="u1", tenant_id="t1", roles=["tenant_admin"])
+    token = create_access_token(user_id="u1", yard_id="t1", roles=["yard_admin"])
     payload = decode_token(token, expected_type="access")
     assert payload["sub"] == "u1"
-    assert payload["tenant_id"] == "t1"
-    assert payload["roles"] == ["tenant_admin"]
+    assert payload["yard_id"] == "t1"
+    assert payload["roles"] == ["yard_admin"]
     assert payload["type"] == "access"
 
 
 def test_jwt_refresh_roundtrip_and_type_check():
-    token = create_refresh_token(user_id="u1", tenant_id=None)
+    token = create_refresh_token(user_id="u1", yard_id=None)
     payload = decode_token(token, expected_type="refresh")
     assert payload["sub"] == "u1"
     assert payload["type"] == "refresh"
@@ -77,7 +77,7 @@ def test_jwt_expired_token_rejected():
 
 
 def test_jwt_tampered_token_rejected():
-    token = create_access_token(user_id="u1", tenant_id=None, roles=[])
+    token = create_access_token(user_id="u1", yard_id=None, roles=[])
     with pytest.raises(AppError) as exc:
         decode_token(token[:-2] + "xx", expected_type="access")
     assert exc.value.code == "UNAUTHORIZED"
@@ -92,9 +92,16 @@ def test_platform_admin_has_all_permissions():
         assert has_permission(["platform_admin"], perm)
 
 
-def test_tenant_admin_has_all_tenant_permissions():
+def test_yard_admin_has_operational_permissions_but_not_protected():
+    from app.modules.yards.permissions import PROTECTED_PERMISSIONS
+
+    for perm in ALL_PERMISSIONS - PROTECTED_PERMISSIONS:
+        assert has_permission(["yard_admin"], perm)
+    for perm in PROTECTED_PERMISSIONS:
+        assert not has_permission(["yard_admin"], perm)
+    # 负责人始终全权限
     for perm in ALL_PERMISSIONS:
-        assert has_permission(["tenant_admin"], perm)
+        assert has_permission(["yard_owner"], perm)
 
 
 def test_role_permission_matrix():
@@ -120,9 +127,9 @@ def test_has_permission_unknown_role_and_multi_roles():
 
 @pytest.fixture()
 def seeded(db_session):
-    """用户 alice 归属 2 个租户，bob 归属 1 个，carol 无租户，mallory 被停用。"""
-    t1 = tenant_repo.create_tenant(db_session, name="小院A")
-    t2 = tenant_repo.create_tenant(db_session, name="小院B")
+    """用户 alice 归属 2 个小院，bob 归属 1 个，carol 无小院，mallory 被停用。"""
+    t1 = yard_repo.create_yard(db_session, name="小院A")
+    t2 = yard_repo.create_yard(db_session, name="小院B")
     alice = auth_repo.create_user(
         db_session, username="alice", password="pw-alice", display_name="Alice"
     )
@@ -131,57 +138,57 @@ def seeded(db_session):
     mallory = auth_repo.create_user(
         db_session, username="mallory", password="pw-x", status="disabled"
     )
-    tenant_repo.add_membership(db_session, tenant_id=t1.id, user_id=alice.id, role="tenant_admin")
-    tenant_repo.add_membership(db_session, tenant_id=t2.id, user_id=alice.id, role="viewer")
-    tenant_repo.add_membership(db_session, tenant_id=t1.id, user_id=bob.id, role="operator")
+    yard_repo.add_membership(db_session, yard_id=t1.id, user_id=alice.id, role="yard_admin")
+    yard_repo.add_membership(db_session, yard_id=t2.id, user_id=alice.id, role="viewer")
+    yard_repo.add_membership(db_session, yard_id=t1.id, user_id=bob.id, role="operator")
     db_session.commit()
     return {"t1": t1, "t2": t2, "alice": alice, "bob": bob, "carol": carol, "mallory": mallory}
 
 
-def test_login_single_tenant_auto_select(db_session, seeded):
+def test_login_single_yard_auto_select(db_session, seeded):
     data = auth_service.login(db_session, "bob", "pw-bob", None, request_id="req_t")
     assert data.user.username == "bob"
-    assert len(data.tenants) == 1
+    assert len(data.yards) == 1
     payload = decode_token(data.access_token)
-    assert payload["tenant_id"] == seeded["t1"].id
+    assert payload["yard_id"] == seeded["t1"].id
     assert payload["roles"] == ["operator"]
     assert data.refresh_token
 
 
-def test_login_zero_tenant_still_ok_with_none(db_session, seeded):
+def test_login_zero_yard_still_ok_with_none(db_session, seeded):
     data = auth_service.login(db_session, "carol", "pw-carol", None, request_id="req_t")
     payload = decode_token(data.access_token)
-    assert payload["tenant_id"] is None
+    assert payload["yard_id"] is None
     assert payload["roles"] == []
-    assert data.tenants == []
+    assert data.yards == []
 
 
-def test_login_multi_tenant_requires_tenant_id(db_session, seeded):
+def test_login_multi_yard_requires_yard_id(db_session, seeded):
     with pytest.raises(AppError) as exc:
         auth_service.login(db_session, "alice", "pw-alice", None, request_id="req_t")
-    assert exc.value.code == "TENANT_REQUIRED"
+    assert exc.value.code == "YARD_REQUIRED"
     assert exc.value.http_status == 400
-    tenants = exc.value.details["tenants"]
-    assert {t["tenant_id"] for t in tenants} == {seeded["t1"].id, seeded["t2"].id}
+    yards = exc.value.details["yards"]
+    assert {t["yard_id"] for t in yards} == {seeded["t1"].id, seeded["t2"].id}
 
 
-def test_login_multi_tenant_with_valid_tenant(db_session, seeded):
+def test_login_multi_yard_with_valid_yard(db_session, seeded):
     data = auth_service.login(db_session, "alice", "pw-alice", seeded["t2"].id, request_id="req_t")
     payload = decode_token(data.access_token)
-    assert payload["tenant_id"] == seeded["t2"].id
+    assert payload["yard_id"] == seeded["t2"].id
     assert payload["roles"] == ["viewer"]
-    assert len(data.tenants) == 2
-    # 前端依赖 LoginResponse.roles 与 TenantBrief 字段渲染空间选择与菜单
+    assert len(data.yards) == 2
+    # 前端依赖 LoginResponse.roles 与 YardBrief 字段渲染空间选择与菜单
     assert data.roles == ["viewer"]
-    brief = next(t for t in data.tenants if t.tenant_id == seeded["t2"].id)
-    assert brief.tenant_name == "小院B"
+    brief = next(t for t in data.yards if t.yard_id == seeded["t2"].id)
+    assert brief.yard_name == "小院B"
     assert brief.roles == ["viewer"]
 
 
-def test_login_forbidden_tenant(db_session, seeded):
+def test_login_forbidden_yard(db_session, seeded):
     with pytest.raises(AppError) as exc:
         auth_service.login(db_session, "bob", "pw-bob", seeded["t2"].id, request_id="req_t")
-    assert exc.value.code == "TENANT_FORBIDDEN"
+    assert exc.value.code == "YARD_FORBIDDEN"
     assert exc.value.http_status == 403
 
 
@@ -211,7 +218,7 @@ def test_refresh_issues_new_access_token(db_session, seeded):
     new = auth_service.refresh(db_session, data.refresh_token, request_id="req_t2")
     payload = decode_token(new.access_token)
     assert payload["sub"] == seeded["bob"].id
-    assert payload["tenant_id"] == seeded["t1"].id
+    assert payload["yard_id"] == seeded["t1"].id
     assert payload["roles"] == ["operator"]
 
 
@@ -222,9 +229,65 @@ def test_refresh_with_access_token_rejected(db_session, seeded):
     assert exc.value.code == "UNAUTHORIZED"
 
 
+# ---------- 历史 tenant_id claim 兼容（tenant→yard 重命名前签发的在手令牌） ----------
+
+
+def _legacy_token(**claims) -> str:
+    """手工签发一枚重命名前口径的令牌：小院 claim 用旧键 tenant_id。"""
+    from app.core.config import settings
+
+    payload = {
+        "exp": datetime.now(UTC) + timedelta(days=1),
+        "iat": datetime.now(UTC),
+        **claims,
+    }
+    return jwt.encode(payload, settings.app_secret_key, algorithm=ALGORITHM)
+
+
+def test_refresh_legacy_tenant_claim_keeps_yard_and_roles(db_session, seeded):
+    """旧 refresh 令牌（tenant_id）刷新后不得静默降权为空角色。"""
+    token = _legacy_token(sub=seeded["bob"].id, tenant_id=seeded["t1"].id, type="refresh")
+    new = auth_service.refresh(db_session, token, request_id="req_t")
+    payload = decode_token(new.access_token)
+    assert payload["yard_id"] == seeded["t1"].id
+    assert payload["roles"] == ["operator"]  # 从 DB membership 重新解析，非空
+
+
+def test_refresh_new_claim_takes_precedence_over_legacy(db_session, seeded):
+    """同一令牌新旧键并存时以 yard_id 为准（tenant_id 只是回退）。"""
+    token = _legacy_token(
+        sub=seeded["alice"].id,
+        yard_id=seeded["t2"].id,
+        tenant_id=seeded["t1"].id,
+        type="refresh",
+    )
+    new = auth_service.refresh(db_session, token, request_id="req_t")
+    payload = decode_token(new.access_token)
+    assert payload["yard_id"] == seeded["t2"].id
+    assert payload["roles"] == ["viewer"]
+
+
+def test_refresh_legacy_claim_membership_gone_is_forbidden(db_session, seeded):
+    """旧键同样走成员校验：越权旧令牌不能借回退通道放行。"""
+    token = _legacy_token(sub=seeded["bob"].id, tenant_id=seeded["t2"].id, type="refresh")
+    with pytest.raises(AppError) as exc:
+        auth_service.refresh(db_session, token, request_id="req_t")
+    assert exc.value.code == "YARD_FORBIDDEN"
+
+
+def test_resolve_yard_id_claim_single_point():
+    """claim 解析唯一入口：新键优先、旧键回退、双缺为 None。"""
+    from app.core.security import resolve_yard_id
+
+    assert resolve_yard_id({"yard_id": "y1", "tenant_id": "t1"}) == "y1"
+    assert resolve_yard_id({"tenant_id": "t1"}) == "t1"
+    assert resolve_yard_id({"yard_id": "y1"}) == "y1"
+    assert resolve_yard_id({}) is None
+
+
 def test_refresh_disabled_user_rejected(db_session, seeded):
     # 先为 mallory 造一个 refresh 令牌（绕过 authenticate），再停用校验
-    token = create_refresh_token(user_id=seeded["mallory"].id, tenant_id=None)
+    token = create_refresh_token(user_id=seeded["mallory"].id, yard_id=None)
     with pytest.raises(AppError) as exc:
         auth_service.refresh(db_session, token, request_id="req_t")
     assert exc.value.code == "ACCOUNT_DISABLED"

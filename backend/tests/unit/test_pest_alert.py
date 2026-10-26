@@ -18,7 +18,7 @@ from pydantic import ValidationError
 def _make_context(db_session) -> AgentContext:
     return AgentContext(
         task_id="task-test",
-        tenant_id="tenant-test",
+        yard_id="yard-test",
         actor_id="user-test",
         request_id="req-test",
         allowed_tools=["knowledge.search"],
@@ -35,7 +35,7 @@ def test_input_schema_validation():
 
 
 def test_service_runs(db_session):
-    result = run_pest_alert(db_session, "tenant-test", "user-test", {"query": "示例问题"})
+    result = run_pest_alert(db_session, "yard-test", "user-test", {"query": "示例问题"})
     assert isinstance(result, dict)
     assert "answer" in result
     assert "示例问题" in result["answer"]  # Fake LLM 回显问题摘要

@@ -23,7 +23,7 @@ make native-migrate
 make native-seed
 ```
 
-演示账号：`admin/admin123`（平台管理员）、`tenant_admin/tenant123`、
+演示账号：`admin/admin123`（平台管理员）、`yard_admin/yard123`、
 `expert/expert123`、`operator/operator123`。
 
 ## 4. 启动（开两个终端）

@@ -164,7 +164,7 @@
     </div>
     <el-table :data="rules" size="small" empty-text="暂无规则">
       <el-table-column label="设备" min-width="120">
-        <template #default="{ row }">{{ row.device_id ? deviceName(row.device_id) : '租户全部设备' }}</template>
+        <template #default="{ row }">{{ row.device_id ? deviceName(row.device_id) : '小院全部设备' }}</template>
       </el-table-column>
       <el-table-column label="指标" width="130"><template #default="{ row }">{{ metricName(row.metric) }}</template></el-table-column>
       <el-table-column label="条件" width="120">
@@ -205,7 +205,7 @@
     <el-dialog v-model="ruleVisible" :title="ruleEditing?.id ? '编辑告警规则' : '新建告警规则'" width="480px">
       <el-form label-width="90px">
         <el-form-item label="设备">
-          <el-select v-model="ruleForm.device_id" clearable placeholder="留空=本租户该指标全部设备" style="width: 100%">
+          <el-select v-model="ruleForm.device_id" clearable placeholder="留空=本小院该指标全部设备" style="width: 100%">
             <el-option v-for="d in devices" :key="d.id" :label="d.name" :value="d.id" />
           </el-select>
         </el-form-item>
@@ -248,7 +248,7 @@ import AsyncState from '@/components/AsyncState.vue'
 import type { ViewState } from '@/utils/status'
 
 const auth = useAuthStore()
-const canManage = computed(() => auth.isSpaceAdmin())
+const canManage = computed(() => auth.isYardAdmin())
 
 const caps = ref<DeviceCapabilities | null>(null)
 const devices = ref<Device[]>([])

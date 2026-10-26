@@ -24,7 +24,7 @@ npm run preview     # 预览构建产物
 ## E2E（Playwright）
 
 前置条件：后端已启动（`make native-api`）且执行过 `make native-seed`（演示账号
-`tenant_admin / tenant123`）。
+`yard_admin / yard123`）。
 
 ```bash
 npx playwright install chromium   # 首次或浏览器版本不匹配时执行
@@ -55,7 +55,7 @@ npm run dev
 - 唯一契约源：`contracts/openapi.yaml`（+ `contracts/json-schema/`、`contracts/examples/`、`contracts/error-codes.md`）。
 - 前端类型手写在 `src/types/api.ts`，文件头标注了同步要求；**契约变更时必须同步更新该文件**，前端不得自行增删字段。
 - 契约中仅声明为 `object`、未细化字段的响应体，在类型文件中标注为"约定字段"并全部可选，后端实现后以契约为准收紧。
-- API 调用按资源分组在 `src/api/modules.ts`（auth/tenant/task/knowledge/qa/feedback/skill/llm/tool/audit/admin）。
+- API 调用按资源分组在 `src/api/modules.ts`（auth/yard/task/knowledge/qa/feedback/skill/llm/tool/audit/admin）。
 
 ## 目录结构
 
@@ -65,7 +65,7 @@ src/
   components/ AsyncState.vue（loading/空/失败重试/无权限四态，空态支持行动按钮）
   layouts/    MainLayout.vue（分组侧栏 + 二级菜单 + 移动端抽屉 + 无障碍跳转链接）
   router/     index.ts（懒加载路由、角色守卫、404 与文档标题）
-  stores/     auth.ts（token/user/tenant）
+  stores/     auth.ts（token/user/yard）
   types/      api.ts（与契约同步的类型）
   utils/      status.ts（任务状态彩色 tag、错误码中文映射、无权限分类）
   views/      Login/Dashboard/QaView/KnowledgeView/TasksView/ReviewView/MembersView/SettingsView

@@ -1,7 +1,7 @@
 """虫情预警（code=pest_alert，version=1.0.0）。
 
 统一运行接口：async run(input_data, context) -> AgentResult。
-db 会话从 context.metadata["db"] 获取；所有知识查询经 service 层带 tenant_id 隔离。
+db 会话从 context.metadata["db"] 获取；所有知识查询经 service 层带 yard_id 隔离。
 
 本文件由脚手架 app.modules.agents.scaffold 自动生成：
 - import 时先做"配置式注册"（register_agent_definition 登记元数据，
@@ -36,7 +36,7 @@ def _ensure_definition() -> dict:
             description="根据田间监测数据生成虫害预警",
             version="1.0.0",
             allowed_tools=["knowledge.search"],
-            allowed_knowledge_scopes=["tenant"],
+            allowed_knowledge_scopes=["yard"],
         )
     return definition
 
@@ -63,7 +63,7 @@ class PestAlertAgent:
         try:
             raw = run_pest_alert(
                 db,
-                tenant_id=context.tenant_id,
+                yard_id=context.yard_id,
                 user_id=context.actor_id,
                 input_data=input_data or {},
             )

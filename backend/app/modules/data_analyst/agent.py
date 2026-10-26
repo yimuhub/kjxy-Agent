@@ -1,7 +1,7 @@
 """数据汇总 Agent（data_analyst v1.0.0）。
 
 多源数据汇总与可回溯报表：仅从授权数据源（tasks / knowledge_documents /
-llm_calls）读取租户内数据，报表中每个关键数字可回溯到查询条件、
+llm_calls）读取小院内数据，报表中每个关键数字可回溯到查询条件、
 时间范围和数据源（Metric.trace），报表输出可重复生成
 （report_id / generated_at / parameters / version 均记录在输出中）。
 
@@ -33,7 +33,7 @@ class DataAnalystAgent:
                 http_status=400,
             )
         report_input = ReportInput(**(input_data or {}))
-        report = build_report(db, context.tenant_id, report_input)
+        report = build_report(db, context.yard_id, report_input)
         return AgentResult(
             status="succeeded",
             output=report,

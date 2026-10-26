@@ -1,9 +1,9 @@
 """模型供应商配置体系测试（A 组）。
 
 - Fernet 加解密 / 打码 / 密钥缺失报错；
-- suppliers CRUD（加密落库、打码返回、租户可见性）；
+- suppliers CRUD（加密落库、打码返回、小院可见性）；
 - 连通性探测（/models 优先、chat 降级、连续失败 3 次自动禁用）；
-- get_provider() 热更新（租户 active → 全局 active → settings 回退）与缓存失效；
+- get_provider() 热更新（小院 active → 全局 active → settings 回退）与缓存失效；
 - 路由层：鉴权、Key 永不返回明文、模板接口。
 """
 
@@ -34,8 +34,8 @@ from app.modules.llm.supplier_crypto import (  # noqa: E402
 from app.modules.llm.supplier_models import Supplier  # noqa: E402,F401 触发建表
 from app.modules.llm.supplier_schemas import SupplierCreate, SupplierUpdate  # noqa: E402
 
-TENANT = "t-001"
-OTHER_TENANT = "t-002"
+YARD = "t-001"
+OTHER_YARD = "t-002"
 TEST_KEY = "sk-test-secret-key-12345"
 
 
@@ -54,7 +54,7 @@ def _payload(**kw):
 
 @pytest.fixture()
 def admin_headers():
-    token = create_access_token(user_id="u-admin", tenant_id=TENANT, roles=["admin"])
+    token = create_access_token(user_id="u-admin", yard_id=YARD, roles=["admin"])
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -93,10 +93,10 @@ def test_missing_secret_raises_with_hint(monkeypatch):
 
 
 def test_create_encrypts_and_masks(db_session):
-    out = supplier_service.create_supplier(db_session, TENANT, _payload(), is_platform_admin=False)
+    out = supplier_service.create_supplier(db_session, YARD, _payload(), is_platform_admin=False)
     db_session.commit()
     assert out.api_key_masked == "sk-t****2345"
-    assert out.tenant_id == TENANT
+    assert out.yard_id == YARD
     assert out.status == 1
 
     row = db_session.query(Supplier).one()
@@ -106,36 +106,36 @@ def test_create_encrypts_and_masks(db_session):
 
 def test_list_visibility_global_plus_own(db_session):
     supplier_service.create_supplier(
-        db_session, TENANT, _payload(name="own"), is_platform_admin=False
+        db_session, YARD, _payload(name="own"), is_platform_admin=False
     )
     supplier_service.create_supplier(
-        db_session, OTHER_TENANT, _payload(name="other"), is_platform_admin=False
+        db_session, OTHER_YARD, _payload(name="other"), is_platform_admin=False
     )
     supplier_service.create_supplier(
         db_session, None, _payload(name="shared", scope="global"), is_platform_admin=True
     )
     db_session.commit()
 
-    names = {s.name for s in supplier_service.list_suppliers(db_session, TENANT)}
-    assert names == {"own", "shared"}  # 看不到 other 租户的
+    names = {s.name for s in supplier_service.list_suppliers(db_session, YARD)}
+    assert names == {"own", "shared"}  # 看不到 other 小院的
 
 
 def test_create_global_requires_platform_admin(db_session):
     with pytest.raises(AppError) as e:
         supplier_service.create_supplier(
-            db_session, TENANT, _payload(scope="global"), is_platform_admin=False
+            db_session, YARD, _payload(scope="global"), is_platform_admin=False
         )
     assert e.value.code == "FORBIDDEN"
 
 
 def test_update_rotates_key_and_resets_failures(db_session):
-    out = supplier_service.create_supplier(db_session, TENANT, _payload(), is_platform_admin=False)
+    out = supplier_service.create_supplier(db_session, YARD, _payload(), is_platform_admin=False)
     row = db_session.query(Supplier).one()
     row.consecutive_failures = 2
     db_session.flush()
 
     updated = supplier_service.update_supplier(
-        db_session, TENANT, out.id, SupplierUpdate(api_key="sk-new-key-99999", priority=5)
+        db_session, YARD, out.id, SupplierUpdate(api_key="sk-new-key-99999", priority=5)
     )
     db_session.commit()
     assert updated.api_key_masked == "sk-n****9999"
@@ -146,9 +146,9 @@ def test_update_rotates_key_and_resets_failures(db_session):
 
 
 def test_update_without_key_keeps_old(db_session):
-    out = supplier_service.create_supplier(db_session, TENANT, _payload(), is_platform_admin=False)
+    out = supplier_service.create_supplier(db_session, YARD, _payload(), is_platform_admin=False)
     updated = supplier_service.update_supplier(
-        db_session, TENANT, out.id, SupplierUpdate(name="renamed")
+        db_session, YARD, out.id, SupplierUpdate(name="renamed")
     )
     assert updated.name == "renamed"
     assert updated.api_key_masked == "sk-t****2345"
@@ -157,8 +157,8 @@ def test_update_without_key_keeps_old(db_session):
 
 
 def test_delete_removes_row(db_session):
-    out = supplier_service.create_supplier(db_session, TENANT, _payload(), is_platform_admin=False)
-    supplier_service.delete_supplier(db_session, TENANT, out.id)
+    out = supplier_service.create_supplier(db_session, YARD, _payload(), is_platform_admin=False)
+    supplier_service.delete_supplier(db_session, YARD, out.id)
     db_session.commit()
     assert db_session.query(Supplier).count() == 0
 
@@ -166,13 +166,13 @@ def test_delete_removes_row(db_session):
 def test_enable_disable(db_session):
     from app.modules.llm.supplier_schemas import STATUS_DISABLED, STATUS_ENABLED
 
-    out = supplier_service.create_supplier(db_session, TENANT, _payload(), is_platform_admin=False)
+    out = supplier_service.create_supplier(db_session, YARD, _payload(), is_platform_admin=False)
     assert (
-        supplier_service.set_supplier_status(db_session, TENANT, out.id, STATUS_DISABLED).status
+        supplier_service.set_supplier_status(db_session, YARD, out.id, STATUS_DISABLED).status
         == STATUS_DISABLED
     )
     assert (
-        supplier_service.set_supplier_status(db_session, TENANT, out.id, STATUS_ENABLED).status
+        supplier_service.set_supplier_status(db_session, YARD, out.id, STATUS_ENABLED).status
         == STATUS_ENABLED
     )
 
@@ -180,9 +180,9 @@ def test_enable_disable(db_session):
 # ---------- active 解析 ----------
 
 
-def test_resolve_prefers_tenant_active_then_global(db_session):
-    tenant_row = supplier_service.create_supplier(
-        db_session, TENANT, _payload(name="tenant-one", priority=1), is_platform_admin=False
+def test_resolve_prefers_yard_active_then_global(db_session):
+    yard_row = supplier_service.create_supplier(
+        db_session, YARD, _payload(name="yard-one", priority=1), is_platform_admin=False
     )
     supplier_service.create_supplier(
         db_session,
@@ -193,39 +193,39 @@ def test_resolve_prefers_tenant_active_then_global(db_session):
     db_session.commit()
 
     # 未设置 active：走全局最高优先级
-    assert supplier_service.resolve_active_supplier(db_session, TENANT).name == "global-high"
-    # 设置租户 active 后优先
-    supplier_service.set_active_supplier(db_session, TENANT, tenant_row.id)
+    assert supplier_service.resolve_active_supplier(db_session, YARD).name == "global-high"
+    # 设置小院 active 后优先
+    supplier_service.set_active_supplier(db_session, YARD, yard_row.id)
     db_session.commit()
-    assert supplier_service.resolve_active_supplier(db_session, TENANT).name == "tenant-one"
+    assert supplier_service.resolve_active_supplier(db_session, YARD).name == "yard-one"
 
 
 def test_resolve_disabled_active_falls_back_to_global(db_session):
     from app.modules.llm.supplier_schemas import STATUS_DISABLED
 
-    tenant_row = supplier_service.create_supplier(
-        db_session, TENANT, _payload(name="tenant-one"), is_platform_admin=False
+    yard_row = supplier_service.create_supplier(
+        db_session, YARD, _payload(name="yard-one"), is_platform_admin=False
     )
     supplier_service.create_supplier(
         db_session, None, _payload(name="global-one", scope="global"), is_platform_admin=True
     )
-    supplier_service.set_active_supplier(db_session, TENANT, tenant_row.id)
-    supplier_service.set_supplier_status(db_session, TENANT, tenant_row.id, STATUS_DISABLED)
+    supplier_service.set_active_supplier(db_session, YARD, yard_row.id)
+    supplier_service.set_supplier_status(db_session, YARD, yard_row.id, STATUS_DISABLED)
     db_session.commit()
-    assert supplier_service.resolve_active_supplier(db_session, TENANT).name == "global-one"
+    assert supplier_service.resolve_active_supplier(db_session, YARD).name == "global-one"
 
 
 def test_resolve_none_when_no_supplier(db_session):
-    assert supplier_service.resolve_active_supplier(db_session, TENANT) is None
+    assert supplier_service.resolve_active_supplier(db_session, YARD) is None
 
 
 def test_set_active_rejects_disabled(db_session):
     from app.modules.llm.supplier_schemas import STATUS_DISABLED
 
-    out = supplier_service.create_supplier(db_session, TENANT, _payload(), is_platform_admin=False)
-    supplier_service.set_supplier_status(db_session, TENANT, out.id, STATUS_DISABLED)
+    out = supplier_service.create_supplier(db_session, YARD, _payload(), is_platform_admin=False)
+    supplier_service.set_supplier_status(db_session, YARD, out.id, STATUS_DISABLED)
     with pytest.raises(AppError) as e:
-        supplier_service.set_active_supplier(db_session, TENANT, out.id)
+        supplier_service.set_active_supplier(db_session, YARD, out.id)
     assert e.value.code == "SUPPLIER_DISABLED"
 
 
@@ -311,10 +311,10 @@ async def test_probe_connect_error(fake_httpx):
 async def test_saved_test_writes_back_and_auto_disables_after_3(db_session, fake_httpx):
     from app.modules.llm.supplier_schemas import STATUS_DISABLED
 
-    out = supplier_service.create_supplier(db_session, TENANT, _payload(), is_platform_admin=False)
+    out = supplier_service.create_supplier(db_session, YARD, _payload(), is_platform_admin=False)
     fake_httpx.mode = "unreachable"
     for _ in range(3):
-        _out, result = await supplier_service.test_saved_supplier(db_session, TENANT, out.id)
+        _out, result = await supplier_service.test_saved_supplier(db_session, YARD, out.id)
         assert result.ok is False
     db_session.commit()
     row = db_session.query(Supplier).one()
@@ -326,11 +326,11 @@ async def test_saved_test_writes_back_and_auto_disables_after_3(db_session, fake
 
 @pytest.mark.asyncio
 async def test_saved_test_success_resets_failures(db_session, fake_httpx):
-    out = supplier_service.create_supplier(db_session, TENANT, _payload(), is_platform_admin=False)
+    out = supplier_service.create_supplier(db_session, YARD, _payload(), is_platform_admin=False)
     row = db_session.query(Supplier).one()
     row.consecutive_failures = 2
     db_session.flush()
-    _out, result = await supplier_service.test_saved_supplier(db_session, TENANT, out.id)
+    _out, result = await supplier_service.test_saved_supplier(db_session, YARD, out.id)
     assert result.ok is True
     row = db_session.query(Supplier).one()
     assert row.consecutive_failures == 0
@@ -341,11 +341,11 @@ async def test_saved_test_success_resets_failures(db_session, fake_httpx):
 
 
 def test_get_provider_uses_active_supplier(db_session):
-    out = supplier_service.create_supplier(db_session, TENANT, _payload(), is_platform_admin=False)
-    supplier_service.set_active_supplier(db_session, TENANT, out.id)
+    out = supplier_service.create_supplier(db_session, YARD, _payload(), is_platform_admin=False)
+    supplier_service.set_active_supplier(db_session, YARD, out.id)
     db_session.commit()
 
-    with provider_module.provider_resolution(TENANT, db_session):
+    with provider_module.provider_resolution(YARD, db_session):
         provider = provider_module.get_provider()
     # 解密后的 key 注入到 Provider，且调用记录标签带供应商名
     assert provider.api_key == TEST_KEY
@@ -355,22 +355,22 @@ def test_get_provider_uses_active_supplier(db_session):
 
 
 def test_get_provider_falls_back_to_settings_without_supplier(db_session):
-    with provider_module.provider_resolution(TENANT, db_session):
+    with provider_module.provider_resolution(YARD, db_session):
         provider = provider_module.get_provider()
     assert type(provider).__name__ == "FakeProvider"  # settings.llm_provider=fake
 
 
 def test_cache_invalidated_on_update(db_session):
-    out = supplier_service.create_supplier(db_session, TENANT, _payload(), is_platform_admin=False)
-    supplier_service.set_active_supplier(db_session, TENANT, out.id)
+    out = supplier_service.create_supplier(db_session, YARD, _payload(), is_platform_admin=False)
+    supplier_service.set_active_supplier(db_session, YARD, out.id)
     db_session.commit()
 
-    with provider_module.provider_resolution(TENANT, db_session):
+    with provider_module.provider_resolution(YARD, db_session):
         p1 = provider_module.get_provider()
         assert p1.api_key == TEST_KEY
         # 轮换密钥后缓存失效，新实例使用新 key
         supplier_service.update_supplier(
-            db_session, TENANT, out.id, SupplierUpdate(api_key="sk-rotated-00001")
+            db_session, YARD, out.id, SupplierUpdate(api_key="sk-rotated-00001")
         )
         db_session.commit()
         p2 = provider_module.get_provider()
@@ -379,14 +379,14 @@ def test_cache_invalidated_on_update(db_session):
 
 
 def test_cache_invalidated_on_delete(db_session):
-    out = supplier_service.create_supplier(db_session, TENANT, _payload(), is_platform_admin=False)
-    supplier_service.set_active_supplier(db_session, TENANT, out.id)
+    out = supplier_service.create_supplier(db_session, YARD, _payload(), is_platform_admin=False)
+    supplier_service.set_active_supplier(db_session, YARD, out.id)
     db_session.commit()
-    with provider_module.provider_resolution(TENANT, db_session):
+    with provider_module.provider_resolution(YARD, db_session):
         assert provider_module.get_provider().api_key == TEST_KEY
-    supplier_service.delete_supplier(db_session, TENANT, out.id)
+    supplier_service.delete_supplier(db_session, YARD, out.id)
     db_session.commit()
-    with provider_module.provider_resolution(TENANT, db_session):
+    with provider_module.provider_resolution(YARD, db_session):
         assert type(provider_module.get_provider()).__name__ == "FakeProvider"
 
 
@@ -435,7 +435,7 @@ def test_router_create_and_list_masked(client, admin_headers):
 
 
 def test_router_requires_admin(client):
-    user_token = create_access_token(user_id="u1", tenant_id=TENANT, roles=["member"])
+    user_token = create_access_token(user_id="u1", yard_id=YARD, roles=["member"])
     r = client.get("/api/v1/llm/providers", headers={"Authorization": f"Bearer {user_token}"})
     assert r.status_code == 403
     r = client.get("/api/v1/llm/providers")

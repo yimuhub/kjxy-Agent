@@ -27,7 +27,7 @@ log = get_logger(__name__)
 #: 工厂产物的默认（且兜底）工具；assess_risk 对只读工具判 low 的前提
 DEFAULT_BLUEPRINT_TOOL = "knowledge.search"
 #: 知识范围默认值（assess_risk：scopes 为空一律 high，故必填）
-DEFAULT_KNOWLEDGE_SCOPES = ["tenant"]
+DEFAULT_KNOWLEDGE_SCOPES = ["yard"]
 #: 蓝图角色数硬边界（与提示词一致）
 MIN_ROLES, MAX_ROLES = 3, 6
 #: 启发式角色固定 4 个（介于 3-6 的硬边界内）
@@ -39,7 +39,7 @@ _BLUEPRINT_SCHEMA_HINT = (
     '{"agents": [{"agent_code": "小写蛇形编码", "name": "角色名", "emoji": "单个表情", '
     '"description": "一句话职责", "persona_prompt": "系统人设（你是谁、面向什么行业、'
     '如何回答）", "task_prompt_template": "必须包含 {{question}} 占位的任务模板", '
-    '"allowed_tools": ["knowledge.search"], "knowledge_scopes": ["tenant"], '
+    '"allowed_tools": ["knowledge.search"], "knowledge_scopes": ["yard"], '
     '"suggested_questions": ["该行业真实用户会问的问题，恰好 5 条"]}]}'
 )
 
@@ -84,7 +84,7 @@ def build_blueprint_messages(industry_brief: str, focus: str | None) -> list[dic
         "4. task_prompt_template 必须包含 {{question}} 占位符，运行时替换为用户问题。\n"
         f"5. allowed_tools 只能从白名单 [{allowed}] 中选择；没有把握时只给 "
         f"{DEFAULT_BLUEPRINT_TOOL}，禁止发明工具名。\n"
-        '6. knowledge_scopes 固定为 ["tenant"]；suggested_questions 恰好 5 条，'
+        '6. knowledge_scopes 固定为 ["yard"]；suggested_questions 恰好 5 条，'
         "必须是该行业一线用户真实会问的中文问题。\n"
         "7. 所有文案使用简体中文，紧扣行业描述与侧重方向。"
     )
@@ -218,7 +218,7 @@ def _ascii_slug(text: str, *, max_len: int = 24, default: str = "ind") -> str:
 
 
 def finalize_codes(items: list[dict[str, Any]], run_id: str) -> list[dict[str, Any]]:
-    """为蓝图角色生成租户内唯一、命中 ``^[a-z][a-z0-9_]*$`` 的最终 agent_code。
+    """为蓝图角色生成小院内唯一、命中 ``^[a-z][a-z0-9_]*$`` 的最终 agent_code。
 
     规则：slug(原 code) + "_" + run 短 id（8 位十六进制）。同 run 内去重
     （追加序号），并把 LLM 可能给出的内置 Agent 撞码（data_analyst 等）
@@ -301,7 +301,7 @@ def heuristic_blueprint(industry_brief: str, focus: str | None = None) -> list[d
     for suffix, name_tail, emoji, duty, template in _HEURISTIC_ROLES:
         persona = (
             f"你是面向「{label}」行业的{name_tail}，负责{duty}。"
-            f"回答基于本租户知识库资料，简洁、务实、可操作，资料不足时如实说明。{focus_part}"
+            f"回答基于本小院知识库资料，简洁、务实、可操作，资料不足时如实说明。{focus_part}"
         )
         questions = [
             f"{label}从业需要掌握哪些关键要点？",

@@ -16,7 +16,7 @@ os.environ.setdefault("EMBEDDING_PROVIDER", "mock")
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from app.core.config import settings  # noqa: E402
-from app.core.deps import TenantContext  # noqa: E402
+from app.core.deps import YardContext  # noqa: E402
 from app.db.base import Base  # noqa: E402
 from app.modules.knowledge.embedding import MockEmbeddingProvider  # noqa: E402
 from app.modules.knowledge.models import KnowledgeChunk, KnowledgeDocument  # noqa: E402
@@ -25,7 +25,7 @@ from sqlalchemy import create_engine  # noqa: E402
 from sqlalchemy.orm import sessionmaker  # noqa: E402
 from sqlalchemy.pool import StaticPool  # noqa: E402
 
-TENANT = "t-tune"
+YARD = "t-tune"
 
 DOCS = [
     (
@@ -108,7 +108,7 @@ def seed(db) -> None:
     provider = MockEmbeddingProvider()
     for i, (title, content) in enumerate(DOCS):
         doc = KnowledgeDocument(
-            tenant_id=TENANT,
+            yard_id=YARD,
             title=title,
             storage_key=f"tune-key-{i}",
             mime_type="text/plain",
@@ -120,11 +120,11 @@ def seed(db) -> None:
         db.flush()
         db.add(
             KnowledgeChunk(
-                tenant_id=TENANT,
+                yard_id=YARD,
                 document_id=doc.id,
                 chunk_index=0,
                 content=content,
-                trust_level="tenant_material",
+                trust_level="yard_material",
                 embedding=provider.embed([content])[0],
             )
         )
@@ -132,7 +132,7 @@ def seed(db) -> None:
 
 
 def recall(cases, mode, alpha=None):
-    ctx = TenantContext(tenant_id=TENANT, user_id="u1", roles=["member"], request_id="tune")
+    ctx = YardContext(yard_id=YARD, user_id="u1", roles=["member"], request_id="tune")
     old_alpha, old_min = settings.retrieval_alpha, settings.retrieval_min_score
     try:
         if alpha is not None:

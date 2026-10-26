@@ -17,7 +17,7 @@ from app.modules.agents.factory_blueprint import (
     heuristic_blueprint,
     parse_blueprint,
 )
-from app.modules.tenants.repository import create_tenant
+from app.modules.yards.repository import create_yard
 
 CODE_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
@@ -31,7 +31,7 @@ def _role(i: int, **over) -> dict:
         "persona_prompt": f"你是角色{i}，务实回答。",
         "task_prompt_template": f"请回答：{{{{question}}}}（角色{i}）",
         "allowed_tools": ["knowledge.search"],
-        "knowledge_scopes": ["tenant"],
+        "knowledge_scopes": ["yard"],
         "suggested_questions": [f"问题{i}-{j}？" for j in range(5)],
     }
     base.update(over)
@@ -155,7 +155,7 @@ def test_finalize_codes_unique_safe_and_run_scoped():
 
 
 def test_assess_risk_low_for_factory_defaults():
-    # 工厂默认产物（只读工具 + 租户知识范围）必须是低风险：自批前提
+    # 工厂默认产物（只读工具 + 小院知识范围）必须是低风险：自批前提
     assert assess_risk([DEFAULT_BLUEPRINT_TOOL], DEFAULT_KNOWLEDGE_SCOPES) == "low"
     # 冒烟：蓝图默认工具全部命中只读白名单 → 整组判 low
     for item in heuristic_blueprint("测试行业"):
@@ -166,7 +166,7 @@ def test_assess_risk_low_for_factory_defaults():
 
 def test_create_draft_from_blueprint_item_is_draft_factory_origin(db_session):
     """assess_risk 集成冒烟：蓝图角色 → create_agent → draft/factory/low。"""
-    tenant = create_tenant(db_session, name="工厂蓝图租户")
+    yard = create_yard(db_session, name="工厂蓝图小院")
     db_session.commit()
     item = heuristic_blueprint("水稻育秧服务")[0]
     finalize_codes([item], "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
@@ -183,7 +183,7 @@ def test_create_draft_from_blueprint_item_is_draft_factory_origin(db_session):
     )
     agent = declarative.create_agent(
         db_session,
-        tenant_id=tenant.id,
+        yard_id=yard.id,
         actor_id="u-factory",
         req=req,
         request_id="req-unit-factory",

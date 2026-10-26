@@ -5,7 +5,7 @@
 2. LLM 中途失败 → steps 状态 failed；retry 从失败步续跑：已 ok 的副作用工具
    **不重放**（execute 计数不变），失败的 LLM 步原位重跑，audit=retry_from_step；
 3. 已完成运行 retry → 409；
-4. 跨租户访问 steps/retry → 404（防枚举）；
+4. 跨小院访问 steps/retry → 404（防枚举）；
 5. SSE 步骤流：completed 运行即时收流（steps-init/step-event.../steps-end）。
 """
 
@@ -16,8 +16,8 @@ from app.modules.devices import agent_tool
 from app.modules.llm import providers_fake
 from app.modules.llm.models import LLMCall
 from app.modules.tasks import worker_tasks
-from app.modules.tenants.repository import create_tenant
 from app.modules.tools.registry import tool_registry
+from app.modules.yards.repository import create_yard
 from sqlalchemy.orm import sessionmaker
 
 DOC_Q = "棚室温度怎么样"
@@ -28,12 +28,12 @@ BODY = {
     "persona_prompt": "你是设施农业传感器问答助手。",
     "task_prompt_template": "请结合传感器数据回答：{{question}}",
     "allowed_tools": ["sensor.query"],
-    "knowledge_scopes": ["tenant"],
+    "knowledge_scopes": ["yard"],
 }
 
 
-def _hdr(user_id: str = "u-steps-admin", tenant_id: str | None = None):
-    token = create_access_token(user_id=user_id, tenant_id=tenant_id, roles=["tenant_admin"])
+def _hdr(user_id: str = "u-steps-admin", yard_id: str | None = None):
+    token = create_access_token(user_id=user_id, yard_id=yard_id, roles=["yard_admin"])
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -45,28 +45,26 @@ def _script_isolation():
 
 
 @pytest.fixture()
-def tenant(db_session):
-    t = create_tenant(db_session, name="步骤续跑租户")
+def yard(db_session):
+    t = create_yard(db_session, name="步骤续跑小院")
     db_session.commit()
     return t
 
 
 @pytest.fixture()
-def other_tenant(db_session):
-    t = create_tenant(db_session, name="隔壁步骤租户")
+def other_yard(db_session):
+    t = create_yard(db_session, name="隔壁步骤小院")
     db_session.commit()
     return t
 
 
 @pytest.fixture()
-def published(client, tenant):
-    created = client.post(
-        "/api/v1/agents/declarative", json=BODY, headers=_hdr(tenant_id=tenant.id)
-    )
+def published(client, yard):
+    created = client.post("/api/v1/agents/declarative", json=BODY, headers=_hdr(yard_id=yard.id))
     assert created.status_code == 200, created.text
     data = created.json()["data"]
     published = client.post(
-        f"/api/v1/agents/declarative/{data['id']}/publish", headers=_hdr(tenant_id=tenant.id)
+        f"/api/v1/agents/declarative/{data['id']}/publish", headers=_hdr(yard_id=yard.id)
     )
     assert published.json()["data"]["status"] == "published"
     return data
@@ -93,22 +91,22 @@ def sensor_spy(db_session, monkeypatch):
     return counter
 
 
-def _run(client, tenant, task_id, question=DOC_Q):
+def _run(client, yard, task_id, question=DOC_Q):
     return client.post(
         "/api/v1/agents/sensor_helper/run",
         json={"input": {"question": question}, "task_id": task_id},
-        headers=_hdr(tenant_id=tenant.id),
+        headers=_hdr(yard_id=yard.id),
     )
 
 
-def _steps(client, tenant, run_id):
+def _steps(client, yard, run_id):
     return client.get(
-        f"/api/v1/agents/declarative/runs/{run_id}/steps", headers=_hdr(tenant_id=tenant.id)
+        f"/api/v1/agents/declarative/runs/{run_id}/steps", headers=_hdr(yard_id=yard.id)
     )
 
 
-def _shape(client, tenant, run_id):
-    data = _steps(client, tenant, run_id).json()["data"]
+def _shape(client, yard, run_id):
+    data = _steps(client, yard, run_id).json()["data"]
     return data["status"], [(s["step_type"], s["status"]) for s in data["steps"]]
 
 
@@ -117,14 +115,14 @@ def _shape(client, tenant, run_id):
 # ---------------------------------------------------------------------------
 
 
-def test_tool_loop_run_and_steps_shape(client, tenant, published, sensor_spy):
+def test_tool_loop_run_and_steps_shape(client, yard, published, sensor_spy):
     providers_fake.set_scripted_tool_responses(
         [
             {"tool_calls": [{"id": "s1", "name": "sensor__query", "args": {}}]},
             {"content": "传感器数据正常"},
         ]
     )
-    resp = _run(client, tenant, "run-i1")
+    resp = _run(client, yard, "run-i1")
     assert resp.status_code == 200, resp.text
     out = resp.json()["data"]["output"]
     assert out["answer"] == "传感器数据正常"
@@ -132,7 +130,7 @@ def test_tool_loop_run_and_steps_shape(client, tenant, published, sensor_spy):
     assert out["truncated"] is False
     assert sensor_spy["n"] == 1  # sensor.query 恰好执行的这一次
 
-    status, shape = _shape(client, tenant, "run-i1")
+    status, shape = _shape(client, yard, "run-i1")
     assert status == "succeeded"
     assert shape == [
         ("llm_call", "ok"),
@@ -147,19 +145,19 @@ def test_tool_loop_run_and_steps_shape(client, tenant, published, sensor_spy):
 # ---------------------------------------------------------------------------
 
 
-def test_retry_from_failed_step_no_side_effect_replay(client, tenant, published, sensor_spy):
+def test_retry_from_failed_step_no_side_effect_replay(client, yard, published, sensor_spy):
     providers_fake.set_scripted_tool_responses(
         [
             {"tool_calls": [{"id": "s1", "name": "sensor__query", "args": {}}]},
             {"error": {"code": "LLM_ERROR", "message": "上游连接中断（模拟）"}},
         ]
     )
-    failed = _run(client, tenant, "run-i2")
+    failed = _run(client, yard, "run-i2")
     assert failed.status_code == 502
     assert failed.json()["error"]["code"] == "LLM_ERROR"
     assert sensor_spy["n"] == 1
 
-    status, shape = _shape(client, tenant, "run-i2")
+    status, shape = _shape(client, yard, "run-i2")
     assert status == "failed"
     assert shape == [("llm_call", "ok"), ("tool_call", "ok"), ("llm_call", "error")]
 
@@ -167,7 +165,7 @@ def test_retry_from_failed_step_no_side_effect_replay(client, tenant, published,
     providers_fake.set_scripted_tool_responses([{"content": "续跑后拿到了结论"}])
     retried = client.post(
         "/api/v1/agents/declarative/sensor_helper/runs/run-i2/retry",
-        headers=_hdr(tenant_id=tenant.id),
+        headers=_hdr(yard_id=yard.id),
     )
     assert retried.status_code == 200, retried.text
     out = retried.json()["data"]["output"]
@@ -175,7 +173,7 @@ def test_retry_from_failed_step_no_side_effect_replay(client, tenant, published,
     assert out["run_id"] == "run-i2"
     assert sensor_spy["n"] == 1  # 关键断言：execute 次数不变 → 副作用未重放
 
-    status, shape = _shape(client, tenant, "run-i2")
+    status, shape = _shape(client, yard, "run-i2")
     assert status == "succeeded"
     assert shape == [
         ("llm_call", "ok"),
@@ -184,69 +182,67 @@ def test_retry_from_failed_step_no_side_effect_replay(client, tenant, published,
         ("final", "ok"),
     ]  # 失败 LLM 步原位覆盖（索引连续、无重复工具行）
 
-    data = _steps(client, tenant, "run-i2").json()["data"]
+    data = _steps(client, yard, "run-i2").json()["data"]
     assert data["steps"][2]["input_json"]["retried"] is True
     assert len(data["steps"]) == 4  # 原位覆盖而非追加重放
 
 
-def test_retry_writes_audit_and_quota_bookkeeping(
-    client, db_session, tenant, published, sensor_spy
-):
+def test_retry_writes_audit_and_quota_bookkeeping(client, db_session, yard, published, sensor_spy):
     providers_fake.set_scripted_tool_responses(
         [
             {"tool_calls": [{"id": "s1", "name": "sensor__query", "args": {}}]},
             {"error": {"code": "LLM_ERROR", "message": "模拟中断"}},
         ]
     )
-    assert _run(client, tenant, "run-i2b").status_code == 502
+    assert _run(client, yard, "run-i2b").status_code == 502
     providers_fake.set_scripted_tool_responses([{"content": "续跑完成"}])
     assert (
         client.post(
             "/api/v1/agents/declarative/sensor_helper/runs/run-i2b/retry",
-            headers=_hdr(tenant_id=tenant.id),
+            headers=_hdr(yard_id=yard.id),
         )
     ).status_code == 200
     assert sensor_spy["n"] == 1
 
     audit = (
         db_session.query(AuditLog)
-        .filter(AuditLog.action == "retry_from_step", AuditLog.tenant_id == tenant.id)
+        .filter(AuditLog.action == "retry_from_step", AuditLog.yard_id == yard.id)
         .first()
     )
     assert audit is not None and audit.result == "success"
     assert audit.metadata_json["from_step_index"] == 2
     assert audit.metadata_json["skipped_tool_side_effects"] == 1
     # 记账：失败尝试 2 次 LLM 调用（1 成 1 败）+ 续跑 1 次 = 3 行
-    assert db_session.query(LLMCall).filter(LLMCall.tenant_id == tenant.id).count() == 3
+    assert db_session.query(LLMCall).filter(LLMCall.yard_id == yard.id).count() == 3
 
 
 # ---------------------------------------------------------------------------
-# 3) 已完成运行拒绝重放；跨租户一律 404
+# 3) 已完成运行拒绝重放；跨小院一律 404
 # ---------------------------------------------------------------------------
 
 
-def test_retry_completed_run_is_409(client, tenant, published, sensor_spy):
+def test_retry_completed_run_is_409(client, yard, published, sensor_spy):
     providers_fake.set_scripted_tool_responses([{"content": "一次就收敛"}])
-    assert _run(client, tenant, "run-i3").status_code == 200
+    assert _run(client, yard, "run-i3").status_code == 200
     resp = client.post(
         "/api/v1/agents/declarative/sensor_helper/runs/run-i3/retry",
-        headers=_hdr(tenant_id=tenant.id),
+        headers=_hdr(yard_id=yard.id),
     )
     assert resp.status_code == 409
     assert resp.json()["error"]["code"] == "RUN_ALREADY_COMPLETED"
 
 
-def test_cross_tenant_steps_and_retry_are_404(client, tenant, other_tenant, published, sensor_spy):
-    providers_fake.set_scripted_tool_responses([{"content": "本租户的运行"}])
-    assert _run(client, tenant, "run-i4").status_code == 200
+def test_cross_yard_steps_and_retry_are_404(client, yard, other_yard, published, sensor_spy):
+    providers_fake.set_scripted_tool_responses([{"content": "本小院的运行"}])
+    assert _run(client, yard, "run-i4").status_code == 200
 
-    leaked = _steps(client, other_tenant, "run-i4")
+    leaked = _steps(client, other_yard, "run-i4")
     assert leaked.status_code == 404
     assert leaked.json()["error"]["code"] == "RUN_NOT_FOUND"
 
     retried = client.post(
         "/api/v1/agents/declarative/sensor_helper/runs/run-i4/retry",
-        headers=_hdr("u-other", other_tenant.id),
+        headers=_hdr("u-other", other_yard.id),
     )
     assert retried.status_code == 404
 
@@ -256,20 +252,20 @@ def test_cross_tenant_steps_and_retry_are_404(client, tenant, other_tenant, publ
 # ---------------------------------------------------------------------------
 
 
-def test_sse_stream_replays_completed_run(client, db_session, tenant, published, sensor_spy):
+def test_sse_stream_replays_completed_run(client, db_session, yard, published, sensor_spy):
     providers_fake.set_scripted_tool_responses(
         [
             {"tool_calls": [{"id": "s1", "name": "sensor__query", "args": {}}]},
             {"content": "流式回放我"},
         ]
     )
-    assert _run(client, tenant, "run-i5").status_code == 200
+    assert _run(client, yard, "run-i5").status_code == 200
 
     worker_tasks._session_factory = sessionmaker(bind=db_session.get_bind(), autoflush=False)
     try:
         resp = client.get(
             "/api/v1/agents/declarative/runs/run-i5/events/stream",
-            headers=_hdr(tenant_id=tenant.id),
+            headers=_hdr(yard_id=yard.id),
         )
     finally:
         worker_tasks._session_factory = None

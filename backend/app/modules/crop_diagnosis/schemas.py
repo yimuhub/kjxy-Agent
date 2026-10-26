@@ -48,7 +48,7 @@ class CandidateIssue(BaseModel):
 
 
 class EvidenceItem(BaseModel):
-    """支持证据：全部来自租户知识库检索命中。"""
+    """支持证据：全部来自小院知识库检索命中。"""
 
     document_id: str
     chunk_id: str

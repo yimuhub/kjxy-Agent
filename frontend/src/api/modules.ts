@@ -3,7 +3,7 @@ import { api } from './client'
 import type {
   AddMemberPayload,
   AdminStats,
-  AdminTenantList,
+  AdminYardList,
   AgentDefinition,
   AgentRunResult,
   ApiResponse,
@@ -17,6 +17,7 @@ import type {
   Feedback,
   Invitation,
   InvitationPreview,
+  KnowledgeChunkPreview,
   KnowledgeDocument,
   KnowledgeSearchResult,
   KnowledgeUploadResult,
@@ -41,7 +42,8 @@ import type {
   SubmitFeedbackPayload,
   Task,
   TaskEvent,
-  Tenant,
+  TokenUsage,
+  Yard,
   ToolApproval,
   ToolDefinition,
   MeResponse,
@@ -74,9 +76,9 @@ function toParams(params: object): Record<string, string | number> {
 // ---------- 认证 ----------
 
 export const authApi = {
-  login(username: string, password: string, tenant_id?: string): Promise<LoginResponse> {
+  login(username: string, password: string, yard_id?: string): Promise<LoginResponse> {
     return unwrap(
-      api.post<ApiResponse<LoginResponse>>('/auth/login', { username, password, tenant_id }),
+      api.post<ApiResponse<LoginResponse>>('/auth/login', { username, password, yard_id }),
     )
   },
   refresh(refresh_token: string): Promise<{ access_token: string; refresh_token: string }> {
@@ -90,33 +92,33 @@ export const authApi = {
   },
 }
 
-// ---------- 租户 ----------
+// ---------- 小院 ----------
 
-export const tenantApi = {
-  current(): Promise<Tenant> {
-    return unwrap(api.get<ApiResponse<Tenant>>('/tenants/current'))
+export const yardApi = {
+  current(): Promise<Yard> {
+    return unwrap(api.get<ApiResponse<Yard>>('/yards/current'))
   },
   members(): Promise<ListResult<Member>> {
-    return unwrapList(api.get<ListResponse<Member>>('/tenants/current/members'))
+    return unwrapList(api.get<ListResponse<Member>>('/yards/current/members'))
   },
   addMember(payload: AddMemberPayload): Promise<Member> {
-    return unwrap(api.post<ApiResponse<Member>>('/tenants/current/members', payload))
+    return unwrap(api.post<ApiResponse<Member>>('/yards/current/members', payload))
   },
   batchAddMembers(payload: {
     members: AddMemberPayload[]
   }): Promise<BatchAddMembersResult> {
     return unwrap(
       api.post<ApiResponse<BatchAddMembersResult>>(
-        '/tenants/current/members/batch',
+        '/yards/current/members/batch',
         payload,
       ),
     )
   },
   removeMember(user_id: string): Promise<void> {
-    return api.delete(`/tenants/current/members/${user_id}`).then(() => undefined)
+    return api.delete(`/yards/current/members/${user_id}`).then(() => undefined)
   },
   invitations(): Promise<Invitation[]> {
-    return unwrap(api.get<ApiResponse<Invitation[]>>('/tenants/current/invitations'))
+    return unwrap(api.get<ApiResponse<Invitation[]>>('/yards/current/invitations'))
   },
   createInvitation(payload: {
     role: MemberRole
@@ -124,11 +126,11 @@ export const tenantApi = {
     note?: string
   }): Promise<Invitation> {
     return unwrap(
-      api.post<ApiResponse<Invitation>>('/tenants/current/invitations', payload),
+      api.post<ApiResponse<Invitation>>('/yards/current/invitations', payload),
     )
   },
   revokeInvitation(id: string): Promise<Invitation> {
-    return unwrap(api.delete<ApiResponse<Invitation>>(`/tenants/current/invitations/${id}`))
+    return unwrap(api.delete<ApiResponse<Invitation>>(`/yards/current/invitations/${id}`))
   },
   /** 公开：邀请预览（接受页，无需登录） */
   previewInvitation(token: string): Promise<InvitationPreview> {
@@ -143,27 +145,27 @@ export const tenantApi = {
       api.post<ApiResponse<LoginResponse>>(`/invitations/${token}/accept`, payload),
     )
   },
-  /** 当前租户配额状态 */
+  /** 当前小院配额状态 */
   getQuota(): Promise<any> {
-    return unwrap(api.get<ApiResponse<any>>('/tenants/quota'))
+    return unwrap(api.get<ApiResponse<any>>('/yards/quota'))
   },
-  /** 公开：租户自助注册，返回可直接登录的 access_token */
-  signup(payload: TenantSignupPayload): Promise<TenantSignupResult> {
-    return unwrap(api.post<ApiResponse<TenantSignupResult>>('/tenants/signup', payload))
+  /** 公开：小院自助注册，返回可直接登录的 access_token */
+  signup(payload: YardSignupPayload): Promise<YardSignupResult> {
+    return unwrap(api.post<ApiResponse<YardSignupResult>>('/yards/signup', payload))
   },
 }
 
-// ---------- 租户自助注册 ----------
+// ---------- 小院自助注册 ----------
 
-export interface TenantSignupPayload {
-  tenant_name: string
+export interface YardSignupPayload {
+  yard_name: string
   admin_username: string
   password: string
   contact?: string
 }
 
-export interface TenantSignupResult {
-  tenant_id: string
+export interface YardSignupResult {
+  yard_id: string
   user_id: string
   access_token: string
   token_type: string
@@ -247,6 +249,10 @@ export const knowledgeApi = {
   },
   get(document_id: string): Promise<KnowledgeDocument> {
     return unwrap(api.get(`/knowledge/documents/${document_id}`))
+  },
+  /** 查看文档的 MarkItDown 结构化切块与 Token 估算明细 */
+  chunks(document_id: string): Promise<ListResult<KnowledgeChunkPreview>> {
+    return unwrapList(api.get(`/knowledge/documents/${document_id}/chunks`))
   },
   remove(document_id: string): Promise<void> {
     return api.delete(`/knowledge/documents/${document_id}`).then(() => undefined)
@@ -347,7 +353,7 @@ export const toolApi = {
 
 export interface LlmSupplier {
   id: string
-  tenant_id: string | null
+  yard_id: string | null
   name: string
   provider_type: string
   base_url: string
@@ -363,7 +369,7 @@ export interface LlmSupplier {
   test_time: string | null
   response_time_ms: number | null
   last_error: string | null
-  // 后端权限信号：tenant_admin 视角下平台全局行=true（只可选用不可改）；缺省按非只读兼容
+  // 后端权限信号：yard_admin 视角下平台全局行=true（只可选用不可改）；缺省按非只读兼容
   readonly?: boolean
   created_at: string
   updated_at: string
@@ -377,7 +383,7 @@ export interface LlmSupplierCreate {
   api_key: string
   models?: string
   priority?: number
-  scope?: 'tenant' | 'global'
+  scope?: 'yard' | 'global'
 }
 
 export interface LlmSupplierUpdate {
@@ -440,7 +446,7 @@ export const llmSupplierApi = {
   test(id: string): Promise<{ supplier: LlmSupplier; result: LlmTestResult }> {
     return unwrap(api.post(`/llm/providers/${id}/test`))
   },
-  /** 设为当前生效供应商（租户级） */
+  /** 设为当前生效供应商（小院级） */
   setActive(supplier_id: string): Promise<LlmSupplier> {
     return unwrap(api.post<ApiResponse<LlmSupplier>>('/llm/providers/active', { supplier_id }))
   },
@@ -494,8 +500,8 @@ export const adminApi = {
   stats(): Promise<AdminStats> {
     return unwrap(api.get<ApiResponse<AdminStats>>('/admin/stats'))
   },
-  tenants(): Promise<AdminTenantList> {
-    return unwrap(api.get<ApiResponse<AdminTenantList>>('/admin/tenants'))
+  yards(): Promise<AdminYardList> {
+    return unwrap(api.get<ApiResponse<AdminYardList>>('/admin/yards'))
   },
 }
 
@@ -512,7 +518,7 @@ export interface TeamMemberSpec {
 /** 班组定义（GET/POST/PATCH /agents/teams* 的 data 形状） */
 export interface TeamDefinition {
   id: string
-  tenant_id: string
+  yard_id: string
   name: string
   model_hint: string | null
   description: string | null
@@ -549,13 +555,14 @@ export interface TeamRunMember {
   output: string | null
   error_text: string | null
   updated_at: string | null
+  token_usage?: TokenUsage | null
 }
 
 /** 运行详情（POST run / GET team-runs/{id} / POST retry 的 data 共同形状） */
 export interface TeamRun {
   id: string
   team_id: string
-  tenant_id: string
+  yard_id: string
   input: string
   status: TeamRunStatus
   answer: string | null
@@ -568,6 +575,7 @@ export interface TeamRun {
   member_count: number
   /** 详情/运行/续跑响应带成员明细；列表摘要不带 */
   members?: TeamRunMember[]
+  token_usage?: TokenUsage | null
 }
 
 /** 运行列表摘要（GET /agents/teams/{id}/runs 元素，无 answer/members） */
@@ -606,21 +614,21 @@ export interface TeamMemberEvent {
 }
 
 export const teamApi = {
-  /** 班组列表（租户成员均可读） */
+  /** 班组列表（小院成员均可读） */
   list(): Promise<TeamDefinition[]> {
     return unwrap(api.get<ApiResponse<{ teams: TeamDefinition[] }>>('/agents/teams')).then(
       r => r.teams,
     )
   },
-  /** 创建（tenant_admin；成员 2..8；同租户重名 409） */
+  /** 创建（yard_admin；成员 2..8；同小院重名 409） */
   create(payload: TeamCreatePayload): Promise<TeamDefinition> {
     return unwrap(api.post<ApiResponse<TeamDefinition>>('/agents/teams', payload))
   },
-  /** 编辑（tenant_admin；members 传则整体替换） */
+  /** 编辑（yard_admin；members 传则整体替换） */
   update(teamId: string, payload: TeamUpdatePayload): Promise<TeamDefinition> {
     return unwrap(api.patch<ApiResponse<TeamDefinition>>(`/agents/teams/${teamId}`, payload))
   },
-  /** 删除班组定义（tenant_admin；历史运行台账保留） */
+  /** 删除班组定义（yard_admin；历史运行台账保留） */
   remove(teamId: string): Promise<void> {
     return api.delete(`/agents/teams/${teamId}`).then(() => undefined)
   },
@@ -709,7 +717,7 @@ export const policyApi = {
       api.post<ApiResponse<ApplicationDraft>>(`/policies/${policy_id}/application-drafts`, payload),
     )
   },
-  /** 查看申报材料草案（租户隔离） */
+  /** 查看申报材料草案（小院隔离） */
   getDraft(draft_id: string): Promise<ApplicationDraft> {
     return unwrap(
       api.get<ApiResponse<ApplicationDraft>>(`/policies/application-drafts/${draft_id}`),
@@ -799,24 +807,54 @@ export const evolutionApi = {
 }
 
 // ===== 声明式 Agent 与 Agent 工厂（能力中心，ADR-0005） =====
+
+/** 助手可见性：public=本小院都能用，private=仅创建者 */
+export type AgentVisibility = 'public' | 'private'
+
+export interface AgentTokenStats {
+  calls: number
+  input_tokens: number
+  output_tokens: number
+  total_tokens: number
+}
+
 export interface DeclarativeAgent {
   id: string
-  tenant_id: string
+  yard_id: string
   agent_code: string
+  /** 干净原名：提交与重名比对都用它 */
   name: string
+  /** 私有助手由后端派生「原名（用户名私有）」，前端只展示、绝不自行拼后缀 */
+  display_name: string
+  visibility: AgentVisibility
   description: string | null
   emoji: string | null
+  /** 首图地址；为空时卡片回落 emoji 大字渲染 */
+  cover_image_url?: string | null
   persona_prompt: string
   task_prompt_template: string
   allowed_tools: string[]
+  bound_skills?: string[]
   knowledge_scopes: string[]
   supplier_id: string | null
+  model_name?: string | null
   risk_level: 'low' | 'high'
   status: 'draft' | 'pending_platform_review' | 'published' | 'deprecated'
   version: string
   created_from: string
+  created_by?: string | null
+  updated_by?: string | null
   created_at: string
   updated_at: string
+  token_stats?: AgentTokenStats
+}
+
+/** 409 DUPLICATE_NAME 的 details：指向本小院里那条已存在的助手 */
+export interface DuplicateNameDetails {
+  id: string
+  agent_code: string
+  name: string
+  status: string
 }
 
 export interface DeclarativeAgentCreate {
@@ -827,9 +865,36 @@ export interface DeclarativeAgentCreate {
   persona_prompt: string
   task_prompt_template: string
   allowed_tools?: string[]
+  bound_skills?: string[]
   knowledge_scopes?: string[]
   supplier_id?: string | null
+  model_name?: string | null
+  visibility?: AgentVisibility
 }
+
+/** 编辑入参：编码不可改（版本化由新建版本行实现），故不带 agent_code */
+export interface DeclarativeAgentUpdate {
+  name?: string
+  description?: string
+  emoji?: string
+  persona_prompt?: string
+  task_prompt_template?: string
+  allowed_tools?: string[]
+  bound_skills?: string[]
+  knowledge_scopes?: string[]
+  supplier_id?: string | null
+  model_name?: string | null
+  visibility?: AgentVisibility
+}
+
+/** 「使用该助手」建的会话（只需这两项即可挂进对话实例） */
+export interface AgentChatSession {
+  id: string
+  title: string
+}
+
+/** 只用于「重名/降级」判定的静默请求：错误由页面按码分流，不抢全局 toast */
+const agentSilentCfg: AxiosRequestConfig & { skipErrorToast?: boolean } = { skipErrorToast: true }
 
 export const declarativeApi = {
   list(): Promise<DeclarativeAgent[]> {
@@ -837,17 +902,61 @@ export const declarativeApi = {
       api.get<ApiResponse<{ agents: DeclarativeAgent[] }>>('/agents/declarative'),
     ).then(r => r.agents)
   },
+  /** 重名 409 由页面弹三选，toast 交给调用方决定，故关全局提示 */
   create(payload: DeclarativeAgentCreate): Promise<DeclarativeAgent> {
-    return unwrap(api.post<ApiResponse<DeclarativeAgent>>('/agents/declarative', payload))
+    return unwrap(
+      api.post<ApiResponse<DeclarativeAgent>>('/agents/declarative', payload, agentSilentCfg),
+    )
   },
-  update(id: string, payload: Partial<DeclarativeAgentCreate>): Promise<DeclarativeAgent> {
-    return unwrap(api.patch<ApiResponse<DeclarativeAgent>>(`/agents/declarative/${id}`, payload))
+  update(id: string, payload: DeclarativeAgentUpdate): Promise<DeclarativeAgent> {
+    return unwrap(
+      api.patch<ApiResponse<DeclarativeAgent>>(`/agents/declarative/${id}`, payload, agentSilentCfg),
+    )
+  },
+  /** 复制：新编码与「原名-N」由服务端生成，副本一律 draft */
+  duplicate(id: string): Promise<DeclarativeAgent> {
+    return unwrap(api.post<ApiResponse<DeclarativeAgent>>(`/agents/declarative/${id}/duplicate`))
   },
   publish(id: string): Promise<{ status: string }> {
     return unwrap(api.post<ApiResponse<{ status: string }>>(`/agents/declarative/${id}/publish`))
   },
   deprecate(id: string): Promise<{ status: string }> {
     return unwrap(api.post<ApiResponse<{ status: string }>>(`/agents/declarative/${id}/deprecate`))
+  },
+  /** 软删除：status='deleted'，列表隐藏、历史对话仍可读 */
+  remove(id: string): Promise<DeclarativeAgent> {
+    return unwrap(api.delete<ApiResponse<DeclarativeAgent>>(`/agents/declarative/${id}`))
+  },
+  /** 上传首图（multipart，2MB 内、白名单图片类型）；出参带回新 cover_image_url */
+  uploadCover(id: string, file: File): Promise<DeclarativeAgent> {
+    const form = new FormData()
+    form.append('file', file)
+    return unwrap(
+      api.post<ApiResponse<DeclarativeAgent>>(`/agents/declarative/${id}/cover`, form),
+    )
+  },
+  /** 清除首图（回退 emoji 大字） */
+  clearCover(id: string): Promise<DeclarativeAgent> {
+    return unwrap(api.delete<ApiResponse<DeclarativeAgent>>(`/agents/declarative/${id}/cover`))
+  },
+  /**
+   * 建「与该助手对话」的会话：按 §10 契约带 target/target_code 锁定执行对象。
+   * 后端尚未放行 target 字段时退回仅标题建会话——弹窗打不开比会话没锁定更糟。
+   */
+  async openChatSession(agentCode: string, title: string): Promise<AgentChatSession> {
+    try {
+      return await unwrap(
+        api.post<ApiResponse<AgentChatSession>>(
+          '/chat/sessions',
+          { title, target: 'agent', target_code: agentCode },
+          agentSilentCfg,
+        ),
+      )
+    } catch {
+      return unwrap(
+        api.post<ApiResponse<AgentChatSession>>('/chat/sessions', { title }, agentSilentCfg),
+      )
+    }
   },
   reviewQueue(): Promise<DeclarativeAgent[]> {
     return unwrap(
@@ -951,11 +1060,11 @@ export interface FactoryApplyResult {
 }
 
 export const factoryApi = {
-  /** 发起生成（tenant_admin；202 返回任务句柄；超配额 429 QUOTA_EXCEEDED） */
+  /** 发起生成（yard_admin；202 返回任务句柄；超配额 429 QUOTA_EXCEEDED） */
   generate(payload: { industry_brief: string; focus?: string }): Promise<FactoryGenerateResult> {
     return unwrap(api.post<ApiResponse<FactoryGenerateResult>>('/agents/factory/generate', payload))
   },
-  /** 本租户运行列表（新→旧，不含蓝图正文） */
+  /** 本小院运行列表（新→旧，不含蓝图正文） */
   runs(): Promise<FactoryRunSummary[]> {
     return unwrap(
       api.get<ApiResponse<{ runs: FactoryRunSummary[] }>>('/agents/factory/runs'),
@@ -965,7 +1074,7 @@ export const factoryApi = {
   run(run_id: string): Promise<FactoryRunDetail> {
     return unwrap(api.get<ApiResponse<FactoryRunDetail>>(`/agents/factory/runs/${run_id}`))
   },
-  /** 人工采纳：仅创建者或 tenant_admin；run 非 completed 时 409；as_team 装配即组队 */
+  /** 人工采纳：仅创建者或 yard_admin；run 非 completed 时 409；as_team 装配即组队 */
   apply(
     run_id: string,
     codes: string[],
@@ -982,7 +1091,7 @@ export const factoryApi = {
   },
 }
 
-// ---------- Agent 市场（平台精选 → 一键装载到本租户） ----------
+// ---------- Agent 市场（平台精选 → 一键装载到本小院） ----------
 
 /** 精选目录的分类域（固定八类） */
 export const MARKET_DOMAINS = [
@@ -1017,13 +1126,13 @@ export interface MarketInstallResult {
 }
 
 export const marketApi = {
-  /** 平台精选目录（含本租户 installed 标记） */
+  /** 平台精选目录（含本小院 installed 标记） */
   catalog(): Promise<MarketAgent[]> {
     return unwrap(api.get<ApiResponse<{ items: MarketAgent[] }>>('/market/catalog')).then(
       r => r.items,
     )
   },
-  /** 批量装载所选助手到本租户 */
+  /** 批量装载所选助手到本小院 */
   install(codes: string[]): Promise<MarketInstallResult> {
     return unwrap(api.post<ApiResponse<MarketInstallResult>>('/market/install', { codes }))
   },
@@ -1087,7 +1196,7 @@ export interface DeviceLatestItem {
 
 export interface Device {
   id: string
-  tenant_id: string
+  yard_id: string
   name: string
   device_type: string
   source_type: string
@@ -1142,7 +1251,7 @@ export interface DeviceReading {
 
 export interface DeviceAlertRule {
   id: string
-  tenant_id: string
+  yard_id: string
   device_id: string | null
   metric: string
   op: 'lt' | 'gt'
@@ -1164,7 +1273,7 @@ export interface DeviceAlertRuleCreate {
 
 export interface DeviceAlert {
   id: string
-  tenant_id: string
+  yard_id: string
   rule_id: string | null
   device_id: string
   device_name: string | null
@@ -1277,6 +1386,32 @@ export interface LlmUsageRow {
   errors: number
 }
 
+export interface LlmUsageOverview {
+  days: number
+  today_tokens: number
+  today_calls: number
+  today_input_tokens: number
+  today_output_tokens: number
+  total_calls: number
+  total_input_tokens: number
+  total_output_tokens: number
+  total_tokens: number
+  by_purpose: Array<{
+    purpose: string
+    calls: number
+    input_tokens: number
+    output_tokens: number
+    total_tokens: number
+  }>
+  by_agent: Array<{
+    agent_ref: string
+    calls: number
+    input_tokens: number
+    output_tokens: number
+    total_tokens: number
+  }>
+}
+
 export const llmTraceApi = {
   traces(params: { purpose?: string; days?: number; limit?: number }): Promise<LlmTraceItem[]> {
     return api
@@ -1288,13 +1423,18 @@ export const llmTraceApi = {
       .get<ApiResponse<{ items: LlmUsageRow[] }>>('/llm/usage/summary', { params: { days } })
       .then(r => (r.data as ApiResponse<{ items: LlmUsageRow[] }>).data.items)
   },
+  overview(days = 30): Promise<LlmUsageOverview> {
+    return api
+      .get<ApiResponse<LlmUsageOverview>>('/llm/usage/overview', { params: { days } })
+      .then(r => (r.data as ApiResponse<LlmUsageOverview>).data)
+  },
 }
 
 /* ---------- W5a MCP 工具服务器 ---------- */
 
 export interface McpServerItem {
   id: string
-  tenant_id: string
+  yard_id: string
   name: string
   /** 掩码形态 https://host/***，明文永不出接口 */
   url_masked: string | null

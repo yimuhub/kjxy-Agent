@@ -25,7 +25,7 @@ class FeedbackOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    tenant_id: str
+    yard_id: str
     task_id: str | None
     actor_id: str
     rating: str | None
@@ -39,7 +39,7 @@ class CandidateOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    tenant_id: str
+    yard_id: str
     source_feedback_id: str | None
     title: str
     content: str
@@ -106,7 +106,7 @@ class SkillOut(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
     id: str
-    tenant_id: str | None
+    yard_id: str | None
     skill_code: str
     version: str
     definition_json: dict = Field(alias="definition")
@@ -137,7 +137,7 @@ class EvalRunOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    tenant_id: str
+    yard_id: str
     skill_code: str
     skill_version: str
     test_set_id: str
@@ -149,7 +149,7 @@ class EvalRunOut(BaseModel):
     created_at: datetime
 
 
-RolloutStrategy = Literal["tenant_allowlist", "percentage"]
+RolloutStrategy = Literal["yard_allowlist", "percentage"]
 RolloutStatus = Literal["active", "paused", "completed"]
 
 
@@ -159,20 +159,20 @@ class RolloutCreate(BaseModel):
     rollout_version: str = Field(min_length=1, max_length=50, description="灰度中的新版本号")
     strategy: RolloutStrategy
     percentage: int | None = Field(default=None, ge=0, le=100, description="百分比策略 0-100")
-    tenant_ids: list[str] | None = Field(default=None, description="名单策略的租户 ID 列表")
+    yard_ids: list[str] | None = Field(default=None, description="名单策略的小院 ID 列表")
 
 
 class RolloutOut(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
     id: str
-    tenant_id: str
+    yard_id: str
     skill_code: str
     stable_version: str
     rollout_version: str
     strategy: str
     percentage: int | None
-    tenant_allowlist: list[str] | None = Field(alias="tenant_ids")
+    yard_allowlist: list[str] | None = Field(alias="yard_ids")
     status: str
     created_at: datetime
     updated_at: datetime

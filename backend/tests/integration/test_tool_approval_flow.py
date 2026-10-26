@@ -16,23 +16,23 @@ from app.modules.tasks import state_machine as sm
 from app.modules.tasks import worker_tasks
 from app.modules.tasks.models import Task
 from app.modules.tasks.router import router as tasks_router
-from app.modules.tenants.models import Tenant, TenantMembership
 from app.modules.tools.approvals_router import router as approvals_router
 from app.modules.tools.models import ToolApproval
 from app.modules.tools.router import router as tools_router
 from app.modules.tools.workorder_tool import TASK_TYPE, register_workorder_tool
+from app.modules.yards.models import Yard, YardMembership
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-TENANT_ID = "tenant-approval-1"
+YARD_ID = "yard-approval-1"
 ADMIN_ID = "user-approval-admin"
 EXPERT_ID = "user-approval-expert"
 
 
 def _token(user_id: str, roles: list[str]) -> str:
-    return create_access_token(user_id=user_id, tenant_id=TENANT_ID, roles=roles)
+    return create_access_token(user_id=user_id, yard_id=YARD_ID, roles=roles)
 
 
 @pytest.fixture()
@@ -53,13 +53,13 @@ def session_factory(engine):
 @pytest.fixture()
 def seed_data(session_factory):
     s = session_factory()
-    s.add(Tenant(id=TENANT_ID, name="审批测试租户"))
+    s.add(Yard(id=YARD_ID, name="审批测试小院"))
     s.add(
         User(
             id=ADMIN_ID,
             username="approval_admin",
             password_hash=hash_password("x"),
-            display_name="租户管理员",
+            display_name="小院管理员",
         )
     )
     s.add(
@@ -70,8 +70,8 @@ def seed_data(session_factory):
             display_name="专家",
         )
     )
-    s.add(TenantMembership(tenant_id=TENANT_ID, user_id=ADMIN_ID, role="tenant_admin"))
-    s.add(TenantMembership(tenant_id=TENANT_ID, user_id=EXPERT_ID, role="expert"))
+    s.add(YardMembership(yard_id=YARD_ID, user_id=ADMIN_ID, role="yard_admin"))
+    s.add(YardMembership(yard_id=YARD_ID, user_id=EXPERT_ID, role="expert"))
     s.commit()
     s.close()
 
@@ -105,7 +105,7 @@ def patch_worker_session(session_factory, monkeypatch):
 
 
 def _admin_headers():
-    return {"Authorization": f"Bearer {_token(ADMIN_ID, ['tenant_admin'])}"}
+    return {"Authorization": f"Bearer {_token(ADMIN_ID, ['yard_admin'])}"}
 
 
 def _expert_headers():
@@ -147,7 +147,7 @@ def test_approval_idempotent_for_same_params(api_client, session_factory):
     pendings = (
         s.query(ToolApproval)
         .filter(
-            ToolApproval.tenant_id == TENANT_ID,
+            ToolApproval.yard_id == YARD_ID,
             ToolApproval.tool_code == "workorder.dispatch",
             ToolApproval.status == "pending",
         )
@@ -248,7 +248,7 @@ def test_operator_cannot_approve_at_all(api_client, session_factory):
     """普通成员（operator）无审批权：只能发起，审批入口一律 403。"""
     from app.core.security import hash_password
     from app.modules.auth.models import User
-    from app.modules.tenants.models import TenantMembership
+    from app.modules.yards.models import YardMembership
 
     op_id = "user-approval-op"
     s = session_factory()
@@ -260,7 +260,7 @@ def test_operator_cannot_approve_at_all(api_client, session_factory):
             display_name="运营员",
         )
     )
-    s.add(TenantMembership(tenant_id=TENANT_ID, user_id=op_id, role="operator"))
+    s.add(YardMembership(yard_id=YARD_ID, user_id=op_id, role="operator"))
     s.commit()
     # 用 admin 发起，operator 尝试审批
     s.close()
@@ -287,14 +287,14 @@ def test_list_approvals(api_client, session_factory):
     assert any(i["task_id"] == task_id for i in items)
 
 
-def test_cross_tenant_approval_invisible(api_client, session_factory):
+def test_cross_yard_approval_invisible(api_client, session_factory):
     task_id = _create_workorder_task(api_client, _admin_headers(), title="隔离工单")
     worker_tasks.execute_task(task_id)
     s = session_factory()
     approval_id = s.get(Task, task_id).result_json["approval_id"]
     s.close()
     cross_token = create_access_token(
-        user_id="user-other", tenant_id="tenant-other", roles=["tenant_admin"]
+        user_id="user-other", yard_id="yard-other", roles=["yard_admin"]
     )
     cross = {"Authorization": f"Bearer {cross_token}"}
     resp = api_client.post(f"/api/v1/tool-approvals/{approval_id}/approve", json={}, headers=cross)
@@ -310,12 +310,12 @@ def test_cross_tenant_approval_invisible(api_client, session_factory):
 def test_solo_admin_can_self_approve(api_client, session_factory, monkeypatch):
     """solo 策略：本空间除发起人外无可审批人时，允许自批并标 self_approved。"""
     from app.modules.audit.models import AuditLog
-    from app.modules.tenants.models import TenantMembership
+    from app.modules.yards.models import YardMembership
 
     monkeypatch.setattr(settings, "tool_approval_self_decide", "solo")
     # 撤销 expert 成员身份 → admin 成为唯一可审批人
     s = session_factory()
-    exp_mem = s.query(TenantMembership).filter_by(tenant_id=TENANT_ID, user_id=EXPERT_ID).one()
+    exp_mem = s.query(YardMembership).filter_by(yard_id=YARD_ID, user_id=EXPERT_ID).one()
     s.delete(exp_mem)
     s.commit()
     s.close()
@@ -368,11 +368,11 @@ def test_solo_policy_multi_approver_blocks_self_decide(api_client, session_facto
 
 def test_expert_disabled_not_counted_in_solo(api_client, session_factory, monkeypatch):
     """solo 只数 active 成员：专家被停用后管理员自批放行。"""
-    from app.modules.tenants.models import TenantMembership
+    from app.modules.yards.models import YardMembership
 
     monkeypatch.setattr(settings, "tool_approval_self_decide", "solo")
     s = session_factory()
-    exp_mem = s.query(TenantMembership).filter_by(tenant_id=TENANT_ID, user_id=EXPERT_ID).one()
+    exp_mem = s.query(YardMembership).filter_by(yard_id=YARD_ID, user_id=EXPERT_ID).one()
     exp_mem.status = "disabled"
     s.commit()
     s.close()

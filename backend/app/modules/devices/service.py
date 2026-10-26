@@ -25,7 +25,7 @@ from app.modules.devices.metrics import METRICS, OTHER_METRIC, normalize_code
 from app.modules.devices.models import Device, DeviceAlert, DeviceAlertRule, Reading
 
 if TYPE_CHECKING:
-    from app.core.deps import TenantContext
+    from app.core.deps import YardContext
     from app.modules.tasks.models import Task
 
 log = get_logger(__name__)
@@ -110,10 +110,10 @@ _rate_window = _PointWindow()
 # ---------------------------------------------------------------------------
 
 
-def get_device_or_404(db: Session, tenant_id: str, device_id: str) -> Device:
-    """跨租户与不存在统一 404（不泄露其他租户资源是否存在）。"""
+def get_device_or_404(db: Session, yard_id: str, device_id: str) -> Device:
+    """跨小院与不存在统一 404（不泄露其他小院资源是否存在）。"""
     device = db.get(Device, device_id)
-    if device is None or device.tenant_id != tenant_id:
+    if device is None or device.yard_id != yard_id:
         raise AppError("NOT_FOUND", "设备不存在。", http_status=404)
     return device
 
@@ -231,7 +231,7 @@ def build_reading(
         # 字典外字段必留原文；映射改名也留原文（可追溯口径来源）
         raw_json = {"vendor_field": vendor_field, "raw_value": raw_value}
     return Reading(
-        tenant_id=device.tenant_id,
+        yard_id=device.yard_id,
         device_id=device.id,
         metric=metric,
         value=value,
@@ -258,11 +258,11 @@ def evaluate_alerts(
     if not metrics:
         return []
     now = now or datetime.now(UTC)
-    tenant_id = readings[0].tenant_id
+    yard_id = readings[0].yard_id
     rules = list(
         db.scalars(
             select(DeviceAlertRule).where(
-                DeviceAlertRule.tenant_id == tenant_id,
+                DeviceAlertRule.yard_id == yard_id,
                 DeviceAlertRule.enabled.is_(True),
                 DeviceAlertRule.metric.in_(metrics),
             )
@@ -310,7 +310,7 @@ def evaluate_alerts(
             if rule.notify_note:
                 text += f"。处置提示：{rule.notify_note}"
             alert = DeviceAlert(
-                tenant_id=tenant_id,
+                yard_id=yard_id,
                 rule_id=rule.id,
                 device_id=reading.device_id,
                 metric=reading.metric,
@@ -322,7 +322,7 @@ def evaluate_alerts(
             created.append(alert)
             log_audit(
                 db,
-                tenant_id=tenant_id,
+                yard_id=yard_id,
                 actor_id=None,
                 action="device_alert",
                 resource_type="device",
@@ -332,12 +332,12 @@ def evaluate_alerts(
                 metadata={"rule_id": rule.id, "metric": reading.metric, "value": reading.value},
             )
             send_alert(title="device_alert", message=text)
-            # W4 事件推送（tenant_admin 配置的通道；dispatch 自带异常护栏）
+            # W4 事件推送（yard_admin 配置的通道；dispatch 自带异常护栏）
             from app.modules.push import service as push_service
 
             push_service.dispatch(
                 db,
-                tenant_id=tenant_id,
+                yard_id=yard_id,
                 event_type="device_alert",
                 payload={
                     "title": text[:200],
@@ -397,7 +397,7 @@ def ingest_values(
     alerts = evaluate_alerts(db, readings, request_id=request_id)
     log_audit(
         db,
-        tenant_id=device.tenant_id,
+        yard_id=device.yard_id,
         actor_id=None,
         action="device_ingest",
         resource_type="device",
@@ -424,7 +424,7 @@ def record_health_alert(
 ) -> None:
     """系统健康类告警（连接器连续失败自动停用等）：入告警表 + 运维通知。"""
     alert = DeviceAlert(
-        tenant_id=device.tenant_id,
+        yard_id=device.yard_id,
         rule_id=None,
         device_id=device.id,
         metric="_health",
@@ -435,7 +435,7 @@ def record_health_alert(
     db.add(alert)
     log_audit(
         db,
-        tenant_id=device.tenant_id,
+        yard_id=device.yard_id,
         actor_id=None,
         action="device_health_alert",
         resource_type="device",
@@ -450,7 +450,7 @@ def record_health_alert(
 
     push_service.dispatch(
         db,
-        tenant_id=device.tenant_id,
+        yard_id=device.yard_id,
         event_type="device_alert",
         payload={"title": text[:200], "device_id": device.id, "metric": "_health", "value": None},
         request_id=request_id,
@@ -465,7 +465,7 @@ def device_to_dict(device: Device, connector_out: dict[str, Any] | None = None) 
 
     return {
         "id": device.id,
-        "tenant_id": device.tenant_id,
+        "yard_id": device.yard_id,
         "name": device.name,
         "device_type": device.device_type,
         "source_type": device.source_type,
@@ -559,7 +559,7 @@ def _enqueue_alert_workorder(db: Session, task: "Task") -> None:
     )
 
 
-def create_alert_workorder(db: Session, ctx: "TenantContext", alert: DeviceAlert) -> "Task":
+def create_alert_workorder(db: Session, ctx: "YardContext", alert: DeviceAlert) -> "Task":
     """告警一键开工单（幂等）：创建/复用 workorder.dispatch 任务并回填锚点。
 
     - 工单实体复用 tasks 表（task_type=workorder.dispatch），不新建工单表；
@@ -573,12 +573,12 @@ def create_alert_workorder(db: Session, ctx: "TenantContext", alert: DeviceAlert
 
     if alert.workorder_id:
         existing = db.get(Task, alert.workorder_id)
-        if existing is not None and existing.tenant_id == ctx.tenant_id:
+        if existing is not None and existing.yard_id == ctx.yard_id:
             return existing
         # 锚点指向的任务已被清理（如任务行删除）：重建并覆盖锚点
 
     idem_key = f"device_alert:{alert.id}"
-    existing_by_key = TaskService.get_by_idempotency_key(db, ctx.tenant_id, idem_key)
+    existing_by_key = TaskService.get_by_idempotency_key(db, ctx.yard_id, idem_key)
     if existing_by_key is not None:
         alert.workorder_id = existing_by_key.id
         return existing_by_key

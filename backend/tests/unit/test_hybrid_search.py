@@ -2,13 +2,13 @@
 
 import pytest
 from app.core.config import settings
-from app.core.deps import TenantContext
+from app.core.deps import YardContext
 from app.core.errors import AppError
 from app.modules.knowledge.embedding import MockEmbeddingProvider
 from app.modules.knowledge.models import KnowledgeChunk, KnowledgeDocument
 from app.modules.knowledge.service import search
 
-TENANT = "t-hybrid-test"
+YARD = "t-hybrid-test"
 
 DOCS = [
     (
@@ -34,7 +34,7 @@ def seeded_db(db_session):
     provider = MockEmbeddingProvider()
     for i, (title, content) in enumerate(DOCS):
         doc = KnowledgeDocument(
-            tenant_id=TENANT,
+            yard_id=YARD,
             title=title,
             storage_key=f"hybrid-key-{i}",
             mime_type="text/plain",
@@ -46,11 +46,11 @@ def seeded_db(db_session):
         db_session.flush()
         db_session.add(
             KnowledgeChunk(
-                tenant_id=TENANT,
+                yard_id=YARD,
                 document_id=doc.id,
                 chunk_index=0,
                 content=content,
-                trust_level="tenant_material",
+                trust_level="yard_material",
                 embedding=provider.embed([content])[0],
             )
         )
@@ -60,7 +60,7 @@ def seeded_db(db_session):
 
 @pytest.fixture()
 def ctx():
-    return TenantContext(tenant_id=TENANT, user_id="u1", roles=["member"], request_id="test")
+    return YardContext(yard_id=YARD, user_id="u1", roles=["member"], request_id="test")
 
 
 def test_alpha_1_equals_vector(seeded_db, ctx, monkeypatch):

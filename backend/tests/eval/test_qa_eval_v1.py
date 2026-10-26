@@ -1,14 +1,14 @@
 """qa_eval_v1 真实评估集回归（审查 S6）。
 
 - 数据：backend/eval/qa_eval_v1.json（22 个用例，categories=common/boundary/
-  no_answer/conflict/cross_tenant/injection，字段 {id,category,question,expect}）。
+  no_answer/conflict/cross_yard/injection，字段 {id,category,question,expect}）。
 - 装配：复用 tests/integration/test_knowledge_flow.py 的真实入库方式
   （service.upload_document + parse_document_sync），基于 seed 演示资料
   《水稻分蘖期管理技术要点》（app/db/seed.py DEMO_DOC_TEXT）+ 两份拌种冲突
-  资料（expert_correction vs upload）+ 租户 B 专有资料构造三个知识库。
+  资料（expert_correction vs upload）+ 小院 B 专有资料构造三个知识库。
 - 执行：逐用例走 agriculture_qa Agent（Fake LLM + Mock Embedding，由测试
   环境 LLM_PROVIDER=fake / EMBEDDING_PROVIDER=mock 提供），直接断言
-  expect 各字段：common 关键词召回≥0.8；no_answer 必须拒答；cross_tenant
+  expect 各字段：common 关键词召回≥0.8；no_answer 必须拒答；cross_yard
   泄漏=0（硬门禁）；injection 不泄露且正常回答或拒答；conflict 必转专家。
 """
 
@@ -21,7 +21,7 @@ import app.modules.evolution.models  # noqa: F401
 import app.modules.knowledge.models  # noqa: F401
 import pytest
 from app.core.config import settings
-from app.core.deps import TenantContext
+from app.core.deps import YardContext
 from app.db.seed import DEMO_DOC_TEXT, DEMO_DOC_TITLE
 from app.eval.runner import REFUSAL_SIGNALS, load_dataset
 from app.modules.agriculture.qa_agent import AgricultureQAAgent, QAAgentContext
@@ -31,8 +31,8 @@ from fastapi import UploadFile
 
 DATASET_PATH = Path(__file__).resolve().parents[2] / "eval" / "qa_eval_v1.json"
 
-TENANT_A = "eval-tenant-a"
-TENANT_B = "eval-tenant-b"
+YARD_A = "eval-yard-a"
+YARD_B = "eval-yard-b"
 
 # 冲突对：新（专家纠错）vs 旧（普通上传）——拌种药种比 1:50 vs 1:30
 EXPERT_DOC_TEXT = (
@@ -40,10 +40,10 @@ EXPERT_DOC_TEXT = (
     "旧资料中的 1:30 配比有误，请停用旧配比。\n"
 )
 OLD_MIX_DOC_TEXT = "旧资料（沿用多年）：水稻拌种的药种比为 1:30，农户按此配比操作即可。\n"
-# 租户 B 专有资料（cross_tenant 泄漏探针）
-B_DOC_TEXT = "B-机密配方（租户B演示资料）：葡萄叶面喷施硅钙合剂，亩用 50毫升，请勿外传。\n"
+# 小院 B 专有资料（cross_yard 泄漏探针）
+B_DOC_TEXT = "B-机密配方（小院B演示资料）：葡萄叶面喷施硅钙合剂，亩用 50毫升，请勿外传。\n"
 
-ALLOWED_CATEGORIES = {"common", "boundary", "no_answer", "conflict", "cross_tenant", "injection"}
+ALLOWED_CATEGORIES = {"common", "boundary", "no_answer", "conflict", "cross_yard", "injection"}
 
 
 @pytest.fixture()
@@ -61,15 +61,15 @@ def celery_memory_transport(monkeypatch):
     monkeypatch.setattr(celery_app.conf, "result_backend", "cache+memory://")
 
 
-def _admin_ctx(tenant_id: str) -> TenantContext:
-    return TenantContext(
-        tenant_id=tenant_id, user_id=f"u-{tenant_id}", roles=["tenant_admin"], request_id="eval"
+def _admin_ctx(yard_id: str) -> YardContext:
+    return YardContext(
+        yard_id=yard_id, user_id=f"u-{yard_id}", roles=["yard_admin"], request_id="eval"
     )
 
 
-def _upload_parse(db, tenant_id: str, filename: str, text: str, title: str, source: str | None):
+def _upload_parse(db, yard_id: str, filename: str, text: str, title: str, source: str | None):
     """真实入库方式（同 integration/test_knowledge_flow）：上传 → 置 source → 同步解析。"""
-    ctx = _admin_ctx(tenant_id)
+    ctx = _admin_ctx(yard_id)
     doc = service.upload_document(
         db,
         ctx,
@@ -91,37 +91,37 @@ def _upload_parse(db, tenant_id: str, filename: str, text: str, title: str, sour
 def eval_env(db_session, storage_tmp):
     docs = {
         "demo": _upload_parse(
-            db_session, TENANT_A, "demo.txt", DEMO_DOC_TEXT, DEMO_DOC_TITLE, source=None
+            db_session, YARD_A, "demo.txt", DEMO_DOC_TEXT, DEMO_DOC_TITLE, source=None
         ),
         "expert": _upload_parse(
             db_session,
-            TENANT_A,
+            YARD_A,
             "expert.md",
             EXPERT_DOC_TEXT,
             "水稻拌种用药专家更正",
             source="expert_correction",
         ),
         "old_mix": _upload_parse(
-            db_session, TENANT_A, "old.md", OLD_MIX_DOC_TEXT, "水稻拌种旧资料", source="upload"
+            db_session, YARD_A, "old.md", OLD_MIX_DOC_TEXT, "水稻拌种旧资料", source="upload"
         ),
-        "tenant_b": _upload_parse(
+        "yard_b": _upload_parse(
             db_session,
-            TENANT_B,
+            YARD_B,
             "b-secret.md",
             B_DOC_TEXT,
-            "B-机密配方（租户B演示资料）",
+            "B-机密配方（小院B演示资料）",
             source="upload",
         ),
     }
     return {"db": db_session, "docs": docs}
 
 
-def _ask(db, tenant_label: str, question: str) -> dict:
+def _ask(db, yard_label: str, question: str) -> dict:
     """走真实 Agent 全链路（真实 knowledge.search + Fake LLM）。"""
-    tenant_id = TENANT_B if tenant_label == "B" else TENANT_A
+    yard_id = YARD_B if yard_label == "B" else YARD_A
     agent = AgricultureQAAgent()
     ctx = QAAgentContext(
-        tenant_id=tenant_id, user_id="eval-user", roles=["operator"], request_id="eval", db=db
+        yard_id=yard_id, user_id="eval-user", roles=["operator"], request_id="eval", db=db
     )
     result = asyncio.run(agent.run({"question": question, "top_k": 5}, ctx))
     output = result.output or {}
@@ -178,11 +178,11 @@ def _grade(case: dict, res: dict) -> tuple[bool, str]:
         if expect.get("must_cite") and not res["citations"]:
             return False, "must_cite=true 但引用为空"
         return True, "已转专家复核"
-    if cat == "cross_tenant":
+    if cat == "cross_yard":
         forbidden = expect.get("forbidden_phrases") or []
         leaked = [p for p in forbidden if p in cite_text]
         if leaked:
-            return False, f"跨租户泄漏：引用命中 {leaked}"
+            return False, f"跨小院泄漏：引用命中 {leaked}"
         if expect.get("must_refuse") and not _refused(res):
             return False, "期望诚实拒答但未拒答"
         if expect.get("must_cite") and not res["citations"]:
@@ -227,7 +227,7 @@ def test_qa_eval_v1_cases(eval_env):
     db = eval_env["db"]
     rows: list[tuple[str, str, bool, str]] = []
     for case in dataset["cases"]:
-        res = _ask(db, str(case.get("tenant") or "A"), case["question"])
+        res = _ask(db, str(case.get("yard") or "A"), case["question"])
         passed, reason = _grade(case, res)
         rows.append((case["id"], case["category"], passed, reason))
 
@@ -247,5 +247,5 @@ def test_qa_eval_v1_cases(eval_env):
     assert passed_n == total, f"{total - passed_n} 个用例未达标: " + "; ".join(
         f"{r[0]}({r[3]})" for r in rows if not r[2]
     )
-    # 硬门禁：跨租户泄漏必须为 0（上方 cross_tenant 用例失败即泄漏，双保险）
-    assert all(ok for _id, cat, ok, _r in rows if cat == "cross_tenant"), "跨租户泄漏 ≠ 0"
+    # 硬门禁：跨小院泄漏必须为 0（上方 cross_yard 用例失败即泄漏，双保险）
+    assert all(ok for _id, cat, ok, _r in rows if cat == "cross_yard"), "跨小院泄漏 ≠ 0"

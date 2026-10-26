@@ -36,7 +36,7 @@
                 :min="1"
                 :max="20"
               />
-              <span class="hint inline">召回的知识段落数量，一般无需调整</span>
+              <span class="hint inline">召回的知识段落数量，已开启句级相关性裁剪以减少 Token 消耗</span>
             </el-form-item>
           </el-collapse-item>
         </el-collapse>
@@ -94,7 +94,24 @@
     >
       <template #header>
         <div class="answer-header">
-          <span>回答</span>
+          <div class="answer-header-left">
+            <span>回答</span>
+            <span
+              v-if="result?.kind === 'sync' && result.output.token_usage"
+              class="qa-token-badge"
+            >
+              ⚡ 本次消耗 {{ result.output.token_usage.total_tokens.toLocaleString() }} tokens
+              <span class="qa-token-sub">
+                （输入 {{ result.output.token_usage.input_tokens }} / 输出 {{ result.output.token_usage.output_tokens }}
+                <template v-if="result.output.token_usage.rag_tokens != null">
+                  · 知识检索上下文 {{ result.output.token_usage.rag_tokens }} tokens
+                </template>
+                <template v-if="result.output.token_usage.latency_ms != null">
+                  · {{ result.output.token_usage.latency_ms }} ms
+                </template>）
+              </span>
+            </span>
+          </div>
           <div>
             <el-button
               size="small"
@@ -300,7 +317,6 @@
     corrected_answer: '',
   })
 
-  // ---------- 本地提问历史（localStorage，最近 20 条） ----------
   const HISTORY_KEY = 'ky_qa_history'
   const HISTORY_LIMIT = 20
   interface HistoryItem {
@@ -329,7 +345,7 @@
     try {
       localStorage.setItem(HISTORY_KEY, JSON.stringify(history.value))
     } catch {
-      /* 隐私模式等写入失败不影响主流程 */
+      /* ignore */
     }
   }
 
@@ -369,7 +385,7 @@
       ElMessage.success('已提交专家复核')
       expertDialog.value = false
     } catch {
-      /* 错误 toast 已由 client 统一处理 */
+      /* handled */
     } finally {
       expertLoading.value = false
     }
@@ -388,7 +404,7 @@
       feedbackForm.feedback_text = ''
       feedbackForm.corrected_answer = ''
     } catch {
-      /* 错误 toast 已由 client 统一处理 */
+      /* handled */
     } finally {
       feedbackLoading.value = false
     }
@@ -396,7 +412,6 @@
 
   onMounted(() => {
     loadHistory()
-    // 工作台示例问题跳转过来时预填问题（不自动发送）
     const q = route.query.q
     if (typeof q === 'string' && q.trim()) {
       form.question = q.trim()
@@ -457,6 +472,30 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .answer-header-left {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .qa-token-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    color: #34d399;
+    background: rgba(16, 185, 129, 0.14);
+    border: 1px solid rgba(16, 185, 129, 0.32);
+    font-variant-numeric: tabular-nums;
+  }
+  .qa-token-sub {
+    color: var(--ds-text-3);
+    font-size: 11px;
   }
   .answer-body {
     min-height: 120px;

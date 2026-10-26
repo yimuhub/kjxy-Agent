@@ -20,6 +20,15 @@ log = get_logger(__name__)
 QA_TASK_TYPE = "knowledge_qa"
 
 
+def _context_yard_id(context_dict: dict) -> str:
+    """上下文取小院 id：新键 yard_id 优先，回退旧键 tenant_id。
+
+    部署切换时队列里仍有改名前入队的在途任务（尤其 qa.answer 直连入口，
+    其 context_dict 随消息一起序列化），只读新键会拿到空小院。
+    """
+    return str(context_dict.get("yard_id") or context_dict.get("tenant_id") or "")
+
+
 async def run_knowledge_qa(
     input_data: dict,
     context_dict: dict,
@@ -29,7 +38,7 @@ async def run_knowledge_qa(
     from app.modules.agriculture.qa_agent import AgricultureQAAgent, QAAgentContext
 
     agent_ctx = QAAgentContext(
-        tenant_id=str(context_dict.get("tenant_id", "")),
+        yard_id=_context_yard_id(context_dict),
         user_id=str(context_dict.get("user_id", "") or context_dict.get("actor_id", "")),
         roles=list(context_dict.get("roles", []) or []),
         request_id=str(context_dict.get("request_id", "req_unknown")),
@@ -50,7 +59,7 @@ async def run_knowledge_qa(
 def knowledge_qa_handler(input_data: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
     """tasks 处理器：Handler 签名 (input_data, context) -> dict。
 
-    context 来自 tasks worker：{"task_id","tenant_id","actor_id","request_id"}。
+    context 来自 tasks worker：{"task_id","yard_id","actor_id","request_id"}。
     db 会话由 worker_tasks 的 _get_session_factory 提供，保证知识检索走请求级会话。
     返回 QAOutput 字典，worker 负责写入 task.result_json。
     """

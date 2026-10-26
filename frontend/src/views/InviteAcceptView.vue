@@ -38,7 +38,7 @@
           class="invite-alert"
         >
           <template #title>
-            <strong>{{ preview.tenant_name }}</strong> 邀请你以「{{
+            <strong>{{ preview.yard_name }}</strong> 邀请你以「{{
               roleLabel(preview.role)
             }}」身份加入
           </template>
@@ -125,7 +125,7 @@
         </el-form>
 
         <div class="foot">
-          <span class="foot-text">已经是该空间成员？</span>
+          <span class="foot-text">已经是该小院成员？</span>
           <router-link
             class="foot-link"
             to="/login"
@@ -142,7 +142,7 @@
   import { onMounted, reactive, ref } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
   import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-  import { tenantApi } from '@/api/modules'
+  import { yardApi } from '@/api/modules'
   import { extractErrorMessage } from '@/api/client'
   import { useAuthStore } from '@/stores/auth'
   import type { InvitationPreview } from '@/types/api'
@@ -161,7 +161,7 @@
   const form = reactive({ username: '', password: '', confirm: '', display_name: '' })
 
   const ROLE_LABELS: Record<string, string> = {
-    tenant_admin: '使用空间管理员',
+    yard_admin: '小院管理员',
     expert: '专家',
     operator: '操作员',
     viewer: '访客',
@@ -203,7 +203,7 @@
   async function loadPreview() {
     loading.value = true
     try {
-      preview.value = await tenantApi.previewInvitation(token)
+      preview.value = await yardApi.previewInvitation(token)
     } catch (err: unknown) {
       const { code, message } = extractErrorMessage(err)
       invalidReason.value =
@@ -219,13 +219,13 @@
     await formRef.value?.validate()
     submitting.value = true
     try {
-      const res = await tenantApi.acceptInvitation(token, {
+      const res = await yardApi.acceptInvitation(token, {
         username: form.username,
         password: form.password,
         display_name: form.display_name || undefined,
       })
-      auth.adoptLogin(res, preview.value.tenant_id)
-      ElMessage.success(`已加入「${preview.value.tenant_name}」`)
+      auth.adoptLogin(res, preview.value.yard_id)
+      ElMessage.success(`已加入「${preview.value.yard_name}」`)
       router.replace('/')
     } catch (err: unknown) {
       const { code, message } = extractErrorMessage(err)

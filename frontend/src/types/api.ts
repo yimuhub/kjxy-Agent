@@ -37,25 +37,30 @@ export interface ApiError {
 // ---------- 认证 ----------
 
 export interface User {
-  /** 契约未细化（LoginResponse.user 为 object），以下为约定字段 */
+  /** 后端 UserOut：/auth/login、/auth/me 均返回 */
   id?: string
+  user_id?: string
   username?: string
+  email?: string | null
+  phone?: string | null
   display_name?: string
   role?: string
   status?: string
+  must_change_password?: boolean
+  last_login_at?: string | null
   created_at?: string
 }
 
-/** 登录/me 返回的租户归属（后端 TenantBrief） */
-export interface TenantBrief {
-  tenant_id: string
-  tenant_name: string
+/** 登录/me 返回的小院归属（后端 YardBrief） */
+export interface YardBrief {
+  yard_id: string
+  yard_name: string
   roles: string[]
 }
 
-/** /tenants/current 返回的租户详情（后端 TenantOut） */
-export interface Tenant {
-  tenant_id: string
+/** /yards/current 返回的小院详情（后端 YardOut） */
+export interface Yard {
+  yard_id: string
   name: string
   roles?: string[]
   status?: string
@@ -71,20 +76,20 @@ export interface LoginResponse {
   user: User
   /** 登录响应附带调用者角色（平台管理员 bootstrap 后为最终角色） */
   roles?: string[]
-  tenants: TenantBrief[]
+  yards: YardBrief[]
 }
 
-/** /auth/me 返回：当前用户 + 角色 + 租户列表 */
+/** /auth/me 返回：当前用户 + 角色 + 小院列表 */
 export interface MeResponse {
   user: User
   roles: string[]
-  tenants: TenantBrief[]
+  yards: YardBrief[]
 }
 
 /** 高风险工具审批单 */
 export interface ToolApproval {
   id?: string
-  tenant_id?: string
+  yard_id?: string
   tool_code?: string
   params?: Record<string, unknown>
   status?: 'pending' | 'approved' | 'rejected' | 'cancelled'
@@ -97,7 +102,7 @@ export interface ToolApproval {
   created_at?: string
 }
 
-/** 租户成员；契约仅声明端点存在，字段为约定字段 */
+/** 小院成员；契约仅声明端点存在，字段为约定字段 */
 export interface Member {
   user_id?: string
   username?: string
@@ -108,7 +113,7 @@ export interface Member {
   joined_at?: string
 }
 
-export type MemberRole = 'tenant_admin' | 'expert' | 'operator' | 'viewer'
+export type MemberRole = 'yard_admin' | 'expert' | 'operator' | 'viewer'
 
 export interface AddMemberPayload {
   username: string
@@ -129,10 +134,10 @@ export interface Invitation {
   invite_path?: string | null
 }
 
-/** 公开邀请预览（接受页展示空间名与角色） */
+/** 公开邀请预览（接受页展示小院名与角色） */
 export interface InvitationPreview {
-  tenant_id: string
-  tenant_name: string
+  yard_id: string
+  yard_name: string
   role: MemberRole
   note: string | null
   expires_at: string
@@ -162,7 +167,7 @@ export interface Task {
   progress?: number | null
   error_code?: string | null
   error_message?: string | null
-  tenant_id?: string
+  yard_id?: string
   created_by?: string
   created_at?: string
   updated_at?: string
@@ -202,8 +207,20 @@ export interface KnowledgeDocument {
   status: DocumentStatus
   error_message?: string | null
   chunk_count?: number | null
+  token_count?: number | null
+  page_count?: number | null
   created_at?: string
   updated_at?: string
+}
+
+export interface KnowledgeChunkPreview {
+  id: string
+  chunk_index: number
+  content: string
+  title_path?: string | null
+  page_number?: number | null
+  token_count: number
+  trust_level?: string
 }
 
 export interface KnowledgeUploadResult {
@@ -222,6 +239,8 @@ export interface ChunkHit {
   score: number
   trust_level: string
   page_number: number | null
+  token_count?: number | null
+  title_path?: string | null
 }
 
 export interface KnowledgeSearchResult {
@@ -264,12 +283,23 @@ export interface DocumentReparseResult {
 
 // ---------- 问答 ----------
 
+export interface TokenUsage {
+  input_tokens: number
+  output_tokens: number
+  total_tokens: number
+  rag_tokens?: number
+  model?: string | null
+  latency_ms?: number | null
+  estimated?: boolean
+}
+
 /** 与 contracts/json-schema/qa-output.schema.json 一一对应 */
 export interface QAOutput {
   answer: string
   citations: Citation[]
   warnings: string[]
   needs_expert_review: boolean
+  token_usage?: TokenUsage | null
 }
 
 /** 与 qa-output.schema.json 中 citations 元素一一对应 */
@@ -319,6 +349,8 @@ export interface Skill {
   id: string
   name?: string
   code?: string
+  /** 后端 SkillOut 的业务编码（与 code 并存：历史字段名差异） */
+  skill_code?: string
   version?: string
   description?: string
   status?: string
@@ -408,7 +440,7 @@ export interface AuditLog {
 
 /** /admin/stats：调用量/失败原因/任务耗时/模型成本概况；字段为约定字段 */
 export interface AdminStats {
-  scope?: 'global' | 'tenant'
+  scope?: 'global' | 'yard'
   tasks?: {
     total: number
     by_status: Record<string, number>
@@ -425,7 +457,7 @@ export interface AdminStats {
   members?: { total: number }
 }
 
-export interface AdminTenant {
+export interface AdminYard {
   id: string
   name: string
   status: string
@@ -436,9 +468,9 @@ export interface AdminTenant {
   created_at?: string | null
 }
 
-export interface AdminTenantList {
+export interface AdminYardList {
   count: number
-  tenants: AdminTenant[]
+  yards: AdminYard[]
 }
 
 // ---------- 政策模块（第三期） ----------
@@ -446,7 +478,7 @@ export interface AdminTenantList {
 /** 惠农/农业政策条目 */
 export interface Policy {
   id: string
-  tenant_id?: string | null
+  yard_id?: string | null
   scope: string
   province: string | null
   city: string | null
@@ -532,7 +564,7 @@ export interface ApplicationDraftPayload {
 export interface ApplicationDraft {
   id: string
   draft_id: string
-  tenant_id: string
+  yard_id: string
   policy_id: string
   applicant_name: string
   applicant_type: string | null

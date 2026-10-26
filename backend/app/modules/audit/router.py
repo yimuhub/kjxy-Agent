@@ -1,7 +1,7 @@
 """审计日志查询接口。
 
-GET /audit/logs：需 audit:read 权限；分页；按租户过滤；
-平台管理员（无租户上下文）可查看平台级（含 tenant_id 为空）的全部日志。
+GET /audit/logs：需 audit:read 权限；分页；按小院过滤；
+平台管理员（无小院上下文）可查看平台级（含 yard_id 为空）的全部日志。
 """
 
 from fastapi import APIRouter, Depends, Query
@@ -29,9 +29,9 @@ def get_audit_logs(
         raise AppError("FORBIDDEN", "无审计日志查看权限。", http_status=403)
     page, page_size = page_page
     q = db.query(AuditLog)
-    if user.tenant_id:
-        # 租户成员只能看本租户日志；平台管理员无租户时可看全部（含平台级）
-        q = q.filter(AuditLog.tenant_id == user.tenant_id)
+    if user.yard_id:
+        # 小院成员只能看本小院日志；平台管理员无小院时可看全部（含平台级）
+        q = q.filter(AuditLog.yard_id == user.yard_id)
     if action:
         q = q.filter(AuditLog.action == action)
     if resource_type:
@@ -46,7 +46,7 @@ def get_audit_logs(
         [
             {
                 "id": i.id,
-                "tenant_id": i.tenant_id,
+                "yard_id": i.yard_id,
                 "actor_id": i.actor_id,
                 "action": i.action,
                 "resource_type": i.resource_type,

@@ -2,8 +2,8 @@
 
 - GET /agents：列出已启用的 Agent 定义（含 4 个专业 Agent）。
 - POST /agents/{code}/run：同步运行指定 Agent；平台注册表 miss 时回落到
-  本租户已发布的声明式 Agent（配置即 Agent，ADR-0005）。
-- /agents/declarative*：租户侧声明式 Agent CRUD/发布/停用。
+  本小院已发布的声明式 Agent（配置即 Agent，ADR-0005）。
+- /agents/declarative*：小院侧声明式 Agent CRUD/发布/停用。
 - /agents/admin/agent-review*：平台审核队列（platform_admin）。
 
 Agent 实现由各模块的 agent.py 提供并在 import 时注册到 global_registry；
@@ -12,20 +12,29 @@ Agent 实现由各模块的 agent.py 提供并在 import 时注册到 global_reg
 
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, Request
+from fastapi import APIRouter, Body, Depends, File, Request, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.orm import Session
 
 from app.core.deps import (
     CurrentUser,
-    TenantContext,
+    YardContext,
     get_current_user,
     get_db_session,
-    get_tenant_context,
+    get_yard_context,
     require_roles,
 )
 from app.core.errors import AppError
 from app.core.responses import ok
-from app.modules.agents import declarative, get_global_registry, run_steps, run_stream, supervisor
+from app.modules.agents import (
+    covers,
+    declarative,
+    get_global_registry,
+    run_steps,
+    run_stream,
+    supervisor,
+)
 from app.modules.agents.definitions import AGENT_DEFINITIONS
 from app.modules.agents.factory_router import router as factory_router
 from app.modules.agents.schemas import AgentContext, AgentResult
@@ -92,8 +101,8 @@ def _skill_summaries(allowed_tools: list[str] | None) -> list[dict]:
 
 
 @router.get("")
-def list_agents(request: Request, ctx: TenantContext = Depends(get_tenant_context)):
-    """列出已启用的 Agent 定义（租户内可见）。
+def list_agents(request: Request, ctx: YardContext = Depends(get_yard_context)):
+    """列出已启用的 Agent 定义（小院内可见）。
 
     每个 Agent 附 ``skills`` 字段：出生自带技能的精简列表
     （code/name/description/risk_level），供前端"初始技能"区域展示。
@@ -117,10 +126,10 @@ async def run_agent(
     code: str,
     body: AgentRunRequest,
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db=Depends(get_db_session),
 ):
-    """同步运行指定 Agent：平台注册表优先，miss 则回落本租户已发布声明式 Agent。"""
+    """同步运行指定 Agent：平台注册表优先，miss 则回落本小院已发布声明式 Agent。"""
     import uuid
 
     _ensure_imported(code)
@@ -128,14 +137,14 @@ async def run_agent(
     try:
         agent = registry.get(code)
     except AppError:
-        # 声明式回落：只认本租户 status=published 的配置（跨租户一律 404）
+        # 声明式回落：只认本小院 status=published 的配置（跨小院一律 404）
         return await _run_declarative_fallback(db, ctx, request, code, body)
     if not registry.is_enabled(code):
         raise AppError("AGENT_DISABLED", f"Agent 已停用：{code}。", http_status=403)
 
     agent_ctx = AgentContext(
         task_id=body.task_id or f"agent-{uuid.uuid4().hex[:12]}",
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         actor_id=ctx.user_id,
         request_id=getattr(request.state, "request_id", "req_unknown"),
         allowed_tools=getattr(agent, "definition", {}).get("allowed_tools", []) or [],
@@ -151,7 +160,7 @@ async def run_agent(
 
 
 async def _run_declarative_fallback(
-    db, ctx: TenantContext, request: Request, code: str, body: AgentRunRequest
+    db, ctx: YardContext, request: Request, code: str, body: AgentRunRequest
 ) -> dict[str, Any]:
     """声明式 Agent 运行分支：记账口径与 knowledge_qa 同步问答一致。
 
@@ -160,7 +169,9 @@ async def _run_declarative_fallback(
     """
     import uuid
 
-    decl = declarative.get_published_by_code(db, tenant_id=ctx.tenant_id, agent_code=code)
+    decl = declarative.get_published_by_code(
+        db, yard_id=ctx.yard_id, agent_code=code, user_id=ctx.user_id
+    )
     if decl is None:
         raise AppError("AGENT_NOT_FOUND", f"未知的 Agent：{code}。", http_status=404)
 
@@ -172,7 +183,7 @@ async def _run_declarative_fallback(
     except AppError as e:
         declarative.log_run_audit(
             db,
-            tenant_id=ctx.tenant_id,
+            yard_id=ctx.yard_id,
             actor_id=ctx.user_id,
             agent=decl,
             task_id=task_id,
@@ -184,7 +195,7 @@ async def _run_declarative_fallback(
         raise
     declarative.log_run_audit(
         db,
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         actor_id=ctx.user_id,
         agent=decl,
         task_id=task_id,
@@ -197,52 +208,69 @@ async def _run_declarative_fallback(
 
 
 # ---------------------------------------------------------------------------
-# 声明式 Agent（M2）：租户侧 CRUD/发布 + 平台审核队列
+# 声明式 Agent（M2）：小院侧 CRUD/发布 + 平台审核队列
 # ---------------------------------------------------------------------------
 
-# 租户侧闸门：tenant_admin（require_roles 内置 platform_admin 直通）
-_tenant_admin_gate = require_roles("tenant_admin")
 # 平台审核闸门：仅 platform_admin
 _platform_admin_gate = require_roles("platform_admin")
 
 
 def _require_platform_admin(user: CurrentUser) -> None:
-    """平台审核队列：必须是 platform_admin（租户角色一律 403）。"""
+    """平台审核队列：必须是 platform_admin（小院角色一律 403）。"""
     if "platform_admin" not in user.roles:
         raise AppError("FORBIDDEN", "需要平台管理员权限。", http_status=403)
+
+
+def _require_manage(db: Session, *, ctx: YardContext, agent_id: str) -> None:
+    """写动作（编辑/复制/停用/删除/首图）的前置鉴权：管理员全量，成员限自建私有助手。
+
+    跨小院/已软删除仍按 404（``get_agent`` 的口径），只在本院可见时才谈 403。
+    """
+    agent = declarative.get_agent(db, yard_id=ctx.yard_id, agent_id=agent_id)
+    declarative.require_manage_access(agent, user_id=ctx.user_id, roles=list(ctx.roles))
 
 
 @router.post("/declarative")
 def create_declarative_agent(
     request: Request,
     body: dict[str, Any] = Body(...),
-    ctx: TenantContext = Depends(get_tenant_context),
-    user: CurrentUser = Depends(_tenant_admin_gate),
+    ctx: YardContext = Depends(get_yard_context),
+    user: CurrentUser = Depends(get_current_user),
     db=Depends(get_db_session),
 ):
-    """创建声明式 Agent（一律 draft；返回含服务端计算的 risk_level）。"""
+    """创建声明式 Agent（一律 draft；返回含服务端计算的 risk_level）。
+
+    成员也能建：可见性由 ``_resolve_visibility`` 按角色判定——管理员可建 public
+    或 private，普通成员只能建 private（"只能自己使用"），请求 public 直接 403
+    而不是静默降级。
+    """
     req = declarative.parse_create_request(body)
     try:
         agent = declarative.create_agent(
-            db, tenant_id=ctx.tenant_id, actor_id=user.user_id, req=req, request_id=ctx.request_id
+            db,
+            yard_id=ctx.yard_id,
+            actor_id=user.user_id,
+            req=req,
+            request_id=ctx.request_id,
+            roles=list(user.roles),
         )
         db.commit()
     except AppError:
         db.rollback()
         raise
-    return ok(declarative.to_out(agent), request)
+    return ok(declarative.to_out(agent, db), request)
 
 
 @router.get("/declarative")
 def list_declarative_agents(
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
-    user: CurrentUser = Depends(_tenant_admin_gate),
+    ctx: YardContext = Depends(get_yard_context),
+    user: CurrentUser = Depends(get_current_user),
     db=Depends(get_db_session),
 ):
-    """本租户声明式 Agent 列表（含 draft）。"""
-    agents = declarative.list_agents(db, tenant_id=ctx.tenant_id)
-    return ok({"agents": [declarative.to_out(a) for a in agents]}, request)
+    """本小院声明式 Agent 列表（含 draft；隐藏软删除；private 仅创建者可见）。"""
+    agents = declarative.list_agents(db, yard_id=ctx.yard_id, user_id=user.user_id)
+    return ok({"agents": declarative.to_out_list(db, agents)}, request)
 
 
 @router.patch("/declarative/{agent_id}")
@@ -250,41 +278,47 @@ def update_declarative_agent(
     agent_id: str,
     request: Request,
     body: dict[str, Any] = Body(...),
-    ctx: TenantContext = Depends(get_tenant_context),
-    user: CurrentUser = Depends(_tenant_admin_gate),
+    ctx: YardContext = Depends(get_yard_context),
+    user: CurrentUser = Depends(get_current_user),
     db=Depends(get_db_session),
 ):
-    """编辑声明式 Agent：重算 risk_level，version 不变；跨租户 404。"""
+    """编辑声明式 Agent：重算 risk_level，version 不变；跨小院 404。"""
     req = declarative.parse_update_request(body)
+    _require_manage(db, ctx=ctx, agent_id=agent_id)
     try:
         agent = declarative.update_agent(
             db,
-            tenant_id=ctx.tenant_id,
+            yard_id=ctx.yard_id,
             actor_id=user.user_id,
             agent_id=agent_id,
             req=req,
             request_id=ctx.request_id,
+            roles=list(user.roles),
         )
         db.commit()
     except AppError:
         db.rollback()
         raise
-    return ok(declarative.to_out(agent), request)
+    return ok(declarative.to_out(agent, db), request)
 
 
 @router.post("/declarative/{agent_id}/publish")
 def publish_declarative_agent(
     agent_id: str,
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
-    user: CurrentUser = Depends(_tenant_admin_gate),
+    ctx: YardContext = Depends(get_yard_context),
+    user: CurrentUser = Depends(get_current_user),
     db=Depends(get_db_session),
 ):
-    """发布（分级）：低风险自批 published；高风险只能进 pending_platform_review。"""
+    """发布（分级）：低风险自批 published；高风险只能进 pending_platform_review。
+
+    普通成员只能发布自己的低风险私有助手（``publish_agent`` 里判定），
+    这样"@ 我自建的小助手"才成立；公开助手与高风险仍归管理员/平台。
+    """
     try:
         agent = declarative.publish_agent(
             db,
-            tenant_id=ctx.tenant_id,
+            yard_id=ctx.yard_id,
             actor_id=user.user_id,
             agent_id=agent_id,
             roles=list(user.roles),
@@ -294,22 +328,53 @@ def publish_declarative_agent(
     except AppError:
         db.rollback()
         raise
-    return ok(declarative.to_out(agent), request)
+    return ok(declarative.to_out(agent, db), request)
+
+
+@router.post("/declarative/{agent_id}/duplicate")
+def duplicate_declarative_agent(
+    agent_id: str,
+    request: Request,
+    ctx: YardContext = Depends(get_yard_context),
+    user: CurrentUser = Depends(get_current_user),
+    db=Depends(get_db_session),
+):
+    """复制助手：新编码 + ``原名-N`` 名称服务端生成，副本一律 draft。
+
+    复制等于把 persona/模板/技能白名单整份读走，因此与编辑同权：管理员可复制
+    任意助手，成员只能复制自己的私有助手。
+    """
+    _require_manage(db, ctx=ctx, agent_id=agent_id)
+    try:
+        agent = declarative.duplicate_agent(
+            db,
+            yard_id=ctx.yard_id,
+            actor_id=user.user_id,
+            agent_id=agent_id,
+            request_id=ctx.request_id,
+            roles=list(user.roles),
+        )
+        db.commit()
+    except AppError:
+        db.rollback()
+        raise
+    return ok(declarative.to_out(agent, db), request)
 
 
 @router.post("/declarative/{agent_id}/deprecate")
 def deprecate_declarative_agent(
     agent_id: str,
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
-    user: CurrentUser = Depends(_tenant_admin_gate),
+    ctx: YardContext = Depends(get_yard_context),
+    user: CurrentUser = Depends(get_current_user),
     db=Depends(get_db_session),
 ):
-    """停用：published 立即退出可运行态。"""
+    """停用：published 立即退出可运行态（管理员或私有助手创建者）。"""
+    _require_manage(db, ctx=ctx, agent_id=agent_id)
     try:
         agent = declarative.deprecate_agent(
             db,
-            tenant_id=ctx.tenant_id,
+            yard_id=ctx.yard_id,
             actor_id=user.user_id,
             agent_id=agent_id,
             request_id=ctx.request_id,
@@ -318,7 +383,89 @@ def deprecate_declarative_agent(
     except AppError:
         db.rollback()
         raise
-    return ok(declarative.to_out(agent), request)
+    return ok(declarative.to_out(agent, db), request)
+
+
+@router.delete("/declarative/{agent_id}")
+def delete_declarative_agent(
+    agent_id: str,
+    request: Request,
+    ctx: YardContext = Depends(get_yard_context),
+    user: CurrentUser = Depends(get_current_user),
+    db=Depends(get_db_session),
+):
+    """删除助手（管理员或私有助手创建者，本小院范围）：软删除 status='deleted'。
+
+    行保留——chat 历史 choice_json、班组 members_json、运行 checkpoint 仍引用
+    本行 id，硬删会在用户可见历史里留悬空引用；name 确定性改名释放唯一约束。
+    """
+    _require_manage(db, ctx=ctx, agent_id=agent_id)
+    try:
+        agent = declarative.delete_agent(
+            db,
+            yard_id=ctx.yard_id,
+            actor_id=user.user_id,
+            agent_id=agent_id,
+            request_id=ctx.request_id,
+        )
+        db.commit()
+    except AppError:
+        db.rollback()
+        raise
+    return ok(declarative.to_out(agent, db), request)
+
+
+@router.post("/declarative/{agent_id}/cover")
+def upload_declarative_cover(
+    agent_id: str,
+    request: Request,
+    file: UploadFile = File(...),
+    ctx: YardContext = Depends(get_yard_context),
+    user: CurrentUser = Depends(get_current_user),
+    db=Depends(get_db_session),
+):
+    """设置卡片首图（PNG/JPG/WEBP，≤2MB）：与编辑同权，出参带回新的 cover_image_url。"""
+    try:
+        agent = covers.set_cover(db, ctx=ctx, agent_id=agent_id, file=file)
+        db.commit()
+    except AppError:
+        db.rollback()
+        raise
+    return ok(declarative.to_out(agent, db), request)
+
+
+@router.get("/declarative/{agent_id}/cover")
+def read_declarative_cover(
+    agent_id: str,
+    ctx: YardContext = Depends(get_yard_context),
+    user: CurrentUser = Depends(get_current_user),
+    db=Depends(get_db_session),
+):
+    """取首图字节（<img> 走登录态取图，未设图 404 让前端回落 emoji）。"""
+    data, mime = covers.read_cover(db, ctx=ctx, agent_id=agent_id)
+    return Response(
+        content=data,
+        media_type=mime,
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
+
+
+@router.delete("/declarative/{agent_id}/cover")
+def clear_declarative_cover(
+    agent_id: str,
+    request: Request,
+    ctx: YardContext = Depends(get_yard_context),
+    user: CurrentUser = Depends(get_current_user),
+    db=Depends(get_db_session),
+):
+    """清除首图（连文件一起删）。"""
+    try:
+        agent = covers.clear_cover(db, ctx=ctx, agent_id=agent_id)
+        db.commit()
+    except AppError:
+        db.rollback()
+        raise
+    return ok(declarative.to_out(agent, db), request)
 
 
 @router.get("/admin/agent-review-queue")
@@ -327,10 +474,10 @@ def get_agent_review_queue(
     user: CurrentUser = Depends(get_current_user),
     db=Depends(get_db_session),
 ):
-    """平台审核队列：所有租户 pending_platform_review 的声明式 Agent。"""
+    """平台审核队列：所有小院 pending_platform_review 的声明式 Agent。"""
     _require_platform_admin(user)
     agents = declarative.list_pending_review_queue(db)
-    return ok({"agents": [declarative.to_out(a) for a in agents]}, request)
+    return ok({"agents": declarative.to_out_list(db, agents)}, request)
 
 
 @router.post("/admin/agent-review/{agent_id}/approve")
@@ -353,7 +500,7 @@ def approve_agent_review(
     except AppError:
         db.rollback()
         raise
-    return ok(declarative.to_out(agent), request)
+    return ok(declarative.to_out(agent, db), request)
 
 
 @router.post("/admin/agent-review/{agent_id}/reject")
@@ -376,7 +523,7 @@ def reject_agent_review(
     except AppError:
         db.rollback()
         raise
-    return ok(declarative.to_out(agent), request)
+    return ok(declarative.to_out(agent, db), request)
 
 
 # ---------------------------------------------------------------------------
@@ -398,11 +545,11 @@ def _derive_run_status(steps: list[Any]) -> str:
 def get_run_steps(
     run_id: str,
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db=Depends(get_db_session),
 ):
-    """运行步骤列表（租户成员可读；跨租户/不存在一律 404 防枚举）。"""
-    steps = run_steps.list_steps(db, tenant_id=ctx.tenant_id, run_id=run_id)
+    """运行步骤列表（小院成员可读；跨小院/不存在一律 404 防枚举）。"""
+    steps = run_steps.list_steps(db, yard_id=ctx.yard_id, run_id=run_id)
     if not steps:
         raise AppError("RUN_NOT_FOUND", "运行不存在或无权访问。", http_status=404)
     return ok(
@@ -418,7 +565,7 @@ def get_run_steps(
 @router.get("/declarative/runs/{run_id}/events/stream")
 def stream_run_steps(
     run_id: str,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
 ):
     """SSE 步骤事件流（追尾 agent_run_steps，帧协议同 tasks/stream）。
 
@@ -426,7 +573,7 @@ def stream_run_steps(
     「DB 追尾机制 + 帧协议」而非其 TaskEvent 通道；worker/inline 线程执行时
     可实时观看，纯同步执行可用 steps GET 端点事后查看全量步骤。
     """
-    return run_stream.build_stream_response(ctx.tenant_id, run_id)
+    return run_stream.build_stream_response(ctx.yard_id, run_id)
 
 
 @router.post("/declarative/{agent_code}/runs/{run_id}/retry")
@@ -434,7 +581,7 @@ async def retry_run_from_checkpoint(
     agent_code: str,
     run_id: str,
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     user: CurrentUser = Depends(get_current_user),
     db=Depends(get_db_session),
 ):
@@ -446,10 +593,12 @@ async def retry_run_from_checkpoint(
     - 已 completed（final ok）的运行拒绝重放（409）；
     - 审计 action=retry_from_step（记录续跑点与副作用重放保护计数）。
     """
-    decl = declarative.get_published_by_code(db, tenant_id=ctx.tenant_id, agent_code=agent_code)
+    decl = declarative.get_published_by_code(
+        db, yard_id=ctx.yard_id, agent_code=agent_code, user_id=user.user_id
+    )
     if decl is None:
         raise AppError("AGENT_NOT_FOUND", f"未知的 Agent：{agent_code}。", http_status=404)
-    steps = run_steps.list_steps(db, tenant_id=ctx.tenant_id, run_id=run_id)
+    steps = run_steps.list_steps(db, yard_id=ctx.yard_id, run_id=run_id)
     if not steps:
         raise AppError("RUN_NOT_FOUND", "运行不存在或无权访问。", http_status=404)
     if run_steps.is_run_completed(steps):
@@ -483,10 +632,10 @@ async def retry_run_from_checkpoint(
     except AppError as e:
         log_audit(
             db,
-            tenant_id=ctx.tenant_id,
+            yard_id=ctx.yard_id,
             actor_id=user.user_id,
             action="retry_from_step",
-            resource_type="tenant_agent",
+            resource_type="yard_agent",
             resource_id=decl.id,
             result="failure",
             request_id=ctx.request_id,
@@ -496,10 +645,10 @@ async def retry_run_from_checkpoint(
         raise
     log_audit(
         db,
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         actor_id=user.user_id,
         action="retry_from_step",
-        resource_type="tenant_agent",
+        resource_type="yard_agent",
         resource_id=decl.id,
         result="success",
         request_id=ctx.request_id,
@@ -532,10 +681,10 @@ class SupervisorAskRequest(BaseModel):
 async def supervisor_ask(
     body: SupervisorAskRequest,
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db=Depends(get_db_session),
 ):
-    """问总控：规则→LLM→兜底三级路由到本租户最合适的助手/班组并执行。"""
+    """问总控：规则→LLM→兜底三级路由到本小院最合适的助手/班组并执行。"""
     data = await supervisor.ask(db, ctx=ctx, question=body.question)
     return ok(data, request)
 
@@ -543,12 +692,12 @@ async def supervisor_ask(
 @router.get("/supervisor/candidates")
 def supervisor_candidates(
     request: Request,
-    ctx: TenantContext = Depends(get_tenant_context),
+    ctx: YardContext = Depends(get_yard_context),
     db=Depends(get_db_session),
 ):
     """当前候选集与各候选近 7 天调用数（调试/前端展示）。"""
-    cands = supervisor.list_candidates(db, ctx.tenant_id)
-    counts = supervisor._recent_call_counts(db, ctx.tenant_id, cands)
+    cands = supervisor.list_candidates(db, ctx.yard_id, user_id=ctx.user_id)
+    counts = supervisor._recent_call_counts(db, ctx.yard_id, cands)
     items = [
         {
             "kind": c["kind"],

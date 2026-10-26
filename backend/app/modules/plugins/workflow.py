@@ -27,7 +27,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.core.deps import TenantContext
+from app.core.deps import YardContext
 from app.core.errors import AppError
 from app.core.logging import get_logger
 from app.modules.agents.run_steps import STEP_OK, STEP_TOOL, AgentRunStep
@@ -84,7 +84,7 @@ def _check_tool_available(db: Session, code: str) -> None:
         tool_registry.get(code)
     except AppError as e:
         raise _invalid(f"步骤引用了未知或未启用工具：{code}", {"tool": code}) from e
-    # DB 元数据行存在且被显式下线 → 视为租户不可用（与 GET /tools 同口径）
+    # DB 元数据行存在且被显式下线 → 视为小院不可用（与 GET /tools 同口径）
     row = db.query(ToolDefinition).filter(ToolDefinition.code == code).first()
     if row is not None and not row.enabled:
         raise _invalid(f"步骤引用的工具已被下线：{code}", {"tool": code})
@@ -159,8 +159,8 @@ def validate_workflow_manifest(db: Session, manifest: dict) -> dict:
 
 
 # ---------------------------------------------------------------- 注册 / 审核
-def register_workflow(db: Session, ctx: TenantContext, manifest: dict) -> PluginManifest:
-    """注册声明式 workflow：校验 → 落租户级 pending_review 草稿。
+def register_workflow(db: Session, ctx: YardContext, manifest: dict) -> PluginManifest:
+    """注册声明式 workflow：校验 → 落小院级 pending_review 草稿。
 
     同 plugin_id 重注册视为重新编辑：更新 manifest 并回到 pending_review
     （改过的 workflow 必须重新过发布闸，诚实优先于便利）。
@@ -172,11 +172,11 @@ def register_workflow(db: Session, ctx: TenantContext, manifest: dict) -> Plugin
     )
     version = normalized.get("version") or "1.0.0"
 
-    record = _find_record(db, plugin_id, ctx.tenant_id)
+    record = _find_record(db, plugin_id, ctx.yard_id)
     if record is None:
         record = PluginManifest(
             plugin_id=plugin_id,
-            tenant_id=ctx.tenant_id,
+            yard_id=ctx.yard_id,
             version=version,
             type="workflow",
             status=WF_PENDING,
@@ -201,7 +201,7 @@ def register_workflow(db: Session, ctx: TenantContext, manifest: dict) -> Plugin
     db.flush()
     log_audit(
         db,
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         actor_id=ctx.user_id,
         action="plugin_registered",
         resource_type="plugin",
@@ -218,17 +218,15 @@ def register_workflow(db: Session, ctx: TenantContext, manifest: dict) -> Plugin
     return record
 
 
-def find_tenant_plugin_or_none(
-    db: Session, tenant_id: str, plugin_id: str
-) -> PluginManifest | None:
-    """(plugin_id, tenant) 定位 workflow 记录；不存在/非 workflow 返回 None。"""
-    record = _find_record(db, plugin_id, tenant_id)
+def find_yard_plugin_or_none(db: Session, yard_id: str, plugin_id: str) -> PluginManifest | None:
+    """(plugin_id, yard) 定位 workflow 记录；不存在/非 workflow 返回 None。"""
+    record = _find_record(db, plugin_id, yard_id)
     return record if record is not None and record.type == "workflow" else None
 
 
-def get_tenant_plugin(db: Session, ctx: TenantContext, plugin_id: str) -> PluginManifest:
-    """按 (plugin_id, 当前租户) 取 workflow 插件；跨租户与不存在同样 404（防枚举）。"""
-    record = _find_record(db, plugin_id, ctx.tenant_id)
+def get_yard_plugin(db: Session, ctx: YardContext, plugin_id: str) -> PluginManifest:
+    """按 (plugin_id, 当前小院) 取 workflow 插件；跨小院与不存在同样 404（防枚举）。"""
+    record = _find_record(db, plugin_id, ctx.yard_id)
     if record is None or record.type != "workflow":
         raise AppError(
             "PLUGIN_NOT_FOUND",
@@ -239,15 +237,13 @@ def get_tenant_plugin(db: Session, ctx: TenantContext, plugin_id: str) -> Plugin
     return record
 
 
-def review_workflow(
-    db: Session, ctx: TenantContext, plugin_id: str, decision: str
-) -> PluginManifest:
+def review_workflow(db: Session, ctx: YardContext, plugin_id: str, decision: str) -> PluginManifest:
     """发布闸：approve → enabled；reject → rejected。只有草稿可审。"""
     if decision not in ("approve", "reject"):
         raise AppError(
             "INVALID_REVIEW_ACTION", "审核动作只能为 approve 或 reject。", http_status=400
         )
-    record = get_tenant_plugin(db, ctx, plugin_id)
+    record = get_yard_plugin(db, ctx, plugin_id)
     if record.status != WF_PENDING:
         raise AppError(
             "INVALID_PLUGIN_TRANSITION",
@@ -258,7 +254,7 @@ def review_workflow(
     db.flush()
     log_audit(
         db,
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         actor_id=ctx.user_id,
         action="plugin_approved" if decision == "approve" else "plugin_rejected",
         resource_type="plugin",
@@ -297,7 +293,7 @@ def _render(value: Any, variables: dict[str, Any]) -> Any:
 
 
 async def run_workflow(
-    db: Session, ctx: TenantContext, plugin_id: str, params: dict | None
+    db: Session, ctx: YardContext, plugin_id: str, params: dict | None
 ) -> dict[str, Any]:
     """顺序解释执行 steps（同步执行）。返回 {outputs, final}。
 
@@ -306,7 +302,7 @@ async def run_workflow(
     - llm 步：``complete_with_logging``（purpose=plugin，进用量与 traces）；
     - save_as 入上下文并计入 outputs；final = 末步文本化结果。
     """
-    record = get_tenant_plugin(db, ctx, plugin_id)
+    record = get_yard_plugin(db, ctx, plugin_id)
     if record.status != STATUS_ENABLED:
         raise AppError(
             "PLUGIN_NOT_ENABLED",
@@ -353,7 +349,7 @@ async def run_workflow(
                 LLMRequest(
                     messages=[ChatMessage(role="user", content=str(prompt))],
                     metadata=LLMMetadata(
-                        tenant_id=ctx.tenant_id,
+                        yard_id=ctx.yard_id,
                         task_id=f"wf-{_sha12(plugin_id)}",
                         request_id=ctx.request_id,
                         purpose="plugin",
@@ -370,7 +366,7 @@ async def run_workflow(
 
     log_audit(
         db,
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         actor_id=ctx.user_id,
         action="plugin_run",
         resource_type="plugin",
@@ -390,13 +386,13 @@ async def run_workflow(
 
 
 # ---------------------------------------------------------------- 重复序列挖掘
-def _recent_tool_sequences(db: Session, ctx: TenantContext) -> "OrderedDict[str, list[str]]":
-    """近 7 天本租户每个 run 的成功工具调用序列（run_id → 顺序 tool_code 列表）。"""
+def _recent_tool_sequences(db: Session, ctx: YardContext) -> "OrderedDict[str, list[str]]":
+    """近 7 天本小院每个 run 的成功工具调用序列（run_id → 顺序 tool_code 列表）。"""
     cutoff = datetime.now(UTC) - timedelta(days=_WINDOW_DAYS)
     rows = (
         db.query(AgentRunStep)
         .filter(
-            AgentRunStep.tenant_id == ctx.tenant_id,
+            AgentRunStep.yard_id == ctx.yard_id,
             AgentRunStep.step_type == STEP_TOOL,
             AgentRunStep.status == STEP_OK,
             AgentRunStep.created_at >= cutoff,
@@ -450,7 +446,7 @@ def _is_contained(short: tuple[str, ...], long: tuple[str, ...]) -> bool:
     return False
 
 
-def suggest_workflows(db: Session, ctx: TenantContext) -> list[PluginManifest]:
+def suggest_workflows(db: Session, ctx: YardContext) -> list[PluginManifest]:
     """挖掘重复工具序列 → 只产 pending_review 草稿（绝不自动启用）。幂等：同 pattern 不重复建。"""
     sequences = _recent_tool_sequences(db, ctx)
     created: list[PluginManifest] = []
@@ -464,7 +460,7 @@ def suggest_workflows(db: Session, ctx: TenantContext) -> list[PluginManifest]:
             continue
 
         plugin_id = "auto-wf-" + _sha12(">".join(tools))
-        if _find_record(db, plugin_id, ctx.tenant_id) is not None:
+        if _find_record(db, plugin_id, ctx.yard_id) is not None:
             continue  # 同 pattern 已有草稿/正式版：不重复生成（幂等）
 
         manifest: dict[str, Any] = {
@@ -486,7 +482,7 @@ def suggest_workflows(db: Session, ctx: TenantContext) -> list[PluginManifest]:
         }
         record = PluginManifest(
             plugin_id=plugin_id,
-            tenant_id=ctx.tenant_id,
+            yard_id=ctx.yard_id,
             version="1.0.0",
             type="workflow",
             status=WF_PENDING,
@@ -502,7 +498,7 @@ def suggest_workflows(db: Session, ctx: TenantContext) -> list[PluginManifest]:
     if created:
         log_audit(
             db,
-            tenant_id=ctx.tenant_id,
+            yard_id=ctx.yard_id,
             actor_id=ctx.user_id,
             action="plugin_suggested",
             resource_type="plugin",

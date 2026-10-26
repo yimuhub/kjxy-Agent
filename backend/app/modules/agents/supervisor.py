@@ -1,15 +1,4 @@
-"""总控问答入口（supervisor）：把一个问题路由到本租户最合适的助手或班组。
-
-三级路由（诚实可审计，routed_by 必须如实反映实际路径）：
-1. rules   —— 农业域关键词计分：问题命中词表 且 候选文本也含该词即计分，最高分>0 者当选；
-2. llm     —— 一次纯文本分类调用（llm_traces purpose="supervisor"），要求只输出
-              JSON {"id","reason"}；解析失败/超时/选中不在候选集 → 落入兜底；
-3. fallback—— 近 7 天调用次数最多的候选（助手按 llm_traces.agent_ref，班组按 team_runs），
-              再没有则第一个候选。兜底必须带可见标记，绝不伪装成智能选择。
-
-审计：action=supervisor_route，metadata 记 routed_by/choice/reason 与问题的
-sha12 摘要——**不存问题全文**（与 llm_traces 隐私口径一致）。
-"""
+"""总控问答入口（supervisor）：把一个问题路由到本小院最合适的助手或班组（含 Token 消耗透传）。"""
 
 from __future__ import annotations
 
@@ -20,10 +9,10 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.core.deps import TenantContext
+from app.core.deps import YardContext
 from app.core.errors import AppError
 from app.core.logging import get_logger
 from app.core.progress import (
@@ -35,7 +24,7 @@ from app.core.progress import (
     StepCallback,
 )
 from app.modules.agents import declarative
-from app.modules.agents.models import TenantAgent
+from app.modules.agents.models import YardAgent
 from app.modules.agents.teams import service as team_service
 from app.modules.agents.teams.models import AgentTeam, TeamRun
 from app.modules.audit.service import log_audit
@@ -63,21 +52,59 @@ _ROUTED_LABEL: dict[str, str] = {
     "llm": "智能分类",
     "fallback": "频率兜底",
     "bound": "定向执行",
+    "local": "对话直办",
+    "group": "群聊说明",
 }
+
+#: 徽章色调（前端按此取标签样式，词表同样只在这里维护）
+_ROUTED_TONE: dict[str, str] = {
+    "rules": "success",
+    "llm": "primary",
+    "fallback": "warning",
+    "bound": "info",
+    "local": "info",
+    "group": "primary",
+    "error": "danger",
+}
+
+ROUTED_LABEL_UNKNOWN = "未标注来源"
+ROUTED_TONE_UNKNOWN = "info"
+
+
+def routed_label(routed_by: str | None) -> str:
+    if not routed_by:
+        return ""
+    return _ROUTED_LABEL.get(routed_by, ROUTED_LABEL_UNKNOWN)
+
+
+def routed_tone(routed_by: str | None) -> str:
+    if not routed_by:
+        return ""
+    return _ROUTED_TONE.get(routed_by, ROUTED_TONE_UNKNOWN)
 
 
 def _question_digest(question: str) -> str:
     return hashlib.sha256(question.encode("utf-8")).hexdigest()[:12]
 
 
-def list_candidates(db: Session, tenant_id: str) -> list[dict[str, Any]]:
-    """候选集 = 本租户 published 助手（同码取最新版本）+ enabled 班组。"""
+def list_candidates(
+    db: Session, yard_id: str, *, user_id: str | None = None
+) -> list[dict[str, Any]]:
+    visibility_filter = (
+        YardAgent.visibility == "public"
+        if user_id is None
+        else or_(YardAgent.visibility == "public", YardAgent.created_by == user_id)
+    )
     cands: list[dict[str, Any]] = []
     seen: set[str] = set()
     rows = db.scalars(
-        select(TenantAgent)
-        .where(TenantAgent.tenant_id == tenant_id, TenantAgent.status == "published")
-        .order_by(TenantAgent.agent_code, TenantAgent.version.desc())
+        select(YardAgent)
+        .where(
+            YardAgent.yard_id == yard_id,
+            YardAgent.status == "published",
+            visibility_filter,
+        )
+        .order_by(YardAgent.agent_code, YardAgent.version.desc())
     )
     for a in rows:
         if a.agent_code in seen:
@@ -94,7 +121,7 @@ def list_candidates(db: Session, tenant_id: str) -> list[dict[str, Any]]:
             }
         )
     for t in db.scalars(
-        select(AgentTeam).where(AgentTeam.tenant_id == tenant_id, AgentTeam.enabled.is_(True))
+        select(AgentTeam).where(AgentTeam.yard_id == yard_id, AgentTeam.enabled.is_(True))
     ):
         cands.append(
             {
@@ -110,7 +137,6 @@ def list_candidates(db: Session, tenant_id: str) -> list[dict[str, Any]]:
 
 
 def score_by_rules(question: str, cands: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """规则计分：问题命中关键词 且 候选文本含同词 → +1；最高分且>0 当选。"""
     kws = [k for words in AGRI_KEYWORDS.values() for k in words if k in question]
     if not kws:
         return None
@@ -123,7 +149,6 @@ def score_by_rules(question: str, cands: list[dict[str, Any]]) -> dict[str, Any]
 
 
 def parse_llm_choice(raw: str, cands: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """从 LLM 回复中提取 {"id","reason"}；id 必须在候选集内，否则视为解析失败。"""
     m = _JSON_RE.search(raw or "")
     if not m:
         return None
@@ -158,17 +183,15 @@ def _llm_prompt(question: str, cands: list[dict[str, Any]]) -> list[ChatMessage]
 
 
 async def classify_by_llm(
-    db: Session, ctx: TenantContext, question: str, cands: list[dict[str, Any]]
+    db: Session, ctx: YardContext, question: str, cands: list[dict[str, Any]]
 ) -> dict[str, Any] | None:
-    """LLM 分类；任何异常（网络/配额/格式）返回 None 由调用方落入兜底。"""
-
     try:
         resp = await complete_with_logging(
             db,
             LLMRequest(
                 messages=_llm_prompt(question, cands),
                 metadata=LLMMetadata(
-                    tenant_id=ctx.tenant_id,
+                    yard_id=ctx.yard_id,
                     task_id=f"sup-{uuid.uuid4().hex[:12]}",
                     request_id=ctx.request_id,
                     purpose="supervisor",
@@ -176,14 +199,19 @@ async def classify_by_llm(
                 ),
             ),
         )
-        return parse_llm_choice(resp.content or "", cands)
-    except Exception as e:  # noqa: BLE001 —— 分类失败走兜底，不打断问答
+        parsed = parse_llm_choice(resp.content or "", cands)
+        if parsed:
+            parsed["gate_tokens"] = {
+                "input_tokens": int(resp.input_tokens or 0),
+                "output_tokens": int(resp.output_tokens or 0),
+            }
+        return parsed
+    except Exception as e:  # noqa: BLE001
         log.warning("supervisor llm classify failed (fallback): %s", e)
         return None
 
 
-def _recent_call_counts(db: Session, tenant_id: str, cands: list[dict[str, Any]]) -> dict[str, int]:
-    """近 7 天调用数：助手按 llm_traces.agent_ref，班组按 team_runs。"""
+def _recent_call_counts(db: Session, yard_id: str, cands: list[dict[str, Any]]) -> dict[str, int]:
     cutoff = datetime.now(UTC) - timedelta(days=7)
     counts: dict[str, int] = {}
     codes = [c["code"] for c in cands if c["code"]]
@@ -191,7 +219,7 @@ def _recent_call_counts(db: Session, tenant_id: str, cands: list[dict[str, Any]]
         rows = db.execute(
             select(LLMTrace.agent_ref, func.count())
             .where(
-                LLMTrace.tenant_id == tenant_id,
+                LLMTrace.yard_id == yard_id,
                 LLMTrace.created_at >= cutoff,
                 LLMTrace.agent_ref.in_(codes),
             )
@@ -203,7 +231,7 @@ def _recent_call_counts(db: Session, tenant_id: str, cands: list[dict[str, Any]]
         team_rows = db.execute(
             select(TeamRun.team_id, func.count())
             .where(
-                TeamRun.tenant_id == tenant_id,
+                TeamRun.yard_id == yard_id,
                 TeamRun.team_id.in_(team_ids),
                 TeamRun.started_at >= cutoff,
             )
@@ -213,38 +241,41 @@ def _recent_call_counts(db: Session, tenant_id: str, cands: list[dict[str, Any]]
     return counts
 
 
-def pick_fallback(db: Session, tenant_id: str, cands: list[dict[str, Any]]) -> dict[str, Any]:
-    counts = _recent_call_counts(db, tenant_id, cands)
+def pick_fallback(db: Session, yard_id: str, cands: list[dict[str, Any]]) -> dict[str, Any]:
+    counts = _recent_call_counts(db, yard_id, cands)
     return max(cands, key=lambda c: (counts.get(c["code"] or c["id"], 0),))
 
 
 async def execute_choice(
     db: Session,
-    ctx: TenantContext,
+    ctx: YardContext,
     choice: dict[str, Any],
     question: str,
     on_step: StepCallback | None = None,
     context: str = "",
 ) -> dict[str, Any]:
-    """执行选中的候选：助手走声明式同步运行，班组走接力运行。"""
+    """执行选中的候选：助手走声明式同步运行，班组走接力运行，并提取 token_usage。"""
     if choice["kind"] == "team":
         if on_step:
             on_step(PHASE_GENERATING, f"正在执行班组「{choice['name']}」", STEP_RUNNING)
-        team = team_service.get_team(db, tenant_id=ctx.tenant_id, team_id=choice["id"])
+        team = team_service.get_team(db, yard_id=ctx.yard_id, team_id=choice["id"])
         run = team_service.create_team_run(
             db, team=team, user_input=f"{question}\n\n{context}" if context else question, ctx=ctx
         )
         run = await team_service.continue_team_run(db, run=run, ctx=ctx)
         if on_step:
             on_step(PHASE_GENERATING, f"班组「{choice['name']}」执行完成", STEP_DONE)
+        members = team_service.members_of_run(db, run)
+        run_detail = team_service.run_out(run, members, db=db)
         return {
             "kind": "team",
             "run_id": run.id,
             "status": run.status,
             "answer": run.answer or "",
+            "token_usage": run_detail.get("token_usage"),
         }
     decl = declarative.get_published_by_code(
-        db, tenant_id=ctx.tenant_id, agent_code=choice["code"] or ""
+        db, yard_id=ctx.yard_id, agent_code=choice["code"] or "", user_id=ctx.user_id
     )
     if decl is None:
         raise AppError("AGENT_NOT_FOUND", f"未知的 Agent：{choice['code']}。", http_status=404)
@@ -259,31 +290,30 @@ async def execute_choice(
     )
     payload = result.model_dump() if hasattr(result, "model_dump") else dict(result)
     answer = ""
+    token_usage = None
     if isinstance(payload.get("output"), dict):
         answer = str(payload["output"].get("answer") or "")
-    return {"kind": "agent", "answer": answer, "raw": payload}
+        token_usage = payload["output"].get("token_usage")
+    return {"kind": "agent", "answer": answer, "raw": payload, "token_usage": token_usage}
 
 
 async def ask(
     db: Session,
     *,
-    ctx: TenantContext,
+    ctx: YardContext,
     question: str,
     on_step: StepCallback | None = None,
     context: str = "",
 ) -> dict[str, Any]:
-    """总控问答主入口：三级路由 → 执行 → 审计（问题只存摘要）。
-
-    ``context``：随本轮附加的资料块（对话附件）；只进执行阶段，不参与路由打分。
-    """
+    """总控问答主入口：三级路由 → 执行 → 审计（问题只存摘要）。"""
     question = (question or "").strip()
     if not question:
         raise AppError("INVALID_REQUEST", "问题不能为空。", http_status=400)
-    cands = list_candidates(db, ctx.tenant_id)
+    cands = list_candidates(db, ctx.yard_id, user_id=ctx.user_id)
     if not cands:
         raise AppError(
             "NOT_FOUND",
-            "本租户还没有可用的已发布助手或班组——请先在 Agent 市场装载或创建助手。",
+            "本小院还没有可用的已发布助手或班组——请先在 Agent 市场装载或创建助手。",
             http_status=404,
         )
     if on_step:
@@ -291,13 +321,15 @@ async def ask(
     reason = ""
     chosen = score_by_rules(question, cands)
     routed_by = "rules"
+    gate_tokens: dict[str, int] | None = None
     if chosen is None:
         picked = await classify_by_llm(db, ctx, question, cands)
         if picked:
             chosen, reason = picked["choice"], picked["reason"]
             routed_by = "llm"
+            gate_tokens = picked.get("gate_tokens")
     if chosen is None:
-        chosen = pick_fallback(db, ctx.tenant_id, cands)
+        chosen = pick_fallback(db, ctx.yard_id, cands)
         routed_by = "fallback"
         reason = "规则与智能分类均未命中，按近 7 天使用频率兜底"
     if on_step:
@@ -312,9 +344,17 @@ async def ask(
         if on_step:
             on_step(PHASE_ROUTING, "执行失败", STEP_FAILED)
         raise
+
+    if gate_tokens and isinstance(result.get("token_usage"), dict):
+        tu = dict(result["token_usage"])
+        tu["input_tokens"] = int(tu.get("input_tokens") or 0) + gate_tokens["input_tokens"]
+        tu["output_tokens"] = int(tu.get("output_tokens") or 0) + gate_tokens["output_tokens"]
+        tu["total_tokens"] = tu["input_tokens"] + tu["output_tokens"]
+        result["token_usage"] = tu
+
     log_audit(
         db,
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         actor_id=ctx.user_id,
         action="supervisor_route",
         resource_type="supervisor",
@@ -338,27 +378,30 @@ async def ask(
     }
 
 
-__all__ = ["ask", "list_candidates", "score_by_rules", "parse_llm_choice"]
+__all__ = [
+    "ask",
+    "ask_directed",
+    "list_candidates",
+    "parse_llm_choice",
+    "routed_label",
+    "routed_tone",
+    "score_by_rules",
+]
 
 
 async def ask_directed(
     db: Session,
     *,
-    ctx: TenantContext,
+    ctx: YardContext,
     question: str,
     target: str | None,
     prefer_team: bool = False,
 ) -> dict:
-    """定向执行：跳过三级路由，直达指定助手/班组（机器人绑定与 /use 命令用）。
-
-    target 可为候选 id / agent_code / 名称（模糊精确匹配，先 id 再 code 再名称）；
-    prefer_team=True 时同名冲突优先取班组。找不到 → NOT_FOUND 404（附可选清单提示）。
-    返回与 ask 同构：{choice, routed_by='bound', reason, result}。
-    """
+    """定向执行：跳过三级路由，直达指定助手/班组。"""
     question = (question or "").strip()
     if not question:
         raise AppError("INVALID_REQUEST", "问题不能为空。", http_status=400)
-    cands = list_candidates(db, ctx.tenant_id)
+    cands = list_candidates(db, ctx.yard_id, user_id=ctx.user_id)
     chosen = None
     for c in cands:
         if c["id"] == target:
@@ -384,7 +427,7 @@ async def ask_directed(
     result = await execute_choice(db, ctx, chosen, question)
     log_audit(
         db,
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         actor_id=ctx.user_id,
         action="supervisor_directed",
         resource_type="supervisor",

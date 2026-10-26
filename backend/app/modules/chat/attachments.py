@@ -9,7 +9,7 @@
 1. **类型白名单 + 魔数嗅探**：图片 png/jpeg/webp，文档 pdf/docx/txt/md/csv；
    真实类型按文件头判定，不信客户端声明的 Content-Type；
 2. 大小上限复用 ``settings.upload_max_mb``，空文件直接拒；
-3. 附件与会话同边界（tenant_id + created_by），越权与不存在统一 404（防枚举）；
+3. 附件与会话同边界（yard_id + created_by），越权与不存在统一 404（防枚举）；
 4. 抽取文本对模型是**不可信数据**，注入上下文时带不可信边界声明（防提示注入）；
 5. 图片不做 OCR、不做像素分析——本期只作为附件资产留存并随消息携带
    （像素级识别需多模态模型，属三期能力）。
@@ -26,7 +26,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.deps import TenantContext
+from app.core.deps import YardContext
 from app.core.errors import AppError
 from app.core.logging import get_logger
 from app.modules.audit.service import log_audit
@@ -131,7 +131,7 @@ def _extract_document_text(storage_key: str, mime: str) -> tuple[str, str | None
 
 
 def attachment_out(att: ChatAttachment) -> dict[str, Any]:
-    """附件对外结构（不暴露存储键与租户内部字段）。"""
+    """附件对外结构（不暴露存储键与小院内部字段）。"""
     return {
         "id": att.id,
         "session_id": att.session_id,
@@ -142,18 +142,20 @@ def attachment_out(att: ChatAttachment) -> dict[str, Any]:
         "status": att.status,
         "chars": len(att.extracted_text or ""),
         "error": att.error,
+        "doc_format": att.doc_format or "",
+        "generated": bool(att.generated),
         "created_at": att.created_at.isoformat() if att.created_at else "",
     }
 
 
 def list_attachments(
-    db: Session, *, tenant_id: str, created_by: str, session_id: str
+    db: Session, *, yard_id: str, created_by: str, session_id: str
 ) -> list[ChatAttachment]:
     rows = db.scalars(
         select(ChatAttachment)
         .where(
             ChatAttachment.session_id == session_id,
-            ChatAttachment.tenant_id == tenant_id,
+            ChatAttachment.yard_id == yard_id,
             ChatAttachment.created_by == created_by,
         )
         .order_by(ChatAttachment.created_at.asc())
@@ -162,12 +164,12 @@ def list_attachments(
 
 
 def get_attachment(
-    db: Session, *, tenant_id: str, created_by: str, attachment_id: str
+    db: Session, *, yard_id: str, created_by: str, attachment_id: str
 ) -> ChatAttachment:
     row = db.scalar(
         select(ChatAttachment).where(
             ChatAttachment.id == attachment_id,
-            ChatAttachment.tenant_id == tenant_id,
+            ChatAttachment.yard_id == yard_id,
             ChatAttachment.created_by == created_by,
         )
     )
@@ -179,7 +181,7 @@ def get_attachment(
 def upload_attachment(
     db: Session,
     *,
-    ctx: TenantContext,
+    ctx: YardContext,
     session_id: str,
     file: UploadFile,
 ) -> ChatAttachment:
@@ -229,7 +231,7 @@ def upload_attachment(
 
     att = ChatAttachment(
         session_id=session_id,
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         created_by=ctx.user_id,
         filename=filename,
         storage_key=storage_key,
@@ -244,7 +246,7 @@ def upload_attachment(
     db.flush()
     log_audit(
         db,
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         actor_id=ctx.user_id,
         action="chat_attachment_uploaded",
         resource_type="chat_attachment",
@@ -256,11 +258,9 @@ def upload_attachment(
     return att
 
 
-def delete_attachment(db: Session, *, tenant_id: str, created_by: str, attachment_id: str) -> None:
+def delete_attachment(db: Session, *, yard_id: str, created_by: str, attachment_id: str) -> None:
     """删附件：连带删除存储文件（会话删除时由 service 级联调用）。"""
-    att = get_attachment(
-        db, tenant_id=tenant_id, created_by=created_by, attachment_id=attachment_id
-    )
+    att = get_attachment(db, yard_id=yard_id, created_by=created_by, attachment_id=attachment_id)
     try:
         LocalStorageBackend().delete(att.storage_key)
     except Exception as e:  # noqa: BLE001 —— 文件删不掉不应阻断记录删除
@@ -269,12 +269,10 @@ def delete_attachment(db: Session, *, tenant_id: str, created_by: str, attachmen
 
 
 def delete_session_attachments(
-    db: Session, *, tenant_id: str, created_by: str, session_id: str
+    db: Session, *, yard_id: str, created_by: str, session_id: str
 ) -> None:
     """会话删除时级联清理附件与文件。"""
-    for att in list_attachments(
-        db, tenant_id=tenant_id, created_by=created_by, session_id=session_id
-    ):
+    for att in list_attachments(db, yard_id=yard_id, created_by=created_by, session_id=session_id):
         try:
             LocalStorageBackend().delete(att.storage_key)
         except Exception as e:  # noqa: BLE001

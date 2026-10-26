@@ -29,7 +29,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.errors import AppError
-from app.core.security import ALGORITHM, decode_token
+from app.core.security import ALGORITHM, decode_token, resolve_yard_id
 from app.modules.audit.service import log_audit
 from app.modules.pairing.models import PairCode, PairDevice
 
@@ -101,12 +101,12 @@ def build_pair_url(request: Request, code: str) -> str:
 
 
 def create_pair_code(
-    db: Session, *, tenant_id: str, actor_id: str, request_id: str
+    db: Session, *, yard_id: str, actor_id: str, request_id: str
 ) -> tuple[str, PairCode]:
-    """生成一次性配对码；同租户未用码超过上限直接拒绝（RATE_LIMITED 429）。"""
+    """生成一次性配对码；同小院未用码超过上限直接拒绝（RATE_LIMITED 429）。"""
     now = _utcnow()
     # 配额口径：未用且未过期的码数（已用/已过期的码不占额度）
-    active_count = _active_code_count(db, tenant_id=tenant_id, now=now)
+    active_count = _active_code_count(db, yard_id=yard_id, now=now)
     if active_count >= settings.pairing_max_active_codes:
         raise AppError(
             "RATE_LIMITED",
@@ -116,7 +116,7 @@ def create_pair_code(
         )
     code = secrets.token_urlsafe(16)
     row = PairCode(
-        tenant_id=tenant_id,
+        yard_id=yard_id,
         code_hash=_sha256(code),
         expires_at=now + timedelta(seconds=settings.pairing_code_ttl_seconds),
     )
@@ -125,7 +125,7 @@ def create_pair_code(
     # 审计只记动作本身：配对码/哈希绝不入审计
     log_audit(
         db,
-        tenant_id=tenant_id,
+        yard_id=yard_id,
         actor_id=actor_id,
         action="pairing_code_create",
         resource_type="pair_code",
@@ -138,10 +138,10 @@ def create_pair_code(
     return code, row
 
 
-def _active_code_count(db: Session, *, tenant_id: str, now: datetime) -> int:
+def _active_code_count(db: Session, *, yard_id: str, now: datetime) -> int:
     rows = db.scalars(
         select(PairCode.id).where(
-            PairCode.tenant_id == tenant_id,
+            PairCode.yard_id == yard_id,
             PairCode.used_at.is_(None),
             PairCode.expires_at > now,
         )
@@ -172,7 +172,7 @@ def exchange(
     if result.rowcount != 1:  # type: ignore[attr-defined]
         raise invalid
     device = PairDevice(
-        tenant_id=row.tenant_id,
+        yard_id=row.yard_id,
         created_by=None,
         name=device_name.strip() or "未命名设备",
         # 先占位建形拿到 id，再以真实 device_id 签发令牌回填哈希
@@ -181,11 +181,11 @@ def exchange(
     )
     db.add(device)
     db.flush()
-    token = create_pair_token(device_id=device.id, tenant_id=row.tenant_id)
+    token = create_pair_token(device_id=device.id, yard_id=row.yard_id)
     device.token_hash = _sha256(token)
     log_audit(
         db,
-        tenant_id=row.tenant_id,
+        yard_id=row.yard_id,
         actor_id=None,
         action="pairing_device_pair",
         resource_type="pair_device",
@@ -203,7 +203,7 @@ def exchange(
 # ---------------------------------------------------------------------------
 
 
-def create_pair_token(*, device_id: str, tenant_id: str) -> str:
+def create_pair_token(*, device_id: str, yard_id: str) -> str:
     """签发设备令牌：``kind=pair`` + ``type=pair``，30 天（settings 可调）。
 
     ``type`` 必须与现有 ``decode_token(expected_type="access")`` 明确区分：
@@ -213,7 +213,7 @@ def create_pair_token(*, device_id: str, tenant_id: str) -> str:
     now = _utcnow()
     payload = {
         "sub": device_id,
-        "tenant_id": tenant_id,
+        "yard_id": yard_id,
         "device_id": device_id,
         "kind": "pair",
         "type": "pair",
@@ -228,6 +228,12 @@ def verify_pair_token(token: str) -> dict:
     payload = decode_token(token, expected_type="pair")
     if payload.get("kind") != "pair":
         raise AppError("UNAUTHORIZED", "身份凭证类型错误。", http_status=401)
+    # 重命名前已发给桌面端的 pair 令牌只带 tenant_id：回填成 yard_id，
+    # 消费方统一按 yard_id 读取，不必各自记旧拼写。
+    if payload.get("yard_id") is None:
+        legacy_yard_id = resolve_yard_id(payload)
+        if legacy_yard_id is not None:
+            payload["yard_id"] = legacy_yard_id
     return payload
 
 
@@ -236,19 +242,19 @@ def verify_pair_token(token: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def list_devices(db: Session, tenant_id: str) -> list[PairDevice]:
+def list_devices(db: Session, yard_id: str) -> list[PairDevice]:
     return list(
         db.scalars(
             select(PairDevice)
-            .where(PairDevice.tenant_id == tenant_id)
+            .where(PairDevice.yard_id == yard_id)
             .order_by(PairDevice.created_at.desc())
         )
     )
 
 
-def get_device_or_404(db: Session, tenant_id: str, device_id: str) -> PairDevice:
+def get_device_or_404(db: Session, yard_id: str, device_id: str) -> PairDevice:
     row = db.scalars(
-        select(PairDevice).where(PairDevice.id == device_id, PairDevice.tenant_id == tenant_id)
+        select(PairDevice).where(PairDevice.id == device_id, PairDevice.yard_id == yard_id)
     ).first()
     if row is None:
         raise AppError("NOT_FOUND", "设备不存在或无权访问。", http_status=404)
@@ -256,15 +262,15 @@ def get_device_or_404(db: Session, tenant_id: str, device_id: str) -> PairDevice
 
 
 def revoke_device(
-    db: Session, *, tenant_id: str, device_id: str, actor_id: str, request_id: str
+    db: Session, *, yard_id: str, device_id: str, actor_id: str, request_id: str
 ) -> PairDevice:
     """吊销设备（幂等）：打标 revoked_at；审计只记设备 id 与名称。"""
-    device = get_device_or_404(db, tenant_id, device_id)
+    device = get_device_or_404(db, yard_id, device_id)
     if device.revoked_at is None:
         device.revoked_at = _utcnow()
         log_audit(
             db,
-            tenant_id=tenant_id,
+            yard_id=yard_id,
             actor_id=actor_id,
             action="pairing_device_revoke",
             resource_type="pair_device",

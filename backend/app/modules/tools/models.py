@@ -49,7 +49,7 @@ class ToolApproval(Base, TimestampMixin):
     """高风险工具调用的人工审批单。
 
     - 高风险工具（external_side_effect）被拦截时自动创建 pending 行
-     （同租户+同工具+同参数去重）。
+     （同小院+同工具+同参数去重）。
     - 审批通过后，调用方凭 approved 审批单重试，工具方可执行；
       审批单状态流转 pending→approved/rejected/cancelled。
     - task_id 关联触发该审批的任务（可空：工具可被任务外直接调用）。
@@ -57,7 +57,7 @@ class ToolApproval(Base, TimestampMixin):
 
     __tablename__ = "tool_approvals"
 
-    tenant_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    yard_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     tool_code: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     params_json: Mapped[dict] = mapped_column("params", JSON, nullable=False, default=dict)
     params_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)

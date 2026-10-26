@@ -108,4 +108,4 @@ Enter 发送 Shift+Enter 换行、发送钮渐变圆钮；发送中变停止样�
   - target=auto：走 supervisor 三级路由；assistant_message.choice = {kind,code?,name}、routed_by、reason
   - target=agent/team：直跑指定对象；routed_by='manual'
   - 执行失败：assistant_message.content = 中文错误说明，routed_by='error'（会话不死，可继续问）
-- 全部登录可用（成员级），跨租户/跨用户会话一律 404
+- 全部登录可用（成员级），跨小院/跨用户会话一律 404

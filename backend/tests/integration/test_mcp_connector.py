@@ -5,7 +5,7 @@
    匹配 id、JSON-RPC error 帧、1MB 截断、cursor/nextCursor 透传；
 2. 管理 API：创建（URL/头加密+掩码不回显）、SSRF（localhost 拒）、重名 409、
    transport 白名单、PATCH（换 URL 清零计数/重新启用清零）、DELETE、
-   跨租户统一 404、GET /tools 读缓存；
+   跨小院统一 404、GET /tools 读缓存；
 3. 连接测试端点：成功刷新 tool_cache_json + last_test_at + 清零计数；失败
    last_error + 熔断计数持久化；
 4. 执行链路：registry.execute 对 ``mcp__`` 回落（已批审批单放行）→ tools/call
@@ -30,7 +30,7 @@ os.environ.setdefault("SUPPLIER_KEY_SECRET", Fernet.generate_key().decode())
 
 import httpx  # noqa: E402
 import pytest  # noqa: E402
-from app.core.deps import TenantContext  # noqa: E402
+from app.core.deps import YardContext  # noqa: E402
 from app.core.errors import AppError  # noqa: E402
 from app.core.security import create_access_token  # noqa: E402
 from app.modules.agents import declarative  # noqa: E402
@@ -39,7 +39,7 @@ from app.modules.agents.models import (  # noqa: E402
     RISK_HIGH,
     STATUS_PENDING,
     STATUS_PUBLISHED,
-    TenantAgent,
+    YardAgent,
 )
 from app.modules.audit.models import AuditLog  # noqa: E402
 from app.modules.llm import providers_fake  # noqa: E402
@@ -48,13 +48,13 @@ from app.modules.mcp import client as client_mod  # noqa: E402
 from app.modules.mcp import service, tool_bridge  # noqa: E402
 from app.modules.mcp.client import McpStreamableHttpClient  # noqa: E402
 from app.modules.mcp.models import McpServer  # noqa: E402
-from app.modules.tenants.repository import create_tenant  # noqa: E402
 from app.modules.tools.approvals import params_hash  # noqa: E402
 from app.modules.tools.models import ToolApproval  # noqa: E402
 from app.modules.tools.registry import tool_registry  # noqa: E402
+from app.modules.yards.repository import create_yard  # noqa: E402
 
-TENANT = "t-mcp-a"
-OTHER_TENANT = "t-mcp-b"
+YARD = "t-mcp-a"
+OTHER_YARD = "t-mcp-b"
 SECRET_URL = "https://mcp-srv.invalid/rpc?key=sk-mcp-666"
 HEADER_SECRET = "Bearer sup3r-s3cr3t-headervalue"
 DEMO_SCHEMA = {
@@ -172,33 +172,31 @@ def _demo_tools() -> list[dict]:
 
 
 @pytest.fixture()
-def tenant(db_session):
-    t = create_tenant(db_session, name="MCP 租户A")
+def yard(db_session):
+    t = create_yard(db_session, name="MCP 小院A")
     db_session.commit()
     return t
 
 
 @pytest.fixture()
-def other_tenant(db_session):
-    t = create_tenant(db_session, name="MCP 租户B")
+def other_yard(db_session):
+    t = create_yard(db_session, name="MCP 小院B")
     db_session.commit()
     return t
 
 
-def _ctx(tenant_id: str = TENANT) -> TenantContext:
-    return TenantContext(
-        tenant_id=tenant_id, user_id="u-mcp", roles=["tenant_admin"], request_id="req-mcp"
-    )
+def _ctx(yard_id: str = YARD) -> YardContext:
+    return YardContext(yard_id=yard_id, user_id="u-mcp", roles=["yard_admin"], request_id="req-mcp")
 
 
-def _hdr(tenant_id: str = TENANT, roles=("tenant_admin",)):
-    token = create_access_token(user_id="u-mcp", tenant_id=tenant_id, roles=list(roles))
+def _hdr(yard_id: str = YARD, roles=("yard_admin",)):
+    token = create_access_token(user_id="u-mcp", yard_id=yard_id, roles=list(roles))
     return {"Authorization": f"Bearer {token}"}
 
 
-def _mk_server(db, tenant_id: str = TENANT, *, name="主服务器", url=SECRET_URL, headers=None):
+def _mk_server(db, yard_id: str = YARD, *, name="主服务器", url=SECRET_URL, headers=None):
     srv = McpServer(
-        tenant_id=tenant_id,
+        yard_id=yard_id,
         name=name,
         url_enc=service.prepare_url_enc(url),
         headers_enc=service.prepare_headers_enc(headers),
@@ -296,11 +294,11 @@ def test_client_connection_error_maps_to_mcp_error(fake_transport):
 
 
 # ---------------------------------------------------------------------------
-# 2) 管理 API：CRUD / 掩码 / SSRF / 权限 / 跨租户
+# 2) 管理 API：CRUD / 掩码 / SSRF / 权限 / 跨小院
 # ---------------------------------------------------------------------------
 
 
-def test_create_masks_url_and_headers_never_echo(client, db_session, tenant):
+def test_create_masks_url_and_headers_never_echo(client, db_session, yard):
     resp = client.post(
         "/api/v1/settings/mcp-servers",
         json={"name": "主服务器", "url": SECRET_URL, "headers": {"Authorization": HEADER_SECRET}},
@@ -320,7 +318,7 @@ def test_create_masks_url_and_headers_never_echo(client, db_session, tenant):
     assert HEADER_SECRET not in json.dumps(row.headers_enc or {})
 
 
-def test_create_local_url_blocked(client, db_session, tenant):
+def test_create_local_url_blocked(client, db_session, yard):
     resp = client.post(
         "/api/v1/settings/mcp-servers",
         json={"name": "内网", "url": "http://localhost:8123/mcp"},
@@ -333,7 +331,7 @@ def test_create_local_url_blocked(client, db_session, tenant):
     assert db_session.scalars(select(McpServer.id)).first() is None
 
 
-def test_create_duplicate_name_and_bad_transport(client, db_session, tenant):
+def test_create_duplicate_name_and_bad_transport(client, db_session, yard):
     _mk_server(db_session)
     resp = client.post(
         "/api/v1/settings/mcp-servers",
@@ -350,7 +348,7 @@ def test_create_duplicate_name_and_bad_transport(client, db_session, tenant):
     assert resp2.json()["error"]["code"] == "INVALID_REQUEST"
 
 
-def test_patch_semantics_and_delete(client, db_session, tenant):
+def test_patch_semantics_and_delete(client, db_session, yard):
     srv = _mk_server(db_session)
     # 换 URL：清零失败计数
     srv.consecutive_failures = 3
@@ -384,9 +382,9 @@ def test_patch_semantics_and_delete(client, db_session, tenant):
     )
 
 
-def test_cross_tenant_unified_404(client, db_session, tenant, other_tenant):
+def test_cross_yard_unified_404(client, db_session, yard, other_yard):
     srv = _mk_server(db_session)
-    b = _hdr(tenant_id=OTHER_TENANT)
+    b = _hdr(yard_id=OTHER_YARD)
     assert client.get("/api/v1/settings/mcp-servers", headers=b).json()["data"] == []
     for call in (
         client.get(f"/api/v1/settings/mcp-servers/{srv.id}/tools", headers=b),
@@ -397,7 +395,7 @@ def test_cross_tenant_unified_404(client, db_session, tenant, other_tenant):
         assert call.status_code == 404
 
 
-def test_non_admin_forbidden(client, db_session, tenant):
+def test_non_admin_forbidden(client, db_session, yard):
     resp = client.get("/api/v1/settings/mcp-servers", headers=_hdr(roles=("operator",)))
     assert resp.status_code == 403
 
@@ -407,7 +405,7 @@ def test_non_admin_forbidden(client, db_session, tenant):
 # ---------------------------------------------------------------------------
 
 
-def test_test_endpoint_snapshots_cache(client, db_session, tenant, fake_transport):
+def test_test_endpoint_snapshots_cache(client, db_session, yard, fake_transport):
     fake_transport({"sse": True})
     srv = _mk_server(db_session, headers={"Authorization": HEADER_SECRET})
     srv.consecutive_failures = 2
@@ -429,14 +427,14 @@ def test_test_endpoint_snapshots_cache(client, db_session, tenant, fake_transpor
     assert tools_resp.json()["data"]["tools"][0]["name"] == "demo"
 
 
-def test_test_endpoint_next_cursor_honest_flag(client, db_session, tenant, fake_transport):
+def test_test_endpoint_next_cursor_honest_flag(client, db_session, yard, fake_transport):
     fake_transport({"sse": False, "next_cursor": "abc"})
     srv = _mk_server(db_session)
     data = client.post(f"/api/v1/settings/mcp-servers/{srv.id}/test", headers=_hdr()).json()["data"]
     assert data["has_more"] is True  # 只取一页：如实回报
 
 
-def test_test_endpoint_failure_records_error(client, db_session, tenant, fake_transport):
+def test_test_endpoint_failure_records_error(client, db_session, yard, fake_transport):
     fake_transport({"http_503": True})
     srv = _mk_server(db_session)
     resp = client.post(f"/api/v1/settings/mcp-servers/{srv.id}/test", headers=_hdr())
@@ -461,10 +459,10 @@ def _wire(srv: McpServer, tool: str = "demo") -> str:
     return tool_bridge.build_wire_name(srv.id, tool)
 
 
-def _approve(db, tenant_id: str, tool_code: str, args: dict) -> None:
+def _approve(db, yard_id: str, tool_code: str, args: dict) -> None:
     db.add(
         ToolApproval(
-            tenant_id=tenant_id,
+            yard_id=yard_id,
             tool_code=tool_code,
             params_json=args,
             params_hash=params_hash(args),
@@ -476,9 +474,9 @@ def _approve(db, tenant_id: str, tool_code: str, args: dict) -> None:
     db.commit()
 
 
-async def test_registry_execute_mcp_success_resets_breaker(db_session, tenant, fake_transport):
+async def test_registry_execute_mcp_success_resets_breaker(db_session, yard, fake_transport):
     state = fake_transport({"sse": True})
-    srv = _mk_server(db_session, tenant.id)
+    srv = _mk_server(db_session, yard.id)
     service.test_connection(db_session, srv, request_id="req")
     db_session.commit()
     assert srv.tool_cache_json and "demo" in srv.tool_cache_json
@@ -486,8 +484,8 @@ async def test_registry_execute_mcp_success_resets_breaker(db_session, tenant, f
     db_session.commit()
     wire = _wire(srv)
     args = {"city": "北京"}
-    _approve(db_session, tenant.id, wire, args)
-    result = await tool_registry.execute(db_session, wire, args, _ctx(tenant.id), "req-exec")
+    _approve(db_session, yard.id, wire, args)
+    result = await tool_registry.execute(db_session, wire, args, _ctx(yard.id), "req-exec")
     assert result["text"] == "mock 工具结果"
     assert result["tool"] == "demo" and result["is_error"] is False
     db_session.refresh(srv)
@@ -496,17 +494,17 @@ async def test_registry_execute_mcp_success_resets_breaker(db_session, tenant, f
     assert state["methods"].count("tools/call") == 1
 
 
-async def test_registry_execute_tool_is_error_semantics(db_session, tenant, fake_transport):
+async def test_registry_execute_tool_is_error_semantics(db_session, yard, fake_transport):
     fake_transport({"sse": False, "call_is_error": True, "call_text": "上游炸了"})
-    srv = _mk_server(db_session, tenant.id)
+    srv = _mk_server(db_session, yard.id)
     service.test_connection(db_session, srv, request_id="req")
     srv.consecutive_failures = 2
     db_session.commit()
     wire = _wire(srv)
     args = {"city": "上海"}
-    _approve(db_session, tenant.id, wire, args)
+    _approve(db_session, yard.id, wire, args)
     with pytest.raises(AppError) as ei:
-        await tool_registry.execute(db_session, wire, args, _ctx(tenant.id), "req-err")
+        await tool_registry.execute(db_session, wire, args, _ctx(yard.id), "req-err")
     assert ei.value.code == "MCP_ERROR"
     assert "MCP 工具返回错误" in ei.value.message and "上游炸了" in ei.value.message
     assert ei.value.details.get("is_tool_error") is True
@@ -514,16 +512,16 @@ async def test_registry_execute_tool_is_error_semantics(db_session, tenant, fake
     assert srv.consecutive_failures == 0  # 服务连通：工具级错误不计熔断
 
 
-async def test_connection_failures_break_after_five(db_session, tenant, fake_transport):
+async def test_connection_failures_break_after_five(db_session, yard, fake_transport):
     state = fake_transport({"sse": True})
-    srv = _mk_server(db_session, tenant.id)
+    srv = _mk_server(db_session, yard.id)
     service.test_connection(db_session, srv, request_id="req")
     db_session.commit()
     state["raise_connect"] = True  # 缓存就绪后才让服务器"断网"：只打 tools/call
     wire = _wire(srv)
     for _ in range(5):
         with pytest.raises(AppError) as ei:
-            tool_bridge.execute_mcp_tool(db_session, wire, {"city": "x"}, _ctx(tenant.id))
+            tool_bridge.execute_mcp_tool(db_session, wire, {"city": "x"}, _ctx(yard.id))
         assert ei.value.code == "MCP_ERROR"
         db_session.commit()
     db_session.refresh(srv)
@@ -541,19 +539,19 @@ async def test_connection_failures_break_after_five(db_session, tenant, fake_tra
         == 1
     )
     # 熔断后：缓存工具即刻不可见（registry 回落 → TOOL_NOT_FOUND）
-    assert tool_bridge.lookup_mcp_tool(db_session, tenant.id, wire) is None
+    assert tool_bridge.lookup_mcp_tool(db_session, yard.id, wire) is None
     with pytest.raises(AppError) as ei2:
-        await tool_registry.execute(db_session, wire, {"city": "x"}, _ctx(tenant.id), "req")
+        await tool_registry.execute(db_session, wire, {"city": "x"}, _ctx(yard.id), "req")
     assert ei2.value.code == "TOOL_NOT_FOUND"
     assert state["call_count"] == 5  # 停用后没有第 6 次外呼
 
 
-async def test_unknown_mcp_tool_still_404(db_session, tenant, fake_transport):
+async def test_unknown_mcp_tool_still_404(db_session, yard, fake_transport):
     fake_transport({"sse": True})
     _mk_server(db_session)
     ghost = tool_bridge.build_wire_name("ffffffff-1111", "ghost")
     with pytest.raises(AppError) as ei:
-        await tool_registry.execute(db_session, ghost, {}, _ctx(tenant.id), "req")
+        await tool_registry.execute(db_session, ghost, {}, _ctx(yard.id), "req")
     assert ei.value.code == "TOOL_NOT_FOUND"
 
 
@@ -562,16 +560,16 @@ async def test_unknown_mcp_tool_still_404(db_session, tenant, fake_transport):
 # ---------------------------------------------------------------------------
 
 
-def test_assess_risk_mcp_high_and_review_queue(client, db_session, tenant):
+def test_assess_risk_mcp_high_and_review_queue(client, db_session, yard):
     # 纯函数口径：mcp__ 一律 high（不看工具名内容）
-    assert declarative.assess_risk(["mcp__abcd1234__query"], ["tenant"]) == RISK_HIGH
+    assert declarative.assess_risk(["mcp__abcd1234__query"], ["yard"]) == RISK_HIGH
     body = {
         "agent_code": "mcp_helper",
         "name": "MCP 助手",
         "persona_prompt": "你是接入外部工具的助手。",
         "task_prompt_template": "问题：{{question}}",
         "allowed_tools": ["mcp__abcd1234__query"],
-        "knowledge_scopes": ["tenant"],
+        "knowledge_scopes": ["yard"],
     }
     created = client.post("/api/v1/agents/declarative", json=body, headers=_hdr())
     assert created.status_code == 200
@@ -579,27 +577,27 @@ def test_assess_risk_mcp_high_and_review_queue(client, db_session, tenant):
     assert data["risk_level"] == "high"
     pub = client.post(f"/api/v1/agents/declarative/{data['id']}/publish", headers=_hdr())
     assert pub.status_code == 200
-    # tenant_admin 不能自批高风险：进平台审核队列
+    # yard_admin 不能自批高风险：进平台审核队列
     assert pub.json()["data"]["status"] == STATUS_PENDING
 
 
-async def test_declarative_loop_executes_mcp_tool(db_session, tenant, fake_transport, monkeypatch):
+async def test_declarative_loop_executes_mcp_tool(db_session, yard, fake_transport, monkeypatch):
     state = fake_transport({"sse": True})
-    srv = _mk_server(db_session, tenant_id=tenant.id)
+    srv = _mk_server(db_session, yard_id=yard.id)
     service.test_connection(db_session, srv, request_id="req")
     db_session.commit()
     wire = _wire(srv)
     args = {"city": "济南"}
-    _approve(db_session, tenant.id, wire, args)
+    _approve(db_session, yard.id, wire, args)
 
-    agent = TenantAgent(
-        tenant_id=tenant.id,
+    agent = YardAgent(
+        yard_id=yard.id,
         agent_code="mcp_loop_agent",
         name="MCP 循环助手",
         persona_prompt="你是外部工具助手。",
         task_prompt_template="请回答：{{question}}",
         allowed_tools=[wire],
-        knowledge_scopes=["tenant"],
+        knowledge_scopes=["yard"],
         status=STATUS_PUBLISHED,
         risk_level=RISK_HIGH,
         version="1.0.0",
@@ -626,7 +624,7 @@ async def test_declarative_loop_executes_mcp_tool(db_session, tenant, fake_trans
         db_session,
         agent=agent,
         input_data={"question": "济南天气如何"},
-        ctx=_ctx(tenant.id),
+        ctx=_ctx(yard.id),
         task_id="run-mcp-1",
     )
     assert result.output["answer"] == "根据 MCP 工具结果作答"
@@ -638,7 +636,7 @@ async def test_declarative_loop_executes_mcp_tool(db_session, tenant, fake_trans
     tool_msgs = [m for m in seen[1].messages if m.role == "tool"]
     assert len(tool_msgs) == 1 and "mock 工具结果" in (tool_msgs[0].content or "")
     # ③ 步骤形状与工具步记录
-    steps = rs.list_steps(db_session, tenant_id=tenant.id, run_id="run-mcp-1")
+    steps = rs.list_steps(db_session, yard_id=yard.id, run_id="run-mcp-1")
     assert [(s.step_type, s.status) for s in steps] == [
         ("llm_call", "ok"),
         ("tool_call", "ok"),

@@ -4,6 +4,7 @@
 - create 必须同时命中"创建动词"与"能力名词"；
 - 疑问词降级为提问（咨询不是指令）；
 - install 走市场安装；
+- doc 必须同时命中"产出动词"与"文档名词"（能力名词优先）；
 - 其余一律提问（零回归）。
 """
 
@@ -35,8 +36,36 @@ def test_team_noun_targets_team():
 
 
 def test_verb_without_noun_stays_qa():
-    got = intent.detect("生成一份本周工作总结")
+    """只命中产出动词、没有能力/文档名词 → 仍是提问。"""
+    got = intent.detect("生成一份天气情况")
     assert got.kind == intent.INTENT_QA
+
+
+def test_summary_request_is_document():
+    got = intent.detect("生成一份本周工作总结")
+    assert got.kind == intent.INTENT_DOC
+    assert got.target == "document"
+    assert got.is_action is True
+
+
+def test_document_format_request_is_doc():
+    got = intent.detect("帮我生成一份设备巡检报告，用 Word 格式")
+    assert got.kind == intent.INTENT_DOC
+
+
+def test_write_weekly_report_is_doc():
+    got = intent.detect("写个周报")
+    assert got.kind == intent.INTENT_DOC
+
+
+def test_document_question_downgrades_to_qa():
+    got = intent.detect("这份报告怎么改")
+    assert got.kind == intent.INTENT_QA
+
+
+def test_capability_noun_wins_over_document():
+    got = intent.detect("生成一个巡检助手")
+    assert got.kind == intent.INTENT_CREATE
 
 
 def test_noun_without_verb_stays_qa():

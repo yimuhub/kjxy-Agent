@@ -281,8 +281,8 @@
         <el-form-item label="策略">
           <el-select v-model="rolloutForm.strategy">
             <el-option
-              label="使用空间名单"
-              value="tenant_allowlist"
+              label="小院名单"
+              value="yard_allowlist"
             />
             <el-option
               label="按比例"
@@ -302,11 +302,11 @@
         </el-form-item>
         <el-form-item
           v-else
-          label="使用空间名单"
+          label="小院名单"
         >
           <el-input
-            v-model="rolloutForm.tenants"
-            placeholder="逗号分隔的使用空间 ID"
+            v-model="rolloutForm.yards"
+            placeholder="逗号分隔的小院 ID"
           />
         </el-form-item>
       </el-form>
@@ -497,7 +497,7 @@
                   />
                 </el-select>
                 <div class="hint">
-                  工具需在工具注册表中且本租户可用（如 sensor.query）；列表加载失败时可直接输入完整编码。
+                  工具需在工具注册表中且本小院可用（如 sensor.query）；列表加载失败时可直接输入完整编码。
                 </div>
                 <el-input
                   v-model="s.argsText"
@@ -646,7 +646,7 @@
     rollout_version: '',
     strategy: 'percentage',
     percentage: 10,
-    tenants: '',
+    yards: '',
   })
   function statusType(s: string) {
     return s === 'published' ? 'success' : s === 'deprecated' ? 'info' : 'warning'
@@ -703,9 +703,10 @@
         strategy: rolloutForm.value.strategy,
         percentage:
           rolloutForm.value.strategy === 'percentage' ? rolloutForm.value.percentage : undefined,
-        tenant_allowlist:
-          rolloutForm.value.strategy === 'tenant_allowlist'
-            ? rolloutForm.value.tenants
+        // 后端 RolloutCreate 的入参字段是 yard_ids（extra=ignore），传 yard_allowlist 会被丢弃
+        yard_ids:
+          rolloutForm.value.strategy === 'yard_allowlist'
+            ? rolloutForm.value.yards
                 .split(',')
                 .map(t => t.trim())
                 .filter(Boolean)

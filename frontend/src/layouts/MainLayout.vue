@@ -47,11 +47,11 @@
         >
           <el-menu-item-group
             v-for="g in visibleGroups"
-            :key="g.label"
+            :key="g.id"
             :title="g.label"
           >
             <template
-              v-for="node in g.items"
+              v-for="(node, nIdx) in g.items"
               :key="node.key"
             >
               <el-sub-menu
@@ -60,22 +60,34 @@
               >
                 <template #title>
                   <el-icon aria-hidden="true">
-                    <component :is="node.icon" />
+                    <component :is="resolveIcon(node.iconName)" />
                   </el-icon>
                   <span>{{ node.title }}</span>
                 </template>
                 <el-menu-item
-                  v-for="child in node.children"
+                  v-for="(child, cIdx) in node.children"
                   :key="child.path"
                   :index="child.path ?? child.key"
                   class="nav-item"
                   :aria-current="activePath === child.path ? 'page' : undefined"
+                  :draggable="menuStore.sidebarEditMode"
+                  @dragstart.stop="onSideDragStartChild(g.id, node.key, cIdx)"
+                  @dragover.prevent
+                  @drop.stop="onSideDropChild(g.id, node.key, cIdx)"
                 >
                   <el-icon aria-hidden="true">
-                    <component :is="child.icon" />
+                    <component :is="resolveIcon(child.iconName)" />
                   </el-icon>
                   <template #title>
-                    {{ child.title }}
+                    <div class="nav-item-row">
+                      <span class="nav-item-text">{{ child.title }}</span>
+                      <span
+                        v-if="menuStore.sidebarEditMode && !isMini"
+                        class="nav-quick-diy"
+                        title="提至一级直达"
+                        @click.stop.prevent="menuStore.promoteToTopLevel(g.id, node.key, child.key)"
+                      >↑一级</span>
+                    </div>
                   </template>
                 </el-menu-item>
               </el-sub-menu>
@@ -84,18 +96,55 @@
                 :index="node.path ?? node.key"
                 class="nav-item"
                 :aria-current="activePath === node.path ? 'page' : undefined"
+                :draggable="menuStore.sidebarEditMode"
+                @dragstart.stop="onSideDragStartNode(g.id, nIdx)"
+                @dragover.prevent
+                @drop.stop="onSideDropNode(g.id, nIdx)"
               >
                 <el-icon aria-hidden="true">
-                  <component :is="node.icon" />
+                  <component :is="resolveIcon(node.iconName)" />
                 </el-icon>
                 <template #title>
-                  {{ node.title }}
+                  <div class="nav-item-row">
+                    <span class="nav-item-text">{{ node.title }}</span>
+                    <span
+                      v-if="menuStore.sidebarEditMode && !isMini"
+                      class="nav-quick-diy"
+                      title="收纳进二级菜单"
+                      @click.stop.prevent="menuStore.demoteToSubmenu(g.id, node.key)"
+                    >↓二级</span>
+                  </div>
                 </template>
               </el-menu-item>
             </template>
           </el-menu-item-group>
         </el-menu>
       </nav>
+
+      <!-- 侧栏底部：DIY 菜单快捷开关与工作台弹窗入口 -->
+      <div
+        v-if="!isMini"
+        class="aside-footer"
+      >
+        <el-button
+          size="small"
+          text
+          class="diy-foot-btn"
+          @click="menuStore.sidebarEditMode = !menuStore.sidebarEditMode"
+        >
+          <el-icon><Operation /></el-icon>
+          <span>{{ menuStore.sidebarEditMode ? '完成原地调整' : '原地拖拽调序' }}</span>
+        </el-button>
+        <el-button
+          size="small"
+          text
+          type="primary"
+          class="diy-foot-btn"
+          @click="diyDialogVisible = true"
+        >
+          DIY 菜单配置
+        </el-button>
+      </div>
     </el-aside>
 
     <el-container class="body">
@@ -125,12 +174,33 @@
           separator="/"
           class="crumb"
         >
-          <el-breadcrumb-item>{{ auth.tenant?.name ?? '未开通空间' }}</el-breadcrumb-item>
+          <el-breadcrumb-item>{{ auth.yard?.name ?? '未开通小院' }}</el-breadcrumb-item>
           <el-breadcrumb-item v-if="crumb.group">{{ crumb.group }}</el-breadcrumb-item>
           <el-breadcrumb-item v-if="crumb.parent">{{ crumb.parent }}</el-breadcrumb-item>
           <el-breadcrumb-item>{{ crumb.current }}</el-breadcrumb-item>
         </el-breadcrumb>
         <div class="spacer" />
+
+        <!-- 全局顶栏 Token 实时统计胶囊（点击跳转用量看板） -->
+        <el-tooltip
+          v-if="!showNoYardNotice"
+          :content="`今日输入 ${tokenOverview.today_input_tokens} / 输出 ${tokenOverview.today_output_tokens} tokens · 近30天累计 ${tokenOverview.total_tokens} tokens（点击查看明细）`"
+          placement="bottom"
+        >
+          <button
+            type="button"
+            class="token-pill"
+            aria-label="查看 Token 消耗统计"
+            @click="router.push('/quota')"
+          >
+            <span class="tp-dot" />
+            <span class="tp-label">Token：</span>
+            <strong class="tp-val">今日 {{ formatCompact(tokenOverview.today_tokens) }}</strong>
+            <span class="tp-sep">·</span>
+            <span class="tp-total">累计 {{ formatCompact(tokenOverview.total_tokens) }}</span>
+          </button>
+        </el-tooltip>
+
         <el-dropdown
           trigger="click"
           popper-class="user-menu-popper"
@@ -165,7 +235,20 @@
           <template #dropdown>
             <el-dropdown-menu>
               <el-dropdown-item
+                :icon="User"
+                @click="router.push('/profile')"
+              >
+                个人资料
+              </el-dropdown-item>
+              <el-dropdown-item
+                :icon="Operation"
+                @click="diyDialogVisible = true"
+              >
+                自定义左侧菜单 (DIY)
+              </el-dropdown-item>
+              <el-dropdown-item
                 :icon="SwitchButton"
+                divided
                 @click="handleLogout"
               >
                 退出登录
@@ -181,21 +264,19 @@
         tabindex="-1"
       >
         <div class="content">
-          <!-- 尚无使用空间的账号：业务页都需要空间上下文。
-               平台管理员仅在概览展示全局总览；其余路由给明确指引，避免 URL 与内容不一致。 -->
           <GlobalOverview
-            v-if="showNoTenantNotice && isPlatformAdmin && isOverviewRoute"
+            v-if="showNoYardNotice && isPlatformAdmin && isOverviewRoute"
           />
           <div
-            v-else-if="showNoTenantNotice"
-            class="no-tenant"
+            v-else-if="showNoYardNotice"
+            class="no-yard"
           >
             <el-empty>
               <template #description>
                 <p v-if="isPlatformAdmin">
-                  平台管理员账号未绑定使用空间，业务页面需要空间上下文。
+                  平台管理员账号未绑定小院，业务页面需要小院上下文。
                 </p>
-                <p v-else>当前账号还没有开通使用空间，请联系管理员为你开通。</p>
+                <p v-else>当前账号还没有开通小院，请联系管理员为你开通。</p>
               </template>
               <el-button
                 v-if="isPlatformAdmin"
@@ -224,11 +305,30 @@
         </div>
       </el-main>
     </el-container>
+
+    <!-- 全员可用的左侧导航菜单自由 DIY 拖拽配置弹窗 -->
+    <el-dialog
+      v-model="diyDialogVisible"
+      title="自定义左侧菜单栏 (自由拖拽 DIY)"
+      width="920px"
+      top="6vh"
+      append-to-body
+    >
+      <MenuDiyEditor />
+      <template #footer>
+        <el-button
+          type="primary"
+          @click="diyDialogVisible = false"
+        >
+          完成并应用
+        </el-button>
+      </template>
+    </el-dialog>
   </el-container>
 </template>
 
 <script setup lang="ts">
-  import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+  import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
   import { ElMessageBox } from 'element-plus'
   import {
@@ -256,130 +356,138 @@
   } from '@element-plus/icons-vue'
   import type { Component } from 'vue'
   import { useAuthStore } from '@/stores/auth'
+  import { useMenuStore, type DiyMenuGroup, type DiyMenuNode } from '@/stores/menu'
+  import { llmTraceApi } from '@/api/modules'
   import GlobalOverview from '@/views/GlobalOverview.vue'
-
-  /** 菜单节点：带 children 的为二级菜单（不可直接导航） */
-  interface MenuNode {
-    key: string
-    title: string
-    icon: Component
-    path?: string
-    roles?: string[]
-    children?: MenuNode[]
-  }
-  interface MenuGroup {
-    label: string
-    items: MenuNode[]
-  }
+  import MenuDiyEditor from '@/components/layout/MenuDiyEditor.vue'
 
   interface MenuMatch {
-    group: MenuGroup
-    parent: MenuNode | null
-    item: MenuNode
+    group: DiyMenuGroup
+    parent: DiyMenuNode | null
+    item: DiyMenuNode
   }
 
   interface MenuExposed {
     open: (index: string) => void
   }
 
-  const ADMIN_ROLES = ['tenant_admin', 'platform_admin']
-  const REVIEW_ROLES = ['tenant_admin', 'platform_admin', 'expert']
+  const ICON_MAP: Record<string, Component> = {
+    Odometer: markRaw(Odometer),
+    ChatDotRound: markRaw(ChatDotRound),
+    Reading: markRaw(Reading),
+    Files: markRaw(Files),
+    List: markRaw(List),
+    Connection: markRaw(Connection),
+    Document: markRaw(Document),
+    Cpu: markRaw(Cpu),
+    UserFilled: markRaw(UserFilled),
+    Shop: markRaw(Shop),
+    Operation: markRaw(Operation),
+    Checked: markRaw(Checked),
+    Setting: markRaw(Setting),
+    User: markRaw(User),
+    DataLine: markRaw(DataLine),
+    TrendCharts: markRaw(TrendCharts),
+    Menu: markRaw(Menu),
+  }
 
-  /**
-   * 设计系统 v2 §5：四大分组、9 个一级入口。
-   * 低频管理项收进二级菜单，避免侧栏 17 项平铺带来的认知负担。
-   */
-  const MENU_GROUPS: MenuGroup[] = [
-    {
-      label: '工作台',
-      items: [
-        { key: 'dashboard', path: '/', title: '概览', icon: markRaw(Odometer) },
-        { key: 'chat', path: '/chat', title: '对话', icon: markRaw(ChatDotRound) },
-        { key: 'qa', path: '/qa', title: '问答', icon: markRaw(Reading) },
-      ],
-    },
-    {
-      label: '知识数据',
-      items: [
-        { key: 'knowledge', path: '/knowledge', title: '知识库', icon: markRaw(Files) },
-        { key: 'tasks', path: '/tasks', title: '任务中心', icon: markRaw(List) },
-        {
-          key: 'data',
-          title: '设备与政策',
-          icon: markRaw(Connection),
-          children: [
-            { key: 'devices', path: '/devices', title: '设备接入', icon: markRaw(Connection) },
-            { key: 'policies', path: '/policies', title: '政策服务', icon: markRaw(Document) },
-          ],
-        },
-      ],
-    },
-    {
-      label: '能力协作',
-      items: [
-        {
-          key: 'capability',
-          title: '能力中心',
-          icon: markRaw(Cpu),
-          children: [
-            { key: 'agents', path: '/agents', title: '专业助手', icon: markRaw(Cpu) },
-            { key: 'teams', path: '/teams', title: '协作班组', icon: markRaw(UserFilled) },
-            { key: 'market', path: '/market', title: 'Agent 市场', icon: markRaw(Shop), roles: ADMIN_ROLES },
-            { key: 'factory', path: '/agents/factory', title: '智能工厂', icon: markRaw(Operation), roles: ADMIN_ROLES },
-          ],
-        },
-      ],
-    },
-    {
-      label: '管理',
-      items: [
-        { key: 'review', path: '/review', title: '专家审核', icon: markRaw(Checked), roles: REVIEW_ROLES },
-        {
-          key: 'admin',
-          title: '空间管理',
-          icon: markRaw(Setting),
-          roles: ADMIN_ROLES,
-          children: [
-            { key: 'members', path: '/members', title: '成员管理', icon: markRaw(User) },
-            { key: 'quota', path: '/quota', title: '用量额度', icon: markRaw(DataLine) },
-            { key: 'settings', path: '/settings', title: '系统设置', icon: markRaw(Setting) },
-            { key: 'bots', path: '/bots', title: 'IM 机器人', icon: markRaw(ChatDotRound) },
-            { key: 'evolution', path: '/evolution', title: '自生长管理', icon: markRaw(TrendCharts) },
-          ],
-        },
-      ],
-    },
-  ]
+  function resolveIcon(name?: string): Component {
+    return (name && ICON_MAP[name]) || ICON_MAP.Menu
+  }
 
   const ROLE_LABELS: Record<string, string> = {
     platform_admin: '平台管理员',
-    tenant_admin: '空间管理员',
+    yard_owner: '小院负责人',
+    yard_admin: '小院管理员',
     expert: '专家',
-    operator: '运营',
-    viewer: '成员',
+    operator: '科研操作员',
+    viewer: '普通成员',
   }
 
   const route = useRoute()
   const router = useRouter()
   const auth = useAuthStore()
+  const menuStore = useMenuStore()
   const menuRef = ref<MenuExposed>()
+  const diyDialogVisible = ref(false)
+
+  /* ---------- 侧栏原地拖拽调序 ---------- */
+  const sideDrag = ref<{
+    kind: 'node' | 'child'
+    groupId: string
+    folderKey?: string
+    index: number
+  } | null>(null)
+
+  function onSideDragStartNode(groupId: string, index: number) {
+    sideDrag.value = { kind: 'node', groupId, index }
+  }
+  function onSideDropNode(groupId: string, toIdx: number) {
+    if (!sideDrag.value || sideDrag.value.kind !== 'node' || sideDrag.value.groupId !== groupId)
+      return
+    menuStore.moveItemInGroup(groupId, sideDrag.value.index, toIdx)
+    sideDrag.value = null
+  }
+  function onSideDragStartChild(groupId: string, folderKey: string, index: number) {
+    sideDrag.value = { kind: 'child', groupId, folderKey, index }
+  }
+  function onSideDropChild(groupId: string, folderKey: string, toIdx: number) {
+    if (
+      !sideDrag.value ||
+      sideDrag.value.kind !== 'child' ||
+      sideDrag.value.groupId !== groupId ||
+      sideDrag.value.folderKey !== folderKey
+    )
+      return
+    menuStore.moveChildInFolder(groupId, folderKey, sideDrag.value.index, toIdx)
+    sideDrag.value = null
+  }
+
+  /* ---------- 顶栏实时 Token 统计 ---------- */
+  const tokenOverview = reactive({
+    today_tokens: 0,
+    today_input_tokens: 0,
+    today_output_tokens: 0,
+    total_tokens: 0,
+  })
+
+  function formatCompact(n: number): string {
+    if (!n || n <= 0) return '0'
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+    if (n >= 10_000) return `${(n / 1_000).toFixed(1)}k`
+    return n.toLocaleString()
+  }
+
+  async function refreshTokenOverview() {
+    if (!auth.isLoggedIn() || !auth.yards.length) return
+    try {
+      const ov = await llmTraceApi.overview(30)
+      tokenOverview.today_tokens = ov.today_tokens ?? 0
+      tokenOverview.today_input_tokens = ov.today_input_tokens ?? 0
+      tokenOverview.today_output_tokens = ov.today_output_tokens ?? 0
+      tokenOverview.total_tokens = ov.total_tokens ?? 0
+    } catch {
+      /* 静默容错 */
+    }
+  }
 
   /** 递归过滤：无权限的叶子与空掉的父节点都不渲染 */
-  function filterNode(node: MenuNode): MenuNode | null {
+  function filterNode(node: DiyMenuNode): DiyMenuNode | null {
     if (!auth.hasAnyRole(node.roles)) return null
     if (!node.children?.length) return node.path ? node : null
-    const children = node.children
-      .map(filterNode)
-      .filter((n): n is MenuNode => n !== null)
+    const children = node.children.filter(c => auth.hasAnyRole(c.roles))
     return children.length ? { ...node, children } : null
   }
 
-  /** 按当前角色过滤菜单（权限逻辑与原实现完全一致） */
-  const visibleGroups = computed<MenuGroup[]>(() =>
-    MENU_GROUPS.map(g => ({
-      label: g.label,
-      items: g.items.map(filterNode).filter((n): n is MenuNode => n !== null),
-    })).filter(g => g.items.length > 0),
+  /** 按当前角色过滤菜单（支持用户自由 DIY 后的菜单树） */
+  const visibleGroups = computed<DiyMenuGroup[]>(() =>
+    menuStore.groups
+      .map(g => ({
+        id: g.id,
+        label: g.label,
+        items: g.items.map(filterNode).filter((n): n is DiyMenuNode => n !== null),
+      }))
+      .filter(g => g.items.length > 0),
   )
 
   /** 当前路由对应的菜单项（最长前缀匹配），驱动激活态、展开态与面包屑 */
@@ -387,7 +495,7 @@
     let best: MenuMatch | null = null
     for (const g of visibleGroups.value) {
       for (const node of g.items) {
-        const leaves = node.children?.length ? node.children : [node]
+        const leaves: DiyMenuNode[] = node.children?.length ? node.children : [node]
         for (const leaf of leaves) {
           if (!leaf.path) continue
           const hit =
@@ -430,10 +538,8 @@
     return hit ? ROLE_LABELS[hit] : '成员'
   })
 
-  /** 平台管理员：无空间但给"全局总览"（租户列表/调用量/任务状态），而非空指引 */
   const isPlatformAdmin = computed(() => auth.roles.includes('platform_admin'))
 
-  /** 窄屏（≤768px）侧栏改为抽屉；平板（≤900px）收成图标条 */
   const collapsed = ref(false)
   const isMobile = ref(false)
   const drawerOpen = ref(false)
@@ -484,6 +590,7 @@
     () => {
       drawerOpen.value = false
       nextTick(openActiveSubmenu)
+      void refreshTokenOverview()
     },
   )
 
@@ -494,16 +601,15 @@
     },
   )
 
-  /** 已登录但确实没有使用空间的账号：不渲染业务页，给明确指引 */
-  const showNoTenantNotice = computed(
-    () => auth.meLoaded && auth.isLoggedIn() && auth.tenants.length === 0,
+  const showNoYardNotice = computed(
+    () => auth.meLoaded && auth.isLoggedIn() && auth.yards.length === 0,
   )
   const isOverviewRoute = computed(() => route.name === 'Dashboard')
 
   onMounted(async () => {
     syncViewport()
+    menuStore.loadFromStorage()
     nextTick(openActiveSubmenu)
-    // 角色与用户信息可能还没加载（直达 URL / 刷新），补齐一次
     if (!auth.user || !auth.meLoaded || auth.roles.length === 0) {
       try {
         await auth.fetchMe()
@@ -511,13 +617,15 @@
         /* 401 由 client 拦截器处理跳转 */
       }
     }
-    if (!auth.tenant) {
+    if (!auth.yard) {
       try {
-        await auth.fetchTenant()
+        await auth.fetchYard()
       } catch {
         /* 无权限时顶栏显示占位即可 */
       }
     }
+    menuStore.loadFromStorage()
+    void refreshTokenOverview()
     nextTick(openActiveSubmenu)
   })
 
@@ -540,7 +648,6 @@
     height: 100%;
   }
 
-  /* ---------- 键盘可达性：跳过导航 ---------- */
   .skip-link {
     position: absolute;
     left: 12px;
@@ -559,7 +666,6 @@
     top: 12px;
   }
 
-  /* ---------- 侧栏：232px 玻璃 / 折叠 64px / 移动端抽屉 ---------- */
   .aside {
     display: flex;
     flex-direction: column;
@@ -636,12 +742,11 @@
     color: var(--ds-text-3);
   }
 
-  /* ---------- 分组导航 ---------- */
   .nav {
     flex: 1;
     overflow-y: auto;
     overflow-x: hidden;
-    padding: 8px 0 16px;
+    padding: 8px 0 12px;
   }
   .menu {
     --el-menu-hover-bg-color: var(--ds-glass);
@@ -689,6 +794,28 @@
   .nav-item.is-active .el-icon {
     color: var(--ds-accent);
   }
+  .nav-item-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    gap: 6px;
+  }
+  .nav-item-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .nav-quick-diy {
+    font-size: 11px;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: var(--ds-glass-strong);
+    border: 1px solid var(--ds-border-strong);
+    color: var(--ds-accent-text);
+    line-height: 1.4;
+    flex: none;
+  }
   .menu :deep(.el-sub-menu__title) {
     margin: 2px 0;
     border-radius: var(--ds-radius-control);
@@ -714,7 +841,20 @@
     outline-offset: -2px;
   }
 
-  /* ---------- 顶栏 56px：面包屑 + 用户胶囊 ---------- */
+  .aside-footer {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    border-top: 1px solid var(--ds-border);
+    background: rgba(255, 255, 255, 0.015);
+  }
+  .diy-foot-btn {
+    font-size: 12px;
+    padding: 4px 6px;
+  }
+
   .body {
     background: transparent;
     min-width: 0;
@@ -743,6 +883,41 @@
   .spacer {
     flex: 1;
   }
+
+  .token-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    border-radius: var(--ds-radius-pill);
+    border: 1px solid color-mix(in srgb, var(--ds-accent) 40%, var(--ds-border));
+    background: var(--ds-glass);
+    color: var(--ds-text-2);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+  }
+  .token-pill:hover {
+    border-color: var(--ds-accent);
+    background: var(--ds-glass-strong);
+    color: var(--ds-text-1);
+  }
+  .tp-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--ds-accent);
+  }
+  .tp-val {
+    color: var(--ds-text-1);
+    font-weight: 600;
+  }
+  .tp-sep,
+  .tp-total {
+    color: var(--ds-text-3);
+  }
+
   .user-pill {
     display: flex;
     align-items: center;
@@ -788,7 +963,6 @@
     font-size: 12px;
   }
 
-  /* ---------- 内容区：1440 居中 + 120ms fade ---------- */
   .main {
     background: transparent;
     padding: 0;
@@ -801,12 +975,12 @@
     min-height: 100%;
     box-sizing: border-box;
   }
-  .no-tenant {
+  .no-yard {
     display: flex;
     justify-content: center;
     padding-top: 100px;
   }
-  .no-tenant p {
+  .no-yard p {
     margin: 4px 0;
     color: var(--ds-text-2);
   }
@@ -816,7 +990,9 @@
       padding: 12px;
     }
     .user-name,
-    .role-badge {
+    .role-badge,
+    .tp-total,
+    .tp-sep {
       display: none;
     }
     .crumb {

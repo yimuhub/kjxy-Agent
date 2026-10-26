@@ -28,6 +28,7 @@ def _startup_wiring() -> None:
         from app.db.session import SessionLocal
         from app.modules.devices.agent_tool import register_sensor_query_tool
         from app.modules.knowledge.service import register_knowledge_search_tool
+        from app.modules.search.tools import register_search_tools
         from app.modules.tools.registry import seed_builtin_tools
         from app.modules.tools.workorder_tool import register_workorder_tool
 
@@ -60,6 +61,7 @@ def _startup_wiring() -> None:
         register_knowledge_search_tool()
         register_workorder_tool()
         register_sensor_query_tool()
+        register_search_tools()
     except Exception as e:
         log.warning("startup wiring failed: %s", e)
 

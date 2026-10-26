@@ -41,13 +41,11 @@ def _sse_frame(event: str, data: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
 
 
-def _read_snapshot(
-    tenant_id: str, run_id: str
-) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+def _read_snapshot(yard_id: str, run_id: str) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
     """短 session 读一次快照：run 状态 + Member 台账序列化（index 升序）。"""
     db: Session = _get_session_factory()()
     try:
-        run = db.scalar(select(TeamRun).where(TeamRun.id == run_id, TeamRun.tenant_id == tenant_id))
+        run = db.scalar(select(TeamRun).where(TeamRun.id == run_id, TeamRun.yard_id == yard_id))
         if run is None:
             return None, []
         rows = list(
@@ -80,7 +78,7 @@ def _read_snapshot(
         db.close()
 
 
-async def _stream_frames(tenant_id: str, run_id: str) -> AsyncIterator[str]:
+async def _stream_frames(yard_id: str, run_id: str) -> AsyncIterator[str]:
     seen: set[str] = set()
     loop = asyncio.get_running_loop()
     deadline = loop.time() + MAX_STREAM_SECONDS
@@ -112,7 +110,7 @@ async def _stream_frames(tenant_id: str, run_id: str) -> AsyncIterator[str]:
         return frames
 
     try:
-        run_d, rows = _read_snapshot(tenant_id, run_id)
+        run_d, rows = _read_snapshot(yard_id, run_id)
         if run_d is None:
             # SSE 语义不 404：一帧说明后直接收流（run_id 应由 run/retry 响应给出）
             yield _sse_frame("team-end", {"status": "not_found", "reason": "run_not_found"})
@@ -132,7 +130,7 @@ async def _stream_frames(tenant_id: str, run_id: str) -> AsyncIterator[str]:
             return
 
         while True:
-            run_d, rows = _read_snapshot(tenant_id, run_id)
+            run_d, rows = _read_snapshot(yard_id, run_id)
             if run_d is None:
                 yield _sse_frame("team-end", {"status": "not_found", "reason": "run_not_found"})
                 return
@@ -162,9 +160,9 @@ async def _stream_frames(tenant_id: str, run_id: str) -> AsyncIterator[str]:
         yield _sse_frame("team-end", {"status": "error", "reason": "snapshot_error"})
 
 
-def build_stream_response(tenant_id: str, run_id: str) -> StreamingResponse:
+def build_stream_response(yard_id: str, run_id: str) -> StreamingResponse:
     return StreamingResponse(
-        _stream_frames(tenant_id, run_id),
+        _stream_frames(yard_id, run_id),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

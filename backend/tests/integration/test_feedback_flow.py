@@ -26,7 +26,7 @@ def evo_client(db_session):
 
 
 def _headers(roles):
-    token = create_access_token(user_id="u1", tenant_id="t1", roles=roles)
+    token = create_access_token(user_id="u1", yard_id="t1", roles=roles)
     return {"Authorization": f"Bearer {token}"}
 
 

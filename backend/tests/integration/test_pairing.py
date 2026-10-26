@@ -2,10 +2,10 @@
 
 覆盖：
 1. 建码：pair_url 格式契约（kjxy://pair?host=<ip>:<port>&code=<码>）与
-   expires_in；配额上限（同租户未用码 >5 拒 429，用掉一个即可再建）；
+   expires_in；配额上限（同小院未用码 >5 拒 429，用掉一个即可再建）；
 2. 交换：成功（签发 pair 令牌 + 设备建档 + token_hash 落库）；过期拒；
    重复交换拒（原子占用）；错误码与过期/已用同文案（防枚举）；
-3. 台账：列表、吊销（幂等 + revoked_at）、跨租户统一 404；
+3. 台账：列表、吊销（幂等 + revoked_at）、跨小院统一 404；
 4. 权限：非管理员 403；**pair 令牌访问常规鉴权接口被 401 拒绝**
    （现有 decode_token 对 type 精确匹配 access——口径见 service 模块头）。
 
@@ -24,27 +24,27 @@ from app.core.config import settings  # noqa: E402
 from app.core.security import create_access_token  # noqa: E402
 from app.modules.pairing import service as pairing_service  # noqa: E402
 from app.modules.pairing.models import PairCode, PairDevice  # noqa: E402
-from app.modules.tenants.repository import create_tenant  # noqa: E402
+from app.modules.yards.repository import create_yard  # noqa: E402
 
-TENANT = "t-pair-a"
+YARD = "t-pair-a"
 OTHER = "t-pair-b"
 
 
 @pytest.fixture()
-def tenant(db_session):
-    t = create_tenant(db_session, name="配对租户A")
+def yard(db_session):
+    t = create_yard(db_session, name="配对小院A")
     db_session.commit()
     return t
 
 
-def _hdr(tenant_id: str = TENANT, roles: tuple[str, ...] = ("tenant_admin",)) -> dict:
-    token = create_access_token(user_id="u-pair", tenant_id=tenant_id, roles=list(roles))
+def _hdr(yard_id: str = YARD, roles: tuple[str, ...] = ("yard_admin",)) -> dict:
+    token = create_access_token(user_id="u-pair", yard_id=yard_id, roles=list(roles))
     return {"Authorization": f"Bearer {token}"}
 
 
-def _make_code(client, tenant_id: str = TENANT) -> tuple[str, str]:
+def _make_code(client, yard_id: str = YARD) -> tuple[str, str]:
     """建码并返回 (配对码明文, pair_url)。"""
-    resp = client.post("/api/v1/pairing/codes", headers=_hdr(tenant_id))
+    resp = client.post("/api/v1/pairing/codes", headers=_hdr(yard_id))
     assert resp.status_code == 200, resp.text
     pair_url = resp.json()["data"]["pair_url"]
     qs = parse_qs(urlparse(pair_url).query)
@@ -56,7 +56,7 @@ def _make_code(client, tenant_id: str = TENANT) -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 
-def test_create_code_pair_url_contract(client, tenant):
+def test_create_code_pair_url_contract(client, yard):
     resp = client.post("/api/v1/pairing/codes", headers=_hdr())
     assert resp.status_code == 200
     data = resp.json()["data"]
@@ -69,7 +69,7 @@ def test_create_code_pair_url_contract(client, tenant):
     assert ":" in qs["host"][0] and len(qs["code"][0]) >= 16
 
 
-def test_code_quota_limit(client, tenant):
+def test_code_quota_limit(client, yard):
     # 默认上限 5：前 5 个成功，第 6 个 429
     codes: list[str] = []
     for _ in range(settings.pairing_max_active_codes):
@@ -89,7 +89,7 @@ def test_code_quota_limit(client, tenant):
     assert client.post("/api/v1/pairing/codes", headers=_hdr()).status_code == 200
 
 
-def test_code_never_stored_in_plaintext(client, tenant, db_session):
+def test_code_never_stored_in_plaintext(client, yard, db_session):
     code, _ = _make_code(client)
     row = db_session.query(PairCode).one()
     assert row.code_hash != code and code not in row.code_hash
@@ -100,17 +100,17 @@ def test_code_never_stored_in_plaintext(client, tenant, db_session):
 # ---------------------------------------------------------------------------
 
 
-def test_exchange_success(client, tenant, db_session):
+def test_exchange_success(client, yard, db_session):
     code, _ = _make_code(client)
     resp = client.post("/api/v1/pairing/exchange", json={"code": code, "device_name": "小明的手机"})
     assert resp.status_code == 200, resp.text
     data = resp.json()["data"]
     assert data["token"] and data["device_id"]
 
-    # 令牌口径：kind=pair / sub=device_id / 租户正确；verify 走本模块专用校验
+    # 令牌口径：kind=pair / sub=device_id / 小院正确；verify 走本模块专用校验
     payload = pairing_service.verify_pair_token(data["token"])
     assert payload["kind"] == "pair" and payload["sub"] == data["device_id"]
-    assert payload["tenant_id"] == TENANT
+    assert payload["yard_id"] == YARD
 
     device = db_session.get(PairDevice, data["device_id"])
     assert device is not None
@@ -122,7 +122,7 @@ def test_exchange_success(client, tenant, db_session):
     db_session.refresh(db_session.query(PairCode).one())
 
 
-def test_exchange_expired_rejected(client, tenant, db_session):
+def test_exchange_expired_rejected(client, yard, db_session):
     code, _ = _make_code(client)
     row = db_session.query(PairCode).one()
     row.expires_at = datetime.now(UTC) - timedelta(seconds=1)
@@ -132,7 +132,7 @@ def test_exchange_expired_rejected(client, tenant, db_session):
     assert resp.json()["error"]["code"] == "UNAUTHORIZED"
 
 
-def test_exchange_replay_rejected(client, tenant):
+def test_exchange_replay_rejected(client, yard):
     code, _ = _make_code(client)
     body = {"code": code, "device_name": "重复手机"}
     assert client.post("/api/v1/pairing/exchange", json=body).status_code == 200
@@ -150,7 +150,7 @@ def test_exchange_replay_rejected(client, tenant):
 # ---------------------------------------------------------------------------
 
 
-def test_non_admin_forbidden(client, tenant):
+def test_non_admin_forbidden(client, yard):
     for call in (
         lambda: client.post("/api/v1/pairing/codes", headers=_hdr(roles=("member",))),
         lambda: client.get("/api/v1/pairing/devices", headers=_hdr(roles=("member",))),
@@ -162,7 +162,7 @@ def test_non_admin_forbidden(client, tenant):
     assert client.get("/api/v1/pairing/devices").status_code == 401
 
 
-def test_list_and_revoke(client, tenant, db_session):
+def test_list_and_revoke(client, yard, db_session):
     code, _ = _make_code(client)
     dev = client.post(
         "/api/v1/pairing/exchange", json={"code": code, "device_name": "台账手机"}
@@ -187,9 +187,9 @@ def test_list_and_revoke(client, tenant, db_session):
     assert device is not None and device.revoked_at is not None
 
 
-def test_cross_tenant_revoke_not_found(client, tenant, db_session):
-    # 租户 B 的管理员吊销租户 A 的设备：统一 404（防枚举）
-    other_t = create_tenant(db_session, name="配对租户B")
+def test_cross_yard_revoke_not_found(client, yard, db_session):
+    # 小院 B 的管理员吊销小院 A 的设备：统一 404（防枚举）
+    other_t = create_yard(db_session, name="配对小院B")
     db_session.commit()
     code, _ = _make_code(client)
     dev = client.post(
@@ -197,11 +197,11 @@ def test_cross_tenant_revoke_not_found(client, tenant, db_session):
     ).json()["data"]
     resp = client.post(
         f"/api/v1/pairing/devices/{dev['device_id']}/revoke",
-        headers=_hdr(other_t.id, roles=("tenant_admin",)),
+        headers=_hdr(other_t.id, roles=("yard_admin",)),
     )
     assert resp.status_code == 404
     assert resp.json()["error"]["code"] == "NOT_FOUND"
-    # 租户 B 看不到租户 A 的设备
+    # 小院 B 看不到小院 A 的设备
     assert client.get("/api/v1/pairing/devices", headers=_hdr(other_t.id)).json()["data"] == []
 
 
@@ -210,14 +210,14 @@ def test_cross_tenant_revoke_not_found(client, tenant, db_session):
 # ---------------------------------------------------------------------------
 
 
-def test_lan_ip_host_and_advertise_port(client, tenant, monkeypatch):
+def test_lan_ip_host_and_advertise_port(client, yard, monkeypatch):
     monkeypatch.setattr(pairing_service, "detect_local_ipv4", lambda: "192.168.6.20")
     _, url = _make_code(client)
     qs = parse_qs(urlparse(url).query)
     assert qs["host"][0] == f"192.168.6.20:{settings.pairing_advertise_port}"
 
 
-def test_host_header_fallback_without_route(client, tenant, monkeypatch):
+def test_host_header_fallback_without_route(client, yard, monkeypatch):
     # 无出网路由（探测失败）→ 回退请求 Host 头（TestClient 默认 testserver）
     monkeypatch.setattr(pairing_service, "detect_local_ipv4", lambda: None)
     _, url = _make_code(client)
@@ -225,7 +225,7 @@ def test_host_header_fallback_without_route(client, tenant, monkeypatch):
     assert qs["host"][0] == f"testserver:{settings.pairing_advertise_port}"
 
 
-def test_pair_token_cannot_pass_regular_auth(client, tenant):
+def test_pair_token_cannot_pass_regular_auth(client, yard):
     """口径实锤：现有鉴权依赖只认 type=access，pair 令牌被常规接口 401。"""
     code, _ = _make_code(client)
     dev = client.post(

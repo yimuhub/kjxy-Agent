@@ -54,7 +54,7 @@ def _msg_frame(conv="chat1", text="@小助手 棚室要通风吗", mid="m1", cty
 
 def _make_bot(**kw) -> BotConfig:  # noqa: ANN001, ANN201
     defaults = dict(
-        tenant_id="t1",
+        yard_id="t1",
         platform="wecom_aibot",
         name="测试机器人",
         enabled=True,
@@ -261,7 +261,7 @@ def _mk_conv_ready(db, bot):  # noqa: ANN001, ANN201
     from datetime import UTC, datetime
 
     conv = BotConversation(
-        tenant_id=bot.tenant_id,
+        yard_id=bot.yard_id,
         bot_config_id=bot.id,
         platform="wecom_aibot",
         external_conv_id="chat1",
@@ -287,7 +287,7 @@ def _inbound(text="棚室要通风吗", mid="m1", conv="chat1"):  # noqa: ANN201
 
 def _mk_bot(db, **kw):  # noqa: ANN001, ANN201
     defaults = dict(
-        tenant_id="t1",
+        yard_id="t1",
         platform="wecom_aibot",
         name="小助手",
         credentials_enc="x",
@@ -448,7 +448,7 @@ def test_record_failure_circuit_opens(db_session, monkeypatch):
 def test_credentials_roundtrip_and_mask():
     enc = service._dump_credentials({"bot_id": "bid-123456", "secret": "s3cr3t-value"})
     assert "s3cr3t" not in enc
-    bot = BotConfig(tenant_id="t", platform="wecom_aibot", name="n", credentials_enc=enc)
+    bot = BotConfig(yard_id="t", platform="wecom_aibot", name="n", credentials_enc=enc)
     assert service.load_credentials(bot) == {"bot_id": "bid-123456", "secret": "s3cr3t-value"}
     masked = service.mask_credentials({"bot_id": "bid-123456", "secret": "s3cr3t-value"})
     assert "*" in masked["secret"] and "s3cr3t" not in masked["secret"]
@@ -492,7 +492,7 @@ def test_conversation_unique_constraint(db_session):
     for _ in range(2):
         db_session.add(
             BotConversation(
-                tenant_id="t1",
+                yard_id="t1",
                 bot_config_id=bot.id,
                 platform="wecom_aibot",
                 external_conv_id="dup1",
@@ -508,7 +508,7 @@ def test_prune_stale_context(db_session):
 
     bot = _mk_bot(db_session)
     old = BotConversation(
-        tenant_id="t1",
+        yard_id="t1",
         bot_config_id=bot.id,
         platform="wecom_aibot",
         external_conv_id="old1",
@@ -517,7 +517,7 @@ def test_prune_stale_context(db_session):
         last_msg_at=datetime.now(UTC) - timedelta(days=40),
     )
     fresh = BotConversation(
-        tenant_id="t1",
+        yard_id="t1",
         bot_config_id=bot.id,
         platform="wecom_aibot",
         external_conv_id="new1",

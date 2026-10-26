@@ -1,10 +1,10 @@
 import { expect, type Page } from '@playwright/test'
 
-/** 演示租户管理员登录（依赖 make seed-dev 创建的种子账号） */
+/** 演示小院管理员登录（依赖 make seed-dev 创建的种子账号） */
 export async function login(
   page: Page,
-  username = 'tenant_admin',
-  password = 'tenant123',
+  username = 'yard_admin',
+  password = 'yard123',
 ) {
   await page.goto('/login')
   await page.locator('input[autocomplete="username"]').fill(username)

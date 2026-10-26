@@ -12,7 +12,7 @@ from app.modules.llm.service import complete_with_logging
 
 
 def _make_request(question: str = "水稻纹枯病怎么防治？", **kw) -> LLMRequest:
-    metadata = {"tenant_id": "t-001", "task_id": "task-1", "request_id": "req-test-1"}
+    metadata = {"yard_id": "t-001", "task_id": "task-1", "request_id": "req-test-1"}
     metadata.update(kw.pop("metadata", {}))
     return LLMRequest(
         messages=[ChatMessage(role="user", content=question)],
@@ -52,7 +52,7 @@ async def test_service_writes_success_row(db_session):
 
     row = db_session.query(LLMCall).one()
     assert row.status == "success"
-    assert row.tenant_id == "t-001"
+    assert row.yard_id == "t-001"
     assert row.task_id == "task-1"
     assert row.provider == "fake"
     assert row.model == resp.model

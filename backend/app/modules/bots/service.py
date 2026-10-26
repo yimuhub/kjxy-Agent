@@ -115,9 +115,9 @@ def _need(creds: dict[str, Any], keys: tuple[str, ...]) -> None:
 
 
 def _validate_bound_target(
-    db: Session, tenant_id: str, binding_mode: str, bound_agent_id: str | None
+    db: Session, yard_id: str, binding_mode: str, bound_agent_id: str | None
 ) -> None:
-    """指定助手/班组时必须指向本租户已发布助手或启用班组。"""
+    """指定助手/班组时必须指向本小院已发布助手或启用班组。"""
     from app.core.errors import AppError
     from app.modules.agents.supervisor import list_candidates
 
@@ -129,7 +129,7 @@ def _validate_bound_target(
     expected = "team" if binding_mode == "team" else "agent"
     hit = any(
         c["kind"] == expected and target in (c["id"], c.get("code"), c["name"])
-        for c in list_candidates(db, tenant_id)
+        for c in list_candidates(db, yard_id)
     )
     if not hit:
         raise AppError(
@@ -142,7 +142,7 @@ def _validate_bound_target(
 def create_bot(
     db: Session,
     *,
-    tenant_id: str,
+    yard_id: str,
     actor_id: str,
     platform: str,
     name: str,
@@ -158,9 +158,9 @@ def create_bot(
         binding_mode=binding_mode,
         bound_agent_id=bound_agent_id,
     )
-    _validate_bound_target(db, tenant_id, binding_mode, bound_agent_id)
+    _validate_bound_target(db, yard_id, binding_mode, bound_agent_id)
     bot = BotConfig(
-        tenant_id=tenant_id,
+        yard_id=yard_id,
         platform=platform,
         name=name.strip()[:120],
         credentials_enc=_dump_credentials(credentials),
@@ -173,7 +173,7 @@ def create_bot(
     db.flush()
     log_audit(
         db,
-        tenant_id=tenant_id,
+        yard_id=yard_id,
         actor_id=actor_id,
         action="bot_create",
         resource_type="bot_config",
@@ -186,21 +186,21 @@ def create_bot(
     return bot
 
 
-def list_bots(db: Session, tenant_id: str) -> list[BotConfig]:
+def list_bots(db: Session, yard_id: str) -> list[BotConfig]:
     return list(
         db.scalars(
             select(BotConfig)
-            .where(BotConfig.tenant_id == tenant_id)
+            .where(BotConfig.yard_id == yard_id)
             .order_by(BotConfig.created_at.desc())
         )
     )
 
 
-def get_bot_or_404(db: Session, tenant_id: str, bot_id: str) -> BotConfig:
+def get_bot_or_404(db: Session, yard_id: str, bot_id: str) -> BotConfig:
     from app.core.errors import AppError
 
     row = db.scalars(
-        select(BotConfig).where(BotConfig.id == bot_id, BotConfig.tenant_id == tenant_id)
+        select(BotConfig).where(BotConfig.id == bot_id, BotConfig.yard_id == yard_id)
     ).first()
     if row is None:
         raise AppError("NOT_FOUND", "机器人不存在或无权访问。", http_status=404)
@@ -210,7 +210,7 @@ def get_bot_or_404(db: Session, tenant_id: str, bot_id: str) -> BotConfig:
 def update_bot(
     db: Session,
     *,
-    tenant_id: str,
+    yard_id: str,
     actor_id: str,
     bot: BotConfig,
     name: str | None = None,
@@ -231,7 +231,7 @@ def update_bot(
         if binding_mode == "auto":
             new_bound = None
     if binding_mode is not None or bound_agent_id is not None:
-        _validate_bound_target(db, tenant_id, new_mode, new_bound)
+        _validate_bound_target(db, yard_id, new_mode, new_bound)
 
     if name is not None:
         if not name.strip():
@@ -261,7 +261,7 @@ def update_bot(
         bot.enabled = enabled
     log_audit(
         db,
-        tenant_id=tenant_id,
+        yard_id=yard_id,
         actor_id=actor_id,
         action="bot_update",
         resource_type="bot_config",
@@ -287,12 +287,12 @@ def update_bot(
     return bot
 
 
-def delete_bot(db: Session, *, tenant_id: str, actor_id: str, bot: BotConfig) -> None:
+def delete_bot(db: Session, *, yard_id: str, actor_id: str, bot: BotConfig) -> None:
     """删除机器人：会话与账本保留（审计链），仅断配置。manager 侧由调用方先停连接。"""
     db.delete(bot)
     log_audit(
         db,
-        tenant_id=tenant_id,
+        yard_id=yard_id,
         actor_id=actor_id,
         action="bot_delete",
         resource_type="bot_config",
@@ -317,7 +317,7 @@ def record_failure(db: Session, bot: BotConfig, reason: str) -> None:
         bot.enabled = False
         log_audit(
             db,
-            tenant_id=bot.tenant_id,
+            yard_id=bot.yard_id,
             actor_id=None,
             action="bot_circuit_open",
             resource_type="bot_config",
@@ -341,11 +341,11 @@ def record_state(db: Session, bot_id: str, status: str, reason: str) -> None:
     db.commit()
 
 
-def list_conversations(db: Session, tenant_id: str, *, limit: int = 50) -> list[BotConversation]:
+def list_conversations(db: Session, yard_id: str, *, limit: int = 50) -> list[BotConversation]:
     return list(
         db.scalars(
             select(BotConversation)
-            .where(BotConversation.tenant_id == tenant_id)
+            .where(BotConversation.yard_id == yard_id)
             .order_by(BotConversation.last_msg_at.desc())
             .limit(min(limit, 200))
         )
@@ -370,7 +370,7 @@ def conv_to_out(c: BotConversation) -> dict[str, Any]:
 
 
 def review_conversation(
-    db: Session, *, tenant_id: str, actor_id: str, conv_id: str, approve: bool
+    db: Session, *, yard_id: str, actor_id: str, conv_id: str, approve: bool
 ) -> BotConversation:
     from datetime import UTC, datetime
 
@@ -378,7 +378,7 @@ def review_conversation(
 
     conv = db.scalars(
         select(BotConversation).where(
-            BotConversation.id == conv_id, BotConversation.tenant_id == tenant_id
+            BotConversation.id == conv_id, BotConversation.yard_id == yard_id
         )
     ).first()
     if conv is None:
@@ -393,7 +393,7 @@ def review_conversation(
         conv.context_cache_json = None  # 吊销即清上下文明文（隐私承诺）
     log_audit(
         db,
-        tenant_id=tenant_id,
+        yard_id=yard_id,
         actor_id=actor_id,
         action="bot_conversation_approve" if approve else "bot_conversation_revoke",
         resource_type="bot_conversation",
@@ -406,11 +406,10 @@ def review_conversation(
     return conv
 
 
-def list_public_names(db: Session, tenant_id: str) -> list[dict[str, Any]]:
+def list_public_names(db: Session, yard_id: str) -> list[dict[str, Any]]:
     """/use 命令的候选清单（复用 supervisor 候选集，只取 name/id/kind）。"""
     from app.modules.agents.supervisor import list_candidates
 
     return [
-        {"id": c["id"], "name": c["name"], "kind": c["kind"]}
-        for c in list_candidates(db, tenant_id)
+        {"id": c["id"], "name": c["name"], "kind": c["kind"]} for c in list_candidates(db, yard_id)
     ]

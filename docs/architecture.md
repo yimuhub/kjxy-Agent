@@ -6,9 +6,9 @@
 Web 管理端（Vue 3 + TypeScript）
           │ HTTPS /api/v1
           ▼
-API 服务（FastAPI：鉴权、租户上下文、请求校验、业务服务）
+API 服务（FastAPI：鉴权、小院上下文、请求校验、业务服务）
           │
-          ├── 身份与租户模块（auth / tenants）
+          ├── 身份与小院模块（auth / yards）
           ├── 任务与工作流模块（tasks） ──► Celery Worker
           ├── 模型适配模块（llm） ────────► 外部/本地模型服务
           ├── Agent 运行模块（agents）
@@ -30,12 +30,12 @@ API 服务（FastAPI：鉴权、租户上下文、请求校验、业务服务）
 | 模块 | 可依赖 | 不得依赖 |
 |---|---|---|
 | core | 标准库及少量通用依赖 | 具体农业业务、前端 |
-| auth | core、tenants、数据库层 | 领域 Agent 内部实现 |
-| tenants | core、数据库层 | 具体模型供应商 |
+| auth | core、yards、数据库层 | 领域 Agent 内部实现 |
+| yards | core、数据库层 | 具体模型供应商 |
 | tasks | core、数据库层、agents 公共接口 | 前端代码、具体政策抓取器 |
 | agents | core、llm、tools、knowledge 的接口 | 绕过业务服务直接访问任意表 |
 | llm | core、配置 | 领域业务规则 |
-| knowledge | core、文件存储、数据库 | 不受限跨租户检索 |
+| knowledge | core、文件存储、数据库 | 不受限跨小院检索 |
 | tools | core、业务服务接口 | 不受控任意代码/任意 SQL |
 | evolution | core、knowledge、agents | 自动修改生产源代码 |
 | agriculture | core、knowledge、tasks、tools | 直接操作模型供应商 SDK |
@@ -47,7 +47,7 @@ API 服务（FastAPI：鉴权、租户上下文、请求校验、业务服务）
 ## 关键设计
 
 - **契约先行**：`contracts/openapi.yaml`、`contracts/json-schema/`、`contracts/error-codes.md` 是前后端与多 Agent 协作的唯一基准。
-- **租户隔离**：`tenant_id` 从已验证身份中取得；repository 查询默认带租户过滤；缓存键包含租户维度。
+- **小院隔离**：`yard_id` 从已验证身份中取得；repository 查询默认带小院过滤；缓存键包含小院维度。
 - **任务状态机**：`queued → running → succeeded | failed | cancelled | awaiting_review → …`，非法转移拒绝，所有转移写 `task_events`。
 - **工具风险分级**：`read_only / draft / write_reversible / external_side_effect`；R3 级必须人工确认。
 - **受控自进化**：反馈 → 候选知识/Skill → 评测 → 专家审核 → 版本化发布/回滚；禁止自动改生产代码。

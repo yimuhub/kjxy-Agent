@@ -116,7 +116,13 @@ class Settings(BaseSettings):
 
     # --- 运行安全与运营（整改升级新增） ---
     signup_enabled: bool = Field(
-        default=True, description="是否开放租户自助注册；试运行/公网部署建议 false（邀请制）"
+        default=True, description="是否开放小院自助注册；试运行/公网部署建议 false（邀请制）"
+    )
+    signup_rate_limit_max_attempts: int = Field(
+        default=5, ge=1, description="自助注册：同一 IP 窗口内最多注册次数（含成功）"
+    )
+    signup_rate_limit_window_seconds: int = Field(
+        default=3600, ge=60, description="自助注册限流窗口（秒）"
     )
     password_min_length: int = Field(
         default=8, ge=6, le=64, description="创建/注册场景密码最小长度；生产环境强制不低于 10"
@@ -152,7 +158,7 @@ class Settings(BaseSettings):
         default=300, description="配对码有效期（秒）：过期自动作废，需重新生成"
     )
     pairing_max_active_codes: int = Field(
-        default=5, description="单租户未用配对码上限：超限拒绝新建，防止码堆积被慢爆破"
+        default=5, description="单小院未用配对码上限：超限拒绝新建，防止码堆积被慢爆破"
     )
     pairing_device_token_expire_days: int = Field(
         default=30, description="配对成功签发的设备令牌有效期（天）；过期需重新扫码配对"

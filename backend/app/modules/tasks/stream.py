@@ -4,8 +4,8 @@
 执行体是服务端 Celery/线程任务）：
 - 客户端断开只是停止“看”，任务继续运行；取消必须显式走
   POST /tasks/{task_id}/cancel，服务端绝不因 SSE 断连终止执行器。
-- 权限与 GET /tasks/{task_id}/events 完全一致：同一 get_tenant_context 依赖
-  + TaskService.get 可见性检查（跨租户读取视为不存在 → 404 TASK_NOT_FOUND）。
+- 权限与 GET /tasks/{task_id}/events 完全一致：同一 get_yard_context 依赖
+  + TaskService.get 可见性检查（跨小院读取视为不存在 → 404 TASK_NOT_FOUND）。
 - 响应为 text/event-stream 帧协议：不套统一 {data, request_id} 信封——
   SSE 帧由 event:/data: 行构成，信封会破坏前端的流式解析契约。
 - 实现为 DB 追尾轮询（默认 800ms）：TaskEvent.id 是 UUID 无单调性，游标
@@ -55,7 +55,7 @@ def _sse_frame(event: str, data: dict[str, Any], event_id: str | None = None) ->
     return "\n".join(lines) + "\n\n"
 
 
-def _read_snapshot(tenant_id: str, task_id: str) -> tuple[str | None, list[dict[str, Any]]]:
+def _read_snapshot(yard_id: str, task_id: str) -> tuple[str | None, list[dict[str, Any]]]:
     """短 session 读一次快照：当前状态 + 全部事件的序列化结果。
 
     事件按 (created_at,id) 升序；TaskEventOut 序列化在 session 内完成，
@@ -68,7 +68,7 @@ def _read_snapshot(tenant_id: str, task_id: str) -> tuple[str | None, list[dict[
         events = list(
             db.scalars(
                 select(TaskEvent)
-                .where(TaskEvent.tenant_id == tenant_id, TaskEvent.task_id == task_id)
+                .where(TaskEvent.yard_id == yard_id, TaskEvent.task_id == task_id)
                 .order_by(TaskEvent.created_at.asc(), TaskEvent.id.asc())
             )
         )
@@ -78,7 +78,7 @@ def _read_snapshot(tenant_id: str, task_id: str) -> tuple[str | None, list[dict[
 
 
 async def _stream_frames(
-    tenant_id: str, task_id: str, last_event_id: str | None = None
+    yard_id: str, task_id: str, last_event_id: str | None = None
 ) -> AsyncIterator[str]:
     """SSE 帧生成器：stream-init 开场，追尾补发 task-event/task-status，终态或超时收尾。
 
@@ -116,7 +116,7 @@ async def _stream_frames(
         return frames
 
     try:
-        status, events = _read_snapshot(tenant_id, task_id)
+        status, events = _read_snapshot(yard_id, task_id)
         if status is None:
             yield _sse_frame("stream-end", {"reason": "task_not_found"})
             return
@@ -128,7 +128,7 @@ async def _stream_frames(
         last_status = status
 
         while True:
-            status, events = _read_snapshot(tenant_id, task_id)
+            status, events = _read_snapshot(yard_id, task_id)
             timed_out = loop.time() >= deadline
             if status is None:  # 流存活期间任务被删除
                 yield _sse_frame("stream-end", {"reason": "task_not_found"})
@@ -148,7 +148,7 @@ async def _stream_frames(
                 last_emit = loop.time()
             if status in sm.TERMINAL_STATUSES:
                 # 终态后再补拉一次，防止状态提交之后才落库的迟到事件丢帧
-                _, tail = _read_snapshot(tenant_id, task_id)
+                _, tail = _read_snapshot(yard_id, task_id)
                 for frame in _collect_new(tail):
                     yield frame
                 yield _sse_frame("stream-end", {"status": status, "reason": "task_terminal"})
@@ -174,11 +174,11 @@ async def _stream_frames(
 
 
 def build_stream_response(
-    tenant_id: str, task_id: str, last_event_id: str | None = None
+    yard_id: str, task_id: str, last_event_id: str | None = None
 ) -> StreamingResponse:
     """组装 SSE 响应：禁用缓存与反向代理缓冲（Nginx X-Accel-Buffering）。"""
     return StreamingResponse(
-        _stream_frames(tenant_id, task_id, last_event_id=last_event_id),
+        _stream_frames(yard_id, task_id, last_event_id=last_event_id),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

@@ -1,16 +1,16 @@
 """Skill 状态机单元测试：完整生命周期、非法转移、版本冲突、回滚。"""
 
 import pytest
-from app.core.deps import TenantContext
+from app.core.deps import YardContext
 from app.core.errors import AppError
 from app.modules.evolution import service
 
 
-def _ctx(roles=("member",)) -> TenantContext:
-    return TenantContext(tenant_id="t1", user_id="u1", roles=list(roles), request_id="req_test")
+def _ctx(roles=("member",)) -> YardContext:
+    return YardContext(yard_id="t1", user_id="u1", roles=list(roles), request_id="req_test")
 
 
-def _expert_ctx() -> TenantContext:
+def _expert_ctx() -> YardContext:
     return _ctx(roles=("expert",))
 
 
@@ -101,9 +101,9 @@ def test_skill_approve_requires_reviewer_role(db_session):
     assert e.value.code == "FORBIDDEN"
 
 
-def test_skill_list_tenant_isolation(db_session):
+def test_skill_list_yard_isolation(db_session):
     _make(db_session, code="s1")
-    other = TenantContext(tenant_id="t2", user_id="u2", roles=["member"], request_id="r")
+    other = YardContext(yard_id="t2", user_id="u2", roles=["member"], request_id="r")
     items, total = service.list_skills(db_session, other, 1, 20)
     assert total == 0
     assert items == []

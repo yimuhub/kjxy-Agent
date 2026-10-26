@@ -1,10 +1,10 @@
 """政策服务：采集入库（去重）+ 过期标记 + 规则匹配。
 
 第三期实现，不再是 P1 桩。
-- 新写入强制带 tenant_id（从 TenantContext 取）；list/get/match 全部按
-  tenant_id 隔离。
-- 去重：同一 tenant 下 (policy_name + publish_department) 已存在 → 409。
-- 过期：GET list / POST match 前先对本租户执行 mark_expired。
+- 新写入强制带 yard_id（从 YardContext 取）；list/get/match 全部按
+  yard_id 隔离。
+- 去重：同一 yard 下 (policy_name + publish_department) 已存在 → 409。
+- 过期：GET list / POST match 前先对本小院执行 mark_expired。
 - 匹配：只做规则比对，不编造成功率预测。
 """
 
@@ -16,7 +16,7 @@ from typing import Literal
 
 from sqlalchemy.orm import Session
 
-from app.core.deps import TenantContext
+from app.core.deps import YardContext
 from app.core.errors import AppError
 from app.modules.policy.models import Policy, PolicyApplication
 from app.modules.policy.schemas import (
@@ -37,16 +37,16 @@ def _utcnow() -> datetime:
 # ------------------------------------------------------------------ 采集
 
 
-def ingest_policy(db: Session, ctx: TenantContext, req: PolicyIngestRequest) -> Policy:
+def ingest_policy(db: Session, ctx: YardContext, req: PolicyIngestRequest) -> Policy:
     """政策采集入库。
 
-    同一 tenant 下 (policy_name + publish_department) 已存在 → 409
+    同一 yard 下 (policy_name + publish_department) 已存在 → 409
     POLICY_DUPLICATE。自动计算 source_hash 并写入 first_crawled_at。
     """
     duplicate = (
         db.query(Policy)
         .filter(
-            Policy.tenant_id == ctx.tenant_id,
+            Policy.yard_id == ctx.yard_id,
             Policy.policy_name == req.policy_name,
             Policy.publish_department == req.publish_department,
         )
@@ -55,14 +55,14 @@ def ingest_policy(db: Session, ctx: TenantContext, req: PolicyIngestRequest) -> 
     if duplicate is not None:
         raise AppError(
             "POLICY_DUPLICATE",
-            "该租户下已存在同名同发布机构的政策，不重复入库。",
+            "该小院下已存在同名同发布机构的政策，不重复入库。",
             http_status=409,
         )
     source_hash = hashlib.sha256(
         ((req.content or "") + "\n" + (req.source_url or "")).encode("utf-8")
     ).hexdigest()
     policy = Policy(
-        tenant_id=ctx.tenant_id,
+        yard_id=ctx.yard_id,
         scope=req.scope,
         province=req.province,
         city=req.city,
@@ -92,8 +92,8 @@ def ingest_policy(db: Session, ctx: TenantContext, req: PolicyIngestRequest) -> 
 # ------------------------------------------------------------------ 过期标记
 
 
-def mark_expired(db: Session, tenant_id: str) -> int:
-    """把本租户下 apply_end_at 已过且仍为 active 的政策标记为 expired。
+def mark_expired(db: Session, yard_id: str) -> int:
+    """把本小院下 apply_end_at 已过且仍为 active 的政策标记为 expired。
 
     返回被标记的条数。由 list/match 调用前自动执行，无需管理接口。
     """
@@ -101,7 +101,7 @@ def mark_expired(db: Session, tenant_id: str) -> int:
     overdue = (
         db.query(Policy)
         .filter(
-            Policy.tenant_id == tenant_id,
+            Policy.yard_id == yard_id,
             Policy.status == "active",
             Policy.apply_end_at.isnot(None),
             Policy.apply_end_at < now,
@@ -121,7 +121,7 @@ def mark_expired(db: Session, tenant_id: str) -> int:
 
 def list_policies(
     db: Session,
-    ctx: TenantContext,
+    ctx: YardContext,
     page: int,
     page_size: int,
     keyword: str | None = None,
@@ -129,8 +129,8 @@ def list_policies(
     policy_type: str | None = None,
     status: str | None = None,
 ) -> tuple[list[Policy], int]:
-    mark_expired(db, ctx.tenant_id)
-    q = db.query(Policy).filter(Policy.tenant_id == ctx.tenant_id)
+    mark_expired(db, ctx.yard_id)
+    q = db.query(Policy).filter(Policy.yard_id == ctx.yard_id)
     if keyword:
         q = q.filter(Policy.policy_name.ilike(f"%{keyword}%"))
     if province:
@@ -149,10 +149,8 @@ def list_policies(
     return items, total
 
 
-def get_policy(db: Session, ctx: TenantContext, policy_id: str) -> Policy:
-    policy = (
-        db.query(Policy).filter(Policy.tenant_id == ctx.tenant_id, Policy.id == policy_id).first()
-    )
+def get_policy(db: Session, ctx: YardContext, policy_id: str) -> Policy:
+    policy = db.query(Policy).filter(Policy.yard_id == ctx.yard_id, Policy.id == policy_id).first()
     if policy is None:
         raise AppError("POLICY_NOT_FOUND", "政策不存在。", http_status=404)
     return policy
@@ -243,18 +241,18 @@ def _match_level(
 
 
 def match_policies(
-    db: Session, ctx: TenantContext, profile: PolicyProfile
+    db: Session, ctx: YardContext, profile: PolicyProfile
 ) -> list[PolicyMatchResult]:
-    """按画像对本租户的 active 政策做规则匹配。
+    """按画像对本小院的 active 政策做规则匹配。
 
     只做规则比对：eligible（全部命中）/ partial（部分命中）/
     insufficient（画像缺关键字段）/ ineligible（明确不命中）。
     不做成功率预测。按匹配度从高到低排序。
     """
-    mark_expired(db, ctx.tenant_id)
+    mark_expired(db, ctx.yard_id)
     policies = (
         db.query(Policy)
-        .filter(Policy.tenant_id == ctx.tenant_id, Policy.status == "active")
+        .filter(Policy.yard_id == ctx.yard_id, Policy.status == "active")
         .order_by(Policy.published_at.desc().nullslast(), Policy.created_at.desc())
         .all()
     )
@@ -284,10 +282,10 @@ def match_policies(
 VERIFICATION_REMINDER = "本材料为系统生成的草案，需人工核对后提交"
 
 
-def _visible_policy(db: Session, tenant_id: str, policy_id: str) -> Policy:
-    """租户可见的政策：本租户的或全局的（tenant_id 为空）。其他租户的按 404 处理。"""
+def _visible_policy(db: Session, yard_id: str, policy_id: str) -> Policy:
+    """小院可见的政策：本小院的或全局的（yard_id 为空）。其他小院的按 404 处理。"""
     policy = db.query(Policy).filter(Policy.id == policy_id).first()
-    if policy is None or (policy.tenant_id and policy.tenant_id != tenant_id):
+    if policy is None or (policy.yard_id and policy.yard_id != yard_id):
         raise AppError("POLICY_NOT_FOUND", "政策不存在。", http_status=404)
     return policy
 
@@ -372,12 +370,12 @@ def build_notes(missing: list[str]) -> str:
 
 def create_application_draft(
     db: Session,
-    tenant_id: str,
+    yard_id: str,
     user_id: str,
     policy_id: str,
     payload: ApplicationDraftCreate,
 ) -> PolicyApplication:
-    policy = _visible_policy(db, tenant_id, policy_id)
+    policy = _visible_policy(db, yard_id, policy_id)
 
     materials = _normalize_materials(policy.material_requirements_json)
     checklist = build_material_checklist(materials)
@@ -385,7 +383,7 @@ def create_application_draft(
     notes = build_notes(missing)
 
     draft = PolicyApplication(
-        tenant_id=tenant_id,
+        yard_id=yard_id,
         policy_id=policy.id,
         applicant_name=payload.applicant_name.strip(),
         applicant_type=payload.applicant_type,
@@ -403,10 +401,10 @@ def create_application_draft(
     return draft
 
 
-def get_application_draft(db: Session, tenant_id: str, draft_id: str) -> PolicyApplication:
+def get_application_draft(db: Session, yard_id: str, draft_id: str) -> PolicyApplication:
     draft = (
         db.query(PolicyApplication)
-        .filter(PolicyApplication.id == draft_id, PolicyApplication.tenant_id == tenant_id)
+        .filter(PolicyApplication.id == draft_id, PolicyApplication.yard_id == yard_id)
         .first()
     )
     if draft is None:

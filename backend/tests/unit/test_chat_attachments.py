@@ -10,7 +10,7 @@
 import io
 
 import pytest
-from app.core.deps import TenantContext
+from app.core.deps import YardContext
 from app.core.errors import AppError
 from app.modules.chat import attachments
 from app.modules.chat.models import ATT_DOCUMENT, ATT_IMAGE, ATT_READY
@@ -21,16 +21,16 @@ JPEG_BYTES = b"\xff\xd8\xff\xe0" + b"\x00" * 32
 PDF_BYTES = b"%PDF-1.4\n" + b"0" * 32
 
 
-def _ctx(tenant_id: str = "t1", user_id: str = "u1") -> TenantContext:
-    return TenantContext(
-        tenant_id=tenant_id,
+def _ctx(yard_id: str = "t1", user_id: str = "u1") -> YardContext:
+    return YardContext(
+        yard_id=yard_id,
         user_id=user_id,
-        roles=["tenant_admin"],
+        roles=["yard_admin"],
         request_id="r1",
     )
 
 
-def _upload(db, filename: str, data: bytes, ctx: TenantContext | None = None):
+def _upload(db, filename: str, data: bytes, ctx: YardContext | None = None):
     return attachments.upload_attachment(
         db,
         ctx=ctx or _ctx(),
@@ -118,18 +118,16 @@ def test_oversize_file_rejected(db_session, monkeypatch):
 
 def test_get_attachment_is_owner_scoped(db_session):
     att = _upload(db_session, "a.txt", "内容".encode())
-    ok = attachments.get_attachment(
-        db_session, tenant_id="t1", created_by="u1", attachment_id=att.id
-    )
+    ok = attachments.get_attachment(db_session, yard_id="t1", created_by="u1", attachment_id=att.id)
     assert ok.id == att.id
     with pytest.raises(AppError) as e:
         attachments.get_attachment(
-            db_session, tenant_id="t1", created_by="u-other", attachment_id=att.id
+            db_session, yard_id="t1", created_by="u-other", attachment_id=att.id
         )
     assert e.value.code == "CHAT_ATTACHMENT_NOT_FOUND"
     with pytest.raises(AppError) as e:
         attachments.get_attachment(
-            db_session, tenant_id="t-other", created_by="u1", attachment_id=att.id
+            db_session, yard_id="t-other", created_by="u1", attachment_id=att.id
         )
     assert e.value.code == "CHAT_ATTACHMENT_NOT_FOUND"
 
@@ -138,11 +136,11 @@ def test_list_attachments_is_session_scoped(db_session):
     _upload(db_session, "a.txt", "内容".encode())
     _upload(db_session, "b.txt", "内容2".encode())
     mine = attachments.list_attachments(
-        db_session, tenant_id="t1", created_by="u1", session_id="sess-1"
+        db_session, yard_id="t1", created_by="u1", session_id="sess-1"
     )
     assert len(mine) == 2
     other_session = attachments.list_attachments(
-        db_session, tenant_id="t1", created_by="u1", session_id="sess-2"
+        db_session, yard_id="t1", created_by="u1", session_id="sess-2"
     )
     assert other_session == []
 

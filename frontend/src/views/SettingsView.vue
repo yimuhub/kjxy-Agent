@@ -9,6 +9,35 @@
       class="settings-tabs"
     >
       <el-tab-pane
+        label="角色与权限"
+        name="roles"
+      >
+        <SettingsRoles :is-owner="isOwner" />
+      </el-tab-pane>
+
+      <el-tab-pane
+        label="注册与安全"
+        name="registration"
+      >
+        <SettingsRegistration :is-owner="isOwner" />
+      </el-tab-pane>
+
+      <el-tab-pane
+        label="网络与搜索"
+        name="network"
+      >
+        <SettingsNetwork />
+      </el-tab-pane>
+
+      <el-tab-pane
+        v-if="isOwner"
+        label="敏感授权"
+        name="grants"
+      >
+        <SettingsGrants />
+      </el-tab-pane>
+
+      <el-tab-pane
         label="模型配置"
         name="config"
       >
@@ -493,6 +522,18 @@
       </el-tab-pane>
 
       <el-tab-pane
+        label="导航菜单 DIY"
+        name="menu-diy"
+      >
+        <el-card class="section">
+          <template #header>
+            左侧导航栏自由 DIY 拖拽配置
+          </template>
+          <MenuDiyEditor />
+        </el-card>
+      </el-tab-pane>
+
+      <el-tab-pane
         label="前端配置"
         name="frontend"
       >
@@ -672,8 +713,8 @@
           label="可见范围"
         >
           <el-radio-group v-model="form.scope">
-            <el-radio value="tenant">
-              仅本使用空间
+            <el-radio value="yard">
+              仅本小院
             </el-radio>
             <el-radio value="global">
               全局共享（需平台管理员）
@@ -839,6 +880,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { Lock } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import QRCode from 'qrcode'
@@ -853,10 +895,22 @@ import type {
 import { isMockEnabled } from '@/api/mock'
 import { extractErrorMessage } from '@/api/client'
 import AsyncState from '@/components/AsyncState.vue'
+import MenuDiyEditor from '@/components/layout/MenuDiyEditor.vue'
+import SettingsRoles from '@/components/settings/SettingsRoles.vue'
+import SettingsRegistration from '@/components/settings/SettingsRegistration.vue'
+import SettingsNetwork from '@/components/settings/SettingsNetwork.vue'
+import SettingsGrants from '@/components/settings/SettingsGrants.vue'
+import { useAuthStore } from '@/stores/auth'
 import { classifyError, type ViewState } from '@/utils/status'
 import type { LlmStatus, ToolDefinition } from '@/types/api'
 
-const activeTab = ref('config')
+const route = useRoute()
+const auth = useAuthStore()
+const activeTab = ref(typeof route.query.tab === 'string' ? route.query.tab : 'config')
+/** 负责人可改系统角色与保护设置；管理员只能维护自定义角色与普通设置 */
+const isOwner = computed(
+  () => auth.roles.includes('yard_owner') || auth.roles.includes('platform_admin'),
+)
 
 // ---------- 既有：模型配置 / 工具 / 前端配置 ----------
 
@@ -933,7 +987,7 @@ const form = reactive({
   api_key: '',
   models: '',
   priority: 0,
-  scope: 'tenant' as 'tenant' | 'global',
+  scope: 'yard' as 'yard' | 'global',
   // function-calling 能力位：仅编辑时提交（创建接口不接受该字段）
   supports_tools: false,
 })
@@ -1019,7 +1073,7 @@ function resetForm() {
     api_key: '',
     models: '',
     priority: 0,
-    scope: 'tenant' as const,
+    scope: 'yard' as const,
     supports_tools: false,
   })
   templateKey.value = ''
@@ -1058,7 +1112,7 @@ function openEdit(row: LlmSupplier) {
     api_key: '',
     models: row.models ?? '',
     priority: row.priority,
-    scope: 'tenant' as const,
+    scope: 'yard' as const,
     supports_tools: row.supports_tools ?? false,
   })
   templateKey.value = ''

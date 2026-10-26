@@ -76,7 +76,7 @@ def reap_once(db: Session) -> dict[str, int]:
         task.finished_at = now
         db.add(
             TaskEvent(
-                tenant_id=task.tenant_id,
+                yard_id=task.yard_id,
                 task_id=task.id,
                 event_type="status_changed",
                 message=message,
@@ -85,7 +85,7 @@ def reap_once(db: Session) -> dict[str, int]:
         )
         log_audit(
             db,
-            tenant_id=task.tenant_id,
+            yard_id=task.yard_id,
             actor_id=None,
             action="task.reap",
             resource_type="task",
@@ -118,7 +118,7 @@ def reap_once(db: Session) -> dict[str, int]:
         )
         log_audit(
             db,
-            tenant_id=task.tenant_id,
+            yard_id=task.yard_id,
             actor_id=None,
             action="task.reap",
             resource_type="task",
@@ -167,7 +167,7 @@ def quota_monthly_reset() -> bool:
 
     用 Redis 键 ``quota:reset:{YYYY-MM}``（SET NX + 40 天 TTL）判定"本月是否已重置"：
     只有当月第一个抢到键的进程执行清零；Redis 不可用时跳过（下一轮 beat 再试），
-    宁可晚清不可重复清。TenantQuota 加 period 列需 migration，按规范 §6.4 走 ADR 后再演进。
+    宁可晚清不可重复清。YardQuota 加 period 列需 migration，按规范 §6.4 走 ADR 后再演进。
     """
     from datetime import UTC, datetime
 
@@ -188,13 +188,11 @@ def quota_monthly_reset() -> bool:
         log.warning("quota_monthly_reset skipped (redis unavailable): %s", e)
         return False
 
-    from app.modules.tenants.quota import TenantQuota
+    from app.modules.yards.quota import YardQuota
 
     db = _get_session_factory()()
     try:
-        db.execute(
-            update(TenantQuota).values(llm_calls_used=0, knowledge_docs_used=0, tasks_used=0)
-        )
+        db.execute(update(YardQuota).values(llm_calls_used=0, knowledge_docs_used=0, tasks_used=0))
         db.commit()
     finally:
         db.close()

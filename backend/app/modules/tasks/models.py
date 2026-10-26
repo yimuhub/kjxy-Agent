@@ -9,11 +9,11 @@ from app.db.base import Base, TimestampMixin
 
 
 class Task(Base, TimestampMixin):
-    """任务主记录。所有查询必须带 tenant_id 过滤（由 TaskService 保证）。"""
+    """任务主记录。所有查询必须带 yard_id 过滤（由 TaskService 保证）。"""
 
     __tablename__ = "tasks"
 
-    tenant_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    yard_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     created_by: Mapped[str] = mapped_column(String(36), nullable=False)
     task_type: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(30), nullable=False, index=True, default="queued")
@@ -28,7 +28,7 @@ class Task(Base, TimestampMixin):
 
     __table_args__ = (
         # PostgreSQL 语义：NULL 不参与唯一比较，允许空键多行
-        UniqueConstraint("tenant_id", "idempotency_key", name="uq_tasks_tenant_idempotency"),
+        UniqueConstraint("yard_id", "idempotency_key", name="uq_tasks_yard_idempotency"),
     )
 
 
@@ -37,7 +37,7 @@ class TaskEvent(Base, TimestampMixin):
 
     __tablename__ = "task_events"
 
-    tenant_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    yard_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     task_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("tasks.id"), nullable=False, index=True
     )
