@@ -13,6 +13,12 @@ export const api = axios.create({
   timeout: 30_000,
 })
 
+/** 拼接完整 API 路径（fetch/SSE 用，不走 axios 拦截器） */
+export function apiUrl(path: string): string {
+  const base = api.defaults.baseURL ?? '/api/v1'
+  return `${base}${path.startsWith('/') ? path : `/${path}`}`
+}
+
 // 后端未就绪时用内置 fixture 演示（默认关闭，见 src/api/mock.ts）
 if (isMockEnabled()) {
   api.defaults.adapter = getMockAdapter()

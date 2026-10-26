@@ -588,3 +588,53 @@ contract:  contracts/openapi.yaml → 132 paths，新增邀请/批量成员接�
 4. **企业身份**：Keycloak/OIDC/SAML、SCIM、细粒度租户策略。
 5. **商业化**：版本/定价分层、试用额度与转化漏斗、行业内容包运营、渠道伙伴体系。
 6. **桌面端签名**：`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` 与 GitHub Secrets 对齐后恢复自动升级发布。
+
+---
+
+## 12. 对话工作台升级（2026-10-26，v1.8.0）
+
+§11 收口的是「能跑 → 敢用」；本轮按产品需求把对话页从「问答框」升级为
+「可交付任务的工作台」，落地第一期（附件阅读）与第二期（对话内生成能力 +
+过程步骤可见）。
+
+### 12.1 范围与决策
+
+| 需求 | 决策 | 落地位置 |
+|---|---|---|
+| 照片 / 文档让模型读取 | 检索为主（附件内容进上下文，不参与路由打分） | `app/modules/chat/attachments.py` |
+| 对话内生成能力 | 管理员执行 / 成员申请（权限口径与能力中心完全一致，不开旁路） | `app/modules/chat/capability.py` |
+| 过程步骤实时可见 | 分期实施，先做一期 + 二期 | `app/core/progress.py`、`app/modules/chat/stream.py` |
+
+### 12.2 关键实现约束（后续改动须遵守）
+
+1. **阶段名是前后端稳定契约**：`progress.py` 的阶段只追加、不改含义
+   （reading / routing / retrieving / thinking / tool_call / generating）。
+2. **意图识别宁可漏判不可误判**：创建类必须同时命中创建动词与能力名词，
+   含疑问词一律降级为提问（"怎么做个助手"是咨询，不是指令）。
+3. **流式响应不得持有请求级 ORM session**：FastAPI 在响应体流式输出前就关闭
+   依赖 session，继续访问 ORM 属性会抛 `DetachedInstanceError`（生产环境挂死、
+   测试却通过——测试夹具的 session 析构顺序与生产不一致）。流自持 session，
+   序列化后再提交。
+4. **断流不重试**：POST 重试会重复提交，改为以服务端记录为准降级，如实呈现
+   未完成状态。
+5. **安全默认值**：对话内生成的能力工具白名单固定 `knowledge.search`（只读）、
+   知识范围固定 `tenant`，对应 `risk=low`；副作用工具必须在能力中心显式添加。
+
+### 12.3 本轮修复的缺陷
+
+- **生产环境 SSE 挂死**（见 12.2 第 3 条）：流式响应持有请求级 session，
+  在 uvicorn 下 `ChatSession.id` 抛 `DetachedInstanceError`，对话无响应；
+  已补回归用例（模拟真实依赖析构顺序）。
+- **能力卡片永远不渲染**：对话内生成能力的消息 `routed_by="local"`，而前端
+  路由来源映射未登记该取值，读取徽章样式时抛错中断整条消息渲染。
+
+### 12.4 验收证据
+
+- 后端 `708 passed`；Ruff / Ruff format / mypy 全绿。
+- 前端 ESLint 0 error、`vite build` 通过；Playwright 8 passed（新增 2 条：
+  附件上传→实时步骤→回答落库回看；对话内生成能力→卡片渲染→发布）。
+- 浏览器实测（Vite 5174 → uvicorn 8000）：附件 chip 与气泡附件标签、实时步骤条
+  （正在阅读附件 / 正在选择助手 / 正在检索知识库 / 正在思考）、历史「过程 · N 步」
+  折叠回看、能力卡片发布（状态 → 已发布）、市场卡片（待选择 / 已装载）均正常，
+  控制台无异常。
+- `contracts/openapi.yaml` 重新生成（135 paths）。

@@ -2,6 +2,67 @@
 
 本项目遵循《工程开发规范 V3.0》；版本号遵循语义化版本。
 
+## [1.8.0] - 2026-10-26
+
+对话工作台升级（第一期 + 第二期）：附件阅读、对话内生成能力、过程步骤可见。
+
+### 对话附件（一期）
+- 新增 `chat_attachments` 表与迁移 `0021_chat_attachments_and_cards`：会话级附件
+  （图片 / PDF / docx / txt / md / csv），记录 `kind`、`mime`、`size_bytes`、
+  解析状态与抽取要点。
+- 新增附件端点：上传（`POST /chat/sessions/{id}/attachments`）、列举、删除；
+  响应不外泄 `storage_key`，删除时同步清理服务端文件。
+- 附件内容以「上下文」形式注入问答链路（不参与路由打分），模型可据此作答；
+  解析失败的附件如实标记 `failed` 并在界面上可见，不静默丢弃。
+- 前端在输入框左侧新增附件按钮与待发附件 chip，随下一条消息一起发出。
+
+### 对话内生成能力（二期）
+- 新增意图识别（`app/modules/chat/intent.py`，纯规则、可复现）：区分「提问」与
+  「下达指令」；创建类必须同时命中创建动词与能力名词，含疑问词一律降级为提问，
+  宁可漏判不可误判。
+- 新增能力链路（`app/modules/chat/capability.py`）：自然语言需求 → 声明式 Agent 草稿
+  → 能力卡片。模型不可用时降级为确定性模板，不阻断生成。
+- 工具白名单固定 `knowledge.search`（只读）、知识范围固定 `tenant`，对应 `risk=low`；
+  副作用工具必须在能力中心显式添加并重新评估。
+- 权限口径与能力中心完全一致：管理员直接创建草稿，其余角色只产出「建议卡片」，
+  由管理员在能力中心确认后落地，并留审计 `chat_capability_requested`。
+- 新增市场链路：对话中可直接装载能力市场能力包（命中即装载，未命中则如实列出
+  可用能力包，不假装成功）。
+- 前端渲染能力卡片 / 市场卡片（含「发布」「在能力中心查看」动作），发布仍走既有
+  能力中心闸门，权限由后端兜底。
+
+### 过程步骤可见
+- 新增 `app/core/progress.py`：统一阶段词表（reading / routing / retrieving /
+  thinking / tool_call / generating）与步骤状态（running / done / failed），
+  阶段名是前后端稳定契约，只追加不改含义。
+- 对话改为 SSE 流式：`POST /chat/sessions/{id}/messages/stream` 推送
+  `chat-init → step → card → message → chat-end` 帧；前端实时渲染
+  「正在阅读附件 / 正在选择助手 / 正在思考 …」步骤条，历史消息可折叠回看
+  「过程 · N 步」。
+- 断流不重试（POST 重试会重复提交），改为以服务端记录为准降级：失败/中止的
+  助手消息如实呈现，未落库时撤回乐观气泡并保留草稿；界面诚实提示
+  「连接中断，回答未完成」，不假装已回答。
+- 修复 SSE 在生产环境挂死：流式响应不再持有请求级 ORM session
+  （FastAPI 会在响应体流式输出前关闭依赖 session，导致 `DetachedInstanceError`），
+  改为流自持 session 并在提交后序列化；补充回归用例模拟真实的依赖析构顺序。
+
+### 前端修复
+- 修复对话内生成能力时整条消息渲染崩溃：`routed_by="local"`（对话直办）未登记在
+  路由来源映射中，读取徽章样式时抛错导致能力卡片无法渲染；补齐映射并对未知
+  取值加兜底，后端新增路由来源不会再让消息渲染中断。
+
+### 质量门禁
+- 后端 `708 passed`；Ruff、Ruff format、mypy 全绿；前端 ESLint 0 error、
+  `vite build` 通过；`contracts/openapi.yaml` 重新生成（135 paths）。
+- 新增 Playwright E2E（2 条）：附件上传→实时步骤→回答落库回看；
+  对话内生成能力草稿→卡片渲染→发布。
+
+### 升级注意
+- 需执行 `alembic upgrade head`（0021 新增 `chat_attachments` 表并扩展
+  `chat_messages`）。
+- 前后端版本号统一为 `1.8.0`（`pyproject.toml`、Tauri `tauri.conf.json`、
+  `Cargo.toml`、桌面端 `package.json`）。
+
 ## [1.7.0] - 2026-10-26
 
 依据 `docs/audit-report-2026-10-25.md` 的审查结论完成 P0/P1/P2 整改：

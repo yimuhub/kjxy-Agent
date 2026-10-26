@@ -12,6 +12,8 @@ export {}
 declare module 'vue' {
   export interface GlobalComponents {
     AsyncState: typeof import('./components/AsyncState.vue')['default']
+    ChatCard: typeof import('./components/chat/ChatCard.vue')['default']
+    ChatSteps: typeof import('./components/chat/ChatSteps.vue')['default']
     ElAlert: typeof import('element-plus/es')['ElAlert']
     ElAside: typeof import('element-plus/es')['ElAside']
     ElAvatar: typeof import('element-plus/es')['ElAvatar']

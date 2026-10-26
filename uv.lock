@@ -1679,7 +1679,7 @@ wheels = [
 
 [[package]]
 name = "tech-yard-platform"
-version = "0.1.0"
+version = "1.8.0"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },
@@ -1700,6 +1700,7 @@ dependencies = [
     { name = "redis" },
     { name = "sqlalchemy" },
     { name = "uvicorn", extra = ["standard"] },
+    { name = "websockets" },
 ]
 
 [package.optional-dependencies]
@@ -1736,6 +1737,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6,<0.8" },
     { name = "sqlalchemy", specifier = ">=2.0,<2.1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30,<0.35" },
+    { name = "websockets", specifier = ">=13,<17.3" },
 ]
 provides-extras = ["dev"]
 

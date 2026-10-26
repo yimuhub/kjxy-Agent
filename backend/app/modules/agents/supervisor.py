@@ -26,6 +26,14 @@ from sqlalchemy.orm import Session
 from app.core.deps import TenantContext
 from app.core.errors import AppError
 from app.core.logging import get_logger
+from app.core.progress import (
+    PHASE_GENERATING,
+    PHASE_ROUTING,
+    STEP_DONE,
+    STEP_FAILED,
+    STEP_RUNNING,
+    StepCallback,
+)
 from app.modules.agents import declarative
 from app.modules.agents.models import TenantAgent
 from app.modules.agents.teams import service as team_service
@@ -48,6 +56,14 @@ AGRI_KEYWORDS: dict[str, list[str]] = {
 }
 
 _JSON_RE = re.compile(r"\{.*\}", re.S)
+
+#: 路由来源的可读标签（步骤条与前端徽章共用同一口径）
+_ROUTED_LABEL: dict[str, str] = {
+    "rules": "规则命中",
+    "llm": "智能分类",
+    "fallback": "频率兜底",
+    "bound": "定向执行",
+}
 
 
 def _question_digest(question: str) -> str:
@@ -203,13 +219,24 @@ def pick_fallback(db: Session, tenant_id: str, cands: list[dict[str, Any]]) -> d
 
 
 async def execute_choice(
-    db: Session, ctx: TenantContext, choice: dict[str, Any], question: str
+    db: Session,
+    ctx: TenantContext,
+    choice: dict[str, Any],
+    question: str,
+    on_step: StepCallback | None = None,
+    context: str = "",
 ) -> dict[str, Any]:
     """执行选中的候选：助手走声明式同步运行，班组走接力运行。"""
     if choice["kind"] == "team":
+        if on_step:
+            on_step(PHASE_GENERATING, f"正在执行班组「{choice['name']}」", STEP_RUNNING)
         team = team_service.get_team(db, tenant_id=ctx.tenant_id, team_id=choice["id"])
-        run = team_service.create_team_run(db, team=team, user_input=question, ctx=ctx)
+        run = team_service.create_team_run(
+            db, team=team, user_input=f"{question}\n\n{context}" if context else question, ctx=ctx
+        )
         run = await team_service.continue_team_run(db, run=run, ctx=ctx)
+        if on_step:
+            on_step(PHASE_GENERATING, f"班组「{choice['name']}」执行完成", STEP_DONE)
         return {
             "kind": "team",
             "run_id": run.id,
@@ -227,6 +254,8 @@ async def execute_choice(
         input_data={"question": question},
         ctx=ctx,
         task_id=f"sup-{uuid.uuid4().hex[:12]}",
+        on_step=on_step,
+        context=context,
     )
     payload = result.model_dump() if hasattr(result, "model_dump") else dict(result)
     answer = ""
@@ -235,8 +264,18 @@ async def execute_choice(
     return {"kind": "agent", "answer": answer, "raw": payload}
 
 
-async def ask(db: Session, *, ctx: TenantContext, question: str) -> dict[str, Any]:
-    """总控问答主入口：三级路由 → 执行 → 审计（问题只存摘要）。"""
+async def ask(
+    db: Session,
+    *,
+    ctx: TenantContext,
+    question: str,
+    on_step: StepCallback | None = None,
+    context: str = "",
+) -> dict[str, Any]:
+    """总控问答主入口：三级路由 → 执行 → 审计（问题只存摘要）。
+
+    ``context``：随本轮附加的资料块（对话附件）；只进执行阶段，不参与路由打分。
+    """
     question = (question or "").strip()
     if not question:
         raise AppError("INVALID_REQUEST", "问题不能为空。", http_status=400)
@@ -247,6 +286,8 @@ async def ask(db: Session, *, ctx: TenantContext, question: str) -> dict[str, An
             "本租户还没有可用的已发布助手或班组——请先在 Agent 市场装载或创建助手。",
             http_status=404,
         )
+    if on_step:
+        on_step(PHASE_ROUTING, "按规则与智能分类挑选最合适的助手", STEP_RUNNING)
     reason = ""
     chosen = score_by_rules(question, cands)
     routed_by = "rules"
@@ -259,7 +300,18 @@ async def ask(db: Session, *, ctx: TenantContext, question: str) -> dict[str, An
         chosen = pick_fallback(db, ctx.tenant_id, cands)
         routed_by = "fallback"
         reason = "规则与智能分类均未命中，按近 7 天使用频率兜底"
-    result = await execute_choice(db, ctx, chosen, question)
+    if on_step:
+        on_step(
+            PHASE_ROUTING,
+            f"已选定「{chosen['name']}」（{_ROUTED_LABEL.get(routed_by, routed_by)}）",
+            STEP_DONE,
+        )
+    try:
+        result = await execute_choice(db, ctx, chosen, question, on_step=on_step, context=context)
+    except AppError:
+        if on_step:
+            on_step(PHASE_ROUTING, "执行失败", STEP_FAILED)
+        raise
     log_audit(
         db,
         tenant_id=ctx.tenant_id,

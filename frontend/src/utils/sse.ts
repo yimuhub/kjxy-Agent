@@ -30,11 +30,17 @@ export interface SseHandle {
 
 export interface SseOptions {
   url: string
+  /** 请求方法，默认 GET；POST 用于"发消息即开流"这类一次性请求 */
+  method?: 'GET' | 'POST'
+  /** POST 请求体（字符串；与 Content-Type: application/json 配套） */
+  body?: string
+  /** 额外请求头（覆盖同名默认值） */
+  headers?: Record<string, string>
   /** 每收到一个完整事件帧回调一次 */
   onFrame: (frame: SseFrame) => void
   /** 连续重连失败后的降级回调（调用方切回轮询） */
   onFallback?: () => void
-  /** 最大重连次数（不含首次连接），默认 3 */
+  /** 最大重连次数（不含首次连接），默认 3；POST 默认不重连 */
   maxRetries?: number
   /** 空闲超时（毫秒），默认 45s；服务端心跳间隔 15s */
   idleTimeoutMs?: number
@@ -80,10 +86,13 @@ function retryDelay(failures: number): number {
 
 /** 打开 SSE 订阅；返回控制句柄（close 断流）。 */
 export function openSseStream(options: SseOptions): SseHandle {
+  const method = options.method ?? 'GET'
   const maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES
   const idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS
   const outer = new AbortController()
   const onFallback = options.onFallback
+  // POST 是一次性请求：重连会重复提交，故默认不重连，失败直接降级
+  const allowRetry = method === 'GET'
   let closed = false
   let consecutiveFailures = 0
   let lastEventId: string | null = null
@@ -114,7 +123,14 @@ export function openSseStream(options: SseOptions): SseHandle {
         const headers: Record<string, string> = { Accept: 'text/event-stream' }
         if (token) headers.Authorization = `Bearer ${token}`
         if (lastEventId) headers['Last-Event-ID'] = lastEventId
-        const res = await fetch(options.url, { headers, signal: conn.signal })
+        if (method === 'POST') headers['Content-Type'] = 'application/json'
+        Object.assign(headers, options.headers)
+        const res = await fetch(options.url, {
+          headers,
+          signal: conn.signal,
+          method,
+          body: method === 'POST' ? options.body : undefined,
+        })
         if (!res.ok || !res.body) throw new Error(`SSE 连接失败：HTTP ${res.status}`)
         const reader = res.body.getReader()
         const decoder = new TextDecoder()
@@ -142,7 +158,7 @@ export function openSseStream(options: SseOptions): SseHandle {
         if (err instanceof DOMException && err.name === 'AbortError' && closed) return
         if (received) consecutiveFailures = 0
         consecutiveFailures += 1
-        if (consecutiveFailures > maxRetries) {
+        if (!allowRetry || consecutiveFailures > maxRetries) {
           onFallback?.()
           return
         }

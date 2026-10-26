@@ -25,31 +25,22 @@ from app.core.deps import (
 from app.core.errors import AppError
 from app.core.responses import ok
 from app.modules.agents import declarative
-from app.modules.agents.models import CREATED_FROM_TEMPLATE, TenantAgent
-from app.modules.audit.service import log_audit
-from app.modules.market.seeds import SEED_AGENTS, SEED_CODE_PREFIX, find_seed
+from app.modules.market.seeds import SEED_AGENTS, SEED_CODE_PREFIX
+from app.modules.market.service import (
+    MAX_INSTALL_CODES,
+    install_seed_codes,
+    installed_codes,
+)
 
 router = APIRouter(prefix="/market", tags=["market"])
 
 # 租户侧闸门：tenant_admin（platform_admin 直通，ADR-0005 分级审核口径）
 _tenant_admin_gate = require_roles("tenant_admin")
 
-#: 单次装载编码数量上限（防刷：一次最多装完整目录的一半以上即拒绝）
-MAX_INSTALL_CODES = 20
-
 
 def _installed_codes(db: Session, tenant_id: str) -> set[str]:
     """本租户已存在的种子相关编码（含租户自建同码——一律视为已占用）。"""
-    candidates: list[str] = []
-    for seed in SEED_AGENTS:
-        code = str(seed["agent_code"])
-        candidates.extend([code, SEED_CODE_PREFIX + code])
-    rows = (
-        db.query(TenantAgent.agent_code)
-        .filter(TenantAgent.tenant_id == tenant_id, TenantAgent.agent_code.in_(candidates))
-        .all()
-    )
-    return {str(r[0]) for r in rows}
+    return installed_codes(db, tenant_id)
 
 
 @router.get("/catalog")
@@ -119,71 +110,12 @@ def install_seeds(
 ):
     """装载种子包：逐码 创建→发布→审计→提交；已存在同码 skipped 不覆盖。"""
     codes = _parse_install_request(body)
-    installed: list[str] = []
-    skipped: list[str] = []
-    failed: list[dict[str, str]] = []
-    taken = _installed_codes(db, ctx.tenant_id)
-
-    for code in codes:
-        seed = find_seed(code)
-        if seed is None:
-            failed.append(
-                {"code": code, "error": "种子包不存在，请从 /market/catalog 获取可用编码。"}
-            )
-            continue
-        if code in taken or SEED_CODE_PREFIX + code in taken:
-            # 幂等：重复装载视为成功跳过，绝不覆盖租户已有配置（含租户自建同码）
-            skipped.append(code)
-            continue
-        payload: dict[str, Any] = {
-            "agent_code": SEED_CODE_PREFIX + code,
-            "name": seed["name"],
-            "description": seed["description"],
-            "emoji": seed["emoji"],
-            "persona_prompt": seed["persona_prompt"],
-            "task_prompt_template": seed["task_prompt_template"],
-            "allowed_tools": list(seed["allowed_tools"]),
-            "knowledge_scopes": list(seed["knowledge_scopes"]),
-            "created_from": CREATED_FROM_TEMPLATE,
-        }
-        try:
-            req = declarative.parse_create_request(payload)
-            agent = declarative.create_agent(
-                db,
-                tenant_id=ctx.tenant_id,
-                actor_id=user.user_id,
-                req=req,
-                request_id=ctx.request_id,
-            )
-            # 种子全低风险 → tenant_admin 自批语义直接 published（走既有分级发布闸门）
-            declarative.publish_agent(
-                db,
-                tenant_id=ctx.tenant_id,
-                actor_id=user.user_id,
-                agent_id=agent.id,
-                roles=list(user.roles),
-                request_id=ctx.request_id,
-            )
-            log_audit(
-                db,
-                tenant_id=ctx.tenant_id,
-                actor_id=user.user_id,
-                action="market_install",
-                resource_type="tenant_agent",
-                resource_id=agent.id,
-                result="success",
-                request_id=ctx.request_id,
-                metadata={
-                    "seed_code": code,
-                    "installed_as": agent.agent_code,
-                    "domain": seed["domain"],
-                },
-            )
-            db.commit()
-            installed.append(code)
-            taken.add(agent.agent_code)
-        except AppError as e:
-            # 单码失败回滚该码（此前已提交的码不受影响），继续处理其余编码
-            db.rollback()
-            failed.append({"code": code, "error": e.message})
-    return ok({"installed": installed, "skipped": skipped, "failed": failed}, request)
+    result = install_seed_codes(
+        db,
+        tenant_id=ctx.tenant_id,
+        actor_id=user.user_id,
+        roles=list(user.roles),
+        codes=codes,
+        request_id=getattr(request.state, "request_id", ""),
+    )
+    return ok(result, request)

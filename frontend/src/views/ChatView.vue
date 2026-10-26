@@ -134,6 +134,28 @@
                   </el-tag>
                 </el-tooltip>
               </div>
+              <!-- 用户随消息上传的附件（文件名可点开查看要点） -->
+              <div
+                v-if="m.attachments?.length"
+                class="msg-attachments"
+              >
+                <span
+                  v-for="a in m.attachments"
+                  :key="a.id"
+                  class="att-tag"
+                >
+                  <el-icon>
+                    <component :is="a.kind === 'image' ? Picture : Document" />
+                  </el-icon>
+                  {{ a.filename }}
+                </span>
+              </div>
+              <!-- 历史过程步骤（可折叠展开） -->
+              <ChatSteps
+                v-if="m.role === 'assistant' && m.steps?.length"
+                :steps="m.steps"
+                collapsible
+              />
               <!-- 纯文本 pre-wrap，不引 markdown 库 -->
               <div
                 class="bubble"
@@ -141,23 +163,105 @@
               >
                 {{ m.content }}
               </div>
+              <!-- 结构化载荷：能力草稿 / 能力市场卡片 -->
+              <ChatCard
+                v-if="m.role === 'assistant' && m.payload"
+                :card="m.payload"
+                @published="onCardPublished(m.id, $event)"
+              />
             </div>
           </div>
 
-          <!-- 等待回答：三点波浪 -->
+          <!-- 等待回答：实时步骤条（未收到首步时回落到三点波浪） -->
           <div
             v-if="store.sending"
             class="msg-row assistant"
           >
-            <div class="bubble assistant typing">
-              <span class="dot" /><span class="dot" /><span class="dot" />
+            <div class="msg-col">
+              <div
+                v-if="store.liveSteps.length"
+                class="bubble assistant live-steps"
+              >
+                <ChatSteps
+                  :steps="store.liveSteps"
+                  live
+                />
+              </div>
+              <div
+                v-else
+                class="bubble assistant typing"
+              >
+                <span class="dot" /><span class="dot" /><span class="dot" />
+              </div>
             </div>
+          </div>
+
+          <!-- 流中断提示（诚实告知，不假装已回答） -->
+          <div
+            v-if="store.streamError"
+            class="stream-warn"
+          >
+            <el-icon><Warning /></el-icon>
+            {{ store.streamError }}
           </div>
         </div>
       </div>
 
       <footer class="chat-input">
+        <!-- 待发附件：上传后先落这里，随下一条消息一起发出 -->
+        <div
+          v-if="store.attachments.length"
+          class="att-row"
+        >
+          <span
+            v-for="a in store.attachments"
+            :key="a.id"
+            class="att-chip"
+            :class="{ bad: a.status === 'failed' }"
+          >
+            <el-icon>
+              <component :is="a.kind === 'image' ? Picture : Document" />
+            </el-icon>
+            <span class="nm">{{ a.filename }}</span>
+            <el-tooltip
+              v-if="a.status === 'failed'"
+              :content="a.error || '解析失败'"
+              placement="top"
+            >
+              <span class="err">解析失败</span>
+            </el-tooltip>
+            <button
+              class="x"
+              type="button"
+              aria-label="移除附件"
+              @click="onRemoveAttachment(a.id)"
+            >
+              <el-icon><Close /></el-icon>
+            </button>
+          </span>
+        </div>
         <div class="input-inner">
+          <!-- 输入框左侧：上传附件（照片/文档） -->
+          <button
+            class="attach-btn"
+            type="button"
+            :disabled="store.sending || store.uploading"
+            title="上传附件（图片或文档）"
+            aria-label="上传附件"
+            @click="onPickFile"
+          >
+            <el-icon>
+              <Loading v-if="store.uploading" class="is-spin" />
+              <Paperclip v-else />
+            </el-icon>
+          </button>
+          <input
+            ref="fileRef"
+            class="file-input"
+            type="file"
+            accept="image/png,image/jpeg,image/webp,.pdf,.docx,.txt,.md,.csv"
+            @change="onFilePicked"
+          >
           <el-input
             ref="inputRef"
             v-model="draft"
@@ -165,7 +269,7 @@
             :autosize="{ minRows: 1, maxRows: 6 }"
             :maxlength="2000"
             resize="none"
-            placeholder="直接说要办的事，Enter 发送，Shift+Enter 换行"
+            placeholder="直接说要办的事，Enter 发送，Shift+Enter 换行；可先上传照片或文档"
             @keydown.enter.exact.prevent="onSend"
           />
           <!-- 发送中仅样式变为「停止」并禁用（v1 不支持中断） -->
@@ -190,7 +294,21 @@
 <script setup lang="ts">
   import { nextTick, onMounted, ref } from 'vue'
   import { ElInput, ElMessageBox } from 'element-plus'
-  import { Delete, EditPen, Plus, Promotion, VideoPause } from '@element-plus/icons-vue'
+  import {
+    Close,
+    Delete,
+    Document,
+    EditPen,
+    Loading,
+    Paperclip,
+    Picture,
+    Plus,
+    Promotion,
+    VideoPause,
+    Warning,
+  } from '@element-plus/icons-vue'
+  import ChatCard from '@/components/chat/ChatCard.vue'
+  import ChatSteps from '@/components/chat/ChatSteps.vue'
   import { UNTITLED, useChatStore } from '@/stores/chat'
   import type { ChatRoutedBy } from '@/api/chat'
 
@@ -203,7 +321,15 @@
     llm: { label: '智能分类', type: 'primary', tip: '由模型分类挑选该对象' },
     fallback: { label: '兜底', type: 'warning', tip: '未命中规则与分类，按近期频率兜底' },
     manual: { label: '手动指定', type: 'info', tip: '用户手动指定的执行对象' },
+    local: { label: '对话直办', type: 'info', tip: '由对话直接处理，未走助手路由' },
     error: { label: '执行失败', type: 'danger', tip: '执行遇到问题，可换个说法再问' },
+  }
+
+  /** 后端新增路由来源时兜底，避免未知取值让整条消息渲染中断 */
+  const ROUTED_FALLBACK = {
+    label: '已处理',
+    type: 'info' as const,
+    tip: '由对话直接处理',
   }
 
   /** 空态建议卡文案（点击填入输入框） */
@@ -211,16 +337,17 @@
     '帮我诊断水稻叶片发黄，可能是什么问题？',
     '整理一下本周设备上报的异常数据',
     '写一份小麦赤霉病的防治方案',
-    '有哪些适合家庭农场的惠农政策？',
+    '创建一个「农机维修问答」助手，以后专门用它',
   ]
 
   const store = useChatStore()
   const draft = ref('')
   const streamRef = ref<HTMLElement | null>(null)
   const inputRef = ref<InstanceType<typeof ElInput> | null>(null)
+  const fileRef = ref<HTMLInputElement | null>(null)
 
   function routedMeta(routed?: ChatRoutedBy | null) {
-    return ROUTED_META[routed ?? 'error']
+    return ROUTED_META[routed ?? 'error'] ?? ROUTED_FALLBACK
   }
 
   /** 列表时间：刚刚 / N分钟前 / N小时前 / 月日 */
@@ -285,6 +412,30 @@
   function useSuggestion(tip: string) {
     draft.value = tip
     inputRef.value?.focus()
+  }
+
+  function onPickFile() {
+    fileRef.value?.click()
+  }
+
+  async function onFilePicked(event: Event) {
+    const input = event.target as HTMLInputElement
+    const file = input.files?.[0]
+    input.value = '' // 允许连续选同一个文件
+    if (!file) return
+    const ok = await store.uploadAttachment(file)
+    if (ok) scrollToBottom()
+  }
+
+  async function onRemoveAttachment(id: string) {
+    await store.removeAttachment(id)
+  }
+
+  /** 卡片发布成功：把新状态回写到消息载荷，刷新后仍然一致 */
+  function onCardPublished(messageId: string, status: string) {
+    const msg = store.messages.find(m => m.id === messageId)
+    if (!msg?.payload || msg.payload.type !== 'capability') return
+    msg.payload.status = status
   }
 
   async function onSend() {
@@ -524,6 +675,98 @@
     color: var(--ds-text-3);
   }
 
+  /* 用户消息上的附件标签（文件名即事实，不做多余解释） */
+  .msg-attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0 2px 6px;
+  }
+  .att-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 220px;
+    padding: 2px 8px;
+    font-size: 11.5px;
+    color: var(--ds-text-2);
+    background: var(--ds-glass);
+    border: 1px solid var(--ds-border);
+    border-radius: 999px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* 实时步骤条容器：与气泡同底，宽度自适应内容 */
+  .bubble.live-steps {
+    padding: 10px 14px;
+  }
+
+  /* 流中断提示：诚实告知，不假装已回答 */
+  .stream-warn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    font-size: 12.5px;
+    color: var(--ds-danger);
+    background: color-mix(in srgb, var(--ds-danger) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--ds-danger) 35%, transparent);
+    border-radius: 10px;
+  }
+
+  /* 待发附件行：输入框上方的可移除小卡 */
+  .att-row {
+    max-width: 820px;
+    margin: 0 auto 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .att-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    max-width: 240px;
+    padding: 3px 6px 3px 9px;
+    font-size: 12px;
+    color: var(--ds-text-2);
+    background: var(--ds-glass-strong);
+    border: 1px solid var(--ds-border);
+    border-radius: 999px;
+  }
+  .att-chip.bad {
+    border-color: color-mix(in srgb, var(--ds-danger) 45%, transparent);
+  }
+  .att-chip .nm {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .att-chip .err {
+    font-size: 11px;
+    color: var(--ds-danger);
+  }
+  .att-chip .x {
+    flex: none;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: none;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--ds-text-3);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .att-chip .x:hover {
+    color: var(--ds-danger);
+    background: color-mix(in srgb, var(--ds-danger) 12%, transparent);
+  }
+
   /* 等待回答：三点波浪 */
   .bubble.typing {
     display: flex;
@@ -624,6 +867,45 @@
     display: flex;
     align-items: flex-end;
     gap: 10px;
+  }
+
+  /* 附件按钮：输入框左侧，玻璃圆形动作位 */
+  .attach-btn {
+    flex: none;
+    width: 34px;
+    height: 34px;
+    border: 1px solid var(--ds-border);
+    border-radius: 999px;
+    background: var(--ds-glass-strong);
+    color: var(--ds-text-2);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition:
+      color 0.2s,
+      border-color 0.2s;
+  }
+  .attach-btn:hover:not(:disabled) {
+    color: var(--ds-accent);
+    border-color: var(--ds-border-strong);
+  }
+  .attach-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .is-spin {
+    animation: attach-spin 0.9s linear infinite;
+  }
+  @keyframes attach-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  /* 隐藏的文件选择框（由左侧按钮触发） */
+  .file-input {
+    display: none;
   }
   .input-inner :deep(.el-textarea__inner) {
     box-shadow: 0 0 0 1px var(--ds-border) inset;
