@@ -60,16 +60,19 @@
             v-for="c in staleCodes"
             :key="c"
             :value="c"
+            class="ext-row"
           >
-            <span class="ext-stale-name">{{ staleLabel(c) }}</span>
-            <el-tag
-              class="ext-tag"
-              size="small"
-              type="info"
-              effect="plain"
-            >
-              已失效
-            </el-tag>
+            <span class="ext-row-head">
+              <span class="ext-stale-name">{{ staleLabel(c) }}</span>
+              <el-tag
+                class="ext-tag"
+                size="small"
+                type="info"
+                effect="plain"
+              >
+                已失效
+              </el-tag>
+            </span>
           </el-checkbox>
         </el-checkbox-group>
 
@@ -82,26 +85,33 @@
             v-for="o in filteredOptions"
             :key="o.code"
             :value="o.code"
+            class="ext-row"
           >
-            <span class="ext-name">{{ o.name }}</span>
-            <el-tag
-              class="ext-tag"
-              size="small"
-              effect="plain"
-            >
-              {{ sourceLabel(o.source) }}
-            </el-tag>
-            <el-tag
-              class="ext-tag"
-              size="small"
-              :type="RISK_TAG_TYPES[o.risk] ?? 'info'"
-              effect="plain"
-            >
-              {{ RISK_LABELS[o.risk] ?? o.risk }}
-            </el-tag>
+            <span class="ext-row-head">
+              <span
+                class="ext-name"
+                :title="o.name"
+              >{{ o.name }}</span>
+              <el-tag
+                class="ext-tag"
+                size="small"
+                effect="plain"
+              >
+                {{ sourceLabel(o.source) }}
+              </el-tag>
+              <el-tag
+                class="ext-tag"
+                size="small"
+                :type="RISK_TAG_TYPES[o.risk] ?? 'info'"
+                effect="plain"
+              >
+                {{ RISK_LABELS[o.risk] ?? o.risk }}
+              </el-tag>
+            </span>
             <span
               v-if="o.summary"
               class="ext-summary"
+              :title="o.summary"
             >{{ o.summary }}</span>
           </el-checkbox>
         </el-checkbox-group>
@@ -265,35 +275,90 @@
     color: var(--ds-text-3);
   }
   .ext-list {
-    max-height: 180px;
+    max-height: 220px;
     overflow-y: auto;
-    padding: 6px 12px;
+    padding: 4px 8px;
     border: 1px solid var(--ds-border);
     border-radius: 8px;
     background: var(--ds-bg-2);
   }
+  /* 整行卡片式：覆盖 Element Plus 复选框默认的 inline-flex / nowrap / 固定 32px 高，
+     否则多行摘要会与名称、标签叠字 */
+  .ext-list :deep(.el-checkbox-group) {
+    display: flex;
+    flex-direction: column;
+  }
+  .ext-list :deep(.el-checkbox) {
+    display: flex;
+    align-items: flex-start;
+    box-sizing: border-box;
+    width: 100%;
+    height: auto;
+    margin: 0;
+    padding: 7px 6px;
+    white-space: normal;
+    border-radius: 6px;
+    transition: background-color 0.15s ease;
+  }
+  .ext-list :deep(.el-checkbox + .el-checkbox) {
+    border-top: 1px solid var(--ds-border);
+  }
+  .ext-list :deep(.el-checkbox:hover) {
+    background: color-mix(in srgb, var(--ds-accent) 8%, transparent);
+  }
+  .ext-list :deep(.el-checkbox__input) {
+    flex: none;
+    margin-top: 2px;
+  }
+  .ext-list :deep(.el-checkbox__label) {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    width: 100%;
+    min-width: 0;
+    padding-left: 8px;
+    line-height: 1.5;
+    white-space: normal;
+  }
   .ext-stale-group {
-    display: block;
     padding-bottom: 4px;
     margin-bottom: 4px;
     border-bottom: 1px dashed var(--ds-border);
   }
+  .ext-row-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-width: 0;
+  }
   .ext-stale-name {
-    font-family: var(--ds-font-mono);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 12px;
+    line-height: 1.5;
     color: var(--ds-text-3);
+    overflow-wrap: anywhere;
   }
   .ext-name {
+    max-width: 100%;
+    overflow: hidden;
+    font-size: 13px;
     font-weight: 500;
+    line-height: 1.5;
+    color: var(--ds-text-1);
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .ext-tag {
-    margin-left: 4px;
+    flex: none;
+    margin-left: 0;
   }
   .ext-summary {
     display: block;
-    margin-top: 2px;
     font-size: 12px;
+    line-height: 1.5;
     color: var(--ds-text-3);
+    overflow-wrap: anywhere;
   }
   .ext-empty {
     display: flex;

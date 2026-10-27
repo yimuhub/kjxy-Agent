@@ -94,6 +94,7 @@ declare module 'vue' {
     SettingsNetwork: typeof import('./components/settings/SettingsNetwork.vue')['default']
     SettingsRegistration: typeof import('./components/settings/SettingsRegistration.vue')['default']
     SettingsRoles: typeof import('./components/settings/SettingsRoles.vue')['default']
+    SettingsSelfImprove: typeof import('./components/settings/SettingsSelfImprove.vue')['default']
     SettingsSkillLab: typeof import('./components/settings/SettingsSkillLab.vue')['default']
     SkillCard: typeof import('./components/chat/SkillCard.vue')['default']
     SkillScopePanel: typeof import('./components/library/SkillScopePanel.vue')['default']
