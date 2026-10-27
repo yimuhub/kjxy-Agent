@@ -109,10 +109,16 @@
             >
               {{ row.m.content }}
             </div>
-            <!-- 结构化载荷：能力草稿 / 能力市场卡片 -->
+            <!-- 结构化载荷：技能卡片 / 能力草稿 / 能力市场卡片 -->
+            <SkillCard
+              v-if="row.m.role === 'assistant' && row.m.payload?.type === 'skill_card'"
+              :card="row.m.payload as ChatSkillCard"
+              :store="store"
+              :message-id="row.m.id"
+            />
             <ChatCard
-              v-if="row.m.role === 'assistant' && row.m.payload"
-              :card="row.m.payload"
+              v-else-if="row.m.role === 'assistant' && row.m.payload"
+              :card="row.m.payload as ChatStandardCard"
               @published="onCardPublished(row.m.id, $event)"
               @preview="openDocPreview"
               @download="downloadDoc"
@@ -420,12 +426,15 @@
   import ChatMentionLayer from '@/components/chat/ChatMentionLayer.vue'
   import ChatPolicyPicker from '@/components/chat/ChatPolicyPicker.vue'
   import ChatSteps from '@/components/chat/ChatSteps.vue'
+  import SkillCard from '@/components/chat/SkillCard.vue'
   import { chatApi, mentionDisplayName, normalizeRoutedTone } from '@/api/chat'
   import type {
     ChatDocumentCard,
     ChatGroupPolicy,
     ChatMessage,
     ChatRoutedBy,
+    ChatSkillCard,
+    ChatStandardCard,
     MentionCandidate,
     RoutedTone,
   } from '@/api/chat'

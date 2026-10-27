@@ -177,6 +177,15 @@
 | `SKILL_TOO_LARGE` | 413 | SKILL.md 超过 256KB |
 | `REPO_NOT_FOUND` | 404 | GitHub 仓库不存在或不可访问 |
 
+## 一句话技能（v3.2）
+
+| code | HTTP | 说明 |
+|---|---|---|
+| `SKILL_LAB_DISABLED` | 403 | 本小院已关闭技能生成服务（设置项 `skill_lab.enabled`） |
+| `SKILL_QUOTA_EXCEEDED` | 429 | 当日技能生成配额用尽（设置项 `skill_lab.daily_limit`，按小院与 UTC 日期计数） |
+| `VALIDATION_ERROR` | 422 | 技能规格未通过模板校验（字段、步骤数、工具白名单、风险等级等）；一句话生成链路内部消化为纠错重试，不直接抛出 |
+| `SKILL_NOT_FOUND` | 404 | 按 `skill_id` 送审的技能不存在或不属于当前用户 |
+
 ## 身份、角色与负责人（v3.0）
 
 | code | HTTP | 说明 |

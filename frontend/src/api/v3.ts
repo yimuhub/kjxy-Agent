@@ -1,6 +1,7 @@
-import type { AxiosRequestConfig, AxiosResponse } from 'axios'
-import { api } from './client'
-import type { ApiResponse } from '@/types/api'
+import { isAxiosError, type AxiosRequestConfig, type AxiosResponse } from 'axios'
+import { api, extractErrorMessage } from './client'
+import type { ApiResponse, Skill, SkillReviewAction, SkillVisibility } from '@/types/api'
+import { friendlyErrorMessage } from '@/utils/status'
 
 /** v2.2 / v3.0 新增接口：搜索、市场、身份权限、负责人驾驶舱。 */
 
@@ -96,6 +97,12 @@ export interface RegistrationRequest {
   created_at?: string
 }
 
+/** v3.1：搜索供应商新增 auto（自动，默认）；builtin_sources 为免密钥内置源 */
+export type SearchProvider = 'auto' | 'searxng' | 'tavily' | 'brave'
+
+/** v3.1：免密钥内置搜索源（零配置可用，可单独关闭） */
+export type BuiltinSearchSource = 'bing' | 'sogou' | 'so360'
+
 export interface YardSettingsBundle {
   registration: {
     mode: 'closed' | 'approval' | 'open'
@@ -111,15 +118,23 @@ export interface YardSettingsBundle {
   }
   search: {
     enabled: boolean
-    provider: 'searxng' | 'tavily' | 'brave'
+    provider: SearchProvider
     searxng_url: string
     daily_limit: number
     timeout_seconds: number
+    /** 缺省视为全选（老后端不下发该字段） */
+    builtin_sources?: BuiltinSearchSource[]
     tavily_configured?: boolean
     brave_configured?: boolean
     /** 仅提交时使用；留空表示保持原密钥 */
     tavily_api_key?: string
     brave_api_key?: string
+  }
+  skill_lab: {
+    enabled: boolean
+    daily_limit: number
+    use_web: boolean
+    max_sources: number
   }
 }
 
@@ -171,7 +186,7 @@ export const governanceApi = {
     return unwrap(api.get<ApiResponse<YardSettingsBundle>>('/yards/current/settings'))
   },
   updateSetting(
-    key: 'registration' | 'security' | 'search',
+    key: 'registration' | 'security' | 'search' | 'skill_lab',
     value: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
     return unwrap(
@@ -240,6 +255,46 @@ export const profileApi = {
 }
 
 // ---------------------------------------------------------------------------
+// 智能体可绑定扩展（v3.1：技能 / 插件分区绑定）
+// ---------------------------------------------------------------------------
+
+/** 可绑定的扩展技能；code 即绑定存储值（skill:<id>） */
+export interface BindableSkill {
+  code: string
+  name: string
+  summary: string
+  source: 'builtin' | 'market' | 'generated' | 'imported'
+  visibility: 'platform' | 'yard' | 'private'
+  risk_level: 'low' | 'medium' | 'high'
+  bound_count: number
+}
+
+/** 可绑定的扩展插件；code 即绑定存储值（plugin:<plugin_id>） */
+export interface BindablePlugin {
+  code: string
+  name: string
+  summary: string
+  source: 'builtin' | 'market' | 'local'
+  status: string
+  risk_level: 'low' | 'medium' | 'high'
+  bound_count: number
+}
+
+export interface BindableExtensions {
+  skills: BindableSkill[]
+  plugins: BindablePlugin[]
+}
+
+export const agentsApi = {
+  /** 当前用户可绑定到智能体的扩展技能与插件（含来源 / 风险 / 已绑数量）；失败由调用方在区块内兜底 */
+  bindableExtensions(): Promise<BindableExtensions> {
+    return unwrap(
+      api.get<ApiResponse<BindableExtensions>>('/agents/bindable-extensions', silent),
+    )
+  },
+}
+
+// ---------------------------------------------------------------------------
 // 联网搜索
 // ---------------------------------------------------------------------------
 
@@ -259,6 +314,8 @@ export interface SearchQuota {
 
 export interface SearchStatus {
   mode: 'online' | 'degraded' | 'offline'
+  /** 设备是否具备互联网访问能力（v3.1 新增；缺失视为未知，按降级处理） */
+  internet?: boolean
   provider: string
   checked_at: string
   reason: string
@@ -475,6 +532,187 @@ export const libraryApi = {
   githubPreview(repo: string): Promise<GithubPreviewResult> {
     return unwrap(api.post<ApiResponse<GithubPreviewResult>>('/market/github/preview', { repo }))
   },
+}
+
+// ---------------------------------------------------------------------------
+// 技能归属（v3.2）：我的 / 小院 / 平台三级视图 + 审核与推广
+// ---------------------------------------------------------------------------
+
+/** 技能空间：mine=我创建的，yard=小院共享，platform=平台共享 */
+export type SkillScope = 'mine' | 'yard' | 'platform'
+
+export interface SkillListQuery {
+  scope?: SkillScope
+  /** draft|testing|pending_review|published|deprecated */
+  status?: string
+  page?: number
+  pageSize?: number
+}
+
+export interface SkillListResult {
+  items: Skill[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+/**
+ * 技能接口（v3.2 唯一入口）。
+ * 与 modules.ts 的旧 skillApi 合并：list 支持 scope/分页，review 支持 submit_public，新增 promote。
+ */
+export const skillApi = {
+  /** 按技能空间分页拉取；后端暂未支持 scope 时退化为全量列表（不报错） */
+  list(query: SkillListQuery = {}): Promise<SkillListResult> {
+    const page = query.page && query.page > 0 ? query.page : 1
+    const pageSize = query.pageSize && query.pageSize > 0 ? query.pageSize : 20
+    return api
+      .get<ApiResponse<Skill[]> & { meta?: { total?: number } }>('/skills', {
+        params: {
+          scope: query.scope,
+          status: query.status || undefined,
+          page,
+          page_size: pageSize,
+        },
+        ...silent,
+      })
+      .then(res => ({
+        items: (res.data.data ?? []) as unknown as Skill[],
+        total: Number(res.data.meta?.total ?? 0),
+        page,
+        pageSize,
+      }))
+  },
+  create(payload: Record<string, unknown>): Promise<Skill> {
+    return unwrap(api.post<ApiResponse<Skill>>('/skills', payload))
+  },
+  /** 审核动作：submit|submit_public|approve|reject|rollback */
+  review(
+    id: string,
+    action: SkillReviewAction,
+    note?: string,
+    config: AxiosRequestConfig & { skipErrorToast?: boolean } = {},
+  ): Promise<Skill> {
+    return unwrap(
+      api.post<ApiResponse<Skill>>(`/skills/${id}/review`, { action, note }, config),
+    )
+  },
+  /** 负责人把私有技能转为小院公共（需 skills:publish_any；后端未就绪时 404） */
+  promote(id: string, config: AxiosRequestConfig & { skipErrorToast?: boolean } = {}): Promise<Skill> {
+    return unwrap(api.post<ApiResponse<Skill>>(`/skills/${id}/promote`, {}, config))
+  },
+}
+
+// ---------------------------------------------------------------------------
+// 一句话生成技能（v3.2）：检索匹配 → 生成 → 安装
+// ---------------------------------------------------------------------------
+
+/** 检索命中的候选（市场/内置/GitHub） */
+export interface SkillMatch {
+  item_key: string
+  name: string
+  summary?: string
+  source?: string
+  license?: string | null
+  risk_level?: string
+  installed?: boolean
+  score?: number
+}
+
+export interface SkillAgentRequestResult {
+  utterance: string
+  /** 后端理解出的检索词 */
+  query?: string
+  recommend: 'install' | 'generate'
+  matches: SkillMatch[]
+  note?: string
+  offline?: boolean
+}
+
+/** 生成结果里的技能摘要（一定是私有草稿） */
+export interface GeneratedSkillBrief {
+  id: string
+  code: string
+  name: string
+  version: string
+  visibility: SkillVisibility
+  status: string
+}
+
+export interface SkillSourceRef {
+  title: string
+  url: string
+}
+
+export interface SkillAgentGenerateResult {
+  skill: GeneratedSkillBrief
+  /** 生成的 SkillSpec（含 guardrails.risk_level 等），形状由后端模板决定 */
+  spec?: Record<string, unknown> | null
+  sources?: SkillSourceRef[]
+  requires_review?: boolean
+  note?: string
+  token_usage?: {
+    input_tokens?: number
+    output_tokens?: number
+    total_tokens?: number
+  }
+}
+
+/** 安装结果形状随安装器：只约定少量公共字段，其余原样透出 */
+export interface SkillAgentInstallResult {
+  item_key?: string
+  skill_id?: string
+  installed_as?: string
+  review_status?: string
+  skill_status?: string
+  needs_review?: boolean
+  [key: string]: unknown
+}
+
+/** 一句话链路：检索/生成/安装全部静默失败，由调用方在区块内展示 note（不弹全局错误） */
+export const skillLabApi = {
+  request(utterance: string): Promise<SkillAgentRequestResult> {
+    return unwrap(
+      api.post<ApiResponse<SkillAgentRequestResult>>(
+        '/market/agent/request',
+        { utterance, kind: 'skill' },
+        silent,
+      ),
+    )
+  },
+  generate(utterance: string, useWeb = true): Promise<SkillAgentGenerateResult> {
+    return unwrap(
+      api.post<ApiResponse<SkillAgentGenerateResult>>(
+        '/market/agent/generate',
+        { utterance, use_web: useWeb },
+        // 生成可能触发联网检索 + 模型调用，放宽超时
+        { ...silent, timeout: 180_000 },
+      ),
+    )
+  },
+  install(payload: { item_key: string } | { skill_id: string }): Promise<SkillAgentInstallResult> {
+    return unwrap(
+      api.post<ApiResponse<SkillAgentInstallResult>>('/market/agent/install', payload, silent),
+    )
+  },
+}
+
+/**
+ * 接口尚未上线（404 / 501）：v3.2 后端并行开发期间用于优雅降级，
+ * 页面按「加载失败，重试」处理，向导/卡片展示原因而不是整页报错。
+ */
+export function isServiceNotReady(err: unknown): boolean {
+  if (!isAxiosError(err)) return false
+  const status = err.response?.status
+  return status === 404 || status === 501
+}
+
+/** 技能相关接口的统一中文错误文案：服务未就绪时明确说明，其余走错误码映射 */
+export function skillApiErrorText(err: unknown, feature = '该功能'): string {
+  if (isServiceNotReady(err)) {
+    return `${feature}暂未就绪（后端接口尚未上线），可稍后重试，或改用「上传 Skill 文件」导入现成技能。`
+  }
+  const { code, message } = extractErrorMessage(err)
+  return friendlyErrorMessage(code, message)
 }
 
 // ---------------------------------------------------------------------------

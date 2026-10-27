@@ -344,7 +344,13 @@ export interface SubmitFeedbackPayload {
 
 // ---------- Skill ----------
 
-/** 契约未细化 Skill 字段，以下为约定字段；状态流转 submit/approve/reject/rollback */
+/** 技能归属：私有（仅创建者/负责人）/ 小院共享 / 平台共享（v3.2 归属模型） */
+export type SkillVisibility = 'private' | 'yard' | 'platform'
+
+/**
+ * 契约未细化 Skill 字段，以下为约定字段；状态流转 submit/approve/reject/rollback。
+ * v3.2 起 SkillOut 增加归属与审核痕迹字段：名称/摘要/风险等业务字段仍放在 definition 内。
+ */
 export interface Skill {
   id: string
   name?: string
@@ -354,11 +360,25 @@ export interface Skill {
   version?: string
   description?: string
   status?: string
+  /** 技能定义（SkillOut 的 definition_json，别名为 definition）：name/summary/risk 都在这里 */
+  definition?: Record<string, unknown> | null
+  definition_json?: Record<string, unknown> | null
+  /** 可见性（v3.2）；老后端未下发时按 yard 处理 */
+  visibility?: SkillVisibility
+  /** 创建者 user_id；私有技能归属判定用 */
+  owner_user_id?: string | null
+  /** 来源：seed 内置 / manual 手工 / ai 生成 / market 市场 / market_import 本地导入 等 */
+  origin?: string | null
+  created_from?: string | null
+  reviewed_by?: string | null
+  reviewed_at?: string | null
+  review_note?: string | null
   created_at?: string
   updated_at?: string
 }
 
-export type SkillReviewAction = 'submit' | 'approve' | 'reject' | 'rollback'
+/** submit_public：私有技能提交小院公共库（v3.2） */
+export type SkillReviewAction = 'submit' | 'submit_public' | 'approve' | 'reject' | 'rollback'
 
 export interface ReviewSkillPayload {
   action: SkillReviewAction

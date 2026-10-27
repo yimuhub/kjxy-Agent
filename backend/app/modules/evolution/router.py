@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 
 from app.core.config import settings
 from app.core.deps import YardContext, get_db_session, get_yard_context
+from app.core.errors import AppError
 from app.core.pagination import pagination_params
 from app.core.responses import ok, paged
 from app.modules.evolution import precheck as precheck_service
@@ -27,6 +28,7 @@ from app.modules.evolution.schemas import (
     SkillCreate,
     SkillOut,
     SkillReview,
+    SkillScope,
     SkillSuggest,
 )
 
@@ -164,13 +166,17 @@ def get_skills(
         default=None, description="draft|testing|pending_review|published|deprecated"
     ),
     skill_code: str | None = Query(default=None),
+    scope: SkillScope | None = Query(
+        default=None,
+        description="mine=我的技能（含私有）|yard=小院公共库|platform=平台级；缺省为本小院全部",
+    ),
     page_page: tuple[int, int] = Depends(pagination_params),
     ctx: YardContext = Depends(get_yard_context),
     db=Depends(get_db_session),
 ):
     page, page_size = page_page
     items, total = service.list_skills(
-        db, ctx, page, page_size, status=status, skill_code=skill_code
+        db, ctx, page, page_size, status=status, skill_code=skill_code, scope=scope
     )
     return paged(
         [SkillOut.model_validate(i).model_dump(mode="json", by_alias=True) for i in items],
@@ -188,6 +194,8 @@ def create_skill(
     ctx: YardContext = Depends(get_yard_context),
     db=Depends(get_db_session),
 ):
+    if body.visibility == "platform" and "platform_admin" not in set(ctx.roles or []):
+        raise AppError("FORBIDDEN", "只有平台管理员可以创建平台级技能。", http_status=403)
     skill = service.create_skill(
         db,
         ctx,
@@ -196,6 +204,8 @@ def create_skill(
         definition=body.definition,
         created_from=body.created_from,
         request_id=ctx.request_id,
+        visibility=body.visibility,
+        owner_user_id=ctx.user_id,
     )
     try:
         db.commit()
@@ -255,6 +265,26 @@ def review_skill(
     skill = service.review_skill(
         db, ctx, skill_id, body.action, body.note, request_id=ctx.request_id
     )
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return ok(SkillOut.model_validate(skill).model_dump(mode="json", by_alias=True), request)
+
+
+@router.post("/skills/{skill_id}/promote")
+def promote_skill(
+    skill_id: str,
+    request: Request,
+    ctx: YardContext = Depends(get_yard_context),
+    db=Depends(get_db_session),
+):
+    """负责人推广：私有技能直接置为小院级并发布（需 skills:publish_any，可逐人下放）。
+
+    已非 private 时幂等返回当前对象，方便前端重复点击。
+    """
+    skill = service.promote_skill(db, ctx, skill_id, request_id=ctx.request_id)
     try:
         db.commit()
     except Exception:

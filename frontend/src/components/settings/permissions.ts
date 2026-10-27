@@ -13,6 +13,9 @@ export const PERMISSION_LABELS: Record<string, string> = {
   'feedback:read': '查看反馈',
   'review:approve': '审核内容',
   'skills:manage': '管理技能',
+  'skills:generate': '一句话生成技能',
+  'skills:review': '审核技能',
+  'skills:publish_any': '推广技能为公共',
   'members:manage': '管理成员',
   'members:manage_limited': '管理普通成员',
   'members:reset_password': '重置成员密码',
@@ -43,6 +46,8 @@ export const PROTECTED_PERMISSIONS: string[] = [
   'settings:manage_protected',
   'insights:sensitive',
   'finance:read',
+  // 私有技能转公共是负责人特权，只能逐人下放（v3.2）
+  'skills:publish_any',
 ]
 
 export const PROTECTED_PERMISSION_SET = new Set(PROTECTED_PERMISSIONS)
@@ -80,6 +85,9 @@ export const FALLBACK_PERMISSION_GROUPS: PermissionGroup[] = [
       'feedback:read',
       'review:approve',
       'skills:manage',
+      'skills:generate',
+      'skills:review',
+      'skills:publish_any',
     ],
   },
   {
@@ -124,9 +132,12 @@ export const GRANT_ITEMS: GrantItem[] = [
   },
 ]
 
-/** 离线/受限时的统一提示文案 */
+/** 真离线（mode=offline 且确认无互联网）时的本地部署形态提示——仅限无网场景使用，不要在降级场景复用 */
 export const OFFLINE_SEARCH_TIP =
   '当前设备为本地部署形态，不具备联网功能，联网插件或技能受限。请联网后使用，或前往「专家审核 → Skill 管理」进行本地 Skill 管理操作。'
+
+/** 联网受限（degraded：仍有可用搜索源）时的提示——不得出现「不具备联网功能」等本地形态文案 */
+export const DEGRADED_SEARCH_TIP = '部分联网能力暂不可用，已自动降级到可用搜索源'
 
 /** 角色 code -> 默认中文名兜底 */
 export const ROLE_LABELS: Record<string, string> = {
@@ -137,4 +148,96 @@ export const ROLE_LABELS: Record<string, string> = {
   operator: '科研操作员',
   viewer: '普通成员',
   service_worker: '服务账号',
+}
+
+/**
+ * 角色默认权限点（与 backend/app/modules/yards/permissions.py 的 PERMISSIONS 对齐）。
+ *
+ * 只用于前端「入口显隐」：小院可以在系统设置里覆盖角色默认值、负责人还能逐人授权，
+ * 所以前端判定永远只是体验优化，真正的拦截由后端按数据库角色 + 授权再次校验。
+ */
+const ADMIN_DEFAULT_PERMISSIONS: string[] = [
+  'knowledge:read',
+  'knowledge:write',
+  'tasks:create',
+  'tasks:read',
+  'tasks:retry',
+  'tasks:cancel',
+  'feedback:write',
+  'feedback:read',
+  'review:approve',
+  'skills:manage',
+  'skills:generate',
+  'skills:review',
+  'members:manage',
+  'members:manage_limited',
+  'members:reset_password',
+  'members:approve',
+  'roles:manage',
+  'settings:manage',
+  'search:manage',
+  'market:install',
+  'market:review',
+  'insights:read',
+  'audit:read',
+  'admin:stats',
+  'tools:execute',
+]
+
+export const ROLE_PERMISSIONS: Record<string, string[]> = {
+  // 负责人/平台管理员实际上恒定拥有全集（含保护型权限），判定时直接短路
+  yard_owner: [...ADMIN_DEFAULT_PERMISSIONS, ...PROTECTED_PERMISSIONS, 'skills:publish_any'],
+  platform_admin: [...ADMIN_DEFAULT_PERMISSIONS, ...PROTECTED_PERMISSIONS, 'skills:publish_any'],
+  yard_admin: ADMIN_DEFAULT_PERMISSIONS,
+  expert: [
+    'knowledge:read',
+    'knowledge:write',
+    'feedback:write',
+    'feedback:read',
+    'review:approve',
+    'skills:manage',
+    'skills:generate',
+    'skills:review',
+    'members:manage_limited',
+    'tasks:create',
+    'tasks:read',
+    'market:install',
+    'market:review',
+    'insights:read',
+    'tools:execute',
+  ],
+  operator: [
+    'knowledge:read',
+    'tasks:create',
+    'tasks:read',
+    'tasks:retry',
+    'feedback:write',
+    'skills:generate',
+    'tools:execute',
+  ],
+  viewer: ['knowledge:read', 'tasks:read', 'feedback:write', 'skills:generate', 'tools:execute'],
+  service_worker: ['tasks:create', 'tasks:read'],
+}
+
+/** 角色集合 -> 权限点集合（多角色取并集） */
+export function permissionsOfRoles(roles: string[]): Set<string> {
+  const granted = new Set<string>()
+  for (const role of roles) {
+    for (const permission of ROLE_PERMISSIONS[role] ?? []) granted.add(permission)
+  }
+  return granted
+}
+
+/**
+ * 前端权限判定（只控制入口显隐，不替代后端校验）。
+ *
+ * - 角色为空视为「尚未加载」：不隐藏入口，避免把功能整体锁死；
+ * - 出现未知角色（小院自定义角色）时同样放行：前端没有它的权限表，
+ *   硬判会误伤，交由后端按库内配置裁决。
+ */
+export function hasPermission(roles: string[], permission: string): boolean {
+  if (!roles.length) return true
+  const knownRoles = roles.filter(role => role in ROLE_PERMISSIONS)
+  if (knownRoles.length !== roles.length) return true
+  return permissionsOfRoles(knownRoles).has(permission)
 }

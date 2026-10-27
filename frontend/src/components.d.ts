@@ -13,6 +13,7 @@ declare module 'vue' {
   export interface GlobalComponents {
     AgentUseDialog: typeof import('./components/agents/AgentUseDialog.vue')['default']
     AsyncState: typeof import('./components/AsyncState.vue')['default']
+    BindableExtensionPicker: typeof import('./components/agents/BindableExtensionPicker.vue')['default']
     ChatCard: typeof import('./components/chat/ChatCard.vue')['default']
     ChatMemberBar: typeof import('./components/chat/ChatMemberBar.vue')['default']
     ChatMentionLayer: typeof import('./components/chat/ChatMentionLayer.vue')['default']
@@ -92,6 +93,10 @@ declare module 'vue' {
     SettingsNetwork: typeof import('./components/settings/SettingsNetwork.vue')['default']
     SettingsRegistration: typeof import('./components/settings/SettingsRegistration.vue')['default']
     SettingsRoles: typeof import('./components/settings/SettingsRoles.vue')['default']
+    SettingsSkillLab: typeof import('./components/settings/SettingsSkillLab.vue')['default']
+    SkillCard: typeof import('./components/chat/SkillCard.vue')['default']
+    SkillScopePanel: typeof import('./components/library/SkillScopePanel.vue')['default']
+    SkillWizard: typeof import('./components/library/SkillWizard.vue')['default']
     TransferOwner: typeof import('./components/owner/TransferOwner.vue')['default']
     UsageTrend: typeof import('./components/owner/UsageTrend.vue')['default']
   }

@@ -46,8 +46,9 @@ def test_status_merges_provider_and_quota(db_session, monkeypatch, allow_permiss
         return {
             "mode": "online",
             "provider": "searxng",
+            "internet": True,
             "checked_at": "2026-10-25T00:00:00Z",
-            "reason": "搜索供应商可用。",
+            "reason": "搜索源可用。",
         }
 
     monkeypatch.setattr(service, "network_status", fake_status)
@@ -63,6 +64,7 @@ def test_status_merges_provider_and_quota(db_session, monkeypatch, allow_permiss
     assert resp.status_code == 200
     data = resp.json()["data"]
     assert data["mode"] == "online"
+    assert data["internet"] is True
     assert data["supplier"] == "searxng"
     assert data["quota"] == {"used": 3, "limit": 500, "remaining": 497}
 

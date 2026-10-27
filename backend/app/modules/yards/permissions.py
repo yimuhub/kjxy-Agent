@@ -24,6 +24,9 @@ ALL_PERMISSIONS: frozenset[str] = frozenset(
         "feedback:read",
         "review:approve",
         "skills:manage",
+        "skills:generate",
+        "skills:review",
+        "skills:publish_any",
         "members:manage",
         "members:manage_limited",
         "members:reset_password",
@@ -53,6 +56,8 @@ PROTECTED_PERMISSIONS: frozenset[str] = frozenset(
         "settings:manage_protected",
         "insights:sensitive",
         "finance:read",
+        # 私有技能转公共是负责人特权，只能逐人下放，不能写进角色默认值
+        "skills:publish_any",
     }
 )
 
@@ -62,6 +67,7 @@ GRANTABLE_PERMISSIONS: frozenset[str] = frozenset(
         "insights:sensitive",
         "finance:read",
         "audit:read",
+        "skills:publish_any",
     }
 )
 
@@ -72,6 +78,7 @@ _ADMIN_DEFAULTS = ALL_PERMISSIONS - {
     "settings:manage_protected",
     "insights:sensitive",
     "finance:read",
+    "skills:publish_any",
 }
 
 PERMISSIONS: dict[str, frozenset[str]] = {
@@ -86,6 +93,8 @@ PERMISSIONS: dict[str, frozenset[str]] = {
             "feedback:read",
             "review:approve",
             "skills:manage",
+            "skills:generate",
+            "skills:review",
             "members:manage_limited",
             "tasks:create",
             "tasks:read",
@@ -102,10 +111,13 @@ PERMISSIONS: dict[str, frozenset[str]] = {
             "tasks:read",
             "tasks:retry",
             "feedback:write",
+            "skills:generate",
             "tools:execute",
         }
     ),
-    "viewer": frozenset({"knowledge:read", "tasks:read", "feedback:write", "tools:execute"}),
+    "viewer": frozenset(
+        {"knowledge:read", "tasks:read", "feedback:write", "skills:generate", "tools:execute"}
+    ),
     "service_worker": frozenset({"tasks:create", "tasks:read"}),
 }
 
@@ -156,6 +168,9 @@ PERMISSION_GROUPS: tuple[dict[str, object], ...] = (
             "feedback:read",
             "review:approve",
             "skills:manage",
+            "skills:generate",
+            "skills:review",
+            "skills:publish_any",
         ],
     },
     {

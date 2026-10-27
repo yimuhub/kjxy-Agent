@@ -41,6 +41,38 @@
 | GET | /audit/logs | 审计日志 |
 | GET | /admin/stats | 运营概况 |
 
+## 接口一览（v3.2 新增）
+
+| 方法 | 路径 | 权限 | 用途 |
+|---|---|---|---|
+| POST | /market/agent/request | skills:generate | 一句话检索候选（本地优先，无命中试 GitHub，离线降级本地） |
+| POST | /market/agent/generate | skills:generate | 一句话生成技能草稿（联网找资料 → 模型出规格 → 校验 → 落私有草稿） |
+| POST | /market/agent/install | market:install | 按 item_key 安装市场候选；按 skill_id 把自己的私有草稿送审 |
+| GET | /skills?scope=mine\|yard\|platform | 登录 | 技能归属视图（我的 / 小院公共 / 平台共享；缺省为本小院全部） |
+| POST | /skills/{id}/promote | skills:publish_any | 负责人把私有技能转为小院公共并发布（保护型权限，可逐人下放） |
+
+v3.2 行为变化：
+
+- 一句话生成的技能一律落为**私有草稿**（`visibility=private`、`owner_user_id=当前用户`），
+  需经 `/skills/{id}/review` 的 `submit_public` 送审后才进入小院公共库。
+- `/market/agent/generate` 受小院设置 `skill_lab` 控制：`enabled`（开关）、`daily_limit`
+  （每日生成配额，超出返回 `SKILL_QUOTA_EXCEEDED` 429）、`use_web`（是否联网找资料）、
+  `max_sources`（引用来源上限）。开关关闭时返回 `SKILL_LAB_DISABLED` 403（检索不受影响）。
+- `skill_lab` 走通用设置接口：`GET /yards/current/settings` 随全部设置项下发，
+  `PUT /yards/current/settings/skill_lab` 需 `settings:manage` 权限。
+- 生成失败**不落库**，接口返回原因（`note`），前端在向导内展示而非整页报错。
+- `/skills` 新增 `scope` 查询参数；`promote` 幂等：已非 private 时返回当前对象。
+
+## 接口一览（v3.1 新增）
+
+| 方法 | 路径 | 权限 | 用途 |
+|---|---|---|---|
+| GET | /agents/bindable-extensions | 登录（小院上下文） | 编辑弹窗「扩展技能 / 扩展插件」候选聚合（含来源、风险、可见性、被引用数） |
+
+v3.1 行为变化：`/search/status` 新增 `internet` 字段；搜索设置 `provider` 支持 `auto`
+（默认）与 `builtin_sources`（bing/sogou/so360 子集）。`/agents/declarative` 创建与更新
+会对 `bound_skills` 逐项校验，未知编码返回 422。
+
 ## 接口一览（v3.0 新增）
 
 | 方法 | 路径 | 权限 | 用途 |

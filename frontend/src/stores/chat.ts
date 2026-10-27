@@ -17,6 +17,8 @@ import type {
   ChatMessage,
   ChatParticipant,
   ChatSession,
+  ChatSkillCard,
+  ChatSkillCardMatch,
   ChatStep,
   CreateSessionPayload,
   MentionCandidate,
@@ -24,6 +26,7 @@ import type {
   SendMessageExtras,
 } from '@/api/chat'
 import { extractErrorMessage } from '@/api/client'
+import { skillApi, skillApiErrorText, skillLabApi } from '@/api/v3'
 import { friendlyErrorMessage } from '@/utils/status'
 import { openSseStream, type SseHandle } from '@/utils/sse'
 
@@ -54,6 +57,16 @@ export interface MemberRoundRow {
   missing: boolean
   /** 是否不在成员表里（后端多回了一个成员，也要如实显示） */
   extra: boolean
+}
+
+/** 技能卡片的按钮级状态（按消息 id 挂在实例 store 上） */
+export interface SkillCardOpState {
+  /** 正在安装的 item_key；空串表示空闲 */
+  installing: string
+  submitting: boolean
+  retrying: boolean
+  /** 卡片内联错误（不弹全局 toast） */
+  error: string
 }
 
 /** 成员行的稳定 key：agent_id 优先，退化到 id/code（后端事件按 agent_id 对齐） */
@@ -114,6 +127,19 @@ function buildChatStore(scope: string) {
     const liveMembers = ref<Record<string, MemberRoundRow>>({})
     /** 本轮是否已收尾：收尾后仍无事件的成员才能判定为「未回答」 */
     const roundDone = ref(false)
+
+    /**
+     * 轮次序号：每一轮 send 自增。
+     * 收尾时按序号判定「是否仍是当前轮」——上一轮的清理不得覆盖新一轮的发送态。
+     */
+    let roundSeq = 0
+
+    /**
+     * 技能卡片（一句话技能）的实例级操作状态：按消息 id 隔离。
+     * 必须挂在各自的 store 实例上——同一页面可能并存多个 ChatPanel（主对话 / 弹出面板），
+     * 全局单例会让两个面板的「安装中 / 提交中」互相串台。
+     */
+    const skillCardOps = ref<Record<string, SkillCardOpState>>({})
 
     const activeSession = computed(() => sessions.value.find(s => s.id === activeId.value) ?? null)
     const activeTitle = computed(() => activeSession.value?.title || UNTITLED)
@@ -510,11 +536,17 @@ function buildChatStore(scope: string) {
         let handle: SseHandle | null = null
         let settled = false
         let pendingCard: ChatCard | null = null
+        const seq = roundSeq
 
         const finish = (outcome: StreamOutcome) => {
           if (settled) return
           settled = true
           roundDone.value = true
+          // 本轮已收尾：立刻收起实时步骤条，不等会话列表刷新等收尾整理
+          if (seq === roundSeq) {
+            sending.value = false
+            liveSteps.value = []
+          }
           handle?.close()
           resolve(outcome)
         }
@@ -574,6 +606,7 @@ function buildChatStore(scope: string) {
       const attIds = sentAttachments.map(a => a.id)
       // 本轮的点名与策略在发送瞬间定格：发完即清，下一条回到自动路由
       const extras = currentExtras()
+      const seq = ++roundSeq
       sending.value = true
       liveSteps.value = []
       streamError.value = ''
@@ -635,8 +668,114 @@ function buildChatStore(scope: string) {
         toastError(err)
         return false
       } finally {
-        sending.value = false
-        liveSteps.value = []
+        // 已有新一轮在跑时，上一轮的收尾不得覆盖新一轮的发送态
+        if (seq === roundSeq) {
+          sending.value = false
+          liveSteps.value = []
+        }
+      }
+    }
+
+    /* ---------------- 技能卡片（v3.2 一句话技能）：状态按实例 + 消息 id 隔离 ---------------- */
+
+    function emptySkillCardOp(): SkillCardOpState {
+      return { installing: '', submitting: false, retrying: false, error: '' }
+    }
+
+    /** 读取某条技能卡片的按钮状态（缺失时返回只读的空状态） */
+    function skillCardOp(messageId: string): SkillCardOpState {
+      return skillCardOps.value[messageId] ?? emptySkillCardOp()
+    }
+
+    function patchSkillCardOp(messageId: string, patch: Partial<SkillCardOpState>) {
+      skillCardOps.value[messageId] = { ...skillCardOp(messageId), ...patch }
+    }
+
+    /** 取消息上的技能卡片载荷（shell 侧只改本地副本，刷新后以服务端为准） */
+    function skillCardPayload(messageId: string): ChatSkillCard | null {
+      const msg = messages.value.find(m => m.id === messageId)
+      return msg?.payload && msg.payload.type === 'skill_card' ? msg.payload : null
+    }
+
+    /** matched 卡片：安装某个候选（成功后按钮置灰「已安装」） */
+    async function installSkillFromCard(
+      messageId: string,
+      match: ChatSkillCardMatch,
+    ): Promise<boolean> {
+      if (!match.item_key || skillCardOp(messageId).installing) return false
+      patchSkillCardOp(messageId, { installing: match.item_key, error: '' })
+      try {
+        const res = await skillLabApi.install({ item_key: match.item_key })
+        const card = skillCardPayload(messageId)
+        const target = card?.matches?.find(m => m.item_key === match.item_key)
+        if (target) target.installed = true
+        const pending =
+          res.needs_review === true ||
+          res.review_status === 'pending_review' ||
+          res.skill_status === 'pending_review'
+        ElMessage.success(
+          pending
+            ? `「${match.name}」已安装，等待专家审核后可在「我的智能体」编辑里绑定`
+            : `「${match.name}」已安装，可在「我的智能体」编辑里绑定`,
+        )
+        return true
+      } catch (err) {
+        patchSkillCardOp(messageId, { error: skillApiErrorText(err, '技能安装') })
+        return false
+      } finally {
+        patchSkillCardOp(messageId, { installing: '' })
+      }
+    }
+
+    /** created 卡片：提交小院公共库审核（私有 → pending_review） */
+    async function submitSkillCard(messageId: string): Promise<boolean> {
+      const card = skillCardPayload(messageId)
+      const skill = card?.skill
+      if (!skill || skillCardOp(messageId).submitting) return false
+      patchSkillCardOp(messageId, { submitting: true, error: '' })
+      try {
+        const updated = await skillApi.review(skill.id, 'submit_public', undefined, {
+          skipErrorToast: true,
+        })
+        const target = skillCardPayload(messageId)
+        if (target?.skill) target.skill.status = updated?.status || 'pending_review'
+        ElMessage.success('已提交审核，负责人通过后会转为小院公共')
+        return true
+      } catch (err) {
+        patchSkillCardOp(messageId, { error: skillApiErrorText(err, '提交审核') })
+        return false
+      } finally {
+        patchSkillCardOp(messageId, { submitting: false })
+      }
+    }
+
+    /** failed 卡片：按原话重试生成，成功则把卡片原地替换为 created */
+    async function retrySkillCard(messageId: string): Promise<boolean> {
+      const card = skillCardPayload(messageId)
+      const utterance = card?.utterance?.trim()
+      if (!utterance || skillCardOp(messageId).retrying) return false
+      patchSkillCardOp(messageId, { retrying: true, error: '' })
+      try {
+        const res = await skillLabApi.generate(utterance, true)
+        const msg = messages.value.find(m => m.id === messageId)
+        if (msg) {
+          msg.payload = {
+            type: 'skill_card',
+            state: 'created',
+            utterance,
+            skill: res.skill,
+            matches: [],
+            sources: res.sources ?? [],
+            note: res.note ?? '',
+          }
+        }
+        ElMessage.success('已重新生成技能草稿')
+        return true
+      } catch (err) {
+        patchSkillCardOp(messageId, { error: skillApiErrorText(err, '技能生成') })
+        return false
+      } finally {
+        patchSkillCardOp(messageId, { retrying: false })
       }
     }
 
@@ -685,6 +824,11 @@ function buildChatStore(scope: string) {
       setGroupPolicy,
       send,
       sendViaStream,
+      /* 技能卡片：状态与动作都在实例内，多面板互不串台 */
+      skillCardOp,
+      installSkillFromCard,
+      submitSkillCard,
+      retrySkillCard,
     }
   })
 }

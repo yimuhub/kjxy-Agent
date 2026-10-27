@@ -37,11 +37,12 @@ from app.modules.yards.schemas import RoleCreateRequest, RoleUpdateRequest
 
 router = APIRouter()
 
-#: 设置项 → 所需权限（注册/安全为普通设置，搜索为搜索管理）
+#: 设置项 → 所需权限（注册/安全/技能生成为普通设置，搜索为搜索管理）
 SETTINGS_PERMISSIONS: dict[str, str] = {
     "registration": "settings:manage",
     "security": "settings:manage",
     "search": "search:manage",
+    "skill_lab": "settings:manage",
 }
 
 

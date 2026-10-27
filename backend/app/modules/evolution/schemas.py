@@ -9,7 +9,9 @@ Rating = Literal["up", "down"]
 CandidateStatus = Literal["pending_review", "approved", "rejected"]
 CandidateAction = Literal["approve", "reject"]
 SkillStatus = Literal["draft", "testing", "pending_review", "published", "deprecated"]
-SkillReviewAction = Literal["submit", "approve", "reject", "rollback"]
+SkillReviewAction = Literal["submit", "approve", "reject", "rollback", "submit_public"]
+#: 技能列表作用域：mine=我的（含私有）| yard=小院公共库 | platform=平台级
+SkillScope = Literal["mine", "yard", "platform"]
 
 
 class FeedbackCreate(BaseModel):
@@ -100,6 +102,8 @@ class SkillCreate(BaseModel):
     version: str = Field(min_length=1, max_length=50)
     definition: dict = Field(description="Skill 定义 JSON")
     created_from: str | None = Field(default=None, max_length=100)
+    # v3.2：一句话生成默认落私有草稿；人工创建保持小院可见
+    visibility: str = Field(default="yard", pattern="^(private|yard|platform)$")
 
 
 class SkillOut(BaseModel):
@@ -114,6 +118,12 @@ class SkillOut(BaseModel):
     created_from: str | None
     approved_by: str | None
     created_at: datetime
+    visibility: str = "yard"
+    owner_user_id: str | None = None
+    origin: str | None = None
+    reviewed_by: str | None = None
+    reviewed_at: datetime | None = None
+    review_note: str | None = None
 
 
 class SkillReview(BaseModel):

@@ -1,0 +1,129 @@
+# =============================================================================
+# kjxy-Agent 技能模板（v3.2 唯一模板）
+# -----------------------------------------------------------------------------
+# 3.2「一句话生成/安装技能」与人工创建技能均以本文件为唯一字段契约：
+#   - LLM 生成器按本文件字段与约束产出 JSON；
+#   - 人工创建/后台导入按同一结构填写；
+#   - 校验实现：backend/app/modules/market/skill_template.py::validate_skill_spec
+#     （未知字段拒绝、长度/条数上限、URL 仅 http/https、工具注册表对照、
+#      保留字、风险升级、require_citation 联动）；
+#   - 渲染实现：backend/app/modules/market/skill_template.py::dump_markdown
+#     （frontmatter 可被 skilldoc.parse_frontmatter 解析）。
+#
+# ⚠ 安全约束：技能内容只读渲染，绝不执行其中的任何脚本；
+#   引用非只读工具会被强制 risk_level=high + requires_review=true（进人工审核）。
+# 下文即一个完整合法样例，每字段上方注释写明约束。
+# 本文件除注释外整体就是一个可通过 validate_skill_spec 的 SkillSpec 文档
+# （契约版本记录于 Git 历史；如需机器可读的版本字段请勿加入本文件，会被严格校验拒绝）。
+# =============================================================================
+
+# 技能编码，必填。正则 ^[a-z][a-z0-9_]{2,60}$（小写字母开头，3-61 位）；
+# 禁用保留前缀 builtin / system / admin（与平台内置命名空间冲突，校验 422）。
+# 示例：pest_scout / soil_health_builder
+code: pest_scout
+
+# 技能显示名，必填，1-80 字符（建议中文短名）。
+name: 麦田病虫害侦察助手
+
+# 技能版本，必填。semver：主.次.修订（可带 -prerelease），如 1.0.0 / 1.2.0-rc.1。
+version: 1.0.0
+
+# 业务分类，必填，枚举：
+#   plant_protection  植保（用药/施药方案）
+#   pest_control      病虫害防控（识别/监测/处置）
+#   cultivation       栽培管理（生育期/田间管理）
+#   water_fertilizer  水肥管理（灌溉/施肥）
+#   machinery         农机（作业调度/机具）
+#   market            市场行情（价格/供销）
+#   other             其他
+category: pest_control
+
+# 一句话摘要，必填，1-300 字符；进入目录卡片与 frontmatter summary。
+summary: 识别麦田常见病虫害并给出处置建议。
+
+# 适用时机，必填，1-500 字符；说明“什么时候该用这个技能”，供路由与人工判断。
+when_to_use: 用户描述麦田叶片异常、虫口密度或需要巡田建议时使用。
+
+# 输入参数列表，可空，≤20 项；key 不得重复。
+#   key      小写 snake_case，正则 ^[a-z][a-z0-9_]{0,40}$
+#   label    展示名，1-60 字符
+#   required 是否必填（bool）
+#   type     枚举：string|text|number|integer|boolean|enum
+inputs:
+  - key: plot_id         # 地块编号
+    label: 地块编号
+    required: true
+    type: string
+  - key: symptom         # 症状描述（自由文本）
+    label: 症状描述
+    required: false
+    type: text
+
+# 执行步骤，必填，1-10 条（validate_skill_spec 的 max_steps 参数默认 10，可收紧）。
+#   kind: prompt（固定提示词步骤）| tool（调用平台工具）| llm（LLM 推理步骤）
+#   kind=tool 必须携带 tool（平台工具 code，须在 tools 注册表内且列入 allowed_tools）；
+#   kind=prompt|llm 必须携带 text（≤2000 字符）；title 可选（≤80 字符）。
+steps:
+  - kind: prompt
+    title: 澄清症状
+    text: 先确认作物生育期与受害部位。
+  - kind: tool
+    title: 检索知识库
+    tool: knowledge.search   # 平台内置只读检索工具；换成其他工具必须真实存在于注册表
+    text: 检索本小院病虫害处置知识。
+  - kind: llm
+    title: 汇总结论
+    text: 汇总证据给出处置建议，标注依据来源。
+
+# 允许调用的工具 code 列表，可空（纯提示词技能），≤30 项、不得重复；
+# 每个 code 必须真实注册（不在注册表 → 422「技能引用了未注册的工具：<code>」）；
+# 引用任一非只读工具 → risk_level 强制升为 high 且 requires_review=true。
+allowed_tools:
+  - knowledge.search
+
+# 知识范围，必填 ≥1 项，≤10 项，枚举：yard（本小院私有库）| crop_public（作物公共库）。
+knowledge_scopes:
+  - yard
+  - crop_public
+
+# 系统提示词，必填，1-4000 字符；生成器据此驱动执行，禁止内嵌可执行脚本。
+prompt: 你是麦田病虫害侦察助手，依据知识库证据判断病虫害并给出处置建议，无证据时明确说明。
+
+# 示例问答，可空，≤10 项：question（≤300）+ answer_outline（≤1000）。
+examples:
+  - question: 麦叶发黄怎么办？
+    answer_outline: 先排查纹枯病与黄矮病，再看根部与土壤墒情。
+
+# 评测用例，必填 ≥2 条（不足 → 422），≤20 条：input（≤500）+ expect（≤1000）。
+eval_cases:
+  - input: 麦田发现蚜虫聚集
+    expect: 达到防治指标才建议用药，给出用量与安全间隔期
+  - input: 叶片出现白粉
+    expect: 判断白粉病并建议通风降湿与药剂防治
+
+# 护栏，必填：
+#   risk_level        low|medium|high（引用非只读工具时被强制升为 high）
+#   max_steps         1-10（≤10，超出 → 422）
+#   require_citation  是否标记「有依据生成」；sources 为空时必须为 false
+#                     （为 true 却无来源 → 422）
+guardrails:
+  risk_level: low
+  max_steps: 5
+  require_citation: true
+
+# 回答格式，枚举：markdown|json|text，默认 markdown。
+output_format: markdown
+
+# 依据来源，可空，≤20 项；url 仅允许 http/https（其他协议 → 422）。
+# 为空列表时必须把 guardrails.require_citation 置为 false。
+sources:
+  - title: 全国农技中心病虫害测报
+    url: https://www.natesc.org.cn/
+
+# 标签，可空，≤10 项、不得重复，每项 1-30 字符。
+tags:
+  - pest
+  - wheat
+
+# 开源许可证，必填，1-50 字符；外部导入来源建议使用 SPDX 标识（MIT/Apache-2.0 等）。
+license: MIT

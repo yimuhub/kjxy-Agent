@@ -30,17 +30,26 @@ DEFAULTS: dict[str, dict[str, Any]] = {
     },
     "search": {
         "enabled": True,
-        "provider": "searxng",  # searxng | tavily | brave
+        "provider": "auto",  # auto | searxng | tavily | brave（旧值照常可用）
+        "builtin_sources": ["bing", "sogou", "so360"],  # 免密钥内置源及其优先顺序
         "searxng_url": "http://127.0.0.1:8888",
         "tavily_api_key": "",
         "brave_api_key": "",
         "daily_limit": 500,
         "timeout_seconds": 8,
     },
+    "skill_lab": {
+        "enabled": True,
+        "daily_limit": 20,
+        "use_web": True,
+        "max_sources": 6,
+    },
 }
 
 REGISTRATION_MODES = {"closed", "approval", "open"}
-SEARCH_PROVIDERS = {"searxng", "tavily", "brave"}
+SEARCH_PROVIDERS = {"auto", "searxng", "tavily", "brave"}
+#: 免密钥内置搜索源（与 app.modules.search.providers_builtin 的实现保持一致）
+BUILTIN_SEARCH_SOURCES = ("bing", "sogou", "so360")
 
 
 def _row(db: Session, yard_id: str, key: str) -> YardSettings | None:
@@ -79,6 +88,12 @@ def _validate(key: str, value: dict[str, Any], merged: dict[str, Any]) -> None:
     elif key == "search":
         if merged["provider"] not in SEARCH_PROVIDERS:
             raise AppError("INVALID_REQUEST", "搜索供应商不合法。", http_status=400)
+        sources = merged.get("builtin_sources")
+        if not isinstance(sources, list) or any(
+            not isinstance(item, str) or item not in BUILTIN_SEARCH_SOURCES for item in sources
+        ):
+            raise AppError("INVALID_REQUEST", "内置搜索源不合法。", http_status=400)
+        merged["builtin_sources"] = list(dict.fromkeys(sources))  # 去重保序
         try:
             limit = int(merged["daily_limit"])
             timeout = int(merged["timeout_seconds"])
@@ -87,8 +102,19 @@ def _validate(key: str, value: dict[str, Any], merged: dict[str, Any]) -> None:
         if not 1 <= limit <= 100000 or not 2 <= timeout <= 30:
             raise AppError("INVALID_REQUEST", "搜索配额/超时超出允许范围。", http_status=400)
         parsed = urlparse(str(merged.get("searxng_url") or ""))
-        if merged["provider"] == "searxng" and parsed.scheme not in {"http", "https"}:
+        searxng_in_chain = merged["provider"] == "searxng" or (
+            merged["provider"] == "auto" and str(merged.get("searxng_url") or "").strip()
+        )
+        if searxng_in_chain and parsed.scheme not in {"http", "https"}:
             raise AppError("INVALID_REQUEST", "SearXNG 地址必须是 HTTP(S)。", http_status=400)
+    elif key == "skill_lab":
+        try:
+            limit = int(merged["daily_limit"])
+            max_sources = int(merged["max_sources"])
+        except (TypeError, ValueError) as e:
+            raise AppError("INVALID_REQUEST", "技能生成配额必须是整数。", http_status=400) from e
+        if not 0 <= limit <= 1000 or not 0 <= max_sources <= 20:
+            raise AppError("INVALID_REQUEST", "技能生成配额超出允许范围。", http_status=400)
     else:
         raise AppError("INVALID_REQUEST", f"未知设置项：{key}", http_status=400)
 
@@ -145,6 +171,7 @@ def public_view(db: Session, yard_id: str) -> dict[str, dict[str, Any]]:
 
 
 __all__ = [
+    "BUILTIN_SEARCH_SOURCES",
     "DEFAULTS",
     "REGISTRATION_MODES",
     "SEARCH_PROVIDERS",

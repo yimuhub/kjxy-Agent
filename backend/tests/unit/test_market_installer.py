@@ -351,9 +351,21 @@ def test_bound_skills_prompt_only_published_with_prompt(db_session):
             yard_id="yard-market",
             version="1.0.0",
             type="knowledge_pack",
-            status="pending_review",
+            status="enabled",
             manifest_json={"name": "气象插件", "description": "天气数据"},
             checksum="x",
+            checksum_ok=True,
+        )
+    )
+    db_session.add(
+        PluginManifest(
+            plugin_id="pending-pack",
+            yard_id="yard-market",
+            version="1.0.0",
+            type="knowledge_pack",
+            status="pending_review",
+            manifest_json={"name": "待审插件", "description": "尚未启用"},
+            checksum="y",
             checksum_ok=True,
         )
     )
@@ -362,12 +374,39 @@ def test_bound_skills_prompt_only_published_with_prompt(db_session):
     prompt = _resolve_bound_skills_prompt(
         db_session,
         "yard-market",
-        ["published_skill", "draft_skill", "pending_skill", "weather-pack"],
+        ["published_skill", "draft_skill", "pending_skill", "weather-pack", "pending-pack"],
     )
     assert "PUBLISHED-PROMPT 正文" in prompt
     assert "DRAFT-PROMPT" not in prompt
     assert "PENDING-PROMPT" not in prompt
     assert "工作流插件【气象插件" in prompt
+    assert "待审插件" not in prompt
+
+
+def test_bound_skills_prompt_accepts_prefixed_codes(db_session):
+    """编辑弹窗契约编码 skill:<id> / plugin:<pid> 必须能命中（回归：前缀不匹配导致注入为空）。"""
+    row = _skill(db_session, "prefixed_skill", "published", "PREFIXED-PROMPT 正文")
+    db_session.add(
+        PluginManifest(
+            plugin_id="prefix-pack",
+            yard_id="yard-market",
+            version="1.0.0",
+            type="knowledge_pack",
+            status="enabled",
+            manifest_json={"name": "前缀插件", "description": "契约编码"},
+            checksum="z",
+            checksum_ok=True,
+        )
+    )
+    db_session.flush()
+
+    prompt = _resolve_bound_skills_prompt(
+        db_session,
+        "yard-market",
+        [f"skill:{row.id}", "plugin:prefix-pack"],
+    )
+    assert "PREFIXED-PROMPT 正文" in prompt
+    assert "工作流插件【前缀插件" in prompt
 
 
 def test_bound_skills_prompt_truncates_and_limits_steps(db_session):

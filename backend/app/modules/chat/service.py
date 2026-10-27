@@ -14,6 +14,7 @@ from app.core.logging import get_logger
 from app.core.progress import (
     PHASE_GENERATING,
     PHASE_READING,
+    PHASE_RETRIEVING,
     PHASE_ROUTING,
     STEP_DONE,
     STEP_FAILED,
@@ -564,6 +565,75 @@ async def execute_turn(
                 "model": "market_installer",
                 "estimated": True,
             },
+        }
+
+    # ---- 技能链路：一句话要技能（先检索匹配，无匹配再生成私有草稿）----
+    if intent.kind == intent_service.INTENT_SKILL:
+        from app.modules.market.skill_agent import handle_skill_request
+
+        if on_step:
+            on_step(PHASE_RETRIEVING, "正在检索已有技能", STEP_RUNNING)
+        try:
+            skill_card: dict[str, Any] = await handle_skill_request(
+                db, ctx=ctx, utterance=content, on_step=on_step
+            )
+        except AppError:
+            # 与能力链路同口径：错误继续上抛（run_and_persist 负责落失败行），
+            # 这里只把最后一步标成 failed，让过程可见。
+            if on_step:
+                on_step(PHASE_GENERATING, "技能检索/生成失败，请稍后重试", STEP_FAILED)
+            raise
+
+        state = str(skill_card.get("state") or "")
+        raw_skill = skill_card.get("skill")
+        skill: dict[str, Any] = raw_skill if isinstance(raw_skill, dict) else {}
+        skill_name = str(skill.get("name") or "")
+        note = str(skill_card.get("note") or "").strip()
+        if state == "failed":
+            fail_reason = note or "未生成可用技能草稿"
+            if on_step:
+                on_step(PHASE_GENERATING, f"技能生成失败：{fail_reason}", STEP_FAILED)
+            summary = note or "技能生成失败，请稍后重试或换个说法再试。"
+        elif state == "created":
+            if on_step:
+                on_step(PHASE_GENERATING, "未找到匹配，正在学习并生成技能", STEP_DONE)
+                on_step(PHASE_GENERATING, "技能草稿已生成", STEP_DONE)
+            summary = note or "已生成技能草稿，可在技能库中查看并绑定到助手。"
+        else:
+            if on_step:
+                matched = len(skill_card.get("matches") or [])
+                label = f"「{skill_name}」" if skill_name else ""
+                on_step(PHASE_GENERATING, f"已找到 {matched} 个匹配技能{label}", STEP_DONE)
+            summary = note or (
+                f"已找到匹配技能「{skill_name}」，可在卡片中安装。"
+                if skill_name
+                else "已找到可用的匹配技能，请在卡片中确认。"
+            )
+
+        usage = skill_card.get("token_usage")
+        if isinstance(usage, dict):
+            skill_token_usage = usage
+        else:
+            in_tok = estimate_token_count(content)
+            out_tok = estimate_token_count(summary) + estimate_token_count(str(skill_card))
+            skill_token_usage = {
+                "input_tokens": in_tok,
+                "output_tokens": out_tok,
+                "total_tokens": in_tok + out_tok,
+                "model": "skill_generator",
+                "estimated": True,
+            }
+        return {
+            "content": summary,
+            "routed_by": ROUTED_LOCAL,
+            "choice": {
+                "kind": "skill",
+                "id": str(skill.get("id") or ""),
+                "name": skill_name or "技能生成",
+            },
+            "reason": intent.reason,
+            "payload": skill_card,
+            "token_usage": skill_token_usage,
         }
 
     # ---- 文档链路：产出 Word/Excel/PPT/PDF/Markdown 并落为会话附件 ----

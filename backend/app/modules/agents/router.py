@@ -28,6 +28,7 @@ from app.core.deps import (
 from app.core.errors import AppError
 from app.core.responses import ok
 from app.modules.agents import (
+    bindable,
     covers,
     declarative,
     get_global_registry,
@@ -230,6 +231,20 @@ def _require_manage(db: Session, *, ctx: YardContext, agent_id: str) -> None:
     declarative.require_manage_access(agent, user_id=ctx.user_id, roles=list(ctx.roles))
 
 
+@router.get("/bindable-extensions")
+def list_bindable_extensions(
+    request: Request,
+    ctx: YardContext = Depends(get_yard_context),
+    db=Depends(get_db_session),
+):
+    """编辑弹窗「扩展技能 / 扩展插件」候选集（v3.1.0）。
+
+    聚合系统内已安装、当前小院可用的全部技能与插件（含市场安装项），
+    任何小院成员可读（不新增权限点）；聚合与字段口径见 bindable.py。
+    """
+    return ok(bindable.list_bindable_extensions(db, ctx.yard_id), request)
+
+
 @router.post("/declarative")
 def create_declarative_agent(
     request: Request,
@@ -245,6 +260,8 @@ def create_declarative_agent(
     而不是静默降级。
     """
     req = declarative.parse_create_request(body)
+    # 安全收口：bound_skills 只允许绑定当前可绑定集合内的技能/插件（422）
+    bindable.validate_bound_skills(db, ctx.yard_id, req.bound_skills)
     try:
         agent = declarative.create_agent(
             db,
@@ -285,6 +302,9 @@ def update_declarative_agent(
     """编辑声明式 Agent：重算 risk_level，version 不变；跨小院 404。"""
     req = declarative.parse_update_request(body)
     _require_manage(db, ctx=ctx, agent_id=agent_id)
+    # 安全收口：仅在请求携带 bound_skills 时校验（未提交 = 保留历史绑定不校验）
+    if req.bound_skills is not None:
+        bindable.validate_bound_skills(db, ctx.yard_id, req.bound_skills)
     try:
         agent = declarative.update_agent(
             db,

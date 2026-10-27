@@ -98,6 +98,61 @@ def test_update_registration_and_search_settings(client, world):
     assert unknown.status_code == 400
 
 
+def test_update_skill_lab_settings(client, world):
+    owner_token = _login(client, "set_owner", "Passw0rd123", world["yard"].id)
+    admin_token = _login(client, "set_admin", "Passw0rd123", world["yard"].id)
+    viewer_token = _login(client, "set_viewer", "Passw0rd123", world["yard"].id)
+
+    # 读取：skill_lab 随默认设置一并下发
+    read = client.get(f"{PREFIX}/yards/current/settings", headers=_hdr(admin_token))
+    assert read.status_code == 200, read.text
+    assert read.json()["data"]["skill_lab"]["enabled"] is True
+    assert read.json()["data"]["skill_lab"]["daily_limit"] == 20
+
+    # 写入：管理员具备 settings:manage
+    updated = client.put(
+        f"{PREFIX}/yards/current/settings/skill_lab",
+        json={"enabled": False, "daily_limit": 5, "use_web": False, "max_sources": 3},
+        headers=_hdr(admin_token),
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["data"]["skill_lab"]["enabled"] is False
+    assert updated.json()["data"]["skill_lab"]["daily_limit"] == 5
+    assert updated.json()["data"]["skill_lab"]["max_sources"] == 3
+
+    # 负责人同样可写
+    owner = client.put(
+        f"{PREFIX}/yards/current/settings/skill_lab",
+        json={"enabled": True, "daily_limit": 20, "use_web": True, "max_sources": 6},
+        headers=_hdr(owner_token),
+    )
+    assert owner.status_code == 200, owner.text
+
+    # 缺少 settings:manage 的普通成员被拒绝
+    denied = client.put(
+        f"{PREFIX}/yards/current/settings/skill_lab",
+        json={"enabled": False},
+        headers=_hdr(viewer_token),
+    )
+    assert denied.status_code == 403
+    assert denied.json()["error"]["code"] == "FORBIDDEN"
+
+    # 越界配额被校验拦截
+    invalid = client.put(
+        f"{PREFIX}/yards/current/settings/skill_lab",
+        json={"daily_limit": 5000},
+        headers=_hdr(owner_token),
+    )
+    assert invalid.status_code == 400
+
+    invalid_sources = client.put(
+        f"{PREFIX}/yards/current/settings/skill_lab",
+        json={"max_sources": 50},
+        headers=_hdr(owner_token),
+    )
+    assert invalid_sources.status_code == 400
+
+
 def test_roles_read_and_system_role_write_matrix(client, world):
     admin_token = _login(client, "set_admin", "Passw0rd123", world["yard"].id)
     owner_token = _login(client, "set_owner", "Passw0rd123", world["yard"].id)

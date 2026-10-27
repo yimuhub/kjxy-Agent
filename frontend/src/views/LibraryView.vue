@@ -24,6 +24,14 @@
           {{ netDisplay.label }}
         </el-tag>
         <el-button
+          v-if="canGenerate"
+          type="primary"
+          aria-label="一句话创建技能"
+          @click="openWizard"
+        >
+          一句话创建技能
+        </el-button>
+        <el-button
           :loading="skillImporting"
           aria-label="上传本地 Skill 文件"
           @click="pickSkillFile"
@@ -39,6 +47,11 @@
         </el-button>
       </div>
     </div>
+
+    <SkillWizard
+      v-model="wizardOpen"
+      @created="onSkillCreated"
+    />
 
     <input
       ref="skillFileInput"
@@ -58,14 +71,14 @@
     >
 
     <el-alert
-      v-if="isOffline"
+      v-if="isTrulyOffline"
       class="offline-alert"
       type="warning"
       show-icon
       :closable="false"
     >
       <div class="offline-body">
-        <span class="offline-text">当前设备为本地部署形态，不具备联网功能，联网插件或技能受限。请联网后使用，或前往「专家审核 → Skill 管理」进行本地 Skill 管理操作。</span>
+        <span class="offline-text">{{ OFFLINE_SEARCH_TIP }}</span>
         <el-button
           size="small"
           type="primary"
@@ -77,6 +90,14 @@
         </el-button>
       </div>
     </el-alert>
+    <el-alert
+      v-else-if="isDegradedNet"
+      class="degraded-alert"
+      type="warning"
+      show-icon
+      :closable="false"
+      :title="DEGRADED_SEARCH_TIP"
+    />
 
     <el-tabs
       v-model="activeTab"
@@ -98,104 +119,139 @@
     </el-tabs>
 
     <template v-if="activeTab !== 'installed'">
-      <div class="filter-panel glass-panel">
-        <el-input
-          v-model="query"
-          class="search-input"
-          placeholder="搜索名称、编码或描述"
-          clearable
-          :prefix-icon="Search"
-          aria-label="搜索插件与技能"
-          @keyup.enter="submitSearch"
-          @clear="onSearchClear"
+      <!-- 技能区归属视图：市场检索 / 我的 / 小院 / 平台（v3.2） -->
+      <el-tabs
+        v-if="activeTab === 'skills'"
+        v-model="scopeTab"
+        class="scope-tabs"
+        @tab-change="onScopeChange"
+      >
+        <el-tab-pane
+          label="市场"
+          name="market"
         />
-        <el-select
-          v-model="sourceFilter"
-          class="filter-select"
-          aria-label="按来源筛选"
-          @change="onSourceChange"
-        >
-          <el-option
-            label="全部来源"
-            value="all"
-          />
-          <el-option
-            label="内置"
-            value="builtin"
-          />
-          <el-option
-            label="GitHub"
-            value="github"
-          />
-          <el-option
-            label="本地"
-            value="local"
-          />
-        </el-select>
-        <el-select
-          v-model="typeFilter"
-          class="filter-select"
-          aria-label="按类型筛选"
-          @change="onTypeChange"
-        >
-          <el-option
-            label="全部类型"
-            value="all"
-          />
-          <el-option
-            label="技能"
-            value="skill"
-          />
-          <el-option
-            label="插件"
-            value="plugin"
-          />
-        </el-select>
-        <div class="filter-actions">
-          <el-button
-            type="primary"
-            @click="submitSearch"
-          >
-            搜索
-          </el-button>
-          <el-button
-            :loading="githubLoading"
-            aria-label="搜索 GitHub 技能"
-            @click="runGithubSearch"
-          >
-            搜索 GitHub
-          </el-button>
-        </div>
-      </div>
+        <el-tab-pane
+          label="我的"
+          name="mine"
+        />
+        <el-tab-pane
+          label="小院"
+          name="yard"
+        />
+        <el-tab-pane
+          label="平台"
+          name="platform"
+        />
+      </el-tabs>
 
-      <div
-        v-if="listHint"
-        class="inline-hint"
-        role="status"
-        aria-live="polite"
-      >
-        {{ listHint }}
-      </div>
-
-      <AsyncState
-        :state="listState"
-        :empty-text="listEmptyText"
-        :empty-action-text="listEmptyAction"
-        :error-text="listError"
-        @retry="loadItems"
-        @action="onEmptyAction"
-      >
-        <div class="card-grid">
-          <LibraryItemCard
-            v-for="item in items"
-            :key="item.item_key"
-            :item="item"
-            :installing="installingKey === item.item_key"
-            @preview="openPreview(item)"
-            @install="installFromCard(item)"
+      <template v-if="showMarket">
+        <div class="filter-panel glass-panel">
+          <el-input
+            v-model="query"
+            class="search-input"
+            placeholder="搜索名称、编码或描述"
+            clearable
+            :prefix-icon="Search"
+            aria-label="搜索插件与技能"
+            @keyup.enter="submitSearch"
+            @clear="onSearchClear"
           />
+          <el-select
+            v-model="sourceFilter"
+            class="filter-select"
+            aria-label="按来源筛选"
+            @change="onSourceChange"
+          >
+            <el-option
+              label="全部来源"
+              value="all"
+            />
+            <el-option
+              label="内置"
+              value="builtin"
+            />
+            <el-option
+              label="GitHub"
+              value="github"
+            />
+            <el-option
+              label="本地"
+              value="local"
+            />
+          </el-select>
+          <el-select
+            v-model="typeFilter"
+            class="filter-select"
+            aria-label="按类型筛选"
+            @change="onTypeChange"
+          >
+            <el-option
+              label="全部类型"
+              value="all"
+            />
+            <el-option
+              label="技能"
+              value="skill"
+            />
+            <el-option
+              label="插件"
+              value="plugin"
+            />
+          </el-select>
+          <div class="filter-actions">
+            <el-button
+              type="primary"
+              @click="submitSearch"
+            >
+              搜索
+            </el-button>
+            <el-button
+              :loading="githubLoading"
+              aria-label="搜索 GitHub 技能"
+              @click="runGithubSearch"
+            >
+              搜索 GitHub
+            </el-button>
+          </div>
         </div>
-      </AsyncState>
+
+        <div
+          v-if="listHint"
+          class="inline-hint"
+          role="status"
+          aria-live="polite"
+        >
+          {{ listHint }}
+        </div>
+
+        <AsyncState
+          :state="listState"
+          :empty-text="listEmptyText"
+          :empty-action-text="listEmptyAction"
+          :error-text="listError"
+          @retry="loadItems"
+          @action="onEmptyAction"
+        >
+          <div class="card-grid">
+            <LibraryItemCard
+              v-for="item in items"
+              :key="item.item_key"
+              :item="item"
+              :installing="installingKey === item.item_key"
+              @preview="openPreview(item)"
+              @install="installFromCard(item)"
+            />
+          </div>
+        </AsyncState>
+      </template>
+
+      <SkillScopePanel
+        v-else
+        ref="scopePanel"
+        :scope="scopeTab === 'market' ? 'mine' : scopeTab"
+        :can-promote="isYardOwner"
+        @create="openWizard"
+      />
     </template>
 
     <template v-else>
@@ -409,14 +465,16 @@
 </template>
 
 <script setup lang="ts">
-  import { computed, onMounted, onUnmounted, ref } from 'vue'
+  import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
   import { useRouter } from 'vue-router'
   import { ElMessage } from 'element-plus'
   import { Search } from '@element-plus/icons-vue'
-  import { libraryApi, searchApi, type MarketItem } from '@/api/v3'
+  import { libraryApi, searchApi, type MarketItem, type SkillScope } from '@/api/v3'
   import { extractErrorMessage } from '@/api/client'
   import AsyncState from '@/components/AsyncState.vue'
   import LibraryItemCard from '@/components/library/LibraryItemCard.vue'
+  import SkillScopePanel from '@/components/library/SkillScopePanel.vue'
+  import SkillWizard from '@/components/library/SkillWizard.vue'
   import {
     definitionExcerpt,
     definitionOf,
@@ -440,8 +498,15 @@
     typeLabel,
   } from '@/components/library/libraryMeta'
   import { classifyError, friendlyErrorMessage, type ViewState } from '@/utils/status'
+  import {
+    DEGRADED_SEARCH_TIP,
+    OFFLINE_SEARCH_TIP,
+    hasPermission,
+  } from '@/components/settings/permissions'
+  import { useAuthStore } from '@/stores/auth'
 
   type TabName = 'skills' | 'plugins' | 'installed'
+  type ScopeTab = 'market' | SkillScope
   type NetMode = 'online' | 'degraded' | 'offline' | 'unknown'
   type SourceFilter = 'all' | 'builtin' | 'github' | 'local'
   type TypeFilter = 'all' | 'skill' | 'plugin'
@@ -454,11 +519,28 @@
   }
 
   const router = useRouter()
+  const auth = useAuthStore()
 
   const activeTab = ref<TabName>('skills')
+  /** 技能区归属视图：market=市场检索（保持原有行为），其余对应 GET /skills?scope= */
+  const scopeTab = ref<ScopeTab>('market')
   const query = ref('')
   const sourceFilter = ref<SourceFilter>('builtin')
   const typeFilter = ref<TypeFilter>('skill')
+
+  const wizardOpen = ref(false)
+  const scopePanel = ref<InstanceType<typeof SkillScopePanel> | null>(null)
+
+  /** 一句话创建入口：无 skills:generate 的角色直接隐藏（后端仍会校验） */
+  const canGenerate = computed(() => hasPermission(auth.roles, 'skills:generate'))
+  /** 私有技能转小院公共是负责人特权 */
+  const isYardOwner = computed(
+    () => auth.roles.includes('yard_owner') || auth.roles.includes('platform_admin'),
+  )
+  /** 当前是否展示市场检索区（插件库同样复用该区块） */
+  const showMarket = computed(
+    () => activeTab.value === 'plugins' || scopeTab.value === 'market',
+  )
 
   const items = ref<LibraryItem[]>([])
   const listState = ref<ViewState>('loading')
@@ -499,7 +581,20 @@
     const parts = [netStatus.value?.provider, netStatus.value?.reason].filter(Boolean)
     return parts.length ? parts.join(' · ') : '联网状态未知'
   })
-  const isOffline = computed(() => netMode.value === 'offline')
+  /**
+   * 真离线：mode=offline 且后端确认无互联网。
+   * internet 字段缺失（老后端）视为未知，按降级处理，不显示「本地部署形态」文案。
+   */
+  const isTrulyOffline = computed(
+    () => netMode.value === 'offline' && netStatus.value?.internet === false,
+  )
+  /** 联网受限：明确 degraded，或 offline 但互联网状态未知/矛盾 —— 轻提示，不阻断浏览与本地导入 */
+  const isDegradedNet = computed(
+    () =>
+      !isTrulyOffline.value &&
+      (netMode.value === 'degraded' ||
+        (netMode.value === 'offline' && netStatus.value?.internet !== false)),
+  )
 
   const listEmptyText = computed(() =>
     activeTab.value === 'plugins'
@@ -665,9 +760,38 @@
     }
     query.value = ''
     listHint.value = ''
+    if (name === 'skills') {
+      // 回到技能库时保持当前归属视图；市场视图才需要重新检索
+      if (scopeTab.value !== 'market') return
+    } else {
+      scopeTab.value = 'market'
+    }
     sourceFilter.value = name === 'skills' ? 'builtin' : 'all'
     typeFilter.value = name === 'skills' ? 'skill' : 'plugin'
     void loadItems()
+  }
+
+  /** 技能区归属切换：市场视图恢复市场检索，其它视图由 SkillScopePanel 自行加载 */
+  function onScopeChange(name: string | number) {
+    if (String(name) === 'market') {
+      query.value = ''
+      listHint.value = ''
+      sourceFilter.value = 'builtin'
+      typeFilter.value = 'skill'
+      void loadItems()
+    }
+  }
+
+  function openWizard() {
+    if (!canGenerate.value) return
+    wizardOpen.value = true
+  }
+
+  /** 生成成功：切到「我的」并刷新，让新草稿立即可见 */
+  function onSkillCreated() {
+    activeTab.value = 'skills'
+    scopeTab.value = 'mine'
+    void nextTick(() => scopePanel.value?.reload())
   }
 
   function onEmptyAction() {
@@ -676,6 +800,7 @@
 
   function goSkillsTab() {
     activeTab.value = 'skills'
+    scopeTab.value = 'market'
     query.value = ''
     sourceFilter.value = 'builtin'
     typeFilter.value = 'skill'
@@ -913,6 +1038,9 @@
   .offline-alert {
     margin-bottom: 16px;
   }
+  .degraded-alert {
+    margin-bottom: 16px;
+  }
   .offline-alert :deep(.el-alert__content) {
     width: 100%;
   }
@@ -933,6 +1061,17 @@
   }
   .library-tabs :deep(.el-tabs__header) {
     margin-bottom: 0;
+  }
+  .scope-tabs {
+    margin-bottom: 12px;
+  }
+  .scope-tabs :deep(.el-tabs__header) {
+    margin-bottom: 0;
+  }
+  .scope-tabs :deep(.el-tabs__item) {
+    height: 34px;
+    line-height: 34px;
+    font-size: 13px;
   }
   .filter-panel {
     display: flex;

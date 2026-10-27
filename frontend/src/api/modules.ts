@@ -37,8 +37,6 @@ import type {
   QAAnswerResult,
   QAOutput,
   ReviewCandidatePayload,
-  ReviewSkillPayload,
-  Skill,
   SubmitFeedbackPayload,
   Task,
   TaskEvent,
@@ -316,22 +314,6 @@ export const feedbackApi = {
   },
   list(query: { page?: number; page_size?: number } = {}): Promise<ListResult<Feedback>> {
     return unwrapList(api.get('/feedback', { params: toParams(query) }))
-  },
-}
-
-// ---------- Skill ----------
-
-export const skillApi = {
-  list(status?: string): Promise<Skill[]> {
-    return unwrapList<Skill>(api.get('/skills', { params: toParams({ status }) })).then(
-      r => r.items,
-    )
-  },
-  create(payload: Record<string, unknown>): Promise<Skill> {
-    return unwrap(api.post<ApiResponse<Skill>>('/skills', payload))
-  },
-  review(skill_id: string, payload: ReviewSkillPayload): Promise<Skill> {
-    return unwrap(api.post(`/skills/${skill_id}/review`, payload))
   },
 }
 

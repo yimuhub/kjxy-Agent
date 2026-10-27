@@ -9,6 +9,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
+from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -18,6 +19,7 @@ from app.core.logging import get_logger
 from app.eval.runner import EvalReport, run_eval_set
 from app.modules.audit.service import log_audit
 from app.modules.evolution.models import EvalRun, Feedback, KnowledgeCandidate, Skill
+from app.modules.yards.authz import effective_permissions, get_active_membership, is_owner
 
 log = get_logger(__name__)
 
@@ -39,9 +41,50 @@ def has_permission(roles: list[str] | None, permission: str) -> bool:
     return bool(set(roles or []) & allowed)
 
 
+def can_see_all_private_skills(ctx: YardContext) -> bool:
+    """谁能看到他人的私有技能：负责人、管理员与平台管理员（专家需被单独授权）。
+
+    ``skills:publish_any`` 的逐人授权由 yards 权限服务判定，这里只做静态角色兜底，
+    避免 evolution 模块反向依赖 yards 的 DB 查询。
+    """
+    return bool(set(ctx.roles or []) & {"yard_owner", "yard_admin", "platform_admin"})
+
+
 def _require_review_permission(ctx: YardContext) -> None:
     if not has_permission(ctx.roles, "review:approve"):
         raise AppError("FORBIDDEN", "仅专家或小院管理员可审核。", http_status=403)
+
+
+# ---------------------------------------------------------------- DB 权限判定（v3.2）
+def db_permissions(db: Session, ctx: YardContext) -> frozenset[str]:
+    """当前用户在所属小院的有效权限（DB 角色覆盖 ∪ 逐人授权，JWT 角色仅兜底）。"""
+    return effective_permissions(
+        db, yard_id=ctx.yard_id, user_id=ctx.user_id, jwt_roles=list(ctx.roles or [])
+    )
+
+
+def _require_db_permission(db: Session, ctx: YardContext, permission: str) -> None:
+    """按数据库实际权限判定；只改 JWT 角色而库里未授权时一律 403。"""
+    if permission not in db_permissions(db, ctx):
+        raise AppError(
+            "FORBIDDEN",
+            f"缺少 {permission} 权限，无法执行该操作。",
+            http_status=403,
+        )
+
+
+def is_skill_manager(db: Session, ctx: YardContext) -> bool:
+    """是否小院管理者（可代他人把私有技能提交到公共库）。
+
+    口径与私有技能可见范围一致：平台管理员、小院负责人、小院管理员。
+    专家虽可审核（skills:review），但不属于管理者——不能替他人决定私有技能转公共。
+    """
+    if "platform_admin" in set(ctx.roles or []):
+        return True
+    if is_owner(db, ctx.yard_id, ctx.user_id):
+        return True
+    membership = get_active_membership(db, ctx.yard_id, ctx.user_id)
+    return membership is not None and membership.role == "yard_admin"
 
 
 # ---------------------------------------------------------------- 反馈
@@ -407,7 +450,13 @@ def create_skill(
     definition: dict,
     created_from: str | None = None,
     request_id: str = "",
+    *,
+    visibility: str = "yard",
+    owner_user_id: str | None = None,
+    origin: str | None = None,
 ) -> Skill:
+    if visibility not in ("private", "yard", "platform"):
+        raise AppError("INVALID_REQUEST", "技能可见性不合法。", http_status=400)
     _check_version_unique(db, ctx, skill_code, version)
     skill = Skill(
         yard_id=ctx.yard_id,
@@ -416,6 +465,9 @@ def create_skill(
         definition_json=definition,
         status="draft",
         created_from=created_from,
+        visibility=visibility,
+        owner_user_id=owner_user_id,
+        origin=origin,
     )
     db.add(skill)
     try:
@@ -437,7 +489,12 @@ def create_skill(
         resource_id=skill.id,
         result="success",
         request_id=request_id or ctx.request_id,
-        metadata={"skill_code": skill_code, "version": version},
+        metadata={
+            "skill_code": skill_code,
+            "version": version,
+            "visibility": visibility,
+            "origin": origin,
+        },
     )
     return skill
 
@@ -674,11 +731,19 @@ def review_skill(
     request_id: str = "",
     answer_fn: Callable[[str, str], dict] | None = None,
 ) -> Skill:
-    """Skill 审核动作：submit|approve|reject|rollback。"""
+    """Skill 审核动作：submit|approve|reject|rollback|submit_public。
+
+    权限一律按数据库实际角色 + 逐人授权判定（JWT 角色仅兜底）：
+    - approve/reject：需要 ``skills:review``；
+    - submit_public：需要技能所有者本人，或小院管理者（负责人/管理员/平台管理员）；
+    - submit/rollback：保持既有语义。
+    """
     if action == "rollback":
         return rollback_skill(db, ctx, skill_id, request_id)
     if action in ("approve", "reject"):
-        _require_review_permission(ctx)
+        _require_db_permission(db, ctx, "skills:review")
+    if action not in ("submit", "approve", "reject", "submit_public"):
+        raise AppError("INVALID_REQUEST", f"未知 Skill 审核动作：{action}。", http_status=400)
 
     skill = _get_skill(db, ctx, skill_id)
 
@@ -686,6 +751,8 @@ def review_skill(
         # draft→testing，或 testing→pending_review（提交审核）
         target = "testing" if skill.status == "draft" else "pending_review"
         _transition(skill, target)
+    elif action == "submit_public":
+        _submit_public(db, ctx, skill)
     elif action == "approve":
         _check_published_version_unique(db, ctx, skill)
         gate_evaluation = _eval_gate_config(skill)
@@ -695,13 +762,26 @@ def review_skill(
             )
         _transition(skill, "published")
         skill.approved_by = ctx.user_id
+        if skill.visibility == "private":
+            # 私有技能提交公共库后审核通过：私有→小院级，并记录审核痕迹
+            skill.visibility = "yard"
+            skill.reviewed_by = ctx.user_id
+            skill.reviewed_at = _utcnow()
+            skill.review_note = note
     elif action == "reject":
-        # pending_review→draft（驳回返工）
+        # pending_review→draft（驳回返工）；公共库提交被拒时保持 private
         _transition(skill, "draft")
-    else:
-        raise AppError("INVALID_REQUEST", f"未知 Skill 审核动作：{action}。", http_status=400)
+        skill.review_note = note
 
     db.flush()
+    metadata: dict[str, Any] = {
+        "skill_code": skill.skill_code,
+        "version": skill.version,
+        "note": note,
+    }
+    if action in ("approve", "reject", "submit_public"):
+        # 审核结论同时留痕可见性变化（approve 私有→小院时 metadata 里已是 yard）
+        metadata["visibility"] = skill.visibility
     log_audit(
         db,
         yard_id=ctx.yard_id,
@@ -711,7 +791,77 @@ def review_skill(
         resource_id=skill.id,
         result="success",
         request_id=request_id or ctx.request_id,
-        metadata={"skill_code": skill.skill_code, "version": skill.version, "note": note},
+        metadata=metadata,
+    )
+    return skill
+
+
+def _submit_public(db: Session, ctx: YardContext, skill: Skill) -> None:
+    """私有技能提交到小院公共库：仅所有者本人或小院管理者，draft/testing → pending_review。
+
+    只是"申请公开"，可见性仍是 private，待审核 approve 后才真正变 yard；
+    reject 则回到 draft 并保持 private（不会因一次提交失败而泄漏给全小院）。
+    """
+    if skill.visibility != "private":
+        raise AppError(
+            "INVALID_SKILL_TRANSITION",
+            "只有私有技能可以提交到小院公共库。",
+            http_status=409,
+        )
+    if skill.owner_user_id != ctx.user_id and not is_skill_manager(db, ctx):
+        raise AppError(
+            "FORBIDDEN",
+            "只有技能所有者或小院管理者可以提交公共库。",
+            http_status=403,
+        )
+    if skill.status not in ("draft", "testing"):
+        raise AppError(
+            "INVALID_SKILL_TRANSITION",
+            f"Skill 状态 {skill.status} 不允许提交公共库。",
+            http_status=409,
+        )
+    skill.status = "pending_review"
+    # 新一轮提交：清空上一轮审核痕迹，避免驳回意见带到待审状态
+    skill.reviewed_by = None
+    skill.reviewed_at = None
+    skill.review_note = None
+
+
+def promote_skill(db: Session, ctx: YardContext, skill_id: str, request_id: str = "") -> Skill:
+    """负责人推广：任意私有技能 → 小院级并发布（需 skills:publish_any，可逐人下放）。
+
+    已非 private 时幂等返回当前对象（不报错、不重复写审计）。
+    """
+    _require_db_permission(db, ctx, "skills:publish_any")
+    skill = _get_skill(db, ctx, skill_id)
+    if skill.visibility != "private":
+        return skill
+
+    if skill.status != "published":
+        # 跳过重复发布：同小院同 code+version 已有 published 行时拒绝，避免版本歧义
+        _check_published_version_unique(db, ctx, skill)
+    original_owner = skill.owner_user_id
+    skill.visibility = "yard"
+    skill.status = "published"
+    skill.reviewed_by = ctx.user_id
+    skill.reviewed_at = _utcnow()
+    db.flush()
+    log_audit(
+        db,
+        yard_id=ctx.yard_id,
+        actor_id=ctx.user_id,
+        action="skill.force_publish",
+        resource_type="skill",
+        resource_id=skill.id,
+        result="success",
+        request_id=request_id or ctx.request_id,
+        metadata={
+            "skill_code": skill.skill_code,
+            "version": skill.version,
+            "owner_user_id": original_owner,
+            "from_visibility": "private",
+            "visibility": skill.visibility,
+        },
     )
     return skill
 
@@ -789,8 +939,36 @@ def list_skills(
     page_size: int,
     status: str | None = None,
     skill_code: str | None = None,
+    scope: str | None = None,
 ) -> tuple[list[Skill], int]:
-    q = db.query(Skill).filter(Skill.yard_id == ctx.yard_id)
+    """技能列表。
+
+    ``scope``（v3.2）：
+    - ``None``：保持现行为——仅本小院行；
+    - ``mine``：本小院内 owner_user_id 为自己的行（含自己的私有技能）；
+    - ``yard``：本小院且非 private（小院公共库）；
+    - ``platform``：平台级（yard_id IS NULL）且 visibility=platform。
+
+    基础可见性规则不变：负责人/管理员/平台管理员可看全部私有，
+    其余用户（含专家）只看得到自己的私有技能。
+    """
+    if scope not in (None, "mine", "yard", "platform"):
+        raise AppError("INVALID_REQUEST", "scope 只能为 mine|yard|platform。", http_status=400)
+
+    q = db.query(Skill)
+    if scope == "platform":
+        q = q.filter(Skill.yard_id.is_(None), Skill.visibility == "platform")
+    elif scope == "mine":
+        # 仍限定本小院：owner 是全局唯一用户，"我的"不应跨小院泄漏
+        q = q.filter(Skill.yard_id == ctx.yard_id, Skill.owner_user_id == ctx.user_id)
+    elif scope == "yard":
+        q = q.filter(Skill.yard_id == ctx.yard_id, Skill.visibility != "private")
+    else:
+        q = q.filter(Skill.yard_id == ctx.yard_id)
+
+    # 私有技能只对创建者与管理者（负责人/管理员/平台）可见，其余角色仅见非私有
+    if scope != "mine" and not can_see_all_private_skills(ctx):
+        q = q.filter(or_(Skill.visibility != "private", Skill.owner_user_id == ctx.user_id))
     if status:
         q = q.filter(Skill.status == status)
     if skill_code:
@@ -800,6 +978,40 @@ def list_skills(
         q.order_by(Skill.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
     )
     return items, total
+
+
+def visible_skill_ids(db: Session, yard_id: str, user_id: str, roles: list[str]) -> set[str] | None:
+    """返回该用户可见的技能 id 集合；``None`` 表示"可见全部"（管理者）。
+
+    供绑定校验（agents/bindable）等调用方复用同一可见性口径：
+    - 管理者（平台管理员 / 小院负责人 / 小院管理员）→ ``None``，不做 id 级收窄；
+    - 其他人 → 本小院非私有（yard 级）+ 自己的私有 + 平台级（yard_id IS NULL
+      且 visibility=platform）的技能 id 集合。
+
+    注意：这里只回答"可见性"，不做状态（published/draft）过滤——调用方若只允许
+    绑定已发布技能，应再与 ``status == "published"`` 的集合作交。
+    """
+    if "platform_admin" in set(roles or []):
+        return None
+    if is_owner(db, yard_id, user_id):
+        return None
+    membership = get_active_membership(db, yard_id, user_id)
+    if membership is not None and membership.role in ("yard_owner", "yard_admin"):
+        return None
+
+    stmt = select(Skill.id).where(
+        or_(
+            and_(
+                Skill.yard_id == yard_id,
+                or_(
+                    Skill.visibility != "private",
+                    Skill.owner_user_id == user_id,
+                ),
+            ),
+            and_(Skill.yard_id.is_(None), Skill.visibility == "platform"),
+        )
+    )
+    return set(db.scalars(stmt).all())
 
 
 def list_eval_runs(

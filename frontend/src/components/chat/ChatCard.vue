@@ -136,15 +136,16 @@
   import { useRouter } from 'vue-router'
   import { ElMessage } from 'element-plus'
   import { declarativeApi } from '@/api/modules'
-  import type { ChatCard, ChatDocumentCard } from '@/api/chat'
+  import type { ChatDocumentCard, ChatStandardCard } from '@/api/chat'
   import { useAuthStore } from '@/stores/auth'
 
   /**
    * 对话内结构化卡片：能力草稿（可发布）、市场能力包（可装载/已装载）
    * 与生成文档（可预览/下载，动作由父级 ChatPanel 执行）。
+   * 技能卡片（skill_card）由 SkillCard.vue 单独渲染，不进入本组件。
    */
   const props = defineProps<{
-    card: ChatCard
+    card: ChatStandardCard
   }>()
 
   const emit = defineEmits<{

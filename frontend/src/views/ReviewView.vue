@@ -498,8 +498,8 @@
   import { computed, onMounted, reactive, ref, watch } from 'vue'
   import { useRoute } from 'vue-router'
   import { ElMessage, ElMessageBox } from 'element-plus'
-  import { knowledgeApi, skillApi } from '@/api/modules'
-  import { libraryApi } from '@/api/v3'
+  import { knowledgeApi } from '@/api/modules'
+  import { libraryApi, skillApi } from '@/api/v3'
   import { extractErrorMessage } from '@/api/client'
   import AsyncState from '@/components/AsyncState.vue'
   import {
@@ -763,7 +763,7 @@
   async function loadSkills() {
     skillState.value = 'loading'
     try {
-      skills.value = (await skillApi.list()) as unknown as SkillRow[]
+      skills.value = (await skillApi.list({ pageSize: 100 })).items as unknown as SkillRow[]
       skillState.value = skills.value.length ? 'ready' : 'empty'
     } catch (e) {
       skillState.value = classifyError(e)
@@ -821,7 +821,7 @@
     }
     reviewing.value = true
     try {
-      await skillApi.review(s.id, { action, note })
+      await skillApi.review(s.id, action, note)
       ElMessage.success('操作成功')
       loadSkills()
     } catch {

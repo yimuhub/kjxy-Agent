@@ -69,6 +69,16 @@ class Skill(Base, TimestampMixin):
     )  # draft|testing|pending_review|published|deprecated
     created_from: Mapped[str | None] = mapped_column(String(100), nullable=True)
     approved_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # 0033：归属与可见性（v3.2）。private 仅创建者与负责人可见；yard 全小院可用；
+    # platform 为平台级（yard_id 为空）。
+    visibility: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="yard", server_default="yard", index=True
+    )
+    owner_user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    origin: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    reviewed_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class SkillRollout(Base, TimestampMixin):

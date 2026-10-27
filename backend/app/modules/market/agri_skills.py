@@ -368,9 +368,7 @@ def seed_builtin(db: Session) -> int:
     return created
 
 
-def ensure_builtin_skills(
-    db: Session, *, yard_id: str, actor_id: str, request_id: str = ""
-) -> int:
+def ensure_builtin_skills(db: Session, *, yard_id: str, actor_id: str, request_id: str = "") -> int:
     """为新小院铺设内置农业技能（published），使其直接出现在专家审核 → Skill 管理。
 
     幂等：按 yard + skill_code 判重，已存在（任意版本）则跳过。返回新建数量。

@@ -7,10 +7,12 @@
 - POST /market/items/{item_key}/install：技能/插件安装（离线可用）；
 - GET  /market/installed：本小院已安装/导入摘要；
 - POST /market/skills/import、/market/plugins/import：本地文件导入（默认待审）；
-- POST /market/github/search、/preview：GitHub 只读检索与 SKILL.md 预览。
+- POST /market/github/search、/preview：GitHub 只读检索与 SKILL.md 预览；
+- POST /market/agent/request、/generate、/install：一句话技能链路（检索→生成→安装）。
 
 权限：市场动作走 require_yard_permission("market:install")；插件导入额外要求
-"market:review"。归属只认登录上下文，请求体禁带 yard_id。
+"market:review"；一句话生成走 "skills:generate"（只产私有草稿）。
+归属只认登录上下文，请求体禁带 yard_id。
 
 （Get catalog/install 的 yard_admin 闸门为既有能力市场口径。）
 """
@@ -32,7 +34,7 @@ from app.core.errors import AppError
 from app.core.responses import ok
 from app.modules.agents import declarative
 from app.modules.evolution.models import Skill
-from app.modules.market import installer
+from app.modules.market import installer, skill_agent
 from app.modules.market.github_source import preview_skill_from_repo, search_github_skills
 from app.modules.market.importer import (
     MAX_PLUGIN_BYTES,
@@ -56,6 +58,8 @@ _yard_admin_gate = require_roles("yard_admin")
 # 市场安装/审核权限点（DB 角色覆盖 + 个人授权，唯一权限源）
 _market_install_gate = require_yard_permission("market:install")
 _market_review_gate = require_yard_permission("market:review")
+# 一句话技能生成：普通成员/操作员/专家均有（只产私有草稿，不改小院公共库）
+_skills_generate_gate = require_yard_permission("skills:generate")
 
 ITEM_TYPES = {"skill", "plugin", "agent"}
 ITEM_SOURCES = {"builtin", "remote", "github", "local"}
@@ -375,3 +379,70 @@ def github_preview(
     preview["item_key"] = installer.upsert_github_preview(db, preview)
     db.commit()
     return ok(preview, request)
+
+
+# ---------------------------------------------------------------------------
+# 一句话技能链路（v3.2）：检索 → 生成 → 安装
+# ---------------------------------------------------------------------------
+
+
+@router.post("/agent/request")
+def agent_request(
+    request: Request,
+    body: dict[str, Any] | None = Body(default=None),
+    ctx: YardContext = Depends(get_yard_context),
+    user: CurrentUser = Depends(_skills_generate_gate),
+    db: Session = Depends(get_db_session),
+):
+    """一句话检索：本地内置/缓存优先，无命中再试 GitHub（离线即降级本地）。"""
+    data = _body_dict(body)
+    utterance = str(data.get("utterance") or "").strip()
+    result = skill_agent.request_skill(db, ctx=ctx, utterance=utterance)
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return ok(result, request)
+
+
+@router.post("/agent/generate")
+async def agent_generate(
+    request: Request,
+    body: dict[str, Any] | None = Body(default=None),
+    ctx: YardContext = Depends(get_yard_context),
+    user: CurrentUser = Depends(_skills_generate_gate),
+    db: Session = Depends(get_db_session),
+):
+    """一句话生成技能：联网找资料 → 模型出规格 → 校验 → 落私有草稿。"""
+    data = _body_dict(body)
+    utterance = str(data.get("utterance") or "").strip()
+    use_web = data.get("use_web", True)
+    result = await skill_agent.generate_skill(
+        db, ctx=ctx, utterance=utterance, use_web=bool(use_web)
+    )
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return ok(result, request)
+
+
+@router.post("/agent/install")
+def agent_install(
+    request: Request,
+    body: dict[str, Any] | None = Body(default=None),
+    ctx: YardContext = Depends(get_yard_context),
+    user: CurrentUser = Depends(_market_install_gate),
+    db: Session = Depends(get_db_session),
+):
+    """安装技能：按 item_key 装市场条目，或按 skill_id 把自己的私有草稿送审。"""
+    data = _body_dict(body)
+    result = skill_agent.install_skill(db, ctx=ctx, payload=data)
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return ok(result, request)

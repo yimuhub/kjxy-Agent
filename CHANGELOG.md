@@ -2,6 +2,97 @@
 
 本项目遵循《工程开发规范 V3.0》；版本号遵循语义化版本。
 
+## [3.2.0] - 2026-10-27
+
+一句话生成技能 + 技能归属视图（方案见 `docs/plan-v3.x-smart-skills.md`；v3.1 已落地
+GitHub 国内镜像与技能模板规范，本期把两者接成可用链路）。
+
+### 一句话生成技能（后端）
+
+- 新增 `market/skill_agent.py`：一句话 → 检索候选 → 模型出规格 → 校验 → 落私有草稿。
+  中文短句匹配（去口语填充词 → 中英关键词 + 中文 2/3-gram → 加权命中 → 归一化到
+  (0,1]），命中本地内置/缓存优先，无命中再试 GitHub，离线只降级不报错。
+- 规格由模型产出，最多纠错 2 次仍不合规则降级到确定性兜底模板（保守内容 + 提示人工
+  复核），保证功能可用；引用来源取自联网检索，检索失败不阻断生成。
+- 工具白名单取自实时工具注册表；引用写类工具强制 `risk_level=high` 且要求审核。
+- 生成一律落**私有草稿**（`visibility=private`、`owner_user_id=当前用户`、
+  `origin=skill_agent`），共享须经审核；每日配额受小院设置 `skill_lab` 控制
+  （`enabled`/`daily_limit`/`use_web`/`max_sources`），超限返回 429
+  `SKILL_QUOTA_EXCEEDED`，失败不落库。
+- 新增三个端点：`POST /market/agent/request`、`POST /market/agent/generate`
+  （`skills:generate`）、`POST /market/agent/install`（`market:install`）。
+- 修复：`skill_lab` 未登记在设置项权限映射里，`PUT /yards/current/settings/skill_lab`
+  一律返回 400「未知设置项」——该设置项此前无法写入。现按 `settings:manage` 放行。
+- 对话链路打通：命中「技能」类意图时先检索、无匹配再生成，以 `skill_card` 载荷
+  下发（含候选、来源、说明与 token 用量）。
+
+### 技能归属视图（v3.2 归属）
+
+- 迁移 `0033_skill_visibility`：`evolution_skills` 增 `visibility`
+  （private/yard/platform）、`owner_user_id`、`origin`、`reviewed_by/at/note`。
+- `GET /skills` 支持 `scope=mine|yard|platform`；`POST /skills/{id}/promote` 支持负责人
+  把私有技能转为小院公共（`skills:publish_any` 属保护型权限，只能逐人下放）。
+- 私有技能默认仅创建者与小院负责人可见，不进小院公共列表。
+
+### 前端
+
+- 技能库新增三级归属视图（市场 / 我的 / 小院 / 平台）与「一句话创建技能」向导：
+  检索候选 → 安装或直接生成 → 结果卡（私有徽章、引用来源、提交审核、去绑定助手）。
+- 对话内新增技能卡片：候选可直接安装，生成结果可提交审核，失败可原地重试；按钮状态
+  按面板实例与消息 id 隔离，多面板互不影响。
+- 技能相关接口全部静默失败：在区块内展示原因，不弹全局错误、不整页报错。
+- 系统设置「网络与搜索」新增「一句话技能生成」卡片：启用开关、允许联网找资料、每日
+  生成上限与引用来源上限，落到小院设置 `skill_lab`。
+- 修复：回答落地后实时步骤条仍悬挂——本轮收尾即收起步骤条，不再等会话列表刷新。
+
+### 契约与门禁
+
+- OpenAPI 181 paths（新增 3 个 `/market/agent/*` 与 `/skills/{id}/promote`）。
+- 后端 1180 项测试通过（v3.2 新增 36 项一句话技能、归属视图与设置开关测试）；
+  ruff / mypy 全绿；前端 ESLint / vue-tsc / vite build 通过；Playwright 新增 7 项
+  一句话技能、归属视图与技能生成设置用例，全量 24 项通过。
+
+## [3.1.0] - 2026-10-27
+
+搜索默认可用 + 编辑弹窗绑定拆分（方案见 `docs/plan-v3.x-smart-skills.md`，后续 3.2 一句话
+生成技能的前置底座同期落地）。
+
+### 搜索默认可用（零配置）
+
+- 新增三个免密钥内置搜索源：必应中国版 / 搜狗 / 360（`search/providers_builtin.py`），
+  `lxml.html` 解析，过滤广告、引擎跳转链接与 AI 问答/文库等自家垂直页；每源限速
+  ≤1 req/s，连续 3 次失败熔断 5 分钟；结果沿用 10 分钟缓存。
+- 搜索设置 `provider` 新增 `auto` 并作为默认：内置源 → SearXNG（配置了地址时）→
+  Tavily/Brave（配置了 Key 时）依序降级；新增 `builtin_sources` 可单独启停任一内置源。
+- `/search/status` 新增 `internet` 字段并修正语义：只有真正断网才是 `offline`（提示
+  本地部署形态）；有网但所有源失败是 `degraded`（「联网受限，已自动降级」），不再误报。
+- 前端：设置页新增「自动（推荐）」与内置源多选、逐源状态文案；技能库页离线横幅只在
+  真断网时出现，降级改为轻量提示且不阻断浏览与本地导入。
+
+### 智能体绑定拆分（扩展技能 / 扩展插件）
+
+- 新增 `GET /api/v1/agents/bindable-extensions`：聚合系统内已安装、当前用户可用的全部
+  技能与插件（published Skill + enabled PluginManifest + 市场安装孤项补齐），带来源、
+  风险、可见性与被引用数；OpenAPI 177 paths。
+- 写入收口：POST/PATCH /agents/declarative 的 `bound_skills` 逐项校验，未知 code 返回
+  422（历史脏数据读取不受影响）。
+- 修复运行时注入：`_resolve_bound_skills_prompt` 此前用裸 `skill_code` 匹配前端提交的
+  `skill:<id>` / `plugin:<pid>` 前缀码，绑定技能的 SOP 从不生效；现已两种编码兼容，且
+  只注入 published 技能与 enabled 插件。
+- 前端编辑弹窗拆成「扩展技能」「扩展插件」两区，各带搜索、来源/风险标签、已选计数、
+  全选/清空与空状态引导；已下架的绑定以「已失效」禁用态保留，不静默丢数据。
+- 可选集等于可用集：市场已安装但已有待审/停用 Skill/Manifest 行的项不进候选。
+
+### v3.2 前置底座（本期合入，功能下期交付）
+
+- GitHub 国内镜像：`github_api_base` / `github_raw_mirrors` / `github_zip_mirrors`
+  （默认 ghfast.top / gh-proxy.com / raw.gitmirror.com），官方 → 镜像依序降级，健康
+  60s、失败冷却 5min、404 不进冷却；全失败仍报 `NETWORK_UNAVAILABLE`。
+- 技能模板规范 `contracts/skill-template.yaml` + `market/skill_template.py`
+  （`SkillSpec` 严格校验：字段/长度/步骤数/评测样本/URL 协议/保留字/未注册工具 422、
+  写类工具强制 high 风险并要求审核、`dump_markdown` 与 frontmatter 往返一致），为
+  3.2「一句话生成技能」提供唯一框架。
+
 ## [3.0.0] - 2026-10-27
 
 联网搜索、插件/技能市场、身份权限与负责人驾驶舱一次性交付（原计划的 2.2.0 + 3.0.0

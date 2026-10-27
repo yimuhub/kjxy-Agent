@@ -290,8 +290,43 @@ export interface ChatDocumentCard {
   actions: ChatCardAction[]
 }
 
+/** 技能卡片里的候选（与 /market/agent/request 的 matches 同形） */
+export interface ChatSkillCardMatch {
+  item_key: string
+  name: string
+  summary?: string
+  source?: string
+  license?: string | null
+  risk_level?: string
+  installed?: boolean
+  score?: number
+}
+
+/**
+ * 技能卡片（v3.2 一句话技能）：
+ * matched=找到可安装的候选；created=已生成私有草稿；failed=检索/生成失败（带 note 可重试）。
+ */
+export interface ChatSkillCard {
+  type: 'skill_card'
+  state: 'matched' | 'created' | 'failed'
+  utterance: string
+  skill: {
+    id: string
+    code: string
+    name: string
+    visibility: string
+    status: string
+  } | null
+  matches?: ChatSkillCardMatch[]
+  sources?: { title: string; url: string }[]
+  note?: string
+}
+
 /** 结构化载荷（助手消息的 payload 字段） */
-export type ChatCard = ChatCapabilityCard | ChatMarketCard | ChatDocumentCard
+export type ChatCard = ChatCapabilityCard | ChatMarketCard | ChatDocumentCard | ChatSkillCard
+
+/** 非技能卡片：通用卡片组件（ChatCard）接收的形状，技能卡片由 SkillCard 单独渲染 */
+export type ChatStandardCard = Exclude<ChatCard, ChatSkillCard>
 
 /** 消息对象；choice/routed_by/reason 仅助手消息携带 */
 export interface ChatMessage {

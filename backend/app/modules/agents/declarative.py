@@ -944,25 +944,46 @@ def _context_block(context: str) -> str:
 
 
 def _resolve_bound_skills_prompt(db: Session, yard_id: str, bound_skills: list[str] | None) -> str:
-    """将 Agent 绑定的多个 Skill / 插件（bound_skills）解析为附加的技能 SOP 指令块。"""
-    codes = [str(s).strip() for s in (bound_skills or []) if str(s).strip()]
-    if not codes:
+    """将 Agent 绑定的多个 Skill / 插件（bound_skills）解析为附加的技能 SOP 指令块。
+
+    bound_skills 的存储编码是 ``skill:<Skill.id>`` / ``plugin:<plugin_id>``（编辑弹窗
+    契约）；历史上也存在直接存 skill_code / plugin_id 的脏数据，两种都兼容。
+    """
+    raw = [str(s).strip() for s in (bound_skills or []) if str(s).strip()]
+    if not raw:
+        return ""
+    skill_ids: list[str] = []
+    skill_codes: list[str] = []
+    plugin_ids: list[str] = []
+    for code in raw:
+        if code.startswith("skill:"):
+            skill_ids.append(code[len("skill:") :])
+        elif code.startswith("plugin:"):
+            plugin_ids.append(code[len("plugin:") :])
+        else:
+            # 无前缀的历史编码：同时按技能编码与插件 id 匹配，谁命中算谁
+            skill_codes.append(code)
+            plugin_ids.append(code)
+    if not (skill_ids or skill_codes or plugin_ids):
         return ""
     from app.modules.evolution.models import Skill
     from app.modules.plugins.models import PluginManifest
 
     skill_blocks: list[str] = []
     try:
-        rows = (
-            db.query(Skill)
-            .filter(
-                Skill.skill_code.in_(codes),
-                Skill.status == "published",
-                or_(Skill.yard_id == yard_id, Skill.yard_id.is_(None)),
-            )
-            .order_by(Skill.created_at.desc())
-            .all()
+        skill_query = db.query(Skill).filter(
+            Skill.status == "published",
+            or_(Skill.yard_id == yard_id, Skill.yard_id.is_(None)),
         )
+        if skill_ids and skill_codes:
+            skill_query = skill_query.filter(
+                or_(Skill.id.in_(skill_ids), Skill.skill_code.in_(skill_codes))
+            )
+        elif skill_ids:
+            skill_query = skill_query.filter(Skill.id.in_(skill_ids))
+        elif skill_codes:
+            skill_query = skill_query.filter(Skill.skill_code.in_(skill_codes))
+        rows = skill_query.order_by(Skill.created_at.desc()).all()
         seen_skill: set[str] = set()
         for r in rows:
             if r.skill_code in seen_skill:
@@ -986,7 +1007,8 @@ def _resolve_bound_skills_prompt(db: Session, yard_id: str, bound_skills: list[s
         plugins = (
             db.query(PluginManifest)
             .filter(
-                PluginManifest.plugin_id.in_(codes),
+                PluginManifest.plugin_id.in_(plugin_ids),
+                PluginManifest.status == "enabled",
                 or_(PluginManifest.yard_id == yard_id, PluginManifest.yard_id.is_(None)),
             )
             .all()

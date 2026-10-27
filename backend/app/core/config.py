@@ -232,9 +232,47 @@ class Settings(BaseSettings):
         description="单次 run 的墙钟时长预算（步耗时累计）；超限标注 truncated",
     )
 
+    # --- GitHub 市场源（国内网络降级，v3.2） ---
+    # api.github.com 在国内常无法直连：API 基址可整体替换为路径兼容的网关；
+    # raw/zip 走「官方 → 镜像按序降级」，镜像健康状态由 market.github_source 缓存。
+    github_api_base: str = Field(
+        default="https://api.github.com",
+        description=(
+            "GitHub API 基址（/search/repositories、/repos/{owner}/{repo} 等路径保持不变）；"
+            "国内可整体替换为路径兼容的反代网关"
+        ),
+    )
+    github_raw_mirrors: str = Field(
+        default=(
+            # 前缀式加速器（拼接规则：镜像前缀 + "/" + 完整原始 URL）：
+            "https://ghfast.top,"
+            "https://gh-proxy.com,"
+            # 整站改写型镜像（拼接规则：host 替换 raw.githubusercontent.com，路径不变）：
+            "https://raw.gitmirror.com{path}"
+        ),
+        description=(
+            "raw.githubusercontent.com 镜像（逗号分隔，官方失败后按序尝试）。"
+            "两种拼接写法：①前缀式——镜像前缀后直接拼完整原始 URL；"
+            "②模板式——含 {url}（完整原始 URL）或 {path}（路径部分）占位符。"
+            "详见根 .env.example 注释"
+        ),
+    )
+    github_zip_mirrors: str = Field(
+        default="https://ghfast.top,https://gh-proxy.com",
+        description="仓库 zip 下载镜像（逗号分隔前缀式：镜像前缀 + 完整原始 zip URL）",
+    )
+
     @property
     def platform_admin_username_list(self) -> list[str]:
         return [u.strip() for u in self.platform_admin_usernames.split(",") if u.strip()]
+
+    @property
+    def github_raw_mirror_list(self) -> list[str]:
+        return [m.strip() for m in self.github_raw_mirrors.split(",") if m.strip()]
+
+    @property
+    def github_zip_mirror_list(self) -> list[str]:
+        return [m.strip() for m in self.github_zip_mirrors.split(",") if m.strip()]
 
     @property
     def is_production(self) -> bool:

@@ -22,10 +22,11 @@
 | feedback | 反馈 | yard_id、task_id、actor_id、rating、feedback_text、corrected_answer、status |
 | knowledge_candidates | 待审核知识 | yard_id、source_feedback_id、title、content、source_type、status、reviewed_by、reviewed_at、review_note |
 | skills | Skill 定义/版本 | yard_id（scope）、skill_code、version、definition_json、status、created_from、approved_by；唯一 (yard_id,skill_code,version) |
+| evolution_skills | Skill 定义/版本（v3.2 归属） | yard_id（可空，平台级）、skill_code、version、definition_json、status、visibility（private/yard/platform）、owner_user_id、origin、reviewed_by、reviewed_at、review_note；唯一 (yard_id,skill_code,version) |
 | tool_definitions | 工具定义 | code（唯一）、version、input_schema_json、output_schema_json、required_permissions_json、risk_level、side_effect、timeout_seconds、enabled |
 | audit_logs | 审计 | yard_id（可空）、actor_id、action、resource_type、resource_id、result、request_id、metadata |
 | policies | 政策条目（P1） | scope、province、department、policy_name、source_url、published_at、apply_start_at、apply_end_at、status、verified_at、content_hash |
-| yard_settings | 小院设置域 | yard_id、key（registration/security/search）、value_json、updated_by；唯一 (yard_id,key) |
+| yard_settings | 小院设置域 | yard_id、key（registration/security/search/skill_lab）、value_json、updated_by；唯一 (yard_id,key) |
 | yard_roles | 角色与权限覆盖 | yard_id、code、name、permissions_json、is_system；唯一 (yard_id,code) |
 | yard_member_grants | 负责人逐人敏感授权 | yard_id、user_id、grants_json、updated_by；唯一 (yard_id,user_id) |
 | yard_join_requests | 自助注册/加入申请 | yard_id、user_id、kind、status、reviewed_by、reject_reason |

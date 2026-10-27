@@ -1852,6 +1852,20 @@ paths:
           - type: string
           - type: 'null'
           title: Skill Code
+      - name: scope
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - enum:
+            - mine
+            - yard
+            - platform
+            type: string
+          - type: 'null'
+          description: mine=我的技能（含私有）|yard=小院公共库|platform=平台级；缺省为本小院全部
+          title: Scope
+        description: mine=我的技能（含私有）|yard=小院公共库|platform=平台级；缺省为本小院全部
       - name: page
         in: query
         required: false
@@ -1968,6 +1982,38 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/SkillReview'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/skills/{skill_id}/promote:
+    post:
+      tags:
+      - v1
+      - evolution
+      summary: Promote Skill
+      description: '负责人推广：私有技能直接置为小院级并发布（需 skills:publish_any，可逐人下放）。
+
+
+        已非 private 时幂等返回当前对象，方便前端重复点击。'
+      operationId: promote_skill_api_v1_skills__skill_id__promote_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: skill_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Skill Id
       responses:
         '200':
           description: Successful Response
@@ -3386,6 +3432,27 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agents/bindable-extensions:
+    get:
+      tags:
+      - v1
+      - agents
+      summary: List Bindable Extensions
+      description: '编辑弹窗「扩展技能 / 扩展插件」候选集（v3.1.0）。
+
+
+        聚合系统内已安装、当前小院可用的全部技能与插件（含市场安装项），
+
+        任何小院成员可读（不新增权限点）；聚合与字段口径见 bindable.py。'
+      operationId: list_bindable_extensions_api_v1_agents_bindable_extensions_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
   /api/v1/agents/declarative:
     get:
       tags:
@@ -4602,6 +4669,99 @@ paths:
       summary: Github Preview
       description: 预览仓库 SKILL.md 并生成 definition_json（只读文本，不执行脚本）。
       operationId: github_preview_api_v1_market_github_preview_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - additionalProperties: true
+                type: object
+              - type: 'null'
+              title: Body
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/market/agent/request:
+    post:
+      tags:
+      - v1
+      - market
+      summary: Agent Request
+      description: 一句话检索：本地内置/缓存优先，无命中再试 GitHub（离线即降级本地）。
+      operationId: agent_request_api_v1_market_agent_request_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - additionalProperties: true
+                type: object
+              - type: 'null'
+              title: Body
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/market/agent/generate:
+    post:
+      tags:
+      - v1
+      - market
+      summary: Agent Generate
+      description: 一句话生成技能：联网找资料 → 模型出规格 → 校验 → 落私有草稿。
+      operationId: agent_generate_api_v1_market_agent_generate_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - additionalProperties: true
+                type: object
+              - type: 'null'
+              title: Body
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/market/agent/install:
+    post:
+      tags:
+      - v1
+      - market
+      summary: Agent Install
+      description: 安装技能：按 item_key 装市场条目，或按 skill_id 把自己的私有草稿送审。
+      operationId: agent_install_api_v1_market_agent_install_post
       requestBody:
         content:
           application/json:
@@ -6944,7 +7104,7 @@ components:
           items:
             type: string
           type: array
-          maxItems: 3
+          maxItems: 4
           title: Grants
       additionalProperties: false
       type: object
@@ -7956,6 +8116,11 @@ components:
             maxLength: 100
           - type: 'null'
           title: Created From
+        visibility:
+          type: string
+          pattern: ^(private|yard|platform)$
+          title: Visibility
+          default: yard
       type: object
       required:
       - skill_code
@@ -7971,6 +8136,7 @@ components:
           - approve
           - reject
           - rollback
+          - submit_public
           title: Action
         note:
           anyOf:

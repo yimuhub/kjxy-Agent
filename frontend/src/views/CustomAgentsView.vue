@@ -602,32 +602,30 @@
           </div>
         </el-form-item>
 
-        <el-form-item label="扩展技能/插件">
-          <div class="skill-bind-box">
-            <el-checkbox-group
-              v-if="availableExtendedSkills.length"
-              v-model="decForm.bound_skills"
-            >
-              <el-checkbox
-                v-for="sk in availableExtendedSkills"
-                :key="sk.code"
-                :value="sk.code"
-              >
-                {{ sk.name }}
-                <el-tag
-                  size="small"
-                  :type="sk.kind === 'plugin' ? 'warning' : 'success'"
-                  class="sk-kind-tag"
-                >
-                  {{ sk.kind === 'plugin' ? '工作流插件' : '自生长技能' }}
-                </el-tag>
-              </el-checkbox>
-            </el-checkbox-group>
-            <span
-              v-else
-              class="da-note"
-            >可在「自生长技能」页面沉淀或注册更多技能与插件后在此多选绑定</span>
-          </div>
+        <el-form-item label="扩展技能">
+          <BindableExtensionPicker
+            v-model="decForm.bound_skills"
+            kind="skill"
+            :options="bindableSkillOptions"
+            :stale-codes="staleSkillCodes"
+            :error="extensionsError"
+            :loading="extensionsLoading"
+            empty-text="暂无可绑定的扩展技能，可在「插件与技能库」安装或导入后重试"
+            @retry="loadBindableExtensions"
+          />
+        </el-form-item>
+
+        <el-form-item label="扩展插件">
+          <BindableExtensionPicker
+            v-model="decForm.bound_skills"
+            kind="plugin"
+            :options="bindablePluginOptions"
+            :stale-codes="stalePluginCodes"
+            :error="extensionsError"
+            :loading="extensionsLoading"
+            empty-text="暂无可绑定的扩展插件，可在「插件与技能库」安装或导入后重试"
+            @retry="loadBindableExtensions"
+          />
         </el-form-item>
 
         <el-form-item label="知识库范围">
@@ -744,9 +742,7 @@
   import type { AxiosRequestConfig } from 'axios'
   import {
     declarativeApi,
-    evolutionApi,
     llmSupplierApi,
-    skillApi,
     teamApi,
     toolApi,
     type DeclarativeAgent,
@@ -754,10 +750,12 @@
     type DuplicateNameDetails,
     type LlmSupplier,
   } from '@/api/modules'
+  import { agentsApi, type BindablePlugin, type BindableSkill } from '@/api/v3'
   import { chatApi } from '@/api/chat'
   import { api, extractErrorDetails, extractErrorMessage } from '@/api/client'
   import { useAuthStore } from '@/stores/auth'
   import AgentUseDialog from '@/components/agents/AgentUseDialog.vue'
+  import BindableExtensionPicker from '@/components/agents/BindableExtensionPicker.vue'
   import DeclarativeAgentCard from '@/components/agents/DeclarativeAgentCard.vue'
   import DuplicateNameDialog from '@/components/agents/DuplicateNameDialog.vue'
   import { friendlyErrorMessage } from '@/utils/status'
@@ -894,7 +892,19 @@
   /* ---------- 绑模型 / 绑多技能数据源 ---------- */
   const supplierList = ref<LlmSupplier[]>([])
   const toolList = ref<ToolDefinition[]>([])
-  const extendedSkills = ref<{ code: string; name: string; kind: 'skill' | 'plugin' }[]>([])
+
+  interface BindableOption {
+    code: string
+    name: string
+    summary: string
+    source: string
+    risk: 'low' | 'medium' | 'high'
+  }
+
+  const bindableSkills = ref<BindableSkill[]>([])
+  const bindablePlugins = ref<BindablePlugin[]>([])
+  const extensionsLoading = ref(false)
+  const extensionsError = ref(false)
 
   const supplierMap = computed(() => {
     const map: Record<string, LlmSupplier> = {}
@@ -904,11 +914,30 @@
   const toolNames = computed(() => {
     const map: Record<string, string> = {}
     for (const t of toolList.value) map[t.code] = t.name
-    for (const sk of extendedSkills.value) map[sk.code] = sk.name
+    for (const o of [...bindableSkillOptions.value, ...bindablePluginOptions.value]) {
+      map[o.code] = o.name
+    }
     return map
   })
 
-  const availableExtendedSkills = computed(() => extendedSkills.value)
+  const bindableSkillOptions = computed<BindableOption[]>(() =>
+    bindableSkills.value.map(s => ({
+      code: s.code,
+      name: s.name || s.code,
+      summary: s.summary || '',
+      source: s.source,
+      risk: s.risk_level,
+    })),
+  )
+  const bindablePluginOptions = computed<BindableOption[]>(() =>
+    bindablePlugins.value.map(p => ({
+      code: p.code,
+      name: p.name || p.code,
+      summary: p.summary || '',
+      source: p.source,
+      risk: p.risk_level,
+    })),
+  )
 
   function modelLabel(a: DeclarativeAgent): string {
     const sub = a.model_name?.trim()
@@ -927,38 +956,26 @@
   }
 
   async function loadBindOptions() {
-    const [sup, tools, skills, plugins] = await Promise.allSettled([
-      llmSupplierApi.list(),
-      toolApi.list(),
-      skillApi.list('enabled'),
-      evolutionApi.listPlugins(),
-    ])
+    const [sup, tools] = await Promise.allSettled([llmSupplierApi.list(), toolApi.list()])
     if (sup.status === 'fulfilled') supplierList.value = sup.value
     if (tools.status === 'fulfilled') toolList.value = tools.value
+  }
 
-    const ext: { code: string; name: string; kind: 'skill' | 'plugin' }[] = []
-    if (skills.status === 'fulfilled' && Array.isArray(skills.value)) {
-      for (const s of skills.value) {
-        ext.push({
-          code: `skill:${s.id}`,
-          name: s.name || s.code || s.skill_code || s.id,
-          kind: 'skill',
-        })
-      }
+  /** 可绑定扩展（技能/插件分区候选）：失败只影响两个区块，不影响整页与已有绑定值 */
+  async function loadBindableExtensions() {
+    extensionsLoading.value = true
+    extensionsError.value = false
+    try {
+      const data = await agentsApi.bindableExtensions()
+      bindableSkills.value = data.skills ?? []
+      bindablePlugins.value = data.plugins ?? []
+    } catch {
+      bindableSkills.value = []
+      bindablePlugins.value = []
+      extensionsError.value = true
+    } finally {
+      extensionsLoading.value = false
     }
-    if (plugins.status === 'fulfilled' && Array.isArray(plugins.value)) {
-      for (const p of plugins.value) {
-        if (p.status === 'enabled' || p.enabled) {
-          const code = p.code || p.id
-          ext.push({
-            code: `plugin:${code}`,
-            name: p.name || code,
-            kind: 'plugin',
-          })
-        }
-      }
-    }
-    extendedSkills.value = ext
   }
 
   /* ---------- 新建 / 编辑智能体表单 ---------- */
@@ -998,6 +1015,21 @@
         .forEach(m => list.add(m))
     }
     return Array.from(list)
+  })
+
+  /**
+   * 失效绑定：已绑定但不在当前可选集合（已下架/无权限）。
+   * 加载中/失败时集合未知，不标记失效，避免误伤；绑定值始终保留在 bound_skills 中。
+   */
+  const staleSkillCodes = computed(() => {
+    if (extensionsLoading.value || extensionsError.value) return []
+    const known = new Set(bindableSkillOptions.value.map(o => o.code))
+    return decForm.value.bound_skills.filter(c => c.startsWith('skill:') && !known.has(c))
+  })
+  const stalePluginCodes = computed(() => {
+    if (extensionsLoading.value || extensionsError.value) return []
+    const known = new Set(bindablePluginOptions.value.map(o => o.code))
+    return decForm.value.bound_skills.filter(c => c.startsWith('plugin:') && !known.has(c))
   })
 
   function onSupplierChange() {
@@ -1523,6 +1555,7 @@
   onMounted(() => {
     loadDa()
     loadBindOptions()
+    loadBindableExtensions()
     loadReviewQueue()
     nextTick(syncViewAriaCurrent)
   })
@@ -1706,9 +1739,6 @@
     border-radius: 8px;
     border: 1px solid var(--ds-border);
     background: var(--ds-bg-2);
-  }
-  .sk-kind-tag {
-    margin-left: 4px;
   }
   .da-note {
     display: block;

@@ -259,7 +259,7 @@ def test_session_messages_cross_yard_404(api_client, seeded):
     assert resp.json()["error"]["code"] == "CHAT_SESSION_NOT_FOUND"
 
 
-def test_grants_owner_only_and_three_grantable(api_client, seeded):
+def test_grants_owner_only_and_grantable_list(api_client, seeded):
     admin_hdr = _hdr(seeded["admin"], seeded["yard"], "yard_admin")
     owner_hdr = _hdr(seeded["owner"], seeded["yard"], "yard_owner")
 
@@ -279,6 +279,7 @@ def test_grants_owner_only_and_three_grantable(api_client, seeded):
         "audit:read",
         "finance:read",
         "insights:sensitive",
+        "skills:publish_any",
     ]
     assert [item["user_id"] for item in listed.json()["data"]["items"]] == [seeded["admin"].id]
 

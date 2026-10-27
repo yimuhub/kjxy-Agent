@@ -138,8 +138,7 @@ def upgrade() -> None:
         )
         membership = conn.execute(
             sa.text(
-                "SELECT id FROM yard_memberships WHERE yard_id = :y AND user_id = :u "
-                "LIMIT 1"
+                "SELECT id FROM yard_memberships WHERE yard_id = :y AND user_id = :u " "LIMIT 1"
             ),
             {"y": yard_id, "u": owner_id},
         ).fetchone()
@@ -165,7 +164,9 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     conn = op.get_bind()
-    conn.execute(sa.text("UPDATE yard_memberships SET role = 'yard_admin' WHERE role = 'yard_owner'"))
+    conn.execute(
+        sa.text("UPDATE yard_memberships SET role = 'yard_admin' " "WHERE role = 'yard_owner'")
+    )
     op.drop_index("ix_yard_join_requests_yard_status", table_name="yard_join_requests")
     op.drop_table("yard_join_requests")
     op.drop_table("yard_member_grants")

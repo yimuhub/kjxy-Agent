@@ -5,6 +5,9 @@
 - 出现疑问词（吗/呢/怎么/为什么/…）时降级为提问——"怎么做个助手"是咨询，
   不是指令，不能据此建能力；
 - install 类意图命中"装载动词 + 能力名词"（走市场安装，不建草稿）；
+- skill 类意图命中"技能名词（技能/技能包/skill）+ 请求动词"（一句话要技能：
+  先检索匹配、无匹配再生成草稿）；**只有命中技能名词才走 skill**，
+  "助手/智能体"等 agent 名词仍走 create，不抢占既有能力链路；
 - doc 类意图命中"产出动词 + 文档名词"（Word/Excel/PPT/PDF/Markdown/报告/方案…），
   走文档生成；疑问词同样降级，能力名词优先级更高（"生成一个助手"仍是造能力）；
 - 未命中一律是提问 → 走既有问答链路（**零回归**）。
@@ -51,7 +54,26 @@ CAPABILITY_NOUNS: tuple[str, ...] = (
 )
 
 #: 装载动词（走市场安装）
-INSTALL_VERBS: tuple[str, ...] = ("安装", "装上", "装载", "引入", "接入")
+INSTALL_VERBS: tuple[str, ...] = ("安装", "装上", "装一个", "装个", "装载", "引入", "接入")
+
+#: 请求前缀：与创建动词同效（"我需要一个技能/帮我做一个技能"），但**不进
+#: DOC_VERBS**——否则"帮我看看这份报告"会被误判成文档生成。
+REQUEST_PREFIXES: tuple[str, ...] = ("我需要", "帮我", "给我", "要一个", "要个", "来个")
+
+#: 技能名词（大小写不敏感；"技能包"含"技能"但语义更明确，一并列出）
+SKILL_NOUNS: tuple[str, ...] = ("技能", "技能包", "skill")
+
+#: agent 侧能力名词：与技能名词分流，命中这些仍走既有 create 链路
+AGENT_NOUNS: tuple[str, ...] = (
+    "助手",
+    "智能体",
+    "agent",
+    "能力",
+    "工具",
+    "班组",
+    "专家",
+    "机器人",
+)
 
 #: 文档名词（命中其一才算"要产出的文档"；格式词本身也算）
 DOC_NOUNS: tuple[str, ...] = (
@@ -118,6 +140,7 @@ QUESTION_WORDS: tuple[str, ...] = (
 INTENT_QA = "qa"
 INTENT_CREATE = "create"
 INTENT_INSTALL = "install"
+INTENT_SKILL = "skill"
 INTENT_DOC = "doc"
 
 _CODE_SAFE = re.compile(r"[^a-z0-9_]+")
@@ -133,7 +156,7 @@ class Intent:
 
     @property
     def is_action(self) -> bool:
-        return self.kind in (INTENT_CREATE, INTENT_INSTALL, INTENT_DOC)
+        return self.kind in (INTENT_CREATE, INTENT_INSTALL, INTENT_SKILL, INTENT_DOC)
 
 
 def _has(text: str, words: tuple[str, ...]) -> bool:
@@ -146,13 +169,21 @@ def detect(text: str) -> Intent:
     if not raw:
         return Intent(INTENT_QA, "agent", "空输入，按提问处理")
     lowered = raw.lower()
-    # 能力名词优先：命中就走能力链路（含"生成一个助手文档"这类混合句）
-    if _has(lowered, CAPABILITY_NOUNS):
+    # 能力/技能名词优先：命中才进入动作判定（含"生成一个助手文档"这类混合句）
+    if _has(lowered, CAPABILITY_NOUNS) or _has(lowered, SKILL_NOUNS):
         if _has(raw, QUESTION_WORDS):
             return Intent(INTENT_QA, "agent", "含疑问词，按提问处理")
         if _has(raw, INSTALL_VERBS):
             return Intent(INTENT_INSTALL, "market", "命中装载动词，走市场安装")
-        if _has(raw, CREATE_VERBS):
+        requested = _has(raw, CREATE_VERBS) or _has(raw, REQUEST_PREFIXES)
+        # agent 名词（助手/智能体/班组…）优先，保持既有能力链路不被技能抢占
+        if _has(lowered, AGENT_NOUNS) and requested:
+            target = "team" if "班组" in lowered else "agent"
+            return Intent(INTENT_CREATE, target, "命中创建动词与能力名词，按生成能力处理")
+        # 只有命中技能名词（技能/技能包/skill）才走技能检索/生成
+        if _has(lowered, SKILL_NOUNS) and requested:
+            return Intent(INTENT_SKILL, "skill", "命中技能名词与请求动词，按技能检索/生成处理")
+        if _has(lowered, CAPABILITY_NOUNS) and requested:
             target = "team" if "班组" in lowered else "agent"
             return Intent(INTENT_CREATE, target, "命中创建动词与能力名词，按生成能力处理")
         return Intent(INTENT_QA, "agent", "仅命中能力名词，按提问处理")
@@ -163,6 +194,7 @@ def detect(text: str) -> Intent:
 
 
 __all__ = [
+    "AGENT_NOUNS",
     "CAPABILITY_NOUNS",
     "CREATE_VERBS",
     "DOC_NOUNS",
@@ -172,7 +204,10 @@ __all__ = [
     "INTENT_DOC",
     "INTENT_INSTALL",
     "INTENT_QA",
+    "INTENT_SKILL",
     "Intent",
     "QUESTION_WORDS",
+    "REQUEST_PREFIXES",
+    "SKILL_NOUNS",
     "detect",
 ]
