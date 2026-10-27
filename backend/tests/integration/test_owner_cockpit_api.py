@@ -279,13 +279,14 @@ def test_grants_owner_only_and_grantable_list(api_client, seeded):
         "audit:read",
         "finance:read",
         "insights:sensitive",
+        "settings:manage_protected",
         "skills:publish_any",
     ]
     assert [item["user_id"] for item in listed.json()["data"]["items"]] == [seeded["admin"].id]
 
     invalid = api_client.put(
         f"{BASE}/grants/{seeded['admin'].id}",
-        json={"grants": ["settings:manage_protected"]},
+        json={"grants": ["owner:transfer"]},
         headers=owner_hdr,
     )
     assert invalid.status_code == 400

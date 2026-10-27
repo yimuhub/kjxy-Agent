@@ -37,12 +37,14 @@ from app.modules.yards.schemas import RoleCreateRequest, RoleUpdateRequest
 
 router = APIRouter()
 
-#: 设置项 → 所需权限（注册/安全/技能生成为普通设置，搜索为搜索管理）
+#: 设置项 → 所需权限（注册/安全/技能生成为普通设置，搜索为搜索管理；
+#: 自我总结提升涉及成员数据归纳，需保护型权限 settings:manage_protected）
 SETTINGS_PERMISSIONS: dict[str, str] = {
     "registration": "settings:manage",
     "security": "settings:manage",
     "search": "search:manage",
     "skill_lab": "settings:manage",
+    "self_improve": "settings:manage_protected",
 }
 
 
@@ -116,6 +118,14 @@ def update_setting(
         and not _is_owner(db, user)
     ):
         raise AppError("FORBIDDEN", "只有小院负责人可以设置管理员为默认角色。", http_status=403)
+    if key == "self_improve":
+        confirm = payload.pop("confirm_auto_publish", False)
+        if payload.get("auto_publish") is True and not confirm:
+            raise AppError(
+                "SELF_IMPROVE_CONFIRM_REQUIRED",
+                "开启自动通过知识候选需二次确认（请勾选后再保存）。",
+                http_status=400,
+            )
 
     settings_service.update_setting(
         db,
@@ -126,6 +136,17 @@ def update_setting(
         request_id=_request_id(request),
     )
     db.commit()
+    if key == "self_improve":
+        # 设置变更即时对齐定时任务（创建/暂停/重排期）
+        from app.modules.self_improve.service import sync_job
+
+        sync_job(
+            db,
+            yard_id=yard_id,
+            setting=settings_service.get_setting(db, yard_id, "self_improve"),
+            actor_id=user.user_id,
+        )
+        db.commit()
     return ok(settings_service.public_view(db, yard_id), request)
 
 

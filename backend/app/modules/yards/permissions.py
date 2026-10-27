@@ -68,6 +68,8 @@ GRANTABLE_PERMISSIONS: frozenset[str] = frozenset(
         "finance:read",
         "audit:read",
         "skills:publish_any",
+        # v3.4：自我总结提升设置涉及成员数据归纳，负责人可逐人下放给管理员
+        "settings:manage_protected",
     }
 )
 

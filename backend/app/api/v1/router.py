@@ -21,6 +21,7 @@ from app.modules.plugins.router import router as plugins_router
 from app.modules.policy.router import router as policy_router
 from app.modules.push.router import router as push_router
 from app.modules.search.router import router as search_router
+from app.modules.self_improve.router import router as self_improve_router
 from app.modules.tasks.router import router as tasks_router
 from app.modules.tools.approvals_router import router as tool_approvals_router
 from app.modules.tools.router import router as tools_router
@@ -61,6 +62,7 @@ router.include_router(chat_mention_router)  # /chat/mention-candidates（@ 点�
 router.include_router(pairing_router)  # /pairing（手机扫码配对：建码/交换/设备台账）
 router.include_router(bots_router)  # /bots（IM 机器人网关：配置/测试/会话批准/账本）
 router.include_router(search_router)  # /search（联网状态探测 + 连通性测试）
+router.include_router(self_improve_router)  # /yards/current/self-improve*（自我总结提升 v3.4）
 
 
 @router.get("/ping", include_in_schema=False)

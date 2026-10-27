@@ -26,6 +26,8 @@ celery_app.conf.update(
         "quota-monthly-reset": {"task": "quota.monthly_reset", "schedule": 86400.0},
         # 设备连接器轮询：beat 固定 60s 心跳节奏，各设备按自身 interval 判定到期
         "devices-poll-connectors": {"task": "devices.poll_connectors", "schedule": 60.0},
+        # 自我总结提升（v3.4）：beat 每 5 分钟巡检，各小院按 next_run_at 判定到期
+        "yards-run-due-jobs": {"task": "yards.run_due_jobs", "schedule": 300.0},
     },
 )
 
@@ -38,5 +40,6 @@ celery_app.autodiscover_tasks(
         "app.modules.agriculture",
         "app.modules.agents",
         "app.modules.devices",
+        "app.modules.self_improve",
     ]
 )

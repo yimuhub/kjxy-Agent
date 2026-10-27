@@ -45,6 +45,11 @@ from app.modules.pairing.models import PairCode, PairDevice  # noqa: F401
 from app.modules.plugins.models import PluginManifest  # noqa: F401
 from app.modules.policy.models import Policy, PolicyApplication  # noqa: F401
 from app.modules.push.models import PushChannel  # noqa: F401
+from app.modules.self_improve.models import (  # noqa: F401
+    SelfImproveMemory,
+    YardJob,
+    YardJobRun,
+)
 from app.modules.tasks.models import Task, TaskEvent  # noqa: F401
 from app.modules.tools.models import ToolApproval, ToolDefinition  # noqa: F401
 from app.modules.yards.models import (  # noqa: F401

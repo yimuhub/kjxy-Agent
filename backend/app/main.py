@@ -39,16 +39,23 @@ def _startup_wiring() -> None:
             import app.modules.agriculture.worker_tasks  # noqa: F401
             import app.modules.devices.worker_tasks  # noqa: F401
             import app.modules.knowledge.worker_tasks  # noqa: F401
+            import app.modules.self_improve.worker_tasks  # noqa: F401
         except Exception as e:
             log.warning("worker task registration import failed: %s", e)
-        # 桌面单机模式：standalone 永不启动 beat，连接器轮询走进程内 daemon 线程
+        # 桌面单机模式：standalone 永不启动 beat，连接器轮询/自我总结巡检走进程内 daemon 线程
         try:
             if settings.tasks_inline_mode:
-                from app.modules.devices.worker_tasks import start_inline_scheduler
+                from app.modules.devices.worker_tasks import (
+                    start_inline_scheduler as start_devices_poll,
+                )
+                from app.modules.self_improve.worker_tasks import (
+                    start_inline_scheduler as start_si_poll,
+                )
 
-                start_inline_scheduler()
+                start_devices_poll()
+                start_si_poll()
         except Exception as e:
-            log.warning("devices inline scheduler start failed: %s", e)
+            log.warning("inline schedulers start failed: %s", e)
 
         db = SessionLocal()
         try:

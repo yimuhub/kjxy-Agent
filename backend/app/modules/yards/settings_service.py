@@ -44,12 +44,24 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "use_web": True,
         "max_sources": 6,
     },
+    "self_improve": {
+        "enabled": False,
+        "schedule": {"preset": "daily", "custom_value": 1, "custom_unit": "days"},
+        "scope": "per_member",  # yard | per_member
+        "daily_budget_tokens": 200000,
+        "auto_publish": False,  # 自动通过知识候选（技能提案始终人工审核）
+        "retain_days": 90,
+        "notify_owner": True,
+    },
 }
 
 REGISTRATION_MODES = {"closed", "approval", "open"}
 SEARCH_PROVIDERS = {"auto", "searxng", "tavily", "brave"}
 #: 免密钥内置搜索源（与 app.modules.search.providers_builtin 的实现保持一致）
 BUILTIN_SEARCH_SOURCES = ("bing", "sogou", "so360")
+SI_PRESETS = {"daily", "hours12", "hours6", "days3", "weekly", "monthly", "custom"}
+SI_UNITS = {"hours", "days", "months"}
+SI_SCOPES = {"yard", "per_member"}
 
 
 def _row(db: Session, yard_id: str, key: str) -> YardSettings | None:
@@ -115,6 +127,34 @@ def _validate(key: str, value: dict[str, Any], merged: dict[str, Any]) -> None:
             raise AppError("INVALID_REQUEST", "技能生成配额必须是整数。", http_status=400) from e
         if not 0 <= limit <= 1000 or not 0 <= max_sources <= 20:
             raise AppError("INVALID_REQUEST", "技能生成配额超出允许范围。", http_status=400)
+    elif key == "self_improve":
+        for flag in ("enabled", "auto_publish", "notify_owner"):
+            if not isinstance(merged[flag], bool):
+                raise AppError("INVALID_REQUEST", "自我总结开关必须是布尔值。", http_status=400)
+        schedule = merged.get("schedule")
+        if not isinstance(schedule, dict) or schedule.get("preset") not in SI_PRESETS:
+            raise AppError("INVALID_REQUEST", "自我总结调度不合法。", http_status=400)
+        if schedule.get("preset") == "custom":
+            raw_value = schedule.get("custom_value")
+            try:
+                custom_value = int(raw_value) if raw_value is not None else 0
+            except (TypeError, ValueError) as e:
+                raise AppError(
+                    "INVALID_REQUEST", "自定义周期数值必须是整数。", http_status=400
+                ) from e
+            if schedule.get("custom_unit") not in SI_UNITS or not 1 <= custom_value <= 720:
+                raise AppError("INVALID_REQUEST", "自定义周期超出允许范围。", http_status=400)
+        if merged.get("scope") not in SI_SCOPES:
+            raise AppError("INVALID_REQUEST", "自我总结归纳口径不合法。", http_status=400)
+        try:
+            budget = int(merged["daily_budget_tokens"])
+            retain = int(merged["retain_days"])
+        except (TypeError, ValueError) as e:
+            raise AppError(
+                "INVALID_REQUEST", "自我总结预算/保留期必须是整数。", http_status=400
+            ) from e
+        if not 1000 <= budget <= 10_000_000 or not 7 <= retain <= 365:
+            raise AppError("INVALID_REQUEST", "自我总结预算/保留期超出允许范围。", http_status=400)
     else:
         raise AppError("INVALID_REQUEST", f"未知设置项：{key}", http_status=400)
 
@@ -131,13 +171,23 @@ def update_setting(
     if key not in DEFAULTS:
         raise AppError("INVALID_REQUEST", f"未知设置项：{key}", http_status=400)
     merged = get_setting(db, yard_id, key)
+    known_schedule_keys = set(DEFAULTS["self_improve"]["schedule"].keys())
     for k, v in value.items():
         if k not in merged:
             raise AppError("INVALID_REQUEST", f"未知配置字段：{k}", http_status=400)
         # 空字符串表示“保持原密钥不变”（前端不回显明文）
         if k.endswith("_api_key") and v == "":
             continue
-        merged[k] = v
+        if k == "schedule":
+            if not isinstance(v, dict):
+                raise AppError("INVALID_REQUEST", "调度配置必须是对象。", http_status=400)
+            unknown = set(v.keys()) - known_schedule_keys
+            if unknown:
+                joined = ", ".join(sorted(unknown))
+                raise AppError("INVALID_REQUEST", f"未知调度字段：{joined}", http_status=400)
+            merged[k] = {**merged.get(k, {}), **v}
+        else:
+            merged[k] = v
     _validate(key, value, merged)
     row = _row(db, yard_id, key)
     if row is None:
@@ -175,6 +225,9 @@ __all__ = [
     "DEFAULTS",
     "REGISTRATION_MODES",
     "SEARCH_PROVIDERS",
+    "SI_PRESETS",
+    "SI_SCOPES",
+    "SI_UNITS",
     "get_all",
     "get_setting",
     "public_view",
