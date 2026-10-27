@@ -19,15 +19,16 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
 
+import httpx
 from lxml import html as lxml_html
 
 from app.core.logging import get_logger
+from app.modules.search import providers as providers_mod
 from app.modules.search.providers import (
     MAX_RESULTS,
     SNIPPET_MAX_CHARS,
     SearchHit,
     SearchProvider,
-    _client,
     _count,
     _is_http_url,
     _make_hit,
@@ -36,12 +37,18 @@ from app.modules.search.providers import (
 
 log = get_logger(__name__)
 
-#: 内置源请求标识（不带 Cookie；客户端统一走 providers._client，含测试注入口）
-USER_AGENT = "kjxy-agent-search/1.0"
+#: 内置源请求标识。必须用真实浏览器 UA：cn.bing/搜狗/360 对非浏览器 UA 会
+#: 直接 301 到首页 / 反爬页 / 验证码页（2026-10 实测），浏览器 UA 才返回结果页。
+USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
 BUILTIN_TIMEOUT_SECONDS = 3.0
 REQUEST_INTERVAL_SECONDS = 1.0
 BREAKER_THRESHOLD = 3
 BREAKER_COOLDOWN_SECONDS = 300.0
+#: 引擎握手跳数上限（cn.bing → www.bing 一跳即达；防御异常循环）
+MAX_ENGINE_REDIRECTS = 5
 
 #: 内置源 code（与 yards.settings_service.BUILTIN_SEARCH_SOURCES 保持一致）
 BUILTIN_SOURCE_CODES: tuple[str, ...] = ("bing", "sogou", "so360")
@@ -79,11 +86,18 @@ class _BreakerState:
 _last_request_at: dict[str, float] = {}
 _breaker: dict[str, _BreakerState] = {}
 
+#: 引擎匿名 cookie jar（按源隔离）。搜索引擎首次访问会 302 下发自己的匿名
+#: cookie（cn.bing→www.bing 的地域跳转、搜狗 antispider、360 首页会话），
+#: 带 cookie 重访才能拿到真实结果页。jar 只存引擎下发的 cookie——绝不注入
+#: 任何用户登录态（测试断言首请求不带 Cookie 即此口径）。
+_cookie_jars: dict[str, httpx.Cookies] = {}
+
 
 def reset_runtime_state() -> None:
-    """测试专用：清空限速与熔断状态。"""
+    """测试专用：清空限速、熔断与引擎 cookie 状态。"""
     _last_request_at.clear()
     _breaker.clear()
+    _cookie_jars.clear()
 
 
 def _breaker_open(code: str) -> bool:
@@ -195,7 +209,19 @@ class _HtmlSearchProvider:
             "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.5",
             "Accept-Language": "zh-CN,zh;q=0.9",
         }
-        async with _client(BUILTIN_TIMEOUT_SECONDS) as client:
+        # 不走 providers._client：内置源需要 cookie jar + 跟随引擎握手跳转
+        # （cn.bing 301 下发 cookie 后落到 www.bing 结果页）。测试注入口沿用。
+        jar = _cookie_jars.setdefault(self.code, httpx.Cookies())
+        async with httpx.AsyncClient(
+            timeout=BUILTIN_TIMEOUT_SECONDS,
+            # 动态读 providers 模块属性：测试经 set_test_transport 重新赋值，
+            # from-import 的值拷贝收不到注入（会导致测试真实出网）
+            transport=providers_mod._transport_override,
+            follow_redirects=True,
+            max_redirects=MAX_ENGINE_REDIRECTS,
+            trust_env=False,
+            cookies=jar,
+        ) as client:
             resp = await client.get(self.endpoint, params={self.query_param: q}, headers=headers)
         resp.raise_for_status()
         return lxml_html.fromstring(resp.text)

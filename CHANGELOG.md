@@ -49,6 +49,15 @@
 - `contracts/openapi.yaml` 重新生成；`contracts/error-codes.md` 补 4 个
   `AGENT_GENERATE_*` 错误码；版本号 3.4.1 → 3.5.0
 
+### 修复
+
+- 内置搜索源全线不可用（「网络与搜索 → 测试连接」报"联网受限"）：三个引擎对
+  机器人 UA 直接拦截（cn.bing 301 跳首页、搜狗 302 反爬页、360 验证码页）。
+  bing 改用浏览器 UA + 引擎匿名 cookie jar + 跟随握手跳转（cn.bing→www.bing）
+  后恢复；搜狗/360 无 JS 无法过反爬，保留由熔断自动跳过。另修测试注入缺陷：
+  `providers_builtin` 从 `providers` from-import 的 `_transport_override` 是值
+  拷贝，收不到 `set_test_transport` 的重新赋值（会导致测试真实出网）。
+
 ## [3.4.1] - 2026-10-27
 
 ### 修复

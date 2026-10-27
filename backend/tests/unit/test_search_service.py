@@ -6,7 +6,7 @@
 import httpx
 import pytest
 from app.core.errors import AppError
-from app.modules.search import providers, service
+from app.modules.search import providers, providers_builtin, service
 from app.modules.yards import settings_service
 
 YARD = "yard-001"
@@ -41,9 +41,11 @@ def _clean_state():
     service._reset_state()
     service.set_test_transport(None)
     providers.set_test_transport(None)
+    providers_builtin.reset_runtime_state()
     yield
     service._reset_state()
     service.set_test_transport(None)
+    providers_builtin.reset_runtime_state()
 
 
 def _use_settings(monkeypatch, **overrides) -> dict:
