@@ -6579,6 +6579,96 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - HTTPBearer: []
+  /api/v1/yards/current/self-improve:
+    get:
+      tags:
+      - v1
+      summary: Get Self Improve
+      description: 运行报告：设置 + 任务状态 + 最近一次运行 + 今日预算。
+      operationId: get_self_improve_api_v1_yards_current_self_improve_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/yards/current/self-improve/run:
+    post:
+      tags:
+      - v1
+      summary: Run Self Improve
+      description: 立即运行一次（同步执行；LLM 不可用时保留失败台账并返回 502）。
+      operationId: run_self_improve_api_v1_yards_current_self_improve_run_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/yards/current/self-improve/runs:
+    get:
+      tags:
+      - v1
+      summary: List Runs
+      operationId: list_runs_api_v1_yards_current_self_improve_runs_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 20
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/yards/current/self-improve/memories:
+    get:
+      tags:
+      - v1
+      summary: List Memories
+      description: 偏好记忆：默认可看本人；查看他人需 insights:sensitive（负责人恒有）。
+      operationId: list_memories_api_v1_yards_current_self_improve_memories_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: user_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: User Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
     AgentRunRequest:
@@ -7104,7 +7194,7 @@ components:
           items:
             type: string
           type: array
-          maxItems: 4
+          maxItems: 5
           title: Grants
       additionalProperties: false
       type: object

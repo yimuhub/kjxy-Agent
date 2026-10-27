@@ -2,6 +2,44 @@
 
 本项目遵循《工程开发规范 V3.0》；版本号遵循语义化版本。
 
+## [3.4.0] - 2026-10-27
+
+自我总结提升（方案见 `docs/plan-v3.x-smart-skills.md` §6）：定时归纳小院会话主题与反馈，
+产出偏好记忆、技能提案与知识候选，供专家审核后入库。
+
+### 自我总结提升（后端）
+
+- 迁移 0034：`yard_jobs`（可复用调度底座）+ `yard_job_runs`（运行台账）+
+  `self_improve_memories`（偏好记忆，按成员/按小院）
+- 调度底座：`YardJob.lease_until` 租约防多实例重复执行；Celery beat 5 min 与
+  桌面 inline 300 s 线程共用 `run_due_jobs`
+- 设置项 `self_improve`（默认关闭）：schedule / scope / daily_budget_tokens /
+  auto_publish / retain_days / notify_owner；`auto_publish` 需 `confirm_auto_publish`
+  二次确认（400）
+- 执行引擎 `_execute`：证据聚合（只取主题/反馈/工具计数，不读消息原文）→
+  LLM 归纳（3 次重试）→ 持久化偏好记忆（supersede 旧 active）+ 技能草稿
+  （pending_review）+ 知识候选（pending_review；auto_publish 自动通过）
+- 诚实口径：窗口内无数据 → 成功但不调 LLM；LLM 失败/解析失败 → failed 台账，
+  不落脏数据；日预算用尽 → skipped
+- 路由：GET 运行报告 / POST 手动运行（settings:manage_protected）/ GET runs /
+  GET memories（本人/授权者）
+- `settings:manage_protected` 加入 GRANTABLE_PERMISSIONS（负责人可逐人下放）
+- 推送事件 `self_improve_run` + 审计 `self_improve_run`
+
+### 自我总结提升（前端）
+
+- 系统设置新增「自我总结」tab：开关、周期/范围/预算/保留/自动发布/通知表单
+  + 运行报告卡（任务状态/今日 token 用量/运行历史表/立即运行一次）
+
+### 错误码新增
+
+| 错误码 | HTTP | 说明 |
+|--------|------|------|
+| `SELF_IMPROVE_DISABLED` | 409 | 尚未开启 |
+| `SELF_IMPROVE_BUDGET_EXHAUSTED` | 409 | 日预算用尽 |
+| `SELF_IMPROVE_LLM_UNAVAILABLE` | 502 | 模型不可用 |
+| `SELF_IMPROVE_CONFIRM_REQUIRED` | 400 | auto_publish 需确认 |
+
 ## [3.3.0] - 2026-10-27
 
 一句话生成插件（方案见 `docs/plan-v3.x-smart-skills.md` §5.1），并补齐 v3.2 遗留的对话

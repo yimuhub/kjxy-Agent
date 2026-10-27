@@ -205,3 +205,12 @@
 | `OWNER_TRANSFER_INVALID` | 400 | 负责人转让目标非法（不能转给自己） |
 | `TARGET_NOT_YARD_ADMIN` | 400 | 转让目标不是本小院在职管理员 |
 | `YARD_NAME_TAKEN` | 409 | 小院名称已被占用（自助开通） |
+
+## v3.4 自我总结提升
+
+| 错误码 | HTTP | 说明 |
+|--------|------|------|
+| `SELF_IMPROVE_DISABLED` | 409 | 自我总结尚未开启，手动运行被拒绝 |
+| `SELF_IMPROVE_BUDGET_EXHAUSTED` | 409 | 当日 token 预算已用尽；details.used_today / budget |
+| `SELF_IMPROVE_LLM_UNAVAILABLE` | 502 | 模型不可用或输出无法解析，本轮未产生总结 |
+| `SELF_IMPROVE_CONFIRM_REQUIRED` | 400 | 开启 auto_publish 需携带 confirm_auto_publish=true |
