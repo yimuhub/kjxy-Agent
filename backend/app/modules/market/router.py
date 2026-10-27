@@ -8,7 +8,8 @@
 - GET  /market/installed：本小院已安装/导入摘要；
 - POST /market/skills/import、/market/plugins/import：本地文件导入（默认待审）；
 - POST /market/github/search、/preview：GitHub 只读检索与 SKILL.md 预览；
-- POST /market/agent/request、/generate、/install：一句话技能链路（检索→生成→安装）。
+- POST /market/agent/request、/generate、/install：一句话技能/插件链路
+  （检索→生成→安装；generate 按 kind 分流，plugin 一律落待审）。
 
 权限：市场动作走 require_yard_permission("market:install")；插件导入额外要求
 "market:review"；一句话生成走 "skills:generate"（只产私有草稿）。
@@ -414,13 +415,21 @@ async def agent_generate(
     user: CurrentUser = Depends(_skills_generate_gate),
     db: Session = Depends(get_db_session),
 ):
-    """一句话生成技能：联网找资料 → 模型出规格 → 校验 → 落私有草稿。"""
+    """一句话生成（kind=skill 技能草稿 / kind=plugin 待审工作流插件）。"""
     data = _body_dict(body)
     utterance = str(data.get("utterance") or "").strip()
     use_web = data.get("use_web", True)
-    result = await skill_agent.generate_skill(
-        db, ctx=ctx, utterance=utterance, use_web=bool(use_web)
-    )
+    kind = str(data.get("kind") or "skill").strip().lower() or "skill"
+    if kind == "plugin":
+        from app.modules.market import plugin_agent
+
+        result = await plugin_agent.generate_plugin(
+            db, ctx=ctx, utterance=utterance, use_web=bool(use_web)
+        )
+    else:
+        result = await skill_agent.generate_skill(
+            db, ctx=ctx, utterance=utterance, use_web=bool(use_web)
+        )
     try:
         db.commit()
     except Exception:

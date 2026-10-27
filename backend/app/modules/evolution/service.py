@@ -863,6 +863,24 @@ def promote_skill(db: Session, ctx: YardContext, skill_id: str, request_id: str 
             "visibility": skill.visibility,
         },
     )
+    # 通知创建者（v3.3）：私有技能被负责人转公共必须可感知。
+    # 走推送通道事件（订阅 skill_force_published 的通道逐条推送），永不影响主流程。
+    from app.modules.push.models import EVENT_SKILL_FORCE_PUBLISHED
+    from app.modules.push.service import dispatch as push_dispatch
+
+    push_dispatch(
+        db,
+        yard_id=ctx.yard_id,
+        event_type=EVENT_SKILL_FORCE_PUBLISHED,
+        payload={
+            "title": f"你的私有技能「{skill.skill_code}」已被转为小院公共",
+            "skill_code": skill.skill_code,
+            "version": skill.version,
+            "operator_id": ctx.user_id,
+            "owner_user_id": original_owner or "",
+        },
+        request_id=request_id or ctx.request_id,
+    )
     return skill
 
 

@@ -2,6 +2,45 @@
 
 本项目遵循《工程开发规范 V3.0》；版本号遵循语义化版本。
 
+## [3.3.0] - 2026-10-27
+
+一句话生成插件（方案见 `docs/plan-v3.x-smart-skills.md` §5.1），并补齐 v3.2 遗留的对话
+生成权限校验。
+
+### 一句话生成插件（后端）
+
+- 新增 `market/plugin_agent.py`：一句话 → 联网找资料 → 模型出工作流 manifest → 校验 →
+  `register_workflow` 落 **pending_review**。插件是可执行工作流，没有「私有即用」，
+  必须经专家审核并启用后才能运行。
+- manifest 沿用插件校验规则：步骤只允许工具注册表内的工具、拒绝 `mcp__` 前缀、单插件最多
+  8 步，非法即 `PLUGIN_MANIFEST_INVALID` 400 且不落库；模型多次不合规时降级到保守的
+  纯模型/只读检索步骤，保证可用且可审。
+- `/market/agent/generate` 新增 `kind`（`skill` 默认 / `plugin`）；技能与插件共用
+  `skill_lab` 配额与开关，超限 `SKILL_QUOTA_EXCEEDED`、关闭 `SKILL_LAB_DISABLED`。
+- 对话链路：意图新增 `INTENT_PLUGIN`（「插件」类名词，不含「工作流」以免误伤问答），
+  命中后生成并以 `plugin_card` 载荷下发（插件摘要 + 工作流步骤 + 引用来源）。
+- 新增工具 `skill.search` / `skill.generate` / `skill.install`，把一句话链路暴露给工作流
+  引擎；安装属 `external_side_effect`，执行需审批，越权/缺权限分别 `TOOL_RISK_BLOCKED` /
+  `TOOL_FORBIDDEN`。
+- 安全加固：对话内技能 / 插件生成补上 `skills:generate` 校验，与 HTTP 端点同口径（此前
+  对话链路可绕过该权限）。
+- 负责人把私有技能转为小院公共时，新增推送事件 `skill_force_published` 通知创建者。
+
+### 前端
+
+- 技能库新增「一句话生成插件」入口，复用向导（技能/插件双模式）：插件模式跳过候选检索
+  直接生成，结果卡展示待审徽章、工作流步骤、引用来源与「去审核启用」。
+- 对话内新增插件卡片：展示插件摘要与步骤预览，失败可原地重试；审核入口按后端口径收敛
+  到负责人 / 管理员（`require_roles yard_admin`），跳「技能与插件 → 插件」审核启用，
+  专家与普通成员只看到「已提交小院审核」的说明。
+
+### 契约与门禁
+
+- OpenAPI 181 paths（v3.3 复用既有端点，仅扩展 `kind` 参数与载荷）。
+- 后端 1199 项测试通过（v3.3 新增 19 项：工具注册/执行 6、插件生成端点 7、意图识别 5、
+  转公共通知 1）；ruff / mypy 全绿；前端 ESLint / vue-tsc / vite build 通过；Playwright
+  新增 1 项一句话生成插件用例，全量 25 项通过。
+
 ## [3.2.0] - 2026-10-27
 
 一句话生成技能 + 技能归属视图（方案见 `docs/plan-v3.x-smart-skills.md`；v3.1 已落地

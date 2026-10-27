@@ -4729,7 +4729,7 @@ paths:
       - v1
       - market
       summary: Agent Generate
-      description: 一句话生成技能：联网找资料 → 模型出规格 → 校验 → 落私有草稿。
+      description: 一句话生成（kind=skill 技能草稿 / kind=plugin 待审工作流插件）。
       operationId: agent_generate_api_v1_market_agent_generate_post
       requestBody:
         content:

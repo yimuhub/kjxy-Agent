@@ -63,6 +63,10 @@ REQUEST_PREFIXES: tuple[str, ...] = ("我需要", "帮我", "给我", "要一个
 #: 技能名词（大小写不敏感；"技能包"含"技能"但语义更明确，一并列出）
 SKILL_NOUNS: tuple[str, ...] = ("技能", "技能包", "skill")
 
+#: 插件名词（v3.3 一句话生成插件：workflow manifest → 待审核）；"工作流"口语中
+#: 常指既有业务流程，误判代价高，不纳入
+PLUGIN_NOUNS: tuple[str, ...] = ("插件", "plugin")
+
 #: agent 侧能力名词：与技能名词分流，命中这些仍走既有 create 链路
 AGENT_NOUNS: tuple[str, ...] = (
     "助手",
@@ -142,6 +146,7 @@ INTENT_CREATE = "create"
 INTENT_INSTALL = "install"
 INTENT_SKILL = "skill"
 INTENT_DOC = "doc"
+INTENT_PLUGIN = "plugin"
 
 _CODE_SAFE = re.compile(r"[^a-z0-9_]+")
 
@@ -156,7 +161,7 @@ class Intent:
 
     @property
     def is_action(self) -> bool:
-        return self.kind in (INTENT_CREATE, INTENT_INSTALL, INTENT_SKILL, INTENT_DOC)
+        return self.kind in (INTENT_CREATE, INTENT_INSTALL, INTENT_SKILL, INTENT_DOC, INTENT_PLUGIN)
 
 
 def _has(text: str, words: tuple[str, ...]) -> bool:
@@ -169,8 +174,8 @@ def detect(text: str) -> Intent:
     if not raw:
         return Intent(INTENT_QA, "agent", "空输入，按提问处理")
     lowered = raw.lower()
-    # 能力/技能名词优先：命中才进入动作判定（含"生成一个助手文档"这类混合句）
-    if _has(lowered, CAPABILITY_NOUNS) or _has(lowered, SKILL_NOUNS):
+    # 能力/技能/插件名词优先：命中才进入动作判定（含"生成一个助手文档"这类混合句）
+    if _has(lowered, CAPABILITY_NOUNS) or _has(lowered, SKILL_NOUNS) or _has(lowered, PLUGIN_NOUNS):
         if _has(raw, QUESTION_WORDS):
             return Intent(INTENT_QA, "agent", "含疑问词，按提问处理")
         if _has(raw, INSTALL_VERBS):
@@ -183,6 +188,9 @@ def detect(text: str) -> Intent:
         # 只有命中技能名词（技能/技能包/skill）才走技能检索/生成
         if _has(lowered, SKILL_NOUNS) and requested:
             return Intent(INTENT_SKILL, "skill", "命中技能名词与请求动词，按技能检索/生成处理")
+        # 只有命中插件名词（插件/plugin）才走插件生成（v3.3：一律待审）
+        if _has(lowered, PLUGIN_NOUNS) and requested:
+            return Intent(INTENT_PLUGIN, "plugin", "命中插件名词与请求动词，按插件生成处理")
         if _has(lowered, CAPABILITY_NOUNS) and requested:
             target = "team" if "班组" in lowered else "agent"
             return Intent(INTENT_CREATE, target, "命中创建动词与能力名词，按生成能力处理")
@@ -203,9 +211,11 @@ __all__ = [
     "INTENT_CREATE",
     "INTENT_DOC",
     "INTENT_INSTALL",
+    "INTENT_PLUGIN",
     "INTENT_QA",
     "INTENT_SKILL",
     "Intent",
+    "PLUGIN_NOUNS",
     "QUESTION_WORDS",
     "REQUEST_PREFIXES",
     "SKILL_NOUNS",

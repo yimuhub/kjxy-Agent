@@ -41,6 +41,31 @@
 | GET | /audit/logs | 审计日志 |
 | GET | /admin/stats | 运营概况 |
 
+## 接口一览（v3.3 新增）
+
+| 方法 | 路径 | 权限 | 用途 |
+|---|---|---|---|
+| POST | /market/agent/generate | skills:generate | 新增 `kind` 参数：`skill`（默认）/ `plugin`；`plugin` 按工作流模板生成并一律待审 |
+| POST | /chat/sessions/{id}/messages（含 stream） | 登录 + skills:generate | 「插件」类意图改走插件生成，消息载荷新增 `plugin_card` |
+
+v3.3 行为变化：
+
+- 插件生成没有「私有即用」：`kind=plugin` 的产物经 `register_workflow` 直接落
+  `status=pending_review`（type=workflow、小院范围），须经 `POST /plugins/{id}/review`
+  （负责人 / 小院管理员 / 平台管理员）审核并 `enable` 后才能运行；专家与普通成员只能等待。
+- 工作流只允许工具注册表内的工具，拒绝 `mcp__` 前缀；单插件最多 8 步；manifest 非法返回
+  `PLUGIN_MANIFEST_INVALID` 400。生成失败不落库。
+- 技能与插件共用 `skill_lab` 配额：`daily_limit` 用尽同样返回 `SKILL_QUOTA_EXCEEDED` 429，
+  `enabled=false` 返回 `SKILL_LAB_DISABLED` 403。
+- 对话内 `plugin_card` 载荷：`{type:"plugin_card", state:"created"|"failed", utterance,
+  plugin:{plugin_id,name,description,status,step_count}, manifest:{name,description,params,steps},
+  sources, note}`；`failed` 卡片可按原话重试。
+- 新增工具：`skill.search`（read_only）、`skill.generate`（draft）、`skill.install`
+  （external_side_effect，执行需审批），均按 `skills:generate` / `market:install` 鉴权。
+- 安全加固：对话内技能 / 插件生成与 HTTP 端点同口径，缺 `skills:generate` 一律返回
+  403 `FORBIDDEN`（此前对话链路未校验）。
+- `push` 事件新增 `skill_force_published`：负责人把私有技能转为小院公共时通知创建者。
+
 ## 接口一览（v3.2 新增）
 
 | 方法 | 路径 | 权限 | 用途 |

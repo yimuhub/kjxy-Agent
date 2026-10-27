@@ -23,11 +23,12 @@ log = get_logger(__name__)
 
 def _startup_wiring() -> None:
     """应用启动时装配：工具元数据 seed + knowledge.search / workorder.dispatch /
-    sensor.query 工具注册。"""
+    sensor.query / skill.search / skill.generate / skill.install 工具注册。"""
     try:
         from app.db.session import SessionLocal
         from app.modules.devices.agent_tool import register_sensor_query_tool
         from app.modules.knowledge.service import register_knowledge_search_tool
+        from app.modules.market.skill_tools import register_skill_agent_tools
         from app.modules.search.tools import register_search_tools
         from app.modules.tools.registry import seed_builtin_tools
         from app.modules.tools.workorder_tool import register_workorder_tool
@@ -62,6 +63,7 @@ def _startup_wiring() -> None:
         register_workorder_tool()
         register_sensor_query_tool()
         register_search_tools()
+        register_skill_agent_tools()
     except Exception as e:
         log.warning("startup wiring failed: %s", e)
 

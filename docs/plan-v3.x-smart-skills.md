@@ -1,7 +1,8 @@
 # V3.x 升级方案：绑定拆分、默认可用搜索、一句话技能/插件、技能共享与自我提升
 
-> 状态：**v3.1.0、v3.2.0 已实现**（v3.1：搜索默认可用 + 绑定拆分 + GitHub 国内镜像/技能模板底座；
-> v3.2：一句话生成技能 + 技能归属模型）；3.3–3.4 待开工。已拍板：内置源=抓取国内结果页；
+> 状态：**v3.1.0、v3.2.0、v3.3.0 已实现**（v3.1：搜索默认可用 + 绑定拆分 + GitHub 国内镜像/技能模板底座；
+> v3.2：一句话生成技能 + 技能归属模型；v3.3：一句话生成插件 + 技能共享治理收尾 + 对话生成权限加固）；
+> 3.4 待开工。已拍板：内置源=抓取国内结果页；
 > 生成技能默认私有草稿；自我总结默认关闭；公共库=小院级为主 + 平台级需平台管理员。
 > 版本纪律：**持续 3.x**，直到负责人明确要求才升 4.0。每期独立小版本 + 独立标签 + 独立 CHANGELOG。
 > 基线：v3.0.0（`6c4069c`，已推送）
@@ -99,8 +100,8 @@
 > `submit_public` 送审 + 负责人 `promote`）按「先落地归属模型」拍板随本期一起交付，
 > 比原计划提前一期。小院设置 `skill_lab`（开关/配额/联网/来源上限）经
 > `PUT /yards/current/settings/skill_lab` 可配，系统设置「网络与搜索」页已提供入口。
-> **顺延到 v3.3**：Agent 工具化（`skill.search` / `skill.generate` / `skill.install`
-> 注册为可调用工具）、一句话生成插件、审核队列与授权治理。
+> **已顺延到 v3.3 并交付**：Agent 工具化（`skill.search` / `skill.generate` /
+> `skill.install` 注册为可调用工具）、一句话生成插件、审核队列与授权治理。
 
 ### 4.1 技能模板（唯一框架）
 
@@ -160,6 +161,12 @@ sources: [{title, url}]           # 生成依据（强制展示）
 ## 5. v3.3.0：插件生成 + 技能共享治理
 
 ### 5.1 一句话生成插件
+
+> **落地说明（v3.3.0 已交付）**：`market/plugin_agent.py` 生成 manifest → `register_workflow`
+> 一律落 `pending_review`；工具白名单/禁 `mcp__`/8 步上限沿用插件校验，非法
+> `PLUGIN_MANIFEST_INVALID`。对话新增 `INTENT_PLUGIN` 与 `plugin_card`；同时补上对话内生成
+> 的 `skills:generate` 校验（与 HTTP 端点同口径），并把 `skill.search/generate/install`
+> 注册为可被工作流调用的工具。
 
 - 插件模板（沿用现有 workflow manifest 结构）：`name/description/params/steps[{kind:tool|llm}]/guardrails`。
 - `POST /market/agent/generate` 支持 `kind=plugin`：生成 manifest → 走现有 `plugins/workflow.py` 注册（**一律 `pending_review`**）→ 审核启用后才能运行。

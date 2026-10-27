@@ -7,7 +7,8 @@
    （防 DNS 重绑定）；
 3. 连续失败 5 次自动 ``enabled=false`` 熔断 + 审计（见 service.dispatch）。
 
-``events_json`` 为订阅事件数组（device_alert|workorder_created|team_run_failed）；
+``events_json`` 为订阅事件数组（device_alert|workorder_created|team_run_failed|
+skill_force_published）；
 ``url_enc`` 可空：允许先建通道后补 URL，无 URL 的通道 dispatch 直接跳过。
 """
 
@@ -25,13 +26,20 @@ VALID_KINDS = (KIND_WECOM, KIND_DINGTALK, KIND_GENERIC)
 EVENT_DEVICE_ALERT = "device_alert"
 EVENT_WORKORDER_CREATED = "workorder_created"
 EVENT_TEAM_RUN_FAILED = "team_run_failed"
-VALID_EVENTS = (EVENT_DEVICE_ALERT, EVENT_WORKORDER_CREATED, EVENT_TEAM_RUN_FAILED)
+EVENT_SKILL_FORCE_PUBLISHED = "skill_force_published"
+VALID_EVENTS = (
+    EVENT_DEVICE_ALERT,
+    EVENT_WORKORDER_CREATED,
+    EVENT_TEAM_RUN_FAILED,
+    EVENT_SKILL_FORCE_PUBLISHED,
+)
 
 #: 事件的人类中文标签（markdown 正文与审计展示共用口径）
 EVENT_LABELS = {
     EVENT_DEVICE_ALERT: "设备告警",
     EVENT_WORKORDER_CREATED: "工单已创建",
     EVENT_TEAM_RUN_FAILED: "班组运行失败",
+    EVENT_SKILL_FORCE_PUBLISHED: "私有技能被转为公共",
 }
 
 

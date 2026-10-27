@@ -16,6 +16,7 @@ import type {
   ChatMemberEvent,
   ChatMessage,
   ChatParticipant,
+  ChatPluginCard,
   ChatSession,
   ChatSkillCard,
   ChatSkillCardMatch,
@@ -64,6 +65,13 @@ export interface SkillCardOpState {
   /** 正在安装的 item_key；空串表示空闲 */
   installing: string
   submitting: boolean
+  retrying: boolean
+  /** 卡片内联错误（不弹全局 toast） */
+  error: string
+}
+
+/** 插件卡片的按钮级状态（按消息 id 挂在实例 store 上） */
+export interface PluginCardOpState {
   retrying: boolean
   /** 卡片内联错误（不弹全局 toast） */
   error: string
@@ -140,6 +148,12 @@ function buildChatStore(scope: string) {
      * 全局单例会让两个面板的「安装中 / 提交中」互相串台。
      */
     const skillCardOps = ref<Record<string, SkillCardOpState>>({})
+
+    /**
+     * 插件卡片（一句话插件）的实例级操作状态：按消息 id 隔离。
+     * 与技能卡片同口径——同一页面可能并存多个 ChatPanel，状态互不串台。
+     */
+    const pluginCardOps = ref<Record<string, PluginCardOpState>>({})
 
     const activeSession = computed(() => sessions.value.find(s => s.id === activeId.value) ?? null)
     const activeTitle = computed(() => activeSession.value?.title || UNTITLED)
@@ -779,6 +793,57 @@ function buildChatStore(scope: string) {
       }
     }
 
+    /* ---------------- 插件卡片（v3.3 一句话插件）：状态按实例 + 消息 id 隔离 ---------------- */
+
+    function emptyPluginCardOp(): PluginCardOpState {
+      return { retrying: false, error: '' }
+    }
+
+    /** 读取某条插件卡片的按钮状态（缺失时返回只读的空状态） */
+    function pluginCardOp(messageId: string): PluginCardOpState {
+      return pluginCardOps.value[messageId] ?? emptyPluginCardOp()
+    }
+
+    function patchPluginCardOp(messageId: string, patch: Partial<PluginCardOpState>) {
+      pluginCardOps.value[messageId] = { ...pluginCardOp(messageId), ...patch }
+    }
+
+    /** 取消息上的插件卡片载荷（shell 侧只改本地副本，刷新后以服务端为准） */
+    function pluginCardPayload(messageId: string): ChatPluginCard | null {
+      const msg = messages.value.find(m => m.id === messageId)
+      return msg?.payload && msg.payload.type === 'plugin_card' ? msg.payload : null
+    }
+
+    /** failed 插件卡片：按原话重试生成，成功则把卡片原地替换为 created（仍待审） */
+    async function retryPluginCard(messageId: string): Promise<boolean> {
+      const card = pluginCardPayload(messageId)
+      const utterance = card?.utterance?.trim()
+      if (!utterance || pluginCardOp(messageId).retrying) return false
+      patchPluginCardOp(messageId, { retrying: true, error: '' })
+      try {
+        const res = await skillLabApi.generate(utterance, true, 'plugin')
+        const msg = messages.value.find(m => m.id === messageId)
+        if (msg) {
+          msg.payload = {
+            type: 'plugin_card',
+            state: 'created',
+            utterance,
+            plugin: res.plugin,
+            manifest: res.manifest as unknown as ChatPluginCard['manifest'],
+            sources: res.sources ?? [],
+            note: res.note ?? '',
+          }
+        }
+        ElMessage.success('已重新生成插件草稿')
+        return true
+      } catch (err) {
+        patchPluginCardOp(messageId, { error: skillApiErrorText(err, '插件生成') })
+        return false
+      } finally {
+        patchPluginCardOp(messageId, { retrying: false })
+      }
+    }
+
     return {
       scope: instanceScope,
       sessions,
@@ -829,6 +894,9 @@ function buildChatStore(scope: string) {
       installSkillFromCard,
       submitSkillCard,
       retrySkillCard,
+      /* 插件卡片（v3.3）：同口径按实例隔离 */
+      pluginCardOp,
+      retryPluginCard,
     }
   })
 }

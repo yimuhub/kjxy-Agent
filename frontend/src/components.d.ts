@@ -86,6 +86,7 @@ declare module 'vue' {
     LibraryItemCard: typeof import('./components/library/LibraryItemCard.vue')['default']
     MenuDiyEditor: typeof import('./components/layout/MenuDiyEditor.vue')['default']
     PermissionMatrix: typeof import('./components/settings/PermissionMatrix.vue')['default']
+    PluginCard: typeof import('./components/chat/PluginCard.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     SessionAudit: typeof import('./components/owner/SessionAudit.vue')['default']

@@ -668,6 +668,25 @@ export interface SkillAgentInstallResult {
   [key: string]: unknown
 }
 
+/** 一句话生成插件结果（v3.3）：插件一律 pending_review，审核通过后才能运行 */
+export interface PluginAgentGenerateResult {
+  plugin: {
+    plugin_id: string
+    name: string
+    description: string
+    status: string
+    step_count: number
+  }
+  manifest: Record<string, unknown>
+  sources?: SkillSourceRef[]
+  note?: string
+  token_usage?: {
+    input_tokens?: number
+    output_tokens?: number
+    total_tokens?: number
+  }
+}
+
 /** 一句话链路：检索/生成/安装全部静默失败，由调用方在区块内展示 note（不弹全局错误） */
 export const skillLabApi = {
   request(utterance: string): Promise<SkillAgentRequestResult> {
@@ -679,15 +698,20 @@ export const skillLabApi = {
       ),
     )
   },
-  generate(utterance: string, useWeb = true): Promise<SkillAgentGenerateResult> {
+  /** kind 决定返回形状：skill 返回技能草稿，plugin 返回待审工作流插件 */
+  generate<K extends 'skill' | 'plugin' = 'skill'>(
+    utterance: string,
+    useWeb = true,
+    kind: K = 'skill' as K,
+  ): Promise<K extends 'plugin' ? PluginAgentGenerateResult : SkillAgentGenerateResult> {
     return unwrap(
-      api.post<ApiResponse<SkillAgentGenerateResult>>(
+      api.post<ApiResponse<SkillAgentGenerateResult | PluginAgentGenerateResult>>(
         '/market/agent/generate',
-        { utterance, use_web: useWeb },
+        { utterance, use_web: useWeb, kind },
         // 生成可能触发联网检索 + 模型调用，放宽超时
         { ...silent, timeout: 180_000 },
       ),
-    )
+    ) as Promise<K extends 'plugin' ? PluginAgentGenerateResult : SkillAgentGenerateResult>
   },
   install(payload: { item_key: string } | { skill_id: string }): Promise<SkillAgentInstallResult> {
     return unwrap(

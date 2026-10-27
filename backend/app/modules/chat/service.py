@@ -500,6 +500,28 @@ def _persist_failure(
 # ---------------------------------------------------------------------------
 
 
+def _ensure_generate_permission(db: Session, ctx: YardContext) -> None:
+    """对话里的技能/插件生成与 HTTP /market/agent/* 同口径，需要 skills:generate。
+
+    默认角色全员都有该权限；自定义角色可以裁掉——裁掉后对话里同样不可用，
+    不能因为走聊天入口就绕过权限矩阵。
+    """
+    from app.modules.yards.authz import has_permission
+
+    if not has_permission(
+        db,
+        yard_id=ctx.yard_id,
+        user_id=ctx.user_id,
+        jwt_roles=ctx.roles or [],
+        permission="skills:generate",
+    ):
+        raise AppError(
+            "FORBIDDEN",
+            "缺少 skills:generate 权限，无法生成技能或插件。",
+            http_status=403,
+        )
+
+
 async def execute_turn(
     db: Session,
     *,
@@ -569,6 +591,9 @@ async def execute_turn(
 
     # ---- 技能链路：一句话要技能（先检索匹配，无匹配再生成私有草稿）----
     if intent.kind == intent_service.INTENT_SKILL:
+        # 与 HTTP /market/agent/* 同口径：技能检索/生成需要 skills:generate
+        # （默认全员都有；自定义角色裁掉后对话里同样不可用）
+        _ensure_generate_permission(db, ctx)
         from app.modules.market.skill_agent import handle_skill_request
 
         if on_step:
@@ -634,6 +659,69 @@ async def execute_turn(
             "reason": intent.reason,
             "payload": skill_card,
             "token_usage": skill_token_usage,
+        }
+
+    # ---- 插件链路：一句话要插件（v3.3：生成 workflow manifest，一律待审）----
+    if intent.kind == intent_service.INTENT_PLUGIN:
+        _ensure_generate_permission(db, ctx)
+        from app.modules.market import plugin_agent
+
+        if on_step:
+            on_step(PHASE_GENERATING, "正在设计工作流插件", STEP_RUNNING)
+        try:
+            plugin_card: dict[str, Any] = await plugin_agent.handle_plugin_request(
+                db, ctx=ctx, utterance=content, on_step=on_step
+            )
+        except AppError:
+            # 与能力/技能链路同口径：错误继续上抛（run_and_persist 负责落失败行），
+            # 这里只把最后一步标成 failed，让过程可见。
+            if on_step:
+                on_step(PHASE_GENERATING, "插件生成失败，请稍后重试", STEP_FAILED)
+            raise
+
+        state = str(plugin_card.get("state") or "")
+        raw_plugin = plugin_card.get("plugin")
+        plugin: dict[str, Any] = raw_plugin if isinstance(raw_plugin, dict) else {}
+        plugin_name = str(plugin.get("name") or "")
+        note = str(plugin_card.get("note") or "").strip()
+        if state == "failed":
+            fail_reason = note or "未生成可用插件草稿"
+            if on_step:
+                on_step(PHASE_GENERATING, f"插件生成失败：{fail_reason}", STEP_FAILED)
+            summary = note or "插件生成失败，请稍后重试或换个说法再试。"
+        else:
+            if on_step:
+                on_step(PHASE_GENERATING, "插件草稿已生成，等待审核", STEP_DONE)
+            summary = note or (
+                f"已生成工作流插件「{plugin_name}」，审核通过后即可运行。"
+                if plugin_name
+                else "已生成工作流插件草稿，审核通过后即可运行。"
+            )
+
+        usage = plugin_card.get("token_usage")
+        if isinstance(usage, dict):
+            plugin_token_usage = usage
+        else:
+            in_tok = estimate_token_count(content)
+            out_tok = estimate_token_count(summary) + estimate_token_count(str(plugin_card))
+            plugin_token_usage = {
+                "input_tokens": in_tok,
+                "output_tokens": out_tok,
+                "total_tokens": in_tok + out_tok,
+                "model": "plugin_generator",
+                "estimated": True,
+            }
+        return {
+            "content": summary,
+            "routed_by": ROUTED_LOCAL,
+            "choice": {
+                "kind": "plugin",
+                "id": str(plugin.get("plugin_id") or ""),
+                "name": plugin_name or "插件生成",
+            },
+            "reason": intent.reason,
+            "payload": plugin_card,
+            "token_usage": plugin_token_usage,
         }
 
     # ---- 文档链路：产出 Word/Excel/PPT/PDF/Markdown 并落为会话附件 ----

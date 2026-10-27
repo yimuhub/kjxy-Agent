@@ -1,7 +1,7 @@
 <template>
   <el-dialog
     v-model="visible"
-    title="一句话创建技能"
+    :title="dialogTitle"
     width="min(720px, 94vw)"
     :close-on-click-modal="!busy"
     :close-on-press-escape="!busy"
@@ -14,8 +14,7 @@
       class="block"
     >
       <p class="hint">
-        用一句话说明你要的技能，例如「我需要一个病虫害防治的 skill」。
-        系统会先检索已有技能，没有合适的再按模板生成一个私有草稿。
+        {{ hintText }}
       </p>
       <el-input
         v-model="utterance"
@@ -23,8 +22,8 @@
         :rows="3"
         maxlength="500"
         show-word-limit
-        placeholder="我需要一个病虫害防治的 skill"
-        aria-label="一句话描述需要的技能"
+        :placeholder="placeholderText"
+        :aria-label="inputLabel"
         @keydown.enter.meta.prevent="start"
         @keydown.enter.ctrl.prevent="start"
       />
@@ -38,7 +37,7 @@
           :disabled="!utterance.trim()"
           @click="start"
         >
-          检索候选
+          {{ isPlugin ? '生成插件' : '检索候选' }}
         </el-button>
       </div>
     </section>
@@ -154,8 +153,126 @@
         </li>
       </ul>
       <p class="note">
-        正在联网检索领域知识并按技能模板生成私有草稿，失败会给出原因且不落库。
+        正在联网检索领域知识并按{{ isPlugin ? '工作流' : '技能' }}模板生成{{ isPlugin ? '' : '私有' }}草稿，失败会给出原因且不落库。
       </p>
+    </section>
+
+    <!-- 第 4 步：插件生成结果（插件一律待审，不提供启用入口） -->
+    <section
+      v-else-if="stage === 'created' && generatedPlugin"
+      class="block"
+    >
+      <div class="result-card">
+        <header class="result-head">
+          <div>
+            <h4 class="result-name">
+              {{ generatedPlugin.plugin.name }}
+            </h4>
+            <p class="result-code">
+              {{ generatedPlugin.plugin.plugin_id }} · {{ generatedPlugin.plugin.step_count }} 步
+            </p>
+          </div>
+          <div class="badges">
+            <el-tag
+              size="small"
+              type="info"
+              effect="plain"
+            >
+              小院私有
+            </el-tag>
+            <el-tag
+              size="small"
+              :type="pluginStatusTagType(generatedPlugin.plugin.status)"
+              effect="plain"
+            >
+              {{ pluginStatusLabel(generatedPlugin.plugin.status) }}
+            </el-tag>
+          </div>
+        </header>
+
+        <p
+          v-if="generatedPlugin.plugin.description"
+          class="note"
+        >
+          {{ generatedPlugin.plugin.description }}
+        </p>
+        <p class="note">
+          插件是可执行工作流，生成后一律进入待审核；负责人或管理员在「技能与插件」审核启用后才能调用。
+        </p>
+        <p
+          v-if="generatedPlugin.note"
+          class="note"
+        >
+          {{ generatedPlugin.note }}
+        </p>
+
+        <el-collapse
+          v-if="pluginSteps.length"
+          class="sources"
+        >
+          <el-collapse-item
+            :title="`工作流步骤（${pluginSteps.length}）`"
+            name="steps"
+          >
+            <ol class="source-list">
+              <li
+                v-for="(s, i) in pluginSteps"
+                :key="i"
+              >
+                {{ s.kind === 'tool' ? `工具：${s.tool || '未指定'}` : `模型：${s.prompt || '（空步骤）'}` }}
+              </li>
+            </ol>
+          </el-collapse-item>
+        </el-collapse>
+
+        <el-collapse
+          v-if="generatedPlugin.sources?.length"
+          class="sources"
+        >
+          <el-collapse-item
+            :title="`引用来源（${generatedPlugin.sources.length}）`"
+            name="sources"
+          >
+            <ul class="source-list">
+              <li
+                v-for="(s, i) in generatedPlugin.sources"
+                :key="`${s.url}-${i}`"
+              >
+                <a
+                  :href="s.url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >{{ s.title || s.url }}</a>
+              </li>
+            </ul>
+          </el-collapse-item>
+        </el-collapse>
+        <p
+          v-else
+          class="note"
+        >
+          本次生成无外部引用来源（未联网或未检索到可用资料）。
+        </p>
+
+        <div class="actions">
+          <el-button @click="visible = false">
+            完成
+          </el-button>
+          <el-button
+            v-if="canReviewPlugins"
+            type="primary"
+            @click="goReview"
+          >
+            去审核启用
+          </el-button>
+        </div>
+        <p
+          v-if="!canReviewPlugins"
+          class="note"
+        >
+          已提交小院审核，由负责人或管理员在「技能与插件」中审核启用。
+        </p>
+      </div>
     </section>
 
     <!-- 第 4 步：生成结果 -->
@@ -304,32 +421,42 @@
     skillApi,
     skillApiErrorText,
     skillLabApi,
+    type PluginAgentGenerateResult,
     type SkillAgentGenerateResult,
     type SkillMatch,
   } from '@/api/v3'
   import { riskLabel, riskTagType, sourceLabel } from './libraryMeta'
   import { skillStatusLabel, skillStatusTagType } from './skillMeta'
+  import { useAuthStore } from '@/stores/auth'
 
   /**
-   * 一句话创建技能向导：检索候选 → 安装或直接生成 → 生成结果。
+   * 一句话创建技能 / 插件的共用向导。
+   *
+   * 技能：检索候选 → 安装或直接生成 → 私有草稿。
+   * 插件：没有候选检索，直接按工作流模板生成，一律进入专家审核。
    *
    * 全部请求走静默（不弹全局 toast）：接口未就绪（404）时在向导内展示原因，
-   * 用户可以重试或改走「上传 Skill 文件」，不影响页面其它功能。
+   * 用户可以重试或改走本地文件导入，不影响页面其它功能。
    */
-  const props = defineProps<{
-    modelValue: boolean
-  }>()
+  const props = withDefaults(
+    defineProps<{
+      modelValue: boolean
+      kind?: 'skill' | 'plugin'
+    }>(),
+    { kind: 'skill' },
+  )
 
   const emit = defineEmits<{
     (e: 'update:modelValue', value: boolean): void
-    /** 生成成功：父级据此刷新「我的」列表 */
-    (e: 'created', code: string): void
+    /** 生成成功：父级据此刷新对应列表 */
+    (e: 'created', payload: { kind: 'skill' | 'plugin'; code: string }): void
   }>()
 
   type Stage = 'input' | 'requesting' | 'matched' | 'generating' | 'created' | 'failed'
   type StepState = 'pending' | 'running' | 'done' | 'failed'
 
   const router = useRouter()
+  const auth = useAuthStore()
 
   const stage = ref<Stage>('input')
   const utterance = ref('')
@@ -337,6 +464,7 @@
   const requestNote = ref('')
   const offline = ref(false)
   const generated = ref<SkillAgentGenerateResult | null>(null)
+  const generatedPlugin = ref<PluginAgentGenerateResult | null>(null)
   const failureNote = ref('')
   const installNote = ref('')
   const submitNote = ref('')
@@ -361,6 +489,29 @@
     failed: '失败',
   }
 
+  const isPlugin = computed(() => props.kind === 'plugin')
+
+  /** 生成的工作流插件只由负责人/管理员在「技能与插件」审核启用（后端 require_roles yard_admin） */
+  const canReviewPlugins = computed(
+    () =>
+      auth.roles.includes('yard_owner') ||
+      auth.roles.includes('platform_admin') ||
+      auth.roles.includes('yard_admin'),
+  )
+
+  const dialogTitle = computed(() => (isPlugin.value ? '一句话生成插件' : '一句话创建技能'))
+  const hintText = computed(() =>
+    isPlugin.value
+      ? '用一句话说明你要的插件，例如「我需要一个自动抓取植保资讯的插件」。系统会按工作流模板生成插件草稿，生成后一律进入专家审核，通过并启用后才能调用。'
+      : '用一句话说明你要的技能，例如「我需要一个病虫害防治的 skill」。系统会先检索已有技能，没有合适的再按模板生成一个私有草稿。',
+  )
+  const placeholderText = computed(() =>
+    isPlugin.value ? '我需要一个自动抓取植保资讯的插件' : '我需要一个病虫害防治的 skill',
+  )
+  const inputLabel = computed(() =>
+    isPlugin.value ? '一句话描述需要的插件' : '一句话描述需要的技能',
+  )
+
   const visible = computed({
     get: () => props.modelValue,
     set: (value: boolean) => emit('update:modelValue', value),
@@ -369,10 +520,40 @@
   const busy = computed(() => stage.value === 'requesting' || stage.value === 'generating')
 
   const stageRows = computed(() => [
-    { key: 'retrieve', label: '检索本地 / GitHub / Gitee 已有技能', state: steps.value.retrieve },
-    { key: 'generate', label: '按技能模板生成定义', state: steps.value.generate },
+    {
+      key: 'retrieve',
+      label: isPlugin.value
+        ? '检索本地 / GitHub / Gitee 已有插件'
+        : '检索本地 / GitHub / Gitee 已有技能',
+      state: steps.value.retrieve,
+    },
+    {
+      key: 'generate',
+      label: isPlugin.value ? '按工作流模板生成插件定义' : '按技能模板生成定义',
+      state: steps.value.generate,
+    },
     { key: 'validate', label: '校验工具白名单与风险等级', state: steps.value.validate },
   ])
+
+  const pluginSteps = computed(() => {
+    const list = generatedPlugin.value?.manifest?.steps
+    return Array.isArray(list)
+      ? (list as { kind?: string; tool?: string; prompt?: string }[])
+      : []
+  })
+
+  function pluginStatusLabel(status: string): string {
+    if (status === 'pending_review') return '待审核'
+    if (status === 'enabled') return '已启用'
+    if (status === 'disabled') return '已停用'
+    return status
+  }
+
+  function pluginStatusTagType(status: string): 'warning' | 'success' | 'info' {
+    if (status === 'pending_review') return 'warning'
+    if (status === 'enabled') return 'success'
+    return 'info'
+  }
 
   const generatedRisk = computed(() => {
     const spec = generated.value?.spec
@@ -401,6 +582,7 @@
     requestNote.value = ''
     offline.value = false
     generated.value = null
+    generatedPlugin.value = null
     failureNote.value = ''
     installNote.value = ''
     submitNote.value = ''
@@ -429,6 +611,11 @@
     if (!text || busy.value) return
     reset()
     utterance.value = text
+    // 插件没有候选检索环节：直接按工作流模板生成
+    if (isPlugin.value) {
+      void startGenerate()
+      return
+    }
     stage.value = 'requesting'
     try {
       const res = await skillLabApi.request(text)
@@ -459,12 +646,22 @@
       }, 1800),
     )
     try {
-      const res = await skillLabApi.generate(utterance.value.trim(), true)
+      const text = utterance.value.trim()
+      if (isPlugin.value) {
+        const res = await skillLabApi.generate(text, true, 'plugin')
+        steps.value = { retrieve: 'done', generate: 'done', validate: 'done' }
+        generatedPlugin.value = res
+        stage.value = 'created'
+        ElMessage.success('已生成插件草稿，等待专家审核')
+        emit('created', { kind: 'plugin', code: res.plugin.plugin_id })
+        return
+      }
+      const res = await skillLabApi.generate(text, true, 'skill')
       steps.value = { retrieve: 'done', generate: 'done', validate: 'done' }
       generated.value = res
       stage.value = 'created'
       ElMessage.success('已生成私有技能草稿')
-      emit('created', res.skill.code)
+      emit('created', { kind: 'skill', code: res.skill.code })
     } catch (e) {
       // 把当前进行中的步骤标红，如实告诉用户卡在哪一步
       const next = { ...steps.value }
@@ -472,7 +669,7 @@
       if (next.validate === 'running') next.validate = 'failed'
       steps.value = next
       failureFrom.value = 'generate'
-      failureNote.value = skillApiErrorText(e, '技能生成')
+      failureNote.value = skillApiErrorText(e, isPlugin.value ? '插件生成' : '技能生成')
       stage.value = 'failed'
     } finally {
       clearTimers()
@@ -531,6 +728,11 @@
   function goBind() {
     visible.value = false
     void router.push('/agents/custom')
+  }
+
+  function goReview() {
+    visible.value = false
+    void router.push('/evolution')
   }
 </script>
 

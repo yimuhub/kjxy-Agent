@@ -109,10 +109,16 @@
             >
               {{ row.m.content }}
             </div>
-            <!-- 结构化载荷：技能卡片 / 能力草稿 / 能力市场卡片 -->
+            <!-- 结构化载荷：技能卡片 / 插件卡片 / 能力草稿 / 能力市场卡片 -->
             <SkillCard
               v-if="row.m.role === 'assistant' && row.m.payload?.type === 'skill_card'"
               :card="row.m.payload as ChatSkillCard"
+              :store="store"
+              :message-id="row.m.id"
+            />
+            <PluginCard
+              v-else-if="row.m.role === 'assistant' && row.m.payload?.type === 'plugin_card'"
+              :card="row.m.payload as ChatPluginCard"
               :store="store"
               :message-id="row.m.id"
             />
@@ -426,12 +432,14 @@
   import ChatMentionLayer from '@/components/chat/ChatMentionLayer.vue'
   import ChatPolicyPicker from '@/components/chat/ChatPolicyPicker.vue'
   import ChatSteps from '@/components/chat/ChatSteps.vue'
+  import PluginCard from '@/components/chat/PluginCard.vue'
   import SkillCard from '@/components/chat/SkillCard.vue'
   import { chatApi, mentionDisplayName, normalizeRoutedTone } from '@/api/chat'
   import type {
     ChatDocumentCard,
     ChatGroupPolicy,
     ChatMessage,
+    ChatPluginCard,
     ChatRoutedBy,
     ChatSkillCard,
     ChatStandardCard,

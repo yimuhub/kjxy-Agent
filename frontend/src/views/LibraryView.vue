@@ -27,9 +27,16 @@
           v-if="canGenerate"
           type="primary"
           aria-label="一句话创建技能"
-          @click="openWizard"
+          @click="openWizard('skill')"
         >
           一句话创建技能
+        </el-button>
+        <el-button
+          v-if="canGenerate"
+          aria-label="一句话生成插件"
+          @click="openWizard('plugin')"
+        >
+          一句话生成插件
         </el-button>
         <el-button
           :loading="skillImporting"
@@ -50,6 +57,7 @@
 
     <SkillWizard
       v-model="wizardOpen"
+      :kind="wizardKind"
       @created="onSkillCreated"
     />
 
@@ -529,6 +537,8 @@
   const typeFilter = ref<TypeFilter>('skill')
 
   const wizardOpen = ref(false)
+  /** 向导当前模式：技能走「检索候选 → 生成」，插件直接按工作流模板生成 */
+  const wizardKind = ref<'skill' | 'plugin'>('skill')
   const scopePanel = ref<InstanceType<typeof SkillScopePanel> | null>(null)
 
   /** 一句话创建入口：无 skills:generate 的角色直接隐藏（后端仍会校验） */
@@ -782,13 +792,15 @@
     }
   }
 
-  function openWizard() {
+  function openWizard(kind: 'skill' | 'plugin' = 'skill') {
     if (!canGenerate.value) return
+    wizardKind.value = kind
     wizardOpen.value = true
   }
 
-  /** 生成成功：切到「我的」并刷新，让新草稿立即可见 */
-  function onSkillCreated() {
+  /** 生成成功：技能切到「我的」，插件没有归属列表，提示去专家审核 */
+  function onSkillCreated(payload: { kind: 'skill' | 'plugin'; code: string }) {
+    if (payload.kind === 'plugin') return
     activeTab.value = 'skills'
     scopeTab.value = 'mine'
     void nextTick(() => scopePanel.value?.reload())

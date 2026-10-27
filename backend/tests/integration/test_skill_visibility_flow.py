@@ -380,6 +380,29 @@ def test_promote_requires_publish_any_and_is_idempotent(client, db_session, worl
 
 
 # --------------------------------------------------------------------------- 绑定可见性集合
+def test_force_publish_notifies_creator_via_push_event(client, db_session, world, monkeypatch):
+    """负责人把私有技能转公共：订阅 skill_force_published 的通道会收到推送事件。"""
+    import app.modules.push.service as push_service
+
+    skill = world["skills"]["member_private"]
+    calls: list[dict] = []
+
+    def _record(db, *, yard_id, event_type, payload, request_id=""):
+        calls.append({"yard_id": yard_id, "event": event_type, "payload": payload})
+        return {"sent": 0, "failed": 0, "skipped": 0}
+
+    monkeypatch.setattr(push_service, "dispatch", _record)
+
+    resp = client.post(f"{PREFIX}/skills/{skill.id}/promote", headers=world["owner_hdr"])
+    assert resp.status_code == 200, resp.text
+
+    assert calls and calls[0]["event"] == "skill_force_published"
+    assert calls[0]["yard_id"] == world["yard"].id
+    assert calls[0]["payload"]["skill_code"] == skill.skill_code
+    assert calls[0]["payload"]["owner_user_id"] == world["member"].id
+    assert calls[0]["payload"]["operator_id"] == world["owner"].id
+
+
 def test_visible_skill_ids_semantics(db_session, world):
     sk = world["skills"]
     yard_id = world["yard"].id

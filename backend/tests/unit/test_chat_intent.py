@@ -153,6 +153,39 @@ def test_agent_noun_wins_over_skill_noun():
     assert got.target == "agent"
 
 
+def test_plugin_noun_with_request_verb_is_plugin():
+    """v3.3：命中插件名词 + 请求动词 → 插件生成（一律待审）。"""
+    for text in (
+        "帮我做一个浇灌决策插件",
+        "我需要一个设备巡检插件",
+        "做一个病虫害防治plugin",
+    ):
+        got = intent.detect(text)
+        assert got.kind == intent.INTENT_PLUGIN, text
+
+
+def test_workflow_word_does_not_trigger_plugin():
+    """口语里的"工作流"常指既有业务流程，误判代价高，不纳入插件名词。"""
+    got = intent.detect("帮我梳理一下灌溉审批的工作流")
+    assert got.kind != intent.INTENT_PLUGIN
+
+
+def test_plugin_question_downgrades_to_qa():
+    got = intent.detect("插件是什么")
+    assert got.kind == intent.INTENT_QA
+
+
+def test_plugin_install_verb_goes_market():
+    got = intent.detect("帮我安装一个病虫害插件")
+    assert got.kind == intent.INTENT_INSTALL
+
+
+def test_skill_noun_wins_over_plugin_noun():
+    """同时出现技能与插件名词时，技能链路优先（含插件检索的混合句）。"""
+    got = intent.detect("我需要一个病虫害防治技能插件")
+    assert got.kind == intent.INTENT_SKILL
+
+
 @pytest.mark.parametrize(
     ("text", "expected"),
     [

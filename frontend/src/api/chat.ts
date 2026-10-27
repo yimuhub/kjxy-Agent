@@ -322,11 +322,53 @@ export interface ChatSkillCard {
   note?: string
 }
 
-/** 结构化载荷（助手消息的 payload 字段） */
-export type ChatCard = ChatCapabilityCard | ChatMarketCard | ChatDocumentCard | ChatSkillCard
+/** 插件卡片里的工作流步骤（与 workflow manifest steps 同形） */
+export interface ChatPluginCardStep {
+  kind: 'tool' | 'llm'
+  tool?: string
+  args?: Record<string, unknown>
+  prompt?: string
+  save_as?: string | null
+}
 
-/** 非技能卡片：通用卡片组件（ChatCard）接收的形状，技能卡片由 SkillCard 单独渲染 */
-export type ChatStandardCard = Exclude<ChatCard, ChatSkillCard>
+/** 插件卡片的 manifest（后端已规范化，只保留已知字段） */
+export interface ChatPluginManifest {
+  name: string
+  description: string
+  params: { key: string; label: string; required: boolean }[]
+  steps: ChatPluginCardStep[]
+}
+
+/**
+ * 插件卡片（v3.3 一句话插件）：created=已生成待审工作流；failed=生成失败（带 note 可重试）。
+ * 插件没有"私有即用"：created 一律 pending_review，审核通过后才能运行。
+ */
+export interface ChatPluginCard {
+  type: 'plugin_card'
+  state: 'created' | 'failed'
+  utterance: string
+  plugin: {
+    plugin_id: string
+    name: string
+    description: string
+    status: string
+    step_count: number
+  } | null
+  manifest?: ChatPluginManifest | null
+  sources?: { title: string; url: string }[]
+  note?: string
+}
+
+/** 结构化载荷（助手消息的 payload 字段） */
+export type ChatCard =
+  | ChatCapabilityCard
+  | ChatMarketCard
+  | ChatDocumentCard
+  | ChatSkillCard
+  | ChatPluginCard
+
+/** 非技能/插件卡片：通用卡片组件（ChatCard）接收的形状，技能与插件卡片各自单独渲染 */
+export type ChatStandardCard = Exclude<ChatCard, ChatSkillCard | ChatPluginCard>
 
 /** 消息对象；choice/routed_by/reason 仅助手消息携带 */
 export interface ChatMessage {

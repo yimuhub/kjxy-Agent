@@ -178,6 +178,68 @@ test.describe('一句话创建技能', () => {
   })
 })
 
+/** 与后端 /market/agent/generate?kind=plugin 契约一致的插件结果 */
+const PLUGIN_GENERATED = {
+  plugin: {
+    plugin_id: 'e2e.demo_plugin',
+    name: '示例生成插件',
+    description: '演示用插件：检索资料并汇总。',
+    status: 'pending_review',
+    step_count: 2,
+  },
+  manifest: {
+    name: '示例生成插件',
+    description: '演示用插件：检索资料并汇总。',
+    params: [],
+    steps: [
+      { kind: 'tool', tool: 'knowledge.search' },
+      { kind: 'llm', prompt: '汇总检索结果' },
+    ],
+  },
+  sources: [{ title: '示例资料', url: 'https://example.com/plugin' }],
+  note: '',
+  token_usage: { input_tokens: 80, output_tokens: 40, total_tokens: 120 },
+}
+
+test.describe('一句话生成插件', () => {
+  test('生成待审插件，展示工作流步骤并引导审核启用', async ({ page }) => {
+    let body: Record<string, unknown> | null = null
+    await page.route('**/api/v1/market/agent/generate', route => {
+      body = route.request().postDataJSON()
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: PLUGIN_GENERATED }),
+      })
+    })
+
+    await login(page)
+    await page.goto('/library')
+    await page.getByRole('button', { name: '一句话生成插件' }).click()
+
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toBeVisible()
+    await dialog.getByLabel('一句话描述需要的插件').fill('我需要一个自动抓取植保资讯的插件')
+    await dialog.getByRole('button', { name: '生成插件' }).click()
+
+    const result = dialog.locator('.result-card')
+    await expect(result).toBeVisible({ timeout: 20_000 })
+    await expect(result.locator('.result-name')).toHaveText('示例生成插件')
+    await expect(result.locator('.result-code')).toContainText('e2e.demo_plugin')
+    await expect(result.locator('.badges')).toContainText('小院私有')
+    await expect(result.locator('.badges')).toContainText('待审核')
+    await expect(result).toContainText('生成后一律进入待审核')
+    await expect(result.getByText('工作流步骤（2）')).toBeVisible()
+
+    // 审核入口在「技能与插件」（负责人/管理员），不在专家审核页
+    await result.getByRole('button', { name: '去审核启用' }).click()
+    await expect(page).toHaveURL(/\/evolution$/)
+
+    // 请求体带上 kind，后端据此走插件链路
+    expect(body).toMatchObject({ kind: 'plugin', use_web: true })
+  })
+})
+
 test.describe('技能库归属视图', () => {
   test('我的 / 小院 / 平台三级视图可切换且各自取数', async ({ page }) => {
     await login(page)
