@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.core.deps import YardContext
@@ -25,6 +25,7 @@ from app.modules.agents.teams.models import (
     MEMBER_RUNNING,
     RUN_COMPLETED,
     RUN_FAILED,
+    RUN_QUEUED,
     RUN_RUNNING,
     AgentTeam,
     TeamRun,
@@ -355,6 +356,8 @@ def delete_team(
 
 
 def _iso(dt: Any) -> str | None:
+    if isinstance(dt, datetime) and dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
     return dt.isoformat() if dt is not None else None
 
 
@@ -367,6 +370,8 @@ def team_out(team: AgentTeam) -> dict[str, Any]:
         "description": team.description,
         "members": [dict(m) for m in (team.members_json or []) if isinstance(m, dict)],
         "enabled": bool(team.enabled),
+        "schedule": copy.deepcopy(team.schedule_json),
+        "next_run_at": _iso(team.next_run_at),
         "created_by": team.created_by,
         "created_at": _iso(team.created_at),
         "updated_at": _iso(team.updated_at),
@@ -428,8 +433,9 @@ def run_out(
     state = getattr(run, "_sa_instance_state", None)
     session = db or (state.session if state is not None else None)
     tok_map: dict[str, dict[str, Any]] = {}
-    if session is not None and members:
-        tids = [m.task_id for m in members if m.task_id]
+    if session is not None:
+        tids = [m.task_id for m in (members or []) if m.task_id]
+        tids.append(f"team-summary-{run.id}")
         tok_map = _tokens_by_task_ids(session, run.yard_id, tids)
 
     total_in = sum(v["input_tokens"] for v in tok_map.values())
@@ -439,6 +445,13 @@ def run_out(
         "id": run.id,
         "team_id": run.team_id,
         "yard_id": run.yard_id,
+        "team_name": run.team_name,
+        "created_by": run.created_by,
+        "trigger": run.trigger,
+        "output_format": run.output_format,
+        "research": copy.deepcopy(run.research_json),
+        "document_available": run.status == RUN_COMPLETED and bool((run.answer or "").strip()),
+        "task_id": run.task_id,
         "input": run.input,
         "status": run.status,
         "answer": run.answer,
@@ -464,7 +477,12 @@ def run_summary(run: TeamRun) -> dict[str, Any]:
     return {
         "id": run.id,
         "team_id": run.team_id,
+        "team_name": run.team_name,
+        "created_by": run.created_by,
+        "trigger": run.trigger,
+        "output_format": run.output_format,
         "status": run.status,
+        "answer_preview": (run.answer or "")[:300],
         "input_preview": run.input[:120],
         "current_member": int(run.current_member),
         "member_count": len(run.members_json or []),
@@ -480,21 +498,124 @@ def run_summary(run: TeamRun) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def get_team_run(db: Session, *, yard_id: str, run_id: str) -> TeamRun:
-    run = db.scalar(select(TeamRun).where(TeamRun.id == run_id, TeamRun.yard_id == yard_id))
-    if run is None:
-        raise AppError("TEAM_RUN_NOT_FOUND", f"班组运行不存在：{run_id}。", http_status=404)
+def require_run_access(run: TeamRun, ctx: YardContext) -> None:
+    if run.yard_id != ctx.yard_id or (run.created_by and run.created_by != ctx.user_id):
+        raise AppError("TEAM_RUN_NOT_FOUND", "班组运行不存在或无权访问。", http_status=404)
+
+
+def get_team_run(db: Session, *, yard_id: str, run_id: str, user_id: str | None = None) -> TeamRun:
+    run = db.scalar(
+        select(TeamRun)
+        .where(TeamRun.id == run_id, TeamRun.yard_id == yard_id)
+        .execution_options(populate_existing=True)
+    )
+    if run is None or (run.created_by and run.created_by != user_id):
+        raise AppError("TEAM_RUN_NOT_FOUND", "班组运行不存在或无权访问。", http_status=404)
     return run
 
 
-def list_team_runs(db: Session, *, yard_id: str, team_id: str) -> list[TeamRun]:
+def list_team_runs(
+    db: Session, *, yard_id: str, team_id: str, user_id: str | None = None
+) -> list[TeamRun]:
     return list(
         db.scalars(
             select(TeamRun)
-            .where(TeamRun.yard_id == yard_id, TeamRun.team_id == team_id)
+            .where(
+                TeamRun.yard_id == yard_id,
+                TeamRun.team_id == team_id,
+                or_(TeamRun.created_by.is_(None), TeamRun.created_by == user_id),
+            )
             .order_by(TeamRun.created_at.desc(), TeamRun.id.desc())
         )
     )
+
+
+def paged_team_runs(
+    db: Session,
+    *,
+    ctx: YardContext,
+    team_id: str | None = None,
+    status: str | None = None,
+    trigger: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+) -> dict[str, Any]:
+    filters = [
+        TeamRun.yard_id == ctx.yard_id,
+        or_(TeamRun.created_by.is_(None), TeamRun.created_by == ctx.user_id),
+    ]
+    for column, value in (
+        (TeamRun.team_id, team_id),
+        (TeamRun.status, status),
+        (TeamRun.trigger, trigger),
+    ):
+        if value is not None:
+            filters.append(column == value)
+    total = db.scalar(select(func.count()).select_from(TeamRun).where(*filters)) or 0
+    runs = db.scalars(
+        select(TeamRun)
+        .where(*filters)
+        .order_by(TeamRun.created_at.desc(), TeamRun.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+    return {
+        "runs": [run_summary(r) for r in runs],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
+
+
+def execution_context(db: Session, *, yard_id: str, user_id: str, request_id: str) -> YardContext:
+    from app.modules.auth.models import User
+    from app.modules.yards.models import YardMembership
+
+    user = db.get(User, user_id, populate_existing=True)
+    membership = db.scalar(
+        select(YardMembership)
+        .where(
+            YardMembership.yard_id == yard_id,
+            YardMembership.user_id == user_id,
+            YardMembership.status == "active",
+        )
+        .execution_options(populate_existing=True)
+    )
+    if user is None or user.status != "active" or membership is None:
+        raise AppError(
+            "TEAM_EXECUTOR_UNAVAILABLE", "执行者已停用或不再是有效小院成员。", http_status=403
+        )
+    return YardContext(
+        yard_id=yard_id, user_id=user_id, roles=[membership.role], request_id=request_id
+    )
+
+
+def require_team_idle(db: Session, team: AgentTeam, *, exclude_run_id: str = "") -> None:
+    # UPDATE 持有班组行锁直到台账提交，与调度 CAS 共用同一串行化边界。
+    locked = db.execute(
+        update(AgentTeam)
+        .where(
+            AgentTeam.id == team.id,
+            AgentTeam.yard_id == team.yard_id,
+            AgentTeam.enabled.is_(True),
+        )
+        .values(enabled=True)
+        .execution_options(synchronize_session=False)
+    )
+    if not locked.rowcount:  # type: ignore[attr-defined]
+        raise AppError("TEAM_DISABLED", "班组已停用，不能运行。", http_status=409)
+    busy = db.scalar(
+        select(TeamRun.id)
+        .where(
+            TeamRun.team_id == team.id,
+            TeamRun.yard_id == team.yard_id,
+            TeamRun.status.in_((RUN_QUEUED, RUN_RUNNING)),
+            TeamRun.id != exclude_run_id,
+        )
+        .limit(1)
+    )
+    if busy:
+        raise AppError("TEAM_BUSY", "班组已有排队或运行中的任务，本次不并发执行。", http_status=409)
 
 
 def members_of_run(db: Session, run: TeamRun) -> list[TeamRunMember]:
@@ -507,9 +628,13 @@ def members_of_run(db: Session, run: TeamRun) -> list[TeamRunMember]:
     )
 
 
-def require_members_runnable(db: Session, *, yard_id: str, members: list[dict[str, Any]]) -> None:
+def require_members_runnable(
+    db: Session, *, yard_id: str, members: list[dict[str, Any]], user_id: str | None = None
+) -> None:
     for m in members:
         agent = declarative.get_agent(db, yard_id=yard_id, agent_id=str(m.get("agent_id") or ""))
+        if agent.visibility == "private" and (not user_id or agent.created_by != user_id):
+            raise AppError("AGENT_NOT_FOUND", "成员不存在或无权使用。", http_status=404)
         if agent.status != STATUS_PUBLISHED:
             raise AppError(
                 "TEAM_MEMBER_NOT_PUBLISHED",
@@ -519,16 +644,37 @@ def require_members_runnable(db: Session, *, yard_id: str, members: list[dict[st
             )
 
 
-def create_team_run(db: Session, *, team: AgentTeam, user_input: str, ctx: YardContext) -> TeamRun:
+def create_team_run(
+    db: Session,
+    *,
+    team: AgentTeam,
+    user_input: str,
+    ctx: YardContext,
+    output_format: str = "text",
+    trigger: str = "manual",
+) -> TeamRun:
+    if team.yard_id != ctx.yard_id:
+        raise AppError("TEAM_NOT_FOUND", "班组不存在。", http_status=404)
+    if (
+        not user_input.strip()
+        or len(user_input) > 8000
+        or output_format not in {"text", "md", "docx"}
+    ):
+        raise AppError("INVALID_REQUEST", "运行输入或输出格式不合法。", http_status=400)
     specs = parse_members(team.members_json)
+    require_members_runnable(db, yard_id=ctx.yard_id, members=specs, user_id=ctx.user_id)
+    require_team_idle(db, team)
     run = TeamRun(
         team_id=team.id,
         yard_id=ctx.yard_id,
+        created_by=ctx.user_id,
+        team_name=team.name,
+        trigger=trigger,
+        output_format=output_format,
         input=user_input.strip(),
-        status=RUN_RUNNING,
+        status=RUN_QUEUED,
         members_json=copy.deepcopy(specs),
         current_member=0,
-        started_at=_utcnow(),
     )
     db.add(run)
     db.flush()
@@ -542,8 +688,125 @@ def create_team_run(db: Session, *, team: AgentTeam, user_input: str, ctx: YardC
                 status=MEMBER_PENDING,
             )
         )
-    db.commit()
+    db.flush()
     return run
+
+
+def create_run_task(db: Session, *, run: TeamRun, ctx: YardContext):
+    from app.modules.tasks.service import TaskService
+
+    require_run_access(run, ctx)
+    task = TaskService.create(
+        db, ctx, task_type="team_run", input={"run_id": run.id}, request_id=ctx.request_id
+    )
+    run.task_id = task.id
+    db.flush()
+    return task
+
+
+def dispatch_run(db: Session, run: TeamRun, task: Any) -> None:
+    from app.modules.tasks.router import _enqueue_or_inline
+    from app.modules.tasks.service import TaskService
+
+    _enqueue_or_inline(db, task)
+    if (task.input_json or {}).get("meta", {}).get("enqueue_failed"):
+        failed = db.execute(
+            update(TeamRun)
+            .where(
+                TeamRun.id == run.id,
+                TeamRun.status == RUN_QUEUED,
+            )
+            .values(
+                status=RUN_FAILED,
+                finished_at=_utcnow(),
+                last_error="TEAM_ENQUEUE_FAILED: 任务投递失败，请重试。",
+            )
+            .execution_options(synchronize_session=False)
+        )
+        if failed.rowcount:  # type: ignore[attr-defined]
+            db.refresh(task)
+            if task.status == "queued":
+                TaskService.set_status(
+                    db,
+                    task,
+                    "cancelled",
+                    error_code="TEAM_ENQUEUE_FAILED",
+                    error_message="任务投递失败，请从班组运行记录重试。",
+                )
+        db.commit()
+
+
+def prepare_retry(db: Session, *, run: TeamRun, ctx: YardContext):
+    require_run_access(run, ctx)
+    if run.status == RUN_COMPLETED:
+        raise AppError("TEAM_RUN_ALREADY_COMPLETED", "运行已完成，不允许重放。", http_status=409)
+    if run.status != RUN_FAILED:
+        raise AppError("TEAM_RUN_STATE_CONFLICT", "运行尚未结束，不能重复续跑。", http_status=409)
+    current = execution_context(
+        db, yard_id=run.yard_id, user_id=run.created_by or ctx.user_id, request_id=ctx.request_id
+    )
+    team = get_team(db, yard_id=run.yard_id, team_id=run.team_id)
+    require_team_idle(db, team, exclude_run_id=run.id)
+    require_members_runnable(
+        db, yard_id=run.yard_id, members=run.members_json, user_id=current.user_id
+    )
+    claimed = db.execute(
+        update(TeamRun)
+        .where(
+            TeamRun.id == run.id,
+            TeamRun.status == RUN_FAILED,
+        )
+        .values(status=RUN_QUEUED, last_error=None, finished_at=None)
+        .execution_options(synchronize_session=False)
+    )
+    if not claimed.rowcount:  # type: ignore[attr-defined]
+        raise AppError("TEAM_RUN_STATE_CONFLICT", "运行状态已变化。", http_status=409)
+    db.refresh(run)
+    return create_run_task(db, run=run, ctx=current)
+
+
+def mark_run_failed(db: Session, run: TeamRun, detail: str) -> None:
+    run.status = RUN_FAILED
+    run.last_error = detail[:2000]
+    run.finished_at = _utcnow()
+    db.commit()
+
+
+#: 成员各自的声明式检索看到的只是接力后的长问句；知识库状态由班组共享检索统一说明，
+#: 避免“已展示引用”与“暂无命中”同时出现在一次运行里。
+_MEMBER_KB_STATE_WARNINGS = {
+    "知识库暂无命中，回答不包含引用。",
+    "知识库检索暂不可用，本次回答未包含引用。",
+}
+#: 共享证据上限：成员各自的引用可能重复或超量，必须给最终综合提示词留出上下文预算。
+_MAX_KNOWLEDGE_SOURCES = 10
+
+
+def _source_key(item: Any) -> str:
+    if isinstance(item, dict):
+        return str(item.get("chunk_id") or item.get("document_id") or item.get("quote") or item)
+    return str(item)
+
+
+def merge_research(run: TeamRun, citations: list, warnings: list) -> None:
+    research = copy.deepcopy(run.research_json or {})
+    for key, values in (("knowledge", citations), ("warnings", warnings)):
+        items = research.setdefault(key, [])
+        known = {_source_key(existing) for existing in items}
+        for item in values:
+            if key == "warnings" and item in _MEMBER_KB_STATE_WARNINGS:
+                continue
+            if key == "knowledge":
+                marker = _source_key(item)
+                if marker in known:
+                    continue
+                if len(items) >= _MAX_KNOWLEDGE_SOURCES:
+                    continue
+                known.add(marker)
+            elif item in items:
+                continue
+            items.append(item)
+    run.research_json = research
 
 
 def _harvest_completed_answer(steps: list[rs.AgentRunStep]) -> str | None:
@@ -562,13 +825,10 @@ async def _run_member(
     spec: dict[str, Any],
     prior: list[tuple[str, str]],
 ) -> str:
+    from app.modules.agents.teams.research import research_context
+
+    require_members_runnable(db, yard_id=ctx.yard_id, members=[spec], user_id=ctx.user_id)
     agent = declarative.get_agent(db, yard_id=ctx.yard_id, agent_id=row.member_agent_id)
-    if agent.status != STATUS_PUBLISHED:
-        raise AppError(
-            "TEAM_MEMBER_NOT_PUBLISHED",
-            f"成员「{row.role_name}」（{agent.agent_code}）当前状态为 {agent.status}，需先发布。",
-            http_status=409,
-        )
     question = build_member_question(
         run.input, prior, str(spec.get("instruction") or ""), bool(spec.get("is_critic"))
     )
@@ -584,6 +844,9 @@ async def _run_member(
     steps = rs.list_steps(db, yard_id=ctx.yard_id, run_id=task_id)
     harvested = _harvest_completed_answer(steps)
     if steps and harvested is not None:
+        for step in steps:
+            meta = step.input_json or {}
+            merge_research(run, meta.get("citations") or [], meta.get("warnings") or [])
         return harvested
     resume = bool(steps)
     result = await declarative.run_declarative_agent(
@@ -593,7 +856,9 @@ async def _run_member(
         ctx=ctx,
         task_id=task_id,
         resume_run_id=task_id if resume else None,
+        context=research_context(run.research_json),
     )
+    merge_research(run, result.citations or [], result.warnings or [])
     return str(result.output.get("answer") or "")
 
 
@@ -633,54 +898,86 @@ def _wrap_member_error(run: TeamRun, row: TeamRunMember, exc: AppError) -> AppEr
 
 
 async def continue_team_run(db: Session, *, run: TeamRun, ctx: YardContext) -> TeamRun:
-    specs = [dict(s) for s in (run.members_json or [])]
-    run.status = RUN_RUNNING
-    run.finished_at = None
-    run.last_error = None
+    require_run_access(run, ctx)
+    claimed = db.execute(
+        update(TeamRun)
+        .where(
+            TeamRun.id == run.id,
+            TeamRun.yard_id == ctx.yard_id,
+            TeamRun.status == RUN_QUEUED,
+        )
+        .values(status=RUN_RUNNING, started_at=_utcnow(), finished_at=None, last_error=None)
+        .execution_options(synchronize_session=False)
+    )
+    if not claimed.rowcount:  # type: ignore[attr-defined]
+        db.rollback()
+        raise AppError("TEAM_RUN_STATE_CONFLICT", "运行已被领取或已结束。", http_status=409)
     db.commit()
+    db.refresh(run)
+    try:
+        from app.modules.agents.teams.artifacts import build_document
+        from app.modules.agents.teams.research import collect_research, synthesize_answer
 
-    rows = members_of_run(db, run)
-    for row in rows:
-        if row.status == MEMBER_OK:
-            continue
-        idx = int(row.index)
-        if idx >= len(specs):
+        team = get_team(db, yard_id=run.yard_id, team_id=run.team_id)
+        if not team.enabled:
+            raise AppError("TEAM_DISABLED", "班组已停用。", http_status=409)
+        if run.trigger == "schedule" and not (team.schedule_json or {}).get("enabled"):
+            raise AppError("TEAM_SCHEDULE_DISABLED", "计划已禁用。", http_status=409)
+        specs = parse_members(run.members_json)
+        require_members_runnable(db, yard_id=ctx.yard_id, members=specs, user_id=ctx.user_id)
+        rows = members_of_run(db, run)
+        if len(rows) != len(specs) or [r.index for r in rows] != list(range(len(specs))):
             raise AppError(
-                "TEAM_RUN_CHECKPOINT_INVALID",
-                "班组运行快照与成员台账不一致，无法续跑。",
-                http_status=409,
+                "TEAM_RUN_CHECKPOINT_INVALID", "运行快照与成员台账不一致。", http_status=409
             )
-        spec = specs[idx]
-        prior = [
-            (r.role_name, r.output or "")
-            for r in rows
-            if int(r.index) < idx and r.status == MEMBER_OK
+        if run.research_json is None:
+            run.research_json = await collect_research(db, ctx=ctx, question=run.input)
+            db.commit()
+        for row in rows:
+            if row.status == MEMBER_OK:
+                continue
+            idx = int(row.index)
+            spec = specs[idx]
+            prior = [
+                (r.role_name, r.output or "")
+                for r in rows
+                if int(r.index) < idx and r.status == MEMBER_OK
+            ]
+            try:
+                answer = await _run_member(db, ctx=ctx, run=run, row=row, spec=spec, prior=prior)
+            except AppError as exc:
+                db.rollback()
+                _mark_member_failed(db, run, row, f"{exc.code}: {exc.message}")
+                raise _wrap_member_error(run, row, exc) from exc
+            except Exception as exc:
+                db.rollback()
+                detail = f"{type(exc).__name__}: {exc}"
+                _mark_member_failed(db, run, row, detail)
+                raise AppError(
+                    "TEAM_RUN_MEMBER_FAILED",
+                    detail,
+                    http_status=502,
+                    details={"team_run_id": run.id, "member_index": idx},
+                ) from exc
+            row.output = answer
+            row.status = MEMBER_OK
+            row.error_text = None
+            run.current_member = idx + 1
+            db.commit()
+        parts = [
+            (r.role_name, bool(specs[int(r.index)].get("is_critic")), r.output or "") for r in rows
         ]
-        try:
-            answer = await _run_member(db, ctx=ctx, run=run, row=row, spec=spec, prior=prior)
-        except AppError as e:
-            _mark_member_failed(db, run, row, f"{e.code}: {e.message}")
-            raise _wrap_member_error(run, row, e) from e
-        except Exception as e:
-            detail = f"{type(e).__name__}: {e}"
-            _mark_member_failed(db, run, row, detail)
-            raise AppError(
-                "TEAM_RUN_MEMBER_FAILED",
-                f"班组成员「{row.role_name}」执行失败：{detail}",
-                http_status=502,
-                details={"team_run_id": run.id, "member_index": idx},
-            ) from e
-        row.output = answer
-        row.status = MEMBER_OK
-        row.error_text = None
-        run.current_member = idx + 1
+        run.answer = await synthesize_answer(db, ctx=ctx, run=run, parts=parts)
+        if not run.answer or not run.answer.strip():
+            raise AppError("TEAM_SUMMARY_EMPTY", "汇总模型未返回答案。", http_status=502)
+        if run.output_format != "text":
+            run.document_json = build_document(run)
+        run.status = RUN_COMPLETED
+        run.finished_at = _utcnow()
         db.commit()
-
-    parts = [
-        (r.role_name, bool(specs[int(r.index)].get("is_critic")), r.output or "") for r in rows
-    ]
-    run.answer = compose_answer(parts)
-    run.status = RUN_COMPLETED
-    run.finished_at = _utcnow()
-    db.commit()
-    return run
+        return run
+    except BaseException as exc:
+        db.rollback()
+        detail = f"{exc.code}: {exc.message}" if isinstance(exc, AppError) else str(exc)
+        mark_run_failed(db, run, detail or type(exc).__name__)
+        raise

@@ -45,6 +45,32 @@
 | `TASK_NOT_CANCELLABLE` | 409 | 当前状态不允许取消 |
 | `TASK_NOT_RETRYABLE` | 409 | 当前状态不允许重试 |
 
+## 协作班组
+
+| code | HTTP | 说明 |
+|---|---|---|
+| `TEAM_NOT_FOUND` | 404 | 班组不存在或不属于当前小院 |
+| `TEAM_RUN_NOT_FOUND` | 404 | 运行不存在或当前账号无权访问 |
+| `TEAM_NAME_CONFLICT` | 409 | 本院已存在同名班组 |
+| `TEAM_MEMBERS_INVALID` | 400 | 成员字段或数组格式不合法 |
+| `TEAM_MEMBER_COUNT` | 400 | 成员数量必须为 2～8 |
+| `TEAM_MEMBER_NOT_PUBLISHED` | 409 | 成员智能体未发布，不能运行 |
+| `TEAM_DISABLED` | 409 | 班组已停用 |
+| `TEAM_BUSY` | 409 | 班组已有排队或运行中的任务，拒绝重叠执行 |
+| `TEAM_EXECUTOR_UNAVAILABLE` | 403 | 执行者已停用或不再具有有效小院成员身份 |
+| `TEAM_TASK_CONTEXT_INVALID` | 403 | 后台任务身份、输入或运行绑定不匹配 |
+| `TEAM_ENQUEUE_FAILED` | — | 后台任务投递失败，运行记录标为失败 |
+| `TEAM_SCHEDULE_INVALID` | 400 | 定时计划配置无效 |
+| `TEAM_SCHEDULE_DISABLED` | 409 | 定时计划已关闭，停止尚未执行的自动任务 |
+| `TEAM_RUN_ALREADY_COMPLETED` | 409 | 运行已完成，禁止重放 |
+| `TEAM_RUN_STATE_CONFLICT` | 409 | 运行未结束或已被其他执行器领取 |
+| `TEAM_RUN_TIMEOUT` | — | 排队/执行超时，由调度巡检回收并在运行记录中标注 |
+| `TEAM_RUN_CHECKPOINT_INVALID` | 409 | 成员快照与断点台账不一致 |
+| `TEAM_RUN_MEMBER_FAILED` | 502 | 成员执行失败，保留已完成成员供重试 |
+| `TEAM_SYNTHESIS_FAILED` | 502 | 最终综合模型未返回有效答案 |
+| `TEAM_SUMMARY_EMPTY` | 502 | 最终答案为空，不能标记运行成功 |
+| `TEAM_DOCUMENT_NOT_READY` | 409 | 运行未成功完成或没有可导出的答案 |
+
 ## 知识库
 
 | code | HTTP | 说明 |

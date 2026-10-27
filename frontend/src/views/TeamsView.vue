@@ -6,6 +6,12 @@
       </h2>
       <div class="page-actions">
         <el-button
+          size="small"
+          @click="recordsVisible = true"
+        >
+          运行记录
+        </el-button>
+        <el-button
           v-if="canManage"
           type="primary"
           size="small"
@@ -16,7 +22,7 @@
       </div>
     </div>
     <p class="page-sub">
-      多个专业助手按角色接力：前序成员输出作为后序成员的上下文，审核员负责把关最终结论。
+      多个专业助手结合知识库、联网检索与模型推理按角色接力，输出文字答案或文档；关闭窗口后后台继续运行。
     </p>
 
     <!-- 班组卡片墙 -->
@@ -51,6 +57,7 @@
                   <el-switch
                     :model-value="t.enabled"
                     size="small"
+                    :disabled="!!busyTeamId"
                     :loading="busyTeamId === t.id"
                     @change="(v: string | number | boolean) => toggleEnabled(t, Boolean(v))"
                   />
@@ -92,6 +99,17 @@
                 </el-tag>
               </template>
             </div>
+            <p class="schedule-status">
+              <template v-if="!t.enabled">
+                班组已停用，定时任务不执行
+              </template>
+              <template v-else-if="t.schedule?.enabled">
+                {{ scheduleIntervalLabel(t.schedule.interval_minutes) }}运行 · 下次：{{ t.next_run_at ? formatTime(t.next_run_at) : '等待调度' }}
+              </template>
+              <template v-else>
+                定时任务已停用
+              </template>
+            </p>
             <div class="tc-foot">
               <el-button
                 type="primary"
@@ -99,7 +117,13 @@
                 :disabled="!t.enabled"
                 @click="openRunDialog(t)"
               >
-                跑一次
+                运行
+              </el-button>
+              <el-button
+                size="small"
+                @click="openSchedule(t)"
+              >
+                定时任务
               </el-button>
               <template v-if="canManage">
                 <el-button
@@ -127,7 +151,7 @@
     <el-dialog
       v-model="editVisible"
       :title="editingTeamId ? '编辑班组' : '新建班组'"
-      width="760px"
+      width="min(760px, 94vw)"
       top="6vh"
     >
       <el-form
@@ -171,7 +195,7 @@
                 <el-option
                   v-for="a in publishedAgents"
                   :key="a.id"
-                  :label="`${a.emoji ?? ''} ${a.name}（${a.agent_code}）`"
+                  :label="`${a.name}（${a.agent_code}）`"
                   :value="a.id"
                 />
               </el-select>
@@ -243,11 +267,25 @@
         </el-button>
       </template>
     </el-dialog>
-    <!-- 跑一次：输入问题 → 同步接力 → 运行抽屉 -->
+    <TeamRunsDialog
+      v-model="recordsVisible"
+      :teams="teams"
+      @detail="openHistory"
+    />
+    <TeamScheduleDialog
+      v-model="scheduleVisible"
+      :team="scheduleTeam"
+      :can-manage="canManage"
+      @saved="load"
+    />
+    <!-- 提交立即返回排队记录，后续执行在后台完成。 -->
     <el-dialog
       v-model="runVisible"
-      :title="`跑一次：${runTeam?.name ?? ''}`"
-      width="560px"
+      :title="`运行：${runTeam?.name ?? ''}`"
+      width="min(560px, 94vw)"
+      :close-on-click-modal="!running"
+      :close-on-press-escape="!running"
+      :show-close="!running"
     >
       <el-input
         v-model="runInput"
@@ -256,9 +294,47 @@
         maxlength="8000"
         show-word-limit
         placeholder="输入要交给班组接力处理的问题"
+        :disabled="running"
+      />
+      <el-form
+        class="mt"
+        label-width="80px"
+      >
+        <el-form-item label="结果格式">
+          <el-select
+            v-model="runOutputFormat"
+            :disabled="running"
+          >
+            <el-option
+              label="文字答案"
+              value="text"
+            />
+            <el-option
+              label="Markdown 文档"
+              value="md"
+            />
+            <el-option
+              label="Word 文档"
+              value="docx"
+            />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <p class="note">
+        答案结合知识库与联网检索生成。提交后可关闭详情，稍后从「运行记录」继续查看。
+      </p>
+      <el-alert
+        v-if="submitError"
+        :title="submitError"
+        type="warning"
+        :closable="false"
+        show-icon
       />
       <template #footer>
-        <el-button @click="runVisible = false">
+        <el-button
+          :disabled="running"
+          @click="runVisible = false"
+        >
           取消
         </el-button>
         <el-button
@@ -267,7 +343,7 @@
           :disabled="!runInput.trim()"
           @click="submitRun"
         >
-          发起接力
+          运行
         </el-button>
       </template>
     </el-dialog>
@@ -275,29 +351,43 @@
     <!-- 运行抽屉：成员横向步骤条 + 成员卡（可下钻内部步骤）+ 答案 -->
     <el-drawer
       v-model="drawerVisible"
-      :title="`运行详情：${drawerTeam?.name ?? ''}`"
-      size="720px"
-      @closed="onDrawerClosed"
+      :title="`运行详情：${currentRun?.team_name || '历史班组'}`"
+      size="min(780px, 100vw)"
+      append-to-body
+      @close="onDrawerClosed"
     >
+      <div class="dr-toolbar">
+        <el-button
+          size="small"
+          :loading="detailLoading"
+          @click="refreshCurrentRun"
+        >
+          刷新详情
+        </el-button>
+        <span class="note">关闭不会取消后台运行，可从运行记录重新打开。</span>
+      </div>
+      <el-alert
+        v-if="detailError"
+        :title="detailError"
+        type="error"
+        :closable="false"
+        show-icon
+        class="mt"
+      />
+      <el-alert
+        v-if="connectionMessage"
+        :title="connectionMessage"
+        type="warning"
+        :closable="false"
+        show-icon
+        class="mt"
+      />
       <div
         v-if="currentRun"
         class="drawer-body"
       >
         <div class="dr-toolbar">
-          <el-select
-            v-model="historyRunId"
-            size="small"
-            class="hist-select"
-            placeholder="查看历史运行"
-            @change="openHistory"
-          >
-            <el-option
-              v-for="r in runsList"
-              :key="r.id"
-              :label="`${formatTime(r.created_at)} · ${runStatusLabel(r.status)}`"
-              :value="r.id"
-            />
-          </el-select>
+          <span class="note">{{ formatTime(currentRun.created_at) }} · {{ currentRun.trigger === 'schedule' ? '定时运行' : '手动运行' }}</span>
           <el-tag
             size="small"
             :type="runStatusTag(currentRun.status)"
@@ -310,10 +400,10 @@
             type="success"
             effect="plain"
           >
-            ⚡ 班组合计 {{ currentRun.token_usage.total_tokens.toLocaleString() }} tokens（入 {{ currentRun.token_usage.input_tokens }} / 出 {{ currentRun.token_usage.output_tokens }}）
+            班组合计 {{ currentRun.token_usage.total_tokens.toLocaleString() }} tokens（入 {{ currentRun.token_usage.input_tokens }} / 出 {{ currentRun.token_usage.output_tokens }}）
           </el-tag>
           <el-button
-            v-if="currentRun.status === 'failed'"
+            v-if="currentRun.status === 'failed' && canRetry"
             size="small"
             type="warning"
             :loading="retrying"
@@ -323,6 +413,14 @@
           </el-button>
         </div>
 
+        <el-alert
+          v-if="currentRun.status === 'queued'"
+          title="已进入队列，等待班组执行。可关闭详情，稍后在运行记录中查看。"
+          type="info"
+          :closable="false"
+          show-icon
+          class="mt"
+        />
         <div class="q-box">
           <span class="q-label">问题</span>
           <pre class="q-text">{{ currentRun.input }}</pre>
@@ -375,11 +473,11 @@
                 v-if="m.token_usage && m.token_usage.total_tokens > 0"
                 class="mc-dur"
                 style="color: #34d399"
-              >⚡ {{ m.token_usage.total_tokens }} tokens（入 {{ m.token_usage.input_tokens }} / 出 {{ m.token_usage.output_tokens }}）</span>
+              >{{ m.token_usage.total_tokens }} tokens（入 {{ m.token_usage.input_tokens }} / 出 {{ m.token_usage.output_tokens }}）</span>
               <span class="mc-dur">{{ memberDuration(m) }}</span>
               <span class="mc-flex" />
               <el-button
-                v-if="m.status === 'error'"
+                v-if="m.status === 'error' && currentRun.status === 'failed' && canRetry"
                 size="small"
                 type="warning"
                 :loading="retrying"
@@ -424,6 +522,19 @@
                   :rows="2"
                   animated
                 />
+                <div v-else-if="stepsCache[m.task_id] === 'error'">
+                  <el-alert
+                    title="内部步骤加载失败，请重试。"
+                    type="error"
+                    :closable="false"
+                  />
+                  <el-button
+                    size="small"
+                    @click="loadSteps(m.task_id)"
+                  >
+                    重新加载步骤
+                  </el-button>
+                </div>
                 <p
                   v-else-if="stepsOf(m.task_id) === null"
                   class="note"
@@ -455,7 +566,9 @@
                       <td>{{ s.tool_code || '—' }}</td>
                       <td>{{ s.duration_ms != null ? `${s.duration_ms} ms` : '—' }}</td>
                       <td>{{ s.status }}</td>
-                      <td class="st-out">{{ outputBrief(s) }}</td>
+                      <td class="st-out">
+                        {{ outputBrief(s) }}
+                      </td>
                     </tr>
                   </tbody>
                 </table>
@@ -465,28 +578,21 @@
         </div>
 
         <el-alert
-          v-if="currentRun.status === 'failed' && currentRun.last_error"
+          v-if="currentRun.status === 'failed'"
           type="error"
-          :title="`接力中断：${currentRun.last_error}`"
+          :title="`接力中断：${currentRun.last_error || '未返回具体原因，请刷新状态后重试'}`"
           :closable="false"
           show-icon
           class="mt"
         />
 
-        <!-- 最终答案大卡 -->
-        <el-card
-          v-if="currentRun.answer"
-          class="answer-card mt"
-          shadow="never"
-        >
-          <template #header>
-            班组最终结论
-          </template>
-          <pre class="answer-text">{{ currentRun.answer }}</pre>
-        </el-card>
+        <TeamRunResult
+          :key="currentRun.id"
+          :run="currentRun"
+        />
       </div>
       <el-skeleton
-        v-else
+        v-else-if="detailLoading"
         :rows="6"
         animated
       />
@@ -501,21 +607,24 @@ import {
   teamApi,
   type DeclarativeAgent,
   type TeamDefinition,
-  type TeamMemberEvent,
   type TeamMemberRunStatus,
   type TeamMemberSpec,
+  type TeamOutputFormat,
   type TeamRun,
   type TeamRunMember,
   type TeamRunMemberStep,
-  type TeamRunStatus,
-  type TeamRunSummary,
 } from '@/api/modules'
 import { extractErrorMessage } from '@/api/client'
-import { openSseStream, type SseHandle } from '@/utils/sse'
+import { openSseStream } from '@/utils/sse'
 import { formatTime } from '@/utils/format'
 import { classifyError, friendlyErrorMessage, type ViewState } from '@/utils/status'
 import { useAuthStore } from '@/stores/auth'
 import AsyncState from '@/components/AsyncState.vue'
+import TeamRunsDialog from '@/components/teams/TeamRunsDialog.vue'
+import TeamScheduleDialog from '@/components/teams/TeamScheduleDialog.vue'
+import TeamRunResult from '@/components/teams/TeamRunResult.vue'
+import { createTeamRunTracker } from '@/components/teams/teamRunTracker'
+import { isRunActive, runStatusLabel, runStatusTag, scheduleIntervalLabel } from '@/components/teams/presentation'
 
 const auth = useAuthStore()
 const canManage = computed(() => auth.isYardAdmin())
@@ -591,6 +700,7 @@ function moveMember(i: number, delta: number) {
 }
 
 async function saveTeam() {
+  if (saving.value || !canManage.value) return
   const name = editForm.name.trim()
   if (!name) {
     ElMessage.warning('请填写班组名称')
@@ -602,10 +712,6 @@ async function saveTeam() {
   }
   if (editForm.members.some(m => !m.agent_id || !m.role_name.trim())) {
     ElMessage.warning('每位成员都要选择已发布助手并填写角色名')
-    return
-  }
-  if (editForm.members.some(m => !m.instruction.trim())) {
-    ElMessage.warning('每位成员都要填写任务说明')
     return
   }
   saving.value = true
@@ -632,10 +738,11 @@ async function saveTeam() {
 }
 
 async function toggleEnabled(t: TeamDefinition, v: boolean) {
+  if (busyTeamId.value || !canManage.value) return
   busyTeamId.value = t.id
   try {
-    await teamApi.update(t.id, { enabled: v })
-    t.enabled = v
+    const updated = await teamApi.update(t.id, { enabled: v })
+    Object.assign(t, updated)
     ElMessage.success(v ? '已启用' : '已停用')
   } catch {
     /* 失败保持原状态，拦截器已提示 */
@@ -663,189 +770,118 @@ async function removeTeam(t: TeamDefinition) {
   }
 }
 
-/* ---------- 跑一次 ---------- */
+/* ---------- 定时任务 / 跨班组台账 ---------- */
+const recordsVisible = ref(false)
+const scheduleVisible = ref(false)
+const scheduleTeam = ref<TeamDefinition | null>(null)
+function openSchedule(team: TeamDefinition) {
+  scheduleTeam.value = team
+  scheduleVisible.value = true
+}
+
+/* ---------- 运行提交 ---------- */
 const runVisible = ref(false)
 const runTeam = ref<TeamDefinition | null>(null)
 const runInput = ref('')
+const runOutputFormat = ref<TeamOutputFormat>('text')
 const running = ref(false)
+const submitError = ref('')
+let disposed = false
 
-function openRunDialog(t: TeamDefinition) {
-  runTeam.value = t
+function openRunDialog(team: TeamDefinition) {
+  if (running.value || !team.enabled) return
+  runTeam.value = team
   runInput.value = ''
+  runOutputFormat.value = 'text'
+  submitError.value = ''
   runVisible.value = true
 }
 
 async function submitRun() {
   const team = runTeam.value
   const input = runInput.value.trim()
-  if (!team || !input || running.value) return
+  if (!team?.enabled || !input || running.value) return
   running.value = true
+  submitError.value = ''
   try {
-    const run = await teamApi.run(team.id, input)
+    const run = await teamApi.run(team.id, input, runOutputFormat.value)
+    if (disposed) return
     runVisible.value = false
-    await openDrawer(team, run)
-  } catch {
-    // 失败口径：HTTP 抛原始错误但 run 已停在 failed 断点——
-    // 拦截器已 toast；这里拉最新一次运行打开抽屉，让用户看到断点并续跑
-    try {
-      const rs = await teamApi.runs(team.id)
-      if (rs.length) {
-        const detail = await teamApi.runDetail(rs[0].id)
-        runVisible.value = false
-        await openDrawer(team, detail)
-      }
-    } catch {
-      /* 兜底失败保持对话框可重试 */
-    }
+    expandedIndex.value = -1
+    drawerVisible.value = true
+    tracker.open(run)
+  } catch (error) {
+    const { code, message } = extractErrorMessage(error)
+    // 只有网络中断/超时才无法确认提交结果；4xx 是确定的拒绝，直接说明原因。
+    submitError.value = code === 'NETWORK_ERROR'
+      ? '未能确认提交结果，请先关闭此窗口并刷新运行记录，确认未创建后再试，避免重复执行。'
+      : friendlyErrorMessage(code, message)
   } finally {
     running.value = false
   }
 }
 
-/* ---------- 运行抽屉 + SSE ---------- */
+/* ---------- 运行抽屉：SSE 通知 + 不重叠的详情轮询 ---------- */
 const drawerVisible = ref(false)
-const drawerTeam = ref<TeamDefinition | null>(null)
 const currentRun = ref<TeamRun | null>(null)
-const runsList = ref<TeamRunSummary[]>([])
-const historyRunId = ref<string>('')
+const detailLoading = ref(false)
+const detailError = ref('')
+const connectionMessage = ref('')
 const expandedIndex = ref(-1)
 const retrying = ref(false)
-/** task_id -> 步骤数组；'none' 表示无步骤行（steps 端点 404） */
-const stepsCache = reactive<Record<string, TeamRunMemberStep[] | 'none'>>({})
+const stepsCache = reactive<Record<string, TeamRunMemberStep[] | 'none' | 'error'>>({})
 const stepsLoading = ref<string | null>(null)
-let sse: SseHandle | null = null
-let pollTimer: number | undefined
-
 const drawerMembers = computed<TeamRunMember[]>(() => currentRun.value?.members ?? [])
-
-async function openDrawer(team: TeamDefinition, run: TeamRun) {
-  drawerTeam.value = team
-  currentRun.value = run
-  historyRunId.value = run.id
-  expandedIndex.value = -1
-  drawerVisible.value = true
-  void refreshRunsList(team.id)
-  if (run.status === 'running') subscribeSse(run.id)
-}
-
-async function refreshRunsList(teamId: string) {
-  try {
-    runsList.value = await teamApi.runs(teamId)
-  } catch {
-    runsList.value = []
-  }
-}
+const canRetry = computed(() => teams.value.some(team => team.id === currentRun.value?.team_id && team.enabled))
+const tracker = createTeamRunTracker({
+  getRun: id => teamApi.runDetail(id),
+  onRun: run => { currentRun.value = run },
+  onLoading: loading => { detailLoading.value = loading },
+  onError: message => { detailError.value = message },
+  onConnection: message => { connectionMessage.value = message },
+  subscribe: (id, refresh, disconnected) => openSseStream({
+    url: teamApi.streamUrl(id),
+    onFrame: frame => {
+      if (frame.event === 'member-event' || frame.event === 'team-end') refresh()
+    },
+    onFallback: disconnected,
+  }),
+})
 
 async function openHistory(runId: string) {
-  if (!runId || runId === currentRun.value?.id) return
-  closeStream()
-  stopPoll()
-  try {
-    const detail = await teamApi.runDetail(runId)
-    currentRun.value = detail
-    expandedIndex.value = -1
-    if (detail.status === 'running') subscribeSse(detail.id)
-  } catch {
-    /* 拦截器已提示 */
-  }
+  if (!runId) return
+  currentRun.value = null
+  expandedIndex.value = -1
+  drawerVisible.value = true
+  await tracker.openId(runId)
 }
-
-function memberEventApply(runId: string, ev: TeamMemberEvent) {
-  const run = currentRun.value
-  if (!run || run.id !== runId || !run.members) return
-  const m = run.members.find(x => x.index === ev.member_index)
-  if (!m) return
-  m.status = ev.status
-  m.error_text = ev.error_text
-  if (ev.agent_run_id) m.task_id = ev.agent_run_id
+function refreshCurrentRun() {
+  void tracker.refresh()
 }
-
-function subscribeSse(runId: string) {
-  closeStream()
-  sse = openSseStream({
-    url: teamApi.streamUrl(runId),
-    onFrame: f => {
-      if (f.event === 'member-event') {
-        try {
-          memberEventApply(runId, JSON.parse(f.data) as TeamMemberEvent)
-        } catch {
-          /* 忽略坏帧 */
-        }
-      } else if (f.event === 'team-end') {
-        // 服务端收尾：主动断流避免 EOF 重连，然后静默刷新拿终态与全文输出
-        closeStream()
-        void refreshRunQuiet(runId)
-      }
-    },
-    onFallback: () => startPoll(runId),
-  })
-}
-
-async function refreshRunQuiet(runId: string) {
-  if (!drawerVisible.value || currentRun.value?.id !== runId) return
-  try {
-    currentRun.value = await teamApi.runDetail(runId)
-    if (drawerTeam.value) void refreshRunsList(drawerTeam.value.id)
-  } catch {
-    /* 静默 */
-  }
-}
-
-/** SSE 重连失败降级：抽屉保持打开时每 5s 静默刷新一次 */
-function startPoll(runId: string) {
-  stopPoll()
-  pollTimer = window.setInterval(async () => {
-    if (!drawerVisible.value || currentRun.value?.id !== runId) {
-      stopPoll()
-      return
-    }
-    try {
-      const d = await teamApi.runDetail(runId)
-      currentRun.value = d
-      if (d.status !== 'running') stopPoll()
-    } catch {
-      /* 下一轮再试 */
-    }
-  }, 5000)
-}
-
-function stopPoll() {
-  if (pollTimer !== undefined) {
-    window.clearInterval(pollTimer)
-    pollTimer = undefined
-  }
-}
-
-function closeStream() {
-  sse?.close()
-  sse = null
-}
-
 function onDrawerClosed() {
-  closeStream()
-  stopPoll()
+  tracker.stop()
 }
 
-/* ---------- 断点续跑（已 ok 成员不重跑） ---------- */
+/* ---------- 断点续跑：兼容同步终态或排队/执行中返回 ---------- */
 async function doRetry() {
   const run = currentRun.value
-  if (!run || retrying.value) return
+  if (!run || run.status !== 'failed' || !canRetry.value || retrying.value) return
   retrying.value = true
   try {
-    const done = await teamApi.retry(run.id)
-    currentRun.value = done
-    ElMessage.success('续跑完成')
-    if (drawerTeam.value) void refreshRunsList(drawerTeam.value.id)
-  } catch (e) {
-    const { code, message } = extractErrorMessage(e)
-    if (code === 'TEAM_RUN_ALREADY_COMPLETED') {
-      ElMessage.info('该运行已完成，无需续跑，已为你刷新状态')
-      await refreshRunQuiet(run.id)
-    } else if (code === 'TEAM_RUN_STATE_CONFLICT') {
-      ElMessage.info('该运行仍在执行中，稍后即可查看最新进度')
+    const result = await teamApi.retry(run.id)
+    if (disposed) return
+    if (drawerVisible.value && currentRun.value?.id === run.id) tracker.open(result)
+    if (result.status === 'completed') ElMessage.success('续跑完成')
+    else if (isRunActive(result.status)) ElMessage.info('续跑已提交，正在后台执行')
+    else ElMessage.warning('续跑失败，请查看运行详情')
+  } catch (error) {
+    const { code, message } = extractErrorMessage(error)
+    if (code === 'TEAM_RUN_ALREADY_COMPLETED' || code === 'TEAM_RUN_STATE_CONFLICT') {
+      ElMessage.info('运行状态已变化，正在刷新详情')
     } else {
       ElMessage.error(friendlyErrorMessage(code, message))
     }
+    if (drawerVisible.value && currentRun.value?.id === run.id) await tracker.refresh()
   } finally {
     retrying.value = false
   }
@@ -857,17 +893,19 @@ function toggleMember(index: number) {
   expandedIndex.value = next
   if (next !== -1) {
     const m = drawerMembers.value.find(x => x.index === index)
-    if (m?.task_id && !(m.task_id in stepsCache)) void loadSteps(m.task_id)
+    if (m?.task_id && (!(m.task_id in stepsCache) || m.status === 'running')) void loadSteps(m.task_id)
   }
 }
 
 async function loadSteps(taskId: string) {
+  if (stepsLoading.value === taskId) return
   stepsLoading.value = taskId
   try {
-    stepsCache[taskId] = await teamApi.memberSteps(taskId)
-  } catch {
-    // 单轮执行成员没有步骤行（404 RUN_NOT_FOUND）：如实标注，不打扰
-    stepsCache[taskId] = 'none'
+    const steps = await teamApi.memberSteps(taskId)
+    stepsCache[taskId] = steps.length ? steps : 'none'
+  } catch (error) {
+    const { code } = extractErrorMessage(error)
+    stepsCache[taskId] = code === 'RUN_NOT_FOUND' ? 'none' : 'error'
   } finally {
     if (stepsLoading.value === taskId) stepsLoading.value = null
   }
@@ -892,12 +930,6 @@ function outputBrief(s: TeamRunMemberStep): string {
 }
 
 /* ---------- 展示映射 ---------- */
-function runStatusLabel(s: TeamRunStatus): string {
-  return { running: '执行中', completed: '已完成', failed: '已中断' }[s] ?? s
-}
-function runStatusTag(s: TeamRunStatus): 'success' | 'warning' | 'danger' {
-  return s === 'completed' ? 'success' : s === 'running' ? 'warning' : 'danger'
-}
 function memberStatusLabel(s: TeamMemberRunStatus): string {
   return { pending: '等待', running: '进行中', ok: '完成', error: '失败' }[s] ?? s
 }
@@ -910,8 +942,8 @@ function stepTypeLabel(t: TeamRunMemberStep['step_type']): string {
 
 onMounted(load)
 onUnmounted(() => {
-  closeStream()
-  stopPoll()
+  disposed = true
+  tracker.stop()
 })
 </script>
 <style scoped>
@@ -968,9 +1000,18 @@ onUnmounted(() => {
 .role-arr {
   color: var(--ds-text-3);
 }
+.schedule-status {
+  font-size: 12px;
+  color: var(--ds-text-3);
+  line-height: 1.6;
+}
 .tc-foot {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+}
+.tc-foot :deep(.el-button + .el-button) {
+  margin-left: 0;
 }
 .member-editor {
   width: 100%;
@@ -1003,12 +1044,10 @@ onUnmounted(() => {
 /* ---------- 运行抽屉 ---------- */
 .dr-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
-  margin-bottom: 12px;
-}
-.hist-select {
-  width: 220px;
+  margin: 12px 0;
 }
 .q-box {
   background: var(--ds-glass);
@@ -1022,8 +1061,7 @@ onUnmounted(() => {
   color: var(--ds-text-3);
 }
 .q-text,
-.pv,
-.answer-text {
+.pv {
   white-space: pre-wrap;
   word-break: break-all;
   margin: 4px 0 0;
@@ -1224,13 +1262,20 @@ onUnmounted(() => {
   max-width: 260px;
   color: var(--ds-text-2);
 }
-.answer-card :deep(.el-card__header) {
-  font-weight: 600;
-}
-.answer-text {
-  color: var(--ds-text-1);
-}
 .mt {
   margin-top: 12px;
+}
+.mc-body {
+  overflow-x: auto;
+}
+@media (max-width: 600px) {
+  .page-head, .mc-head {
+    flex-wrap: wrap;
+  }
+  .page-head { gap: 8px; margin-bottom: 8px; }
+  .page-actions { flex-wrap: wrap; }
+  .s-line { width: 16px; }
+  .s-node { width: 68px; }
+  .me-agent, .me-role { width: 100%; }
 }
 </style>

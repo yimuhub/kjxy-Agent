@@ -497,6 +497,16 @@ export interface TeamMemberSpec {
   is_critic: boolean
 }
 
+export type TeamOutputFormat = 'text' | 'md' | 'docx'
+export type TeamRunTrigger = 'manual' | 'schedule'
+
+export interface TeamSchedule {
+  enabled: boolean
+  interval_minutes: number
+  input: string
+  output_format: TeamOutputFormat
+}
+
 /** 班组定义（GET/POST/PATCH /agents/teams* 的 data 形状） */
 export interface TeamDefinition {
   id: string
@@ -506,6 +516,8 @@ export interface TeamDefinition {
   description: string | null
   members: TeamMemberSpec[]
   enabled: boolean
+  schedule: TeamSchedule | null
+  next_run_at: string | null
   created_by: string | null
   created_at: string
   updated_at: string
@@ -522,8 +534,23 @@ export interface TeamCreatePayload {
 /** PATCH 字段全部可选；members 传则整体替换 */
 export type TeamUpdatePayload = Partial<TeamCreatePayload>
 
-export type TeamRunStatus = 'running' | 'completed' | 'failed'
+export type TeamRunStatus = 'queued' | 'running' | 'completed' | 'failed'
 export type TeamMemberRunStatus = 'pending' | 'running' | 'ok' | 'error'
+
+export interface TeamResearch {
+  knowledge: Array<{
+    document_id: string
+    chunk_id: string
+    title: string
+    source: string | null
+    page_number: number | null
+    quote: string
+    score: number | null
+    trust_level: string | null
+  }>
+  web: Array<{ title: string; url: string; snippet: string }>
+  warnings: string[]
+}
 
 /** 成员接力明细（run_out.members 元素；task_id 可二跳内部步骤） */
 export interface TeamRunMember {
@@ -544,6 +571,12 @@ export interface TeamRunMember {
 export interface TeamRun {
   id: string
   team_id: string
+  team_name: string | null
+  created_by: string | null
+  trigger: TeamRunTrigger
+  output_format: TeamOutputFormat
+  document_available: boolean
+  research: TeamResearch | null
   yard_id: string
   input: string
   status: TeamRunStatus
@@ -564,6 +597,11 @@ export interface TeamRun {
 export interface TeamRunSummary {
   id: string
   team_id: string
+  team_name: string | null
+  created_by: string | null
+  trigger: TeamRunTrigger
+  output_format: TeamOutputFormat
+  answer_preview: string | null
   status: TeamRunStatus
   input_preview: string
   current_member: number
@@ -572,6 +610,21 @@ export interface TeamRunSummary {
   started_at: string | null
   finished_at: string | null
   created_at: string | null
+}
+
+export interface TeamRunQuery {
+  team_id?: string
+  status?: TeamRunStatus
+  trigger?: TeamRunTrigger
+  page?: number
+  page_size?: number
+}
+
+export interface TeamRunPage {
+  runs: TeamRunSummary[]
+  total: number
+  page: number
+  page_size: number
 }
 
 /** 成员内部步骤（GET /agents/declarative/runs/{task_id}/steps 元素） */
@@ -614,9 +667,31 @@ export const teamApi = {
   remove(teamId: string): Promise<void> {
     return api.delete(`/agents/teams/${teamId}`).then(() => undefined)
   },
-  /** 同步跑一次接力（全员可用；失败时 HTTP 抛原始错误、run 停在 failed 断点） */
-  run(teamId: string, input: string): Promise<TeamRun> {
-    return unwrap(api.post<ApiResponse<TeamRun>>(`/agents/teams/${teamId}/run`, { input }))
+  /** 按间隔配置定时任务，仅管理员可写；不传时默认停用。 */
+  schedule(teamId: string, schedule: TeamSchedule): Promise<TeamDefinition> {
+    return unwrap(api.put<ApiResponse<TeamDefinition>>(`/agents/teams/${teamId}/schedule`, schedule))
+  },
+  /** 202 返回完整 queued 记录；答案由 SSE / 详情轮询追踪。 */
+  run(teamId: string, input: string, outputFormat: TeamOutputFormat = 'text'): Promise<TeamRun> {
+    return unwrap(api.post<ApiResponse<TeamRun>>(`/agents/teams/${teamId}/run`, {
+      input,
+      output_format: outputFormat,
+    }))
+  },
+  /** 当前用户可见的跨班组台账，包含已删除班组的名称快照。 */
+  allRuns(query: TeamRunQuery = {}): Promise<TeamRunPage> {
+    const cfg: AxiosRequestConfig & { skipErrorToast?: boolean } = {
+      params: query,
+      skipErrorToast: true,
+    }
+    return unwrap(api.get<ApiResponse<TeamRunPage>>('/agents/team-runs', cfg))
+  },
+  /** 通过鉴权客户端下载真实文档，不能用 window.open 绕过 token。 */
+  document(runId: string, format: 'md' | 'docx'): Promise<Blob> {
+    return api.get<Blob>(`/agents/team-runs/${runId}/document`, {
+      params: { format },
+      responseType: 'blob',
+    }).then(res => res.data)
   },
   /** 本班组运行列表（摘要，最新在前） */
   runs(teamId: string): Promise<TeamRunSummary[]> {
@@ -624,9 +699,10 @@ export const teamApi = {
       api.get<ApiResponse<{ runs: TeamRunSummary[] }>>(`/agents/teams/${teamId}/runs`),
     ).then(r => r.runs)
   },
-  /** 运行详情（含成员接力明细） */
+  /** 运行详情（含成员接力明细）；轮询错误由详情内联提示，避免重复 toast。 */
   runDetail(runId: string): Promise<TeamRun> {
-    return unwrap(api.get<ApiResponse<TeamRun>>(`/agents/team-runs/${runId}`))
+    const cfg: AxiosRequestConfig & { skipErrorToast?: boolean } = { skipErrorToast: true }
+    return unwrap(api.get<ApiResponse<TeamRun>>(`/agents/team-runs/${runId}`, cfg))
   },
   /** 断点续跑（已 ok 成员不重跑；completed/running 时 409，错误由调用方按码分流提示） */
   retry(runId: string): Promise<TeamRun> {

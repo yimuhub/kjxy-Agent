@@ -4324,6 +4324,41 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agents/teams/{team_id}/schedule:
+    put:
+      tags:
+      - v1
+      - agents
+      - agent-teams
+      summary: Set Schedule
+      operationId: set_schedule_api_v1_agents_teams__team_id__schedule_put
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: team_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Team Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScheduleSpec'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/agents/teams/{team_id}/run:
     post:
       tags:
@@ -4331,12 +4366,6 @@ paths:
       - agents
       - agent-teams
       summary: Run Team
-      description: '同步跑一次班组接力：全员预检 → 按序执行 → 返回 run（含成员明细）。
-
-
-        任一成员失败：HTTP 抛原始错误（run 已置 failed 停在断点，可 retry），
-
-        与声明式运行失败 502 的口径一致。'
       operationId: run_team_api_v1_agents_teams__team_id__run_post
       security:
       - HTTPBearer: []
@@ -4354,7 +4383,7 @@ paths:
             schema:
               $ref: '#/components/schemas/TeamRunRequest'
       responses:
-        '200':
+        '202':
           description: Successful Response
           content:
             application/json:
@@ -4372,7 +4401,6 @@ paths:
       - agents
       - agent-teams
       summary: List Team Runs
-      description: 本班组运行列表（摘要，最新在前）。
       operationId: list_team_runs_api_v1_agents_teams__team_id__runs_get
       security:
       - HTTPBearer: []
@@ -4395,6 +4423,78 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agents/team-runs:
+    get:
+      tags:
+      - v1
+      - agents
+      - agent-teams
+      summary: List Runs
+      operationId: list_runs_api_v1_agents_team_runs_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Team Id
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - enum:
+            - queued
+            - running
+            - completed
+            - failed
+            type: string
+          - type: 'null'
+          title: Status
+      - name: trigger
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - enum:
+            - manual
+            - schedule
+            type: string
+          - type: 'null'
+          title: Trigger
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+          title: Page
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 20
+          title: Page Size
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/agents/team-runs/{run_id}:
     get:
       tags:
@@ -4402,7 +4502,6 @@ paths:
       - agents
       - agent-teams
       summary: Get Team Run
-      description: 运行详情：team_runs 主行 + 全部成员接力明细（含 task_id 供二跳）。
       operationId: get_team_run_api_v1_agents_team_runs__run_id__get
       security:
       - HTTPBearer: []
@@ -4432,14 +4531,6 @@ paths:
       - agents
       - agent-teams
       summary: Retry Team Run
-      description: '成员级断点续跑：已 ok 成员绝不重跑（复用 output），从首个非 ok 成员续。
-
-
-        有 checkpoint 步骤的成员以其存量 task_id 走 W1 resume（副作用工具不重放、
-
-        失败 LLM 步原位重跑）；无步骤成员整段重跑（该路径无副作用工具）。
-
-        审计 action=team_run_retry（记 skipped_ok 与续跑起点）。'
       operationId: retry_team_run_api_v1_agents_team_runs__run_id__retry_post
       security:
       - HTTPBearer: []
@@ -4450,6 +4541,45 @@ paths:
         schema:
           type: string
           title: Run Id
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agents/team-runs/{run_id}/document:
+    get:
+      tags:
+      - v1
+      - agents
+      - agent-teams
+      summary: Download Document
+      operationId: download_document_api_v1_agents_team_runs__run_id__document_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Run Id
+      - name: format
+        in: query
+        required: false
+        schema:
+          enum:
+          - md
+          - docx
+          type: string
+          default: md
+          title: Format
       responses:
         '200':
           description: Successful Response
@@ -4469,7 +4599,6 @@ paths:
       - agents
       - agent-teams
       summary: Stream Team Run
-      description: 成员级 SSE（复用 run_stream 帧协议；内部步经 agent_run_id 二跳，见 stream.py）。
       operationId: stream_team_run_api_v1_agents_team_runs__run_id__stream_get
       security:
       - HTTPBearer: []
@@ -8213,6 +8342,35 @@ components:
           title: Notify Note
       type: object
       title: RulePatch
+    ScheduleSpec:
+      properties:
+        enabled:
+          type: boolean
+          title: Enabled
+        interval_minutes:
+          type: integer
+          maximum: 43200.0
+          minimum: 5.0
+          title: Interval Minutes
+          default: 1440
+        input:
+          type: string
+          maxLength: 8000
+          title: Input
+          default: ''
+        output_format:
+          type: string
+          enum:
+          - text
+          - md
+          - docx
+          title: Output Format
+          default: text
+      additionalProperties: false
+      type: object
+      required:
+      - enabled
+      title: ScheduleSpec
     SearchRequest:
       properties:
         query:
@@ -8642,6 +8800,14 @@ components:
           maxLength: 8000
           minLength: 1
           title: Input
+        output_format:
+          type: string
+          enum:
+          - text
+          - md
+          - docx
+          title: Output Format
+          default: text
       additionalProperties: false
       type: object
       required:

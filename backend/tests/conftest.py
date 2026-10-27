@@ -97,3 +97,13 @@ def client(db_session):
     app.dependency_overrides[get_db_session] = override_db
     with TestClient(app, raise_server_exceptions=False) as c:
         yield c
+
+
+@pytest.fixture(autouse=True)
+def _offline_team_web(monkeypatch):
+    """班组运行会主动联网取证：测试必须离线，单测里显式替换 search_web 验证降级。"""
+
+    async def no_web(*args, **kwargs):
+        return {"results": []}
+
+    monkeypatch.setattr("app.modules.agents.teams.research.search_web", no_web)

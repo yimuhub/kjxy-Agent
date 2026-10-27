@@ -34,7 +34,16 @@ def _hdr(user_id: str = "u-team-admin", yard_id: str | None = None):
 
 
 @pytest.fixture(autouse=True)
-def _script_isolation():
+def _script_isolation(db_session, monkeypatch):
+    from app.modules.agents.teams import research
+
+    async def no_web(*args, **kwargs):
+        return {"results": []}
+
+    monkeypatch.setattr(research, "search_web", no_web)
+    monkeypatch.setattr(
+        worker_tasks, "_session_factory", sessionmaker(bind=db_session.get_bind(), autoflush=False)
+    )
     providers_fake.reset_scripted_tool_responses()
     yield
     providers_fake.reset_scripted_tool_responses()
@@ -42,7 +51,12 @@ def _script_isolation():
 
 @pytest.fixture()
 def yard(db_session):
+    from app.modules.auth.models import User
+    from app.modules.yards.models import YardMembership
+
     t = create_yard(db_session, name="班组集成小院")
+    db_session.add(User(id="u-team-admin", username="team-admin", password_hash="unused"))
+    db_session.add(YardMembership(yard_id=t.id, user_id="u-team-admin", role="yard_admin"))
     db_session.commit()
     return t
 
@@ -96,9 +110,23 @@ def _three_members(client, yard):
 
 
 def _run_team(client, yard, team_id, question="棚室温度怎么样"):
-    return client.post(
+    response = client.post(
         f"{TEAMS}/{team_id}/run", json={"input": question}, headers=_hdr(yard_id=yard.id)
     )
+    if response.status_code != 202:
+        return response
+    queued = response.json()["data"]
+    assert queued["status"] == "queued" and queued["task_id"]
+    assert _get_run(client, yard, queued["id"]).json()["data"]["status"] == "queued"
+    worker_tasks.run_task_inline(queued["task_id"])
+    return _get_run(client, yard, queued["id"])
+
+
+def _retry_run(client, yard, run_id):
+    queued = client.post(f"{TEAM_RUNS}/{run_id}/retry", headers=_hdr(yard_id=yard.id))
+    assert queued.status_code == 202, queued.text
+    worker_tasks.run_task_inline(queued.json()["data"]["task_id"])
+    return _get_run(client, yard, run_id)
 
 
 def _get_run(client, yard, run_id):
@@ -160,14 +188,18 @@ def test_relay_order_and_final_critic_answer(client, yard):
     team = _mk_team(client, yard, "接力一队", members).json()["data"]
 
     providers_fake.set_scripted_tool_responses(
-        [{"content": "输出甲"}, {"content": "输出乙"}, {"content": "审核结论：修订丙"}]
+        [
+            {"content": "输出甲"},
+            {"content": "输出乙"},
+            {"content": "审核结论：修订丙"},
+            {"content": "综合结论：修订丙"},
+        ]
     )
     resp = _run_team(client, yard, team["id"])
     assert resp.status_code == 200, resp.text
     data = resp.json()["data"]
     assert data["status"] == "completed"
-    # 末位是 critic → 答案 = critic 的修订结论
-    assert data["answer"] == "审核结论：修订丙"
+    assert data["answer"] == "综合结论：修订丙"
 
     ms = data["members"]
     assert [m["status"] for m in ms] == ["ok", "ok", "ok"]
@@ -224,11 +256,15 @@ def test_critic_in_middle_merged_into_answer(client, yard):
         ],
     ).json()["data"]
     providers_fake.set_scripted_tool_responses(
-        [{"content": "输出甲"}, {"content": "审核意见丙"}, {"content": "最终输出乙"}]
+        [
+            {"content": "输出甲"},
+            {"content": "审核意见丙"},
+            {"content": "最终输出乙"},
+            {"content": "已融合审核意见的综合结论"},
+        ]
     )
     data = _run_team(client, yard, team["id"]).json()["data"]
-    # 末位非 critic → 末位输出 + 审核意见并入（固定拼接策略）
-    assert data["answer"] == "最终输出乙\n\n---\n【审核意见·审核员】\n审核意见丙"
+    assert data["answer"] == "已融合审核意见的综合结论"
     # critic 的输出同样并入后续成员接力上下文
     assert "【审核员】：审核意见丙" in data["members"][2]["input_preview"]
 
@@ -252,9 +288,9 @@ def test_failure_stops_at_breakpoint_and_retry_skips_ok_members(client, db_sessi
         [{"content": "成员一输出"}, {"error": {"code": "LLM_ERROR", "message": "上游断了（模拟）"}}]
     )
     failed = _run_team(client, yard, team["id"])
-    assert failed.status_code == 502
-    assert failed.json()["error"]["code"] == "LLM_ERROR"
-    run_id = failed.json()["error"]["details"]["team_run_id"]
+    assert failed.status_code == 200
+    assert "LLM_ERROR" in failed.json()["data"]["last_error"]
+    run_id = failed.json()["data"]["id"]
 
     run = _get_run(client, yard, run_id).json()["data"]
     assert run["status"] == "failed" and "LLM_ERROR" in (run["last_error"] or "")
@@ -265,11 +301,13 @@ def test_failure_stops_at_breakpoint_and_retry_skips_ok_members(client, db_sessi
     calls_m1_before = db_session.query(LLMCall).filter(LLMCall.task_id == m1_task).count()
 
     # 修复上游后续跑：只跑失败成员（并续到队尾）
-    providers_fake.set_scripted_tool_responses([{"content": "诊断员续跑输出"}])
-    retried = client.post(f"{TEAM_RUNS}/{run_id}/retry", headers=_hdr(yard_id=yard.id))
+    providers_fake.set_scripted_tool_responses(
+        [{"content": "诊断员续跑输出"}, {"content": "诊断员续跑综合输出"}]
+    )
+    retried = _retry_run(client, yard, run_id)
     assert retried.status_code == 200, retried.text
     done = retried.json()["data"]
-    assert done["status"] == "completed" and done["answer"] == "诊断员续跑输出"
+    assert done["status"] == "completed" and done["answer"] == "诊断员续跑综合输出"
 
     n1 = done["members"][0]
     assert n1["status"] == "ok"
@@ -338,8 +376,8 @@ def test_tool_member_retry_resumes_checkpoint_without_replay(client, yard, senso
         ]
     )
     failed = _run_team(client, yard, team["id"])
-    assert failed.status_code == 502
-    run_id = failed.json()["error"]["details"]["team_run_id"]
+    assert failed.status_code == 200
+    run_id = failed.json()["data"]["id"]
     run = _get_run(client, yard, run_id).json()["data"]
     assert run["status"] == "failed"
     assert run["members"][0]["status"] == "error"
@@ -355,9 +393,14 @@ def test_tool_member_retry_resumes_checkpoint_without_replay(client, yard, senso
 
     # 续跑：成员 0 以存量 task_id resume——成功工具步只回放不执行
     providers_fake.set_scripted_tool_responses(
-        [{"content": "续跑读数结论"}, {"content": "诊断意见"}, {"content": "审核通过，无需修订"}]
+        [
+            {"content": "续跑读数结论"},
+            {"content": "诊断意见"},
+            {"content": "审核通过，无需修订"},
+            {"content": "审核通过，无需修订"},
+        ]
     )
-    retried = client.post(f"{TEAM_RUNS}/{run_id}/retry", headers=_hdr(yard_id=yard.id))
+    retried = _retry_run(client, yard, run_id)
     assert retried.status_code == 200, retried.text
     done = retried.json()["data"]
     assert done["status"] == "completed"
@@ -417,12 +460,16 @@ def fac_env(tmp_path):
 def test_factory_as_team_builds_runnable_team(fac_env):
     from types import SimpleNamespace
 
+    from app.modules.auth.models import User
     from app.modules.tasks.models import Task
+    from app.modules.yards.models import YardMembership
 
     api_client, factory = fac_env
     db = factory()
     try:
         t = create_yard(db, name="装配班组小院")
+        db.add(User(id="u-fac-team", username="factory-team", password_hash="unused"))
+        db.add(YardMembership(yard_id=t.id, user_id="u-fac-team", role="yard_admin"))
         db.commit()
         yard = SimpleNamespace(id=t.id)
     finally:
@@ -468,13 +515,15 @@ def test_factory_as_team_builds_runnable_team(fac_env):
 
     # 装配即产出的班组可直接 run（成员均已 publish）
     providers_fake.set_scripted_tool_responses(
-        [{"content": f"接力输出{i}"} for i in range(len(codes))]
+        [{"content": f"接力输出{i}"} for i in range(len(codes))] + [{"content": "班组综合答案"}]
     )
     resp = api_client.post(f"{TEAMS}/{team['id']}/run", json={"input": "棚室如何控温"}, headers=hdr)
-    assert resp.status_code == 200, resp.text
-    run = resp.json()["data"]
+    assert resp.status_code == 202, resp.text
+    queued = resp.json()["data"]
+    worker_tasks.run_task_inline(queued["task_id"])
+    run = api_client.get(f"{TEAM_RUNS}/{queued['id']}", headers=hdr).json()["data"]
     assert run["status"] == "completed"
-    assert run["answer"] == f"接力输出{len(codes) - 1}"
+    assert run["answer"] == "班组综合答案"
     assert all(m["status"] == "ok" for m in run["members"])
 
 
@@ -506,5 +555,4 @@ def test_team_stream_replays_member_events(client, db_session, yard):
     assert "event: team-end" in body
     assert '"status": "completed"' in body and '"reason": "run_terminal"' in body
 
-    # 未知 run：SSE 语义不 404，一帧 not_found 收流
-    assert "run_not_found" in ghost.text
+    assert ghost.status_code == 404

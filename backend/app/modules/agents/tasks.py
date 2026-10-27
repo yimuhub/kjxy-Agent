@@ -9,5 +9,6 @@ API 进程走 agents.router → factory_router → factory_pipeline 的同一条
 from app.modules.agents.factory_pipeline import (  # noqa: F401 - 注册 agent_factory handler
     run_agent_factory,
 )
+from app.modules.agents.teams.worker_tasks import run_team_task
 
-__all__ = ["run_agent_factory"]
+__all__ = ["run_agent_factory", "run_team_task"]

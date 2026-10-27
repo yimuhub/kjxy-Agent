@@ -32,7 +32,14 @@ def run_due_jobs_task() -> dict[str, int]:
 
     db = SessionLocal()
     try:
-        stats = run_due_jobs(db)
+        try:
+            stats = run_due_jobs(db)
+        finally:
+            db.rollback()
+            from app.modules.agents.teams.scheduler import run_due_jobs as run_due_teams
+
+            team_stats = run_due_teams(db)
+            log.info("teams.run_due_jobs: %s", team_stats)
     finally:
         db.close()
     if stats["due"]:
@@ -59,7 +66,13 @@ def start_inline_scheduler() -> bool:
 
                 db = SessionLocal()
                 try:
-                    run_due_jobs(db)
+                    try:
+                        run_due_jobs(db)
+                    finally:
+                        db.rollback()
+                        from app.modules.agents.teams.scheduler import run_due_jobs as run_due_teams
+
+                        run_due_teams(db)
                 finally:
                     db.close()
             except Exception as e:  # noqa: BLE001 - 调度线程绝不因单次失败退出

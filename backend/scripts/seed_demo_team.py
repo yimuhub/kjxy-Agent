@@ -198,8 +198,17 @@ def main() -> int:
             roles=["yard_admin"],
             request_id="seed-demo-run",
         )
-        teams.require_members_runnable(db, yard_id=yard_id, members=list(team.members_json))
+        teams.require_members_runnable(
+            db, yard_id=yard_id, members=list(team.members_json), user_id=ACTOR_ID
+        )
         run = teams.create_team_run(db, team=team, user_input=args.run, ctx=ctx)
+        # 演示脚本保持离线确定性：不触发联网搜索，知识库证据留空并明确标注。
+        run.research_json = {
+            "knowledge": [],
+            "web": [],
+            "warnings": ["演示脚本不联网检索，仅验证接力与模型综合。"],
+        }
+        db.commit()
         run = asyncio.run(teams.continue_team_run(db, run=run, ctx=ctx))
         print(f"\n班组运行 {run.id}：status={run.status}")
         for row in teams.members_of_run(db, run):

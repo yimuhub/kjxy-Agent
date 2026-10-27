@@ -236,7 +236,7 @@
         type="success"
         show-icon
         :closable="false"
-        :title="`已同步创建协作班组「${applyResult.team.name}」，可在「协作班组」页跑一次`"
+        :title="`已同步创建协作班组「${applyResult.team.name}」，可在「协作班组」页运行`"
       />
       <el-alert
         v-else-if="applyResult?.team_error"

@@ -1,41 +1,28 @@
-"""班组 REST API（挂载于 agents 路由之下，最终路径 /agents/teams* 与 /agents/team-runs*）。
-
-选型说明：班组与声明式 Agent/工厂同属 agents 域（成员就是 yard_agents 行），
-故不新开顶层 /teams，而是挂在 /agents 下——鉴权依赖、错误码风格、审计口径
-与 declarative/factory 子路由完全同构，api/v1 总路由无需新增感知。
-
-- CRUD（yard_admin）：POST/GET/PATCH/DELETE /agents/teams*
-- 运行（小院成员均可）：POST /agents/teams/{id}/run；GET /agents/teams/{id}/runs
-- 台账/续跑/推流（小院成员均可）：GET /agents/team-runs/{run_id}、
-  POST /agents/team-runs/{run_id}/retry、GET /agents/team-runs/{run_id}/stream
-
-运行是同步请求内执行（与声明式同步运行同一口径：只写审计 + llm_calls，
-不建 tasks 行）；实时观看用成员级 SSE（stream 端点），历史用 GET 详情。
-retry 语义：已 ok 成员绝不重跑；从首个非 ok 成员续跑，有 checkpoint 步骤的
-成员走 W1 resume（副作用不重放），否则整段重跑。
-"""
+"""班组管理、异步运行、执行者隔离的历史与文档接口。"""
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session
 
 from app.core.deps import (
     CurrentUser,
     YardContext,
-    get_current_user,
     get_db_session,
     get_yard_context,
     require_roles,
 )
 from app.core.errors import AppError
 from app.core.responses import ok
-from app.modules.agents.teams import service
+from app.modules.agents.teams import scheduler, service
 from app.modules.agents.teams import stream as team_stream
-from app.modules.agents.teams.models import RUN_COMPLETED, RUN_RUNNING
+from app.modules.agents.teams import worker_tasks as team_worker_tasks  # noqa: F401
+from app.modules.agents.teams.models import RUN_COMPLETED
 from app.modules.audit.service import log_audit
 
 router = APIRouter(prefix="/teams", tags=["agent-teams"])
@@ -82,6 +69,7 @@ class TeamRunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     input: str = Field(min_length=1, max_length=8000)
+    output_format: Literal["text", "md", "docx"] = "text"
 
     @field_validator("input")
     @classmethod
@@ -227,54 +215,58 @@ def delete_team(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/{team_id}/run")
-async def run_team(
+@router.put("/{team_id}/schedule")
+def set_schedule(
+    team_id: str,
+    payload: scheduler.ScheduleSpec,
+    request: Request,
+    ctx: YardContext = Depends(get_yard_context),
+    user: CurrentUser = Depends(_team_admin_gate),
+    db: Session = Depends(get_db_session),
+):
+    team = service.get_team(db, yard_id=ctx.yard_id, team_id=team_id)
+    scheduler.set_schedule(db, team=team, ctx=ctx, schedule=payload)
+    db.commit()
+    return ok(service.team_out(team), request)
+
+
+@router.post("/{team_id}/run", status_code=202)
+def run_team(
     team_id: str,
     payload: TeamRunRequest,
     request: Request,
     ctx: YardContext = Depends(get_yard_context),
-    user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db_session),
 ):
-    """同步跑一次班组接力：全员预检 → 按序执行 → 返回 run（含成员明细）。
-
-    任一成员失败：HTTP 抛原始错误（run 已置 failed 停在断点，可 retry），
-    与声明式运行失败 502 的口径一致。
-    """
     team = service.get_team(db, yard_id=ctx.yard_id, team_id=team_id)
-    if not team.enabled:
-        raise AppError("TEAM_DISABLED", "班组已停用，不能发起运行。", http_status=409)
-    specs = service.parse_members(team.members_json)
-    service.require_members_runnable(db, yard_id=ctx.yard_id, members=specs)
-    run = service.create_team_run(db, team=team, user_input=payload.input, ctx=ctx)
+    current = service.execution_context(
+        db, yard_id=ctx.yard_id, user_id=ctx.user_id, request_id=ctx.request_id
+    )
     try:
-        run = await service.continue_team_run(db, run=run, ctx=ctx)
-    except AppError as e:
+        run = service.create_team_run(
+            db,
+            team=team,
+            user_input=payload.input,
+            ctx=current,
+            output_format=payload.output_format,
+        )
+        task = service.create_run_task(db, run=run, ctx=current)
         _audit_run(
             db,
-            ctx,
-            user.user_id,
+            current,
+            current.user_id,
             action="team_run",
             run=run,
-            result="failure",
-            metadata={"error_code": e.code, "failed_member": e.details.get("member_index")},
+            result="success",
+            metadata={"status": "queued", "member_count": len(run.members_json)},
         )
         db.commit()
+    except Exception:
+        db.rollback()
         raise
-    _audit_run(
-        db,
-        ctx,
-        user.user_id,
-        action="team_run",
-        run=run,
-        result="success",
-        metadata={
-            "member_count": len(run.members_json or []),
-            "answer_chars": len(run.answer or ""),
-        },
-    )
-    db.commit()
-    return ok(service.run_out(run, service.members_of_run(db, run)), request)
+    data = service.run_out(run, service.members_of_run(db, run))
+    service.dispatch_run(db, run, task)
+    return JSONResponse(status_code=202, content=ok(data, request))
 
 
 @router.get("/{team_id}/runs")
@@ -284,15 +276,34 @@ def list_team_runs(
     ctx: YardContext = Depends(get_yard_context),
     db: Session = Depends(get_db_session),
 ):
-    """本班组运行列表（摘要，最新在前）。"""
-    service.get_team(db, yard_id=ctx.yard_id, team_id=team_id)  # 边界：不存在 404
-    runs = service.list_team_runs(db, yard_id=ctx.yard_id, team_id=team_id)
+    service.get_team(db, yard_id=ctx.yard_id, team_id=team_id)
+    runs = service.list_team_runs(db, yard_id=ctx.yard_id, team_id=team_id, user_id=ctx.user_id)
     return ok({"runs": [service.run_summary(r) for r in runs]}, request)
 
 
-# ---------------------------------------------------------------------------
-# 运行台账 / 断点续跑 / SSE（小院成员均可）
-# ---------------------------------------------------------------------------
+@runs_router.get("")
+def list_runs(
+    request: Request,
+    team_id: str | None = None,
+    status: Literal["queued", "running", "completed", "failed"] | None = None,
+    trigger: Literal["manual", "schedule"] | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    ctx: YardContext = Depends(get_yard_context),
+    db: Session = Depends(get_db_session),
+):
+    return ok(
+        service.paged_team_runs(
+            db,
+            ctx=ctx,
+            team_id=team_id,
+            status=status,
+            trigger=trigger,
+            page=page,
+            page_size=page_size,
+        ),
+        request,
+    )
 
 
 @runs_router.get("/{run_id}")
@@ -302,73 +313,69 @@ def get_team_run(
     ctx: YardContext = Depends(get_yard_context),
     db: Session = Depends(get_db_session),
 ):
-    """运行详情：team_runs 主行 + 全部成员接力明细（含 task_id 供二跳）。"""
-    run = service.get_team_run(db, yard_id=ctx.yard_id, run_id=run_id)
+    run = service.get_team_run(db, yard_id=ctx.yard_id, run_id=run_id, user_id=ctx.user_id)
     return ok(service.run_out(run, service.members_of_run(db, run)), request)
 
 
-@runs_router.post("/{run_id}/retry")
-async def retry_team_run(
+@runs_router.post("/{run_id}/retry", status_code=202)
+def retry_team_run(
     run_id: str,
     request: Request,
     ctx: YardContext = Depends(get_yard_context),
-    user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db_session),
 ):
-    """成员级断点续跑：已 ok 成员绝不重跑（复用 output），从首个非 ok 成员续。
-
-    有 checkpoint 步骤的成员以其存量 task_id 走 W1 resume（副作用工具不重放、
-    失败 LLM 步原位重跑）；无步骤成员整段重跑（该路径无副作用工具）。
-    审计 action=team_run_retry（记 skipped_ok 与续跑起点）。
-    """
-    run = service.get_team_run(db, yard_id=ctx.yard_id, run_id=run_id)
-    if run.status == RUN_COMPLETED:
-        raise AppError(
-            "TEAM_RUN_ALREADY_COMPLETED", "该班组运行已完成，不允许重放。", http_status=409
-        )
-    if run.status == RUN_RUNNING:
-        raise AppError(
-            "TEAM_RUN_STATE_CONFLICT", "该班组运行仍在执行中，不能重复触发续跑。", http_status=409
-        )
-    team = service.get_team(db, yard_id=ctx.yard_id, team_id=run.team_id)
-    if not team.enabled:
-        raise AppError("TEAM_DISABLED", "班组已停用，不能续跑。", http_status=409)
-    rows = service.members_of_run(db, run)
-    base_meta = {
-        "skipped_ok_members": sum(1 for r in rows if r.status == "ok"),
-        "from_member_index": next((int(r.index) for r in rows if r.status != "ok"), len(rows)),
-    }
+    run = service.get_team_run(db, yard_id=ctx.yard_id, run_id=run_id, user_id=ctx.user_id)
     try:
-        run = await service.continue_team_run(db, run=run, ctx=ctx)
-    except AppError as e:
+        task = service.prepare_retry(db, run=run, ctx=ctx)
+        rows = service.members_of_run(db, run)
         _audit_run(
             db,
             ctx,
-            user.user_id,
+            ctx.user_id,
             action="team_run_retry",
             run=run,
-            result="failure",
-            metadata={**base_meta, "error_code": e.code},
+            result="success",
+            metadata={
+                "skipped_ok_members": sum(r.status == "ok" for r in rows),
+                "from_member_index": next((r.index for r in rows if r.status != "ok"), len(rows)),
+            },
         )
         db.commit()
+    except Exception:
+        db.rollback()
         raise
-    _audit_run(
-        db,
-        ctx,
-        user.user_id,
-        action="team_run_retry",
-        run=run,
-        result="success",
-        metadata=dict(base_meta),
+    data = service.run_out(run, rows)
+    service.dispatch_run(db, run, task)
+    return JSONResponse(status_code=202, content=ok(data, request))
+
+
+@runs_router.get("/{run_id}/document")
+def download_document(
+    run_id: str,
+    format: Literal["md", "docx"] = "md",
+    ctx: YardContext = Depends(get_yard_context),
+    db: Session = Depends(get_db_session),
+):
+    from app.modules.agents.teams.artifacts import render_document
+
+    run = service.get_team_run(db, yard_id=ctx.yard_id, run_id=run_id, user_id=ctx.user_id)
+    if run.status != RUN_COMPLETED:
+        raise AppError(
+            "TEAM_DOCUMENT_NOT_READY", "运行尚未成功完成，不能下载文档。", http_status=409
+        )
+    content, mime, filename = render_document(run, format)
+    return Response(
+        content=content,
+        media_type=mime,
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename, safe='')}"},
     )
-    db.commit()
-    return ok(service.run_out(run, service.members_of_run(db, run)), request)
 
 
 @runs_router.get("/{run_id}/stream")
 def stream_team_run(
     run_id: str,
     ctx: YardContext = Depends(get_yard_context),
+    db: Session = Depends(get_db_session),
 ):
-    """成员级 SSE（复用 run_stream 帧协议；内部步经 agent_run_id 二跳，见 stream.py）。"""
-    return team_stream.build_stream_response(ctx.yard_id, run_id)
+    service.get_team_run(db, yard_id=ctx.yard_id, run_id=run_id, user_id=ctx.user_id)
+    return team_stream.build_stream_response(ctx.yard_id, run_id, ctx.user_id)

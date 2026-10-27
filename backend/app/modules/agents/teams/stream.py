@@ -41,12 +41,16 @@ def _sse_frame(event: str, data: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
 
 
-def _read_snapshot(yard_id: str, run_id: str) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+def _read_snapshot(
+    yard_id: str,
+    run_id: str,
+    user_id: str | None = None,
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
     """短 session 读一次快照：run 状态 + Member 台账序列化（index 升序）。"""
     db: Session = _get_session_factory()()
     try:
         run = db.scalar(select(TeamRun).where(TeamRun.id == run_id, TeamRun.yard_id == yard_id))
-        if run is None:
+        if run is None or (run.created_by and run.created_by != user_id):
             return None, []
         rows = list(
             db.scalars(
@@ -78,7 +82,11 @@ def _read_snapshot(yard_id: str, run_id: str) -> tuple[dict[str, Any] | None, li
         db.close()
 
 
-async def _stream_frames(yard_id: str, run_id: str) -> AsyncIterator[str]:
+async def _stream_frames(
+    yard_id: str,
+    run_id: str,
+    user_id: str | None = None,
+) -> AsyncIterator[str]:
     seen: set[str] = set()
     loop = asyncio.get_running_loop()
     deadline = loop.time() + MAX_STREAM_SECONDS
@@ -110,7 +118,7 @@ async def _stream_frames(yard_id: str, run_id: str) -> AsyncIterator[str]:
         return frames
 
     try:
-        run_d, rows = _read_snapshot(yard_id, run_id)
+        run_d, rows = await asyncio.to_thread(_read_snapshot, yard_id, run_id, user_id)
         if run_d is None:
             # SSE 语义不 404：一帧说明后直接收流（run_id 应由 run/retry 响应给出）
             yield _sse_frame("team-end", {"status": "not_found", "reason": "run_not_found"})
@@ -125,12 +133,12 @@ async def _stream_frames(yard_id: str, run_id: str) -> AsyncIterator[str]:
         )
         for frame in _collect_new(rows):
             yield frame
-        if run_d["status"] != "running":
+        if run_d["status"] not in {"queued", "running"}:
             yield _sse_frame("team-end", {"status": run_d["status"], "reason": "run_terminal"})
             return
 
         while True:
-            run_d, rows = _read_snapshot(yard_id, run_id)
+            run_d, rows = await asyncio.to_thread(_read_snapshot, yard_id, run_id, user_id)
             if run_d is None:
                 yield _sse_frame("team-end", {"status": "not_found", "reason": "run_not_found"})
                 return
@@ -138,7 +146,7 @@ async def _stream_frames(yard_id: str, run_id: str) -> AsyncIterator[str]:
             for frame in _collect_new(rows):
                 emitted = True
                 yield frame
-            if run_d["status"] != "running":
+            if run_d["status"] not in {"queued", "running"}:
                 yield _sse_frame("team-end", {"status": run_d["status"], "reason": "run_terminal"})
                 return
             if loop.time() >= deadline:
@@ -160,9 +168,13 @@ async def _stream_frames(yard_id: str, run_id: str) -> AsyncIterator[str]:
         yield _sse_frame("team-end", {"status": "error", "reason": "snapshot_error"})
 
 
-def build_stream_response(yard_id: str, run_id: str) -> StreamingResponse:
+def build_stream_response(
+    yard_id: str,
+    run_id: str,
+    user_id: str | None = None,
+) -> StreamingResponse:
     return StreamingResponse(
-        _stream_frames(yard_id, run_id),
+        _stream_frames(yard_id, run_id, user_id),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

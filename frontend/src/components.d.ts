@@ -90,6 +90,7 @@ declare module 'vue' {
     PluginCard: typeof import('./components/chat/PluginCard.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+    SafeMarkdown: typeof import('./components/teams/SafeMarkdown.vue')['default']
     SessionAudit: typeof import('./components/owner/SessionAudit.vue')['default']
     SettingsAgentGenerate: typeof import('./components/settings/SettingsAgentGenerate.vue')['default']
     SettingsGrants: typeof import('./components/settings/SettingsGrants.vue')['default']
@@ -101,6 +102,9 @@ declare module 'vue' {
     SkillCard: typeof import('./components/chat/SkillCard.vue')['default']
     SkillScopePanel: typeof import('./components/library/SkillScopePanel.vue')['default']
     SkillWizard: typeof import('./components/library/SkillWizard.vue')['default']
+    TeamRunResult: typeof import('./components/teams/TeamRunResult.vue')['default']
+    TeamRunsDialog: typeof import('./components/teams/TeamRunsDialog.vue')['default']
+    TeamScheduleDialog: typeof import('./components/teams/TeamScheduleDialog.vue')['default']
     TransferOwner: typeof import('./components/owner/TransferOwner.vue')['default']
     UsageTrend: typeof import('./components/owner/UsageTrend.vue')['default']
   }

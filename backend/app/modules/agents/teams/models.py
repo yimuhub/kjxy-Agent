@@ -22,10 +22,11 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base, TimestampMixin
 
 # 班组运行状态（与迁移默认值/服务层保持一致）
+RUN_QUEUED = "queued"
 RUN_RUNNING = "running"
 RUN_COMPLETED = "completed"
 RUN_FAILED = "failed"
-VALID_RUN_STATUSES = (RUN_RUNNING, RUN_COMPLETED, RUN_FAILED)
+VALID_RUN_STATUSES = (RUN_QUEUED, RUN_RUNNING, RUN_COMPLETED, RUN_FAILED)
 
 # 成员步状态
 MEMBER_PENDING = "pending"
@@ -48,6 +49,11 @@ class AgentTeam(Base, TimestampMixin):
     members_json: Mapped[list] = mapped_column(JSON, nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    schedule_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    schedule_created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    next_run_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
 
 
 class TeamRun(Base, TimestampMixin):
@@ -55,10 +61,17 @@ class TeamRun(Base, TimestampMixin):
 
     team_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     yard_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    team_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    trigger: Mapped[str] = mapped_column(String(16), nullable=False, default="manual")
+    output_format: Mapped[str] = mapped_column(String(8), nullable=False, default="text")
+    research_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    document_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    task_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     # 原始问题：每个成员的接力输入都以它为前缀重建
     input: Mapped[str] = mapped_column(Text, nullable=False)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default=RUN_RUNNING)
-    # 最终答案（completed 时写入；拼接策略见 service.compose_answer）
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default=RUN_QUEUED)
+    # 最终答案（completed 时写入）
     answer: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 运行时成员定义快照（与 agent_teams.members_json 同构）
     members_json: Mapped[list] = mapped_column(JSON, nullable=False)
