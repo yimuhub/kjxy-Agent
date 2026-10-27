@@ -136,6 +136,15 @@ export interface YardSettingsBundle {
     use_web: boolean
     max_sources: number
   }
+  self_improve: {
+    enabled: boolean
+    schedule: { preset: string; custom_value: number; custom_unit: string }
+    scope: 'yard' | 'per_member'
+    daily_budget_tokens: number
+    auto_publish: boolean
+    retain_days: number
+    notify_owner: boolean
+  }
 }
 
 export const governanceApi = {
@@ -186,7 +195,7 @@ export const governanceApi = {
     return unwrap(api.get<ApiResponse<YardSettingsBundle>>('/yards/current/settings'))
   },
   updateSetting(
-    key: 'registration' | 'security' | 'search' | 'skill_lab',
+    key: 'registration' | 'security' | 'search' | 'skill_lab' | 'self_improve',
     value: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
     return unwrap(
@@ -554,6 +563,69 @@ export interface SkillListResult {
   total: number
   page: number
   pageSize: number
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 自我总结提升（v3.4）
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface SelfImproveRun {
+  id: string
+  job_id: string
+  trigger: string
+  status: 'running' | 'success' | 'failed' | 'skipped'
+  started_at: string | null
+  finished_at: string | null
+  duration_ms: number | null
+  tokens_used: number
+  output: Record<string, unknown> | null
+  error: string | null
+  actor_id: string | null
+}
+
+export interface SelfImproveReport {
+  settings: Record<string, unknown>
+  job: { status: string; next_run_at: string | null; last_run_at: string | null }
+  last_run: SelfImproveRun | null
+  budget: { daily_budget_tokens: number; used_today: number; remaining: number }
+  can_manage: boolean
+}
+
+export interface SelfImproveMemory {
+  id: string
+  user_id: string | null
+  summary: string
+  tags: string[]
+  window_from: string | null
+  window_to: string | null
+  created_at: string | null
+}
+
+export const selfImproveApi = {
+  report(): Promise<SelfImproveReport> {
+    return unwrap(api.get<ApiResponse<SelfImproveReport>>('/yards/current/self-improve'))
+  },
+  run(): Promise<SelfImproveRun> {
+    return unwrap(api.post<ApiResponse<SelfImproveRun>>('/yards/current/self-improve/run'))
+  },
+  runs(limit = 20): Promise<{ items: SelfImproveRun[] }> {
+    return unwrap(
+      api.get<ApiResponse<{ items: SelfImproveRun[] }>>(
+        '/yards/current/self-improve/runs',
+        { params: { limit } },
+      ),
+    )
+  },
+  memories(userId?: string): Promise<{ items: SelfImproveMemory[] }> {
+    const params: Record<string, string> = {}
+    if (userId) params.user_id = userId
+    return unwrap(
+      api.get<ApiResponse<{ items: SelfImproveMemory[] }>>(
+        '/yards/current/self-improve/memories',
+        { params },
+      ),
+    )
+  },
 }
 
 /**

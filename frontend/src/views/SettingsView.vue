@@ -31,6 +31,13 @@
       </el-tab-pane>
 
       <el-tab-pane
+        label="自我总结"
+        name="self_improve"
+      >
+        <SettingsSelfImprove />
+      </el-tab-pane>
+
+      <el-tab-pane
         v-if="isOwner"
         label="敏感授权"
         name="grants"
@@ -901,6 +908,7 @@ import SettingsRoles from '@/components/settings/SettingsRoles.vue'
 import SettingsRegistration from '@/components/settings/SettingsRegistration.vue'
 import SettingsNetwork from '@/components/settings/SettingsNetwork.vue'
 import SettingsSkillLab from '@/components/settings/SettingsSkillLab.vue'
+import SettingsSelfImprove from '@/components/settings/SettingsSelfImprove.vue'
 import SettingsGrants from '@/components/settings/SettingsGrants.vue'
 import { useAuthStore } from '@/stores/auth'
 import { classifyError, type ViewState } from '@/utils/status'
