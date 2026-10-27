@@ -53,6 +53,11 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "retain_days": 90,
         "notify_owner": True,
     },
+    "agent_generate": {
+        "enabled": True,
+        "daily_limit": 10,  # 每成员每日生成次数（0 = 不限）
+        "use_web": True,  # 生成前先联网取证；关闭则直接按本地知识设计
+    },
 }
 
 REGISTRATION_MODES = {"closed", "approval", "open"}
@@ -155,6 +160,16 @@ def _validate(key: str, value: dict[str, Any], merged: dict[str, Any]) -> None:
             ) from e
         if not 1000 <= budget <= 10_000_000 or not 7 <= retain <= 365:
             raise AppError("INVALID_REQUEST", "自我总结预算/保留期超出允许范围。", http_status=400)
+    elif key == "agent_generate":
+        for flag in ("enabled", "use_web"):
+            if not isinstance(merged[flag], bool):
+                raise AppError("INVALID_REQUEST", "智能体生成开关必须是布尔值。", http_status=400)
+        try:
+            limit = int(merged["daily_limit"])
+        except (TypeError, ValueError) as e:
+            raise AppError("INVALID_REQUEST", "智能体生成配额必须是整数。", http_status=400) from e
+        if not 0 <= limit <= 200:
+            raise AppError("INVALID_REQUEST", "智能体生成配额超出允许范围。", http_status=400)
     else:
         raise AppError("INVALID_REQUEST", f"未知设置项：{key}", http_status=400)
 

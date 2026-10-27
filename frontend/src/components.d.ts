@@ -12,6 +12,7 @@ export {}
 declare module 'vue' {
   export interface GlobalComponents {
     AgentUseDialog: typeof import('./components/agents/AgentUseDialog.vue')['default']
+    AgentWizard: typeof import('./components/agents/AgentWizard.vue')['default']
     AsyncState: typeof import('./components/AsyncState.vue')['default']
     BindableExtensionPicker: typeof import('./components/agents/BindableExtensionPicker.vue')['default']
     ChatCard: typeof import('./components/chat/ChatCard.vue')['default']
@@ -90,6 +91,7 @@ declare module 'vue' {
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     SessionAudit: typeof import('./components/owner/SessionAudit.vue')['default']
+    SettingsAgentGenerate: typeof import('./components/settings/SettingsAgentGenerate.vue')['default']
     SettingsGrants: typeof import('./components/settings/SettingsGrants.vue')['default']
     SettingsNetwork: typeof import('./components/settings/SettingsNetwork.vue')['default']
     SettingsRegistration: typeof import('./components/settings/SettingsRegistration.vue')['default']

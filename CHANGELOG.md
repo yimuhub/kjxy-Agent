@@ -2,6 +2,53 @@
 
 本项目遵循《工程开发规范 V3.0》；版本号遵循语义化版本。
 
+## [3.5.0] - 2026-10-27
+
+一句话生成智能体（「我的智能体」内输入一句话 → 联网取证 → 固定六段框架 →
+自动匹配本院技能 → 落可编辑草稿，全程不自动发布）。方案要点：异步任务 + SSE
+里程碑、技能「配不上就留待补清单」、配额与权限不新增权限点。
+
+### 后端
+
+- 迁移 0035：`yard_agents` 增加 `blueprint_json`（框架六段 + 参考来源 + 生成元信息）
+  与 `skill_requirements`（待补技能清单），仅生成草稿非空
+- `agent_spec.py`：固定框架 `AgentSpec`（`extra=forbid`，六段缺一不可）——使命 /
+  职责边界（in_scope 3-6 条 + out_of_scope 2-4 条）/ 服务对象 / 工作流 3-6 步 /
+  护栏 2-5 条 / 产出格式；`agent_code` 强制 `gen_` 前缀、工具必须在注册表内
+  （未知工具 422）、`{{question}}` 占位必填、`knowledge_scopes` 白名单、风险由
+  服务端 `assess_risk` 复算不采信模型自评
+- `agent_builder.py`：联网取证（`search_web`，失败降级离线不阻断）→ LLM 按框架
+  出严格 JSON（3 次纠错；模型完全不可用 502 不落草稿，连续不合规落确定性保守
+  模板并标注人工复核）→ 技能匹配（关键词打分命中自动绑入 `bound_skills`，
+  未命中进 `skill_requirements`，上限 5 项）→ `create_agent` 落 draft（不发布）
+- 异步任务：`agent_generate` 任务处理器按 retrieving → designing → matching →
+  persisting → completed/failed 写 task_events 里程碑；前端复用现成
+  `GET /tasks/{id}/events/stream`（SSE）追进度
+- 路由（挂 `/agents/generate*`）：`POST /agents/generate/preview`（同步预览：
+  关键词 + 现有技能候选 + 配额快照，不调 LLM）、`POST /agents/generate`
+  （202 返回 `{task_id}`；幂等键 = 小院+成员+utterance）、
+  `GET /agents/generate/policy`（当前成员配额快照）
+- 权限与配额：不新增权限点——任何小院成员可生成；`visibility=public` 需管理员
+  （越权 403）；双闸 `tasks` 配额 + 小院设置 `agent_generate.daily_limit`
+  （默认 10 次/人/日，按 tasks 行计数、跨进程一致）
+- 设置项 `agent_generate`（enabled / daily_limit 0-200 / use_web），设置页权限
+  `settings:manage`；审计 `agent_generate_requested` / `agent_generated`
+- `DeclarativeAgentUpdate` 支持人工维护 `skill_requirements`（补齐后可删除）；
+  `to_out` 暴露 `blueprint` / `skill_requirements`
+
+### 前端
+
+- 「我的智能体」新增「⚡ 一句话生成」入口 + 三步向导（一句话描述与示例 chips →
+  SSE 四阶段进度（断线降级 5s 轮询）→ 六段框架只读预览、已匹配技能可取消勾选、
+  待补技能 chips 可删除），完成后直接打开现有编辑弹窗
+- 编辑弹窗「扩展技能」上方显示「待补技能」chips（可删除，单独 PATCH）
+- 系统设置新增「一句话生成智能体」卡片（开关 / 每人每日上限 / 联网检索）
+
+### 收口
+
+- `contracts/openapi.yaml` 重新生成；`contracts/error-codes.md` 补 4 个
+  `AGENT_GENERATE_*` 错误码；版本号 3.4.1 → 3.5.0
+
 ## [3.4.1] - 2026-10-27
 
 ### 修复

@@ -222,11 +222,36 @@ class DeclarativeAgentUpdate(BaseModel):
     supplier_id: str | None = Field(default=None, max_length=36)
     model_name: str | None = Field(default=None, max_length=100)
     visibility: str | None = Field(default=None, max_length=10)
+    # v3.5：待补技能清单允许人工维护（补齐后可删除该项），其余生成元信息只读
+    skill_requirements: list[dict[str, Any]] | None = Field(default=None, max_length=20)
 
     _v_name = field_validator("name")(_validate_name)
     _v_template = field_validator("task_prompt_template")(_validate_task_template)
     _v_tools = field_validator("allowed_tools")(_validate_tool_list)
     _v_skills = field_validator("bound_skills")(_validate_skill_list)
+
+    @field_validator("skill_requirements")
+    @classmethod
+    def _v_requirements(cls, v: list[dict[str, Any]] | None) -> list[dict[str, Any]] | None:
+        if v is None:
+            return None
+        rows: list[dict[str, Any]] = []
+        for raw in v:
+            if not isinstance(raw, dict):
+                raise ValueError("skill_requirements 每项必须是对象")
+            need = str(raw.get("need") or "").strip()
+            if not need:
+                raise ValueError("skill_requirements[].need 不能为空")
+            keywords = [str(k).strip() for k in (raw.get("keywords") or []) if str(k).strip()]
+            rows.append(
+                {
+                    "need": need[:100],
+                    "keywords": keywords[:6],
+                    "reason": str(raw.get("reason") or "")[:300],
+                    "status": str(raw.get("status") or "missing")[:20],
+                }
+            )
+        return rows
 
     @field_validator("visibility")
     @classmethod
@@ -367,6 +392,9 @@ def to_out(agent: YardAgent, db: Session | None = None) -> dict[str, Any]:
         "status": agent.status,
         "version": agent.version,
         "created_from": agent.created_from,
+        # v3.5 一句话生成：框架六段（非生成草稿为 None）+ 待补技能清单
+        "blueprint": getattr(agent, "blueprint_json", None),
+        "skill_requirements": list(getattr(agent, "skill_requirements", None) or []),
         "created_by": agent.created_by,
         "updated_by": agent.updated_by,
         "token_stats": token_stats,

@@ -4063,6 +4063,84 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agents/generate/preview:
+    post:
+      tags:
+      - v1
+      - agents
+      - agents-generate
+      summary: Preview
+      description: 同步预览：意图关键词 + 现有技能/插件候选 + 配额快照（不调 LLM、不落库）。
+      operationId: preview_api_v1_agents_generate_preview_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentGeneratePreviewRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/agents/generate:
+    post:
+      tags:
+      - v1
+      - agents
+      - agents-generate
+      summary: Generate
+      description: '发起一句话生成：建任务并立即返回句柄（202）。
+
+
+        幂等：同小院同人同 utterance 30 秒内重复提交只算一次任务（idempotency_key）。'
+      operationId: generate_api_v1_agents_generate_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentGenerateRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/agents/generate/policy:
+    get:
+      tags:
+      - v1
+      - agents
+      - agents-generate
+      summary: Policy
+      description: 当前成员的生成配额快照（向导第一步展示还能生成几次）。
+      operationId: policy_api_v1_agents_generate_policy_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
   /api/v1/agents/supervisor/ask:
     post:
       tags:
@@ -6671,6 +6749,45 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
+    AgentGeneratePreviewRequest:
+      properties:
+        utterance:
+          type: string
+          maxLength: 2000
+          minLength: 1
+          title: Utterance
+      additionalProperties: false
+      type: object
+      required:
+      - utterance
+      title: AgentGeneratePreviewRequest
+    AgentGenerateRequest:
+      properties:
+        utterance:
+          type: string
+          maxLength: 2000
+          minLength: 1
+          title: Utterance
+        visibility:
+          type: string
+          maxLength: 10
+          title: Visibility
+          default: private
+        use_web:
+          type: boolean
+          title: Use Web
+          default: true
+        supplier_id:
+          anyOf:
+          - type: string
+            maxLength: 36
+          - type: 'null'
+          title: Supplier Id
+      additionalProperties: false
+      type: object
+      required:
+      - utterance
+      title: AgentGenerateRequest
     AgentRunRequest:
       properties:
         input:

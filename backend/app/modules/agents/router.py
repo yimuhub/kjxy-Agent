@@ -36,6 +36,7 @@ from app.modules.agents import (
     run_stream,
     supervisor,
 )
+from app.modules.agents.agent_generate_router import router as agent_generate_router
 from app.modules.agents.definitions import AGENT_DEFINITIONS
 from app.modules.agents.factory_router import router as factory_router
 from app.modules.agents.schemas import AgentContext, AgentResult
@@ -684,6 +685,12 @@ async def retry_run_from_checkpoint(
 # ---------------------------------------------------------------------------
 
 router.include_router(factory_router)
+
+# ---------------------------------------------------------------------------
+# 一句话生成智能体（v3.5）：/agents/generate*（预览 → 任务 → SSE 进度 → 草稿）。
+# ---------------------------------------------------------------------------
+
+router.include_router(agent_generate_router)
 
 # ---------------------------------------------------------------------------
 # 总控问答入口（W5b）：/agents/supervisor/{ask,candidates}

@@ -28,6 +28,7 @@
       >
         <SettingsNetwork />
         <SettingsSkillLab />
+        <SettingsAgentGenerate />
       </el-tab-pane>
 
       <el-tab-pane
@@ -908,6 +909,7 @@ import SettingsRoles from '@/components/settings/SettingsRoles.vue'
 import SettingsRegistration from '@/components/settings/SettingsRegistration.vue'
 import SettingsNetwork from '@/components/settings/SettingsNetwork.vue'
 import SettingsSkillLab from '@/components/settings/SettingsSkillLab.vue'
+  import SettingsAgentGenerate from '@/components/settings/SettingsAgentGenerate.vue'
 import SettingsSelfImprove from '@/components/settings/SettingsSelfImprove.vue'
 import SettingsGrants from '@/components/settings/SettingsGrants.vue'
 import { useAuthStore } from '@/stores/auth'

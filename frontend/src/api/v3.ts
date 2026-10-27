@@ -145,6 +145,12 @@ export interface YardSettingsBundle {
     retain_days: number
     notify_owner: boolean
   }
+  /** v3.5：一句话生成智能体（每成员每日配额，0 = 不限） */
+  agent_generate: {
+    enabled: boolean
+    daily_limit: number
+    use_web: boolean
+  }
 }
 
 export const governanceApi = {
@@ -195,7 +201,13 @@ export const governanceApi = {
     return unwrap(api.get<ApiResponse<YardSettingsBundle>>('/yards/current/settings'))
   },
   updateSetting(
-    key: 'registration' | 'security' | 'search' | 'skill_lab' | 'self_improve',
+    key:
+      | 'registration'
+      | 'security'
+      | 'search'
+      | 'skill_lab'
+      | 'self_improve'
+      | 'agent_generate',
     value: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
     return unwrap(
@@ -299,6 +311,22 @@ export const agentsApi = {
   bindableExtensions(): Promise<BindableExtensions> {
     return unwrap(
       api.get<ApiResponse<BindableExtensions>>('/agents/bindable-extensions', silent),
+    )
+  },
+  /** 局部更新声明式智能体（v3.5：一句话生成后勾选技能 / 删除待补项用，不动其余字段） */
+  updateDeclarative(
+    id: string,
+    payload: {
+      bound_skills?: string[]
+      skill_requirements?: { need: string; keywords?: string[]; reason?: string; status?: string }[]
+    },
+  ): Promise<Record<string, unknown>> {
+    return unwrap(
+      api.patch<ApiResponse<Record<string, unknown>>>(
+        `/agents/declarative/${id}`,
+        payload,
+        silent,
+      ),
     )
   },
 }
@@ -789,6 +817,108 @@ export const skillLabApi = {
     return unwrap(
       api.post<ApiResponse<SkillAgentInstallResult>>('/market/agent/install', payload, silent),
     )
+  },
+}
+
+// ---------------------------------------------------------------------------
+// 一句话生成智能体（v3.5）：预览 → 202 异步任务（SSE 追进度）→ 草稿预览
+// ---------------------------------------------------------------------------
+
+/** 生成配额快照（向导第一步顶部展示；remaining=-1 表示不限） */
+export interface AgentGeneratePolicy {
+  enabled: boolean
+  use_web: boolean
+  used: number
+  limit: number
+  remaining: number
+}
+
+/** 预览命中的现有技能/插件候选（code 已带 skill:/plugin: 前缀） */
+export interface AgentPreviewMatch {
+  code: string
+  name: string
+  kind: 'skill' | 'plugin' | string
+  summary: string
+  source: string
+  score: number
+}
+
+/** POST /agents/generate/preview：同步轻量预览（不调 LLM） */
+export interface AgentPreviewResult {
+  utterance: string
+  keywords: string[]
+  matches: AgentPreviewMatch[]
+  note: string
+  policy: AgentGeneratePolicy
+}
+
+/** 生成结果里的已匹配项：生成时自动绑定，取消勾选走 PATCH bound_skills */
+export interface AgentMatchedSkill {
+  need: string
+  code: string
+  name: string
+  kind: 'skill' | 'plugin' | string
+  summary: string
+  source: string
+  score: number
+  reason: string
+}
+
+/** 待补技能：生成时未匹配到，可编辑/删除（PATCH skill_requirements） */
+export interface AgentSkillRequirement {
+  need: string
+  keywords: string[]
+  reason: string
+  status: string
+}
+
+/** 任务成功后 result_json 的形状（GET /tasks/{task_id}） */
+export interface AgentGenerateTaskSummary {
+  agent_id: string
+  agent_code: string
+  name: string
+  status: string
+  risk_level: string
+  visibility: string
+  matched: AgentMatchedSkill[]
+  skill_requirements: AgentSkillRequirement[]
+  sources: { title: string; url: string }[]
+  offline: boolean
+  note: string
+  token_usage: { input_tokens?: number; output_tokens?: number; total_tokens?: number }
+}
+
+/** 轮询任务行时关心的字段（TaskOut 子集，其余原样透传） */
+export interface AgentGenerateTaskRow {
+  id: string
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | string
+  result_json?: AgentGenerateTaskSummary | null
+  error_message?: string | null
+  [key: string]: unknown
+}
+
+/** 全部静默：配额/预览失败只在向导内提示，不弹全局错误 */
+export const agentGenerateApi = {
+  preview(utterance: string): Promise<AgentPreviewResult> {
+    return unwrap(
+      api.post<ApiResponse<AgentPreviewResult>>('/agents/generate/preview', { utterance }, silent),
+    )
+  },
+  /** 后端返回 202 {task_id}；axios 把 2xx 一律当成功，无需特殊处理 */
+  generate(payload: {
+    utterance: string
+    visibility: 'private' | 'public'
+    use_web: boolean
+    supplier_id?: string
+  }): Promise<{ task_id: string }> {
+    return unwrap(api.post<ApiResponse<{ task_id: string }>>('/agents/generate', payload))
+  },
+  policy(): Promise<AgentGeneratePolicy> {
+    return unwrap(api.get<ApiResponse<AgentGeneratePolicy>>('/agents/generate/policy', silent))
+  },
+  /** SSE 断线降级轮询用：看 status 与 result_json */
+  task(taskId: string): Promise<AgentGenerateTaskRow> {
+    return unwrap(api.get<ApiResponse<AgentGenerateTaskRow>>(`/tasks/${taskId}`, silent))
   },
 }
 

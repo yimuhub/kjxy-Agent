@@ -26,6 +26,12 @@
           智能体工厂批量生成
         </el-button>
         <el-button
+          size="small"
+          @click="wizardVisible = true"
+        >
+          ⚡ 一句话生成
+        </el-button>
+        <el-button
           type="primary"
           size="small"
           @click="openDaCreate"
@@ -602,6 +608,29 @@
           </div>
         </el-form-item>
 
+        <el-form-item label="待补技能">
+          <div
+            v-if="daEditingRequirements.length"
+            class="req-chips"
+          >
+            <el-tag
+              v-for="(r, i) in daEditingRequirements"
+              :key="`${r.need}-${i}`"
+              closable
+              effect="plain"
+              type="warning"
+              @close="removeDaRequirement(i)"
+            >
+              {{ r.need }}
+            </el-tag>
+            <span class="da-note">生成时未找到匹配技能；可去「插件与技能库」补充，点 × 删除该项。</span>
+          </div>
+          <span
+            v-else
+            class="da-note"
+          >无待补项</span>
+        </el-form-item>
+
         <el-form-item label="扩展技能">
           <BindableExtensionPicker
             v-model="decForm.bound_skills"
@@ -732,6 +761,12 @@
         </el-table-column>
       </el-table>
     </el-dialog>
+
+    <!-- 一句话生成智能体三步向导（v3.5） -->
+    <AgentWizard
+      v-model="wizardVisible"
+      @created="onGenerated"
+    />
   </div>
 </template>
 
@@ -755,6 +790,7 @@
   import { api, extractErrorDetails, extractErrorMessage } from '@/api/client'
   import { useAuthStore } from '@/stores/auth'
   import AgentUseDialog from '@/components/agents/AgentUseDialog.vue'
+  import AgentWizard from '@/components/agents/AgentWizard.vue'
   import BindableExtensionPicker from '@/components/agents/BindableExtensionPicker.vue'
   import DeclarativeAgentCard from '@/components/agents/DeclarativeAgentCard.vue'
   import DuplicateNameDialog from '@/components/agents/DuplicateNameDialog.vue'
@@ -980,6 +1016,7 @@
 
   /* ---------- 新建 / 编辑智能体表单 ---------- */
   const daDialogVisible = ref(false)
+  const wizardVisible = ref(false)
   const daEditingId = ref('')
   const daSaving = ref(false)
   const daTemplate = ref('')
@@ -1101,7 +1138,7 @@
     )
   }
   function daFromLabel(f: string) {
-    return { manual: '手工', template: '模板', factory: '工厂', chat: '对话', market: '市场' }[f] || f
+    return { manual: '手工', template: '模板', factory: '工厂', chat: '对话', market: '市场', generated: '一句话生成' }[f] || f
   }
   function daRowClass({ row }: { row: DeclarativeAgent }): string {
     return row.id === daFocusId.value ? 'is-focus-row' : ''
@@ -1112,6 +1149,32 @@
       daList.value = await declarativeApi.list()
     } catch {
       daList.value = []
+    }
+  }
+
+  /* ---------- 一句话生成向导（v3.5） ---------- */
+  interface SkillRequirement {
+    need: string
+    keywords?: string[]
+    reason?: string
+    status?: string
+  }
+  const daEditingRequirements = ref<SkillRequirement[]>([])
+
+  async function onGenerated(agentId: string) {
+    await loadDa()
+    const row = daList.value.find(a => a.id === agentId)
+    if (row) openDaEdit(row)
+  }
+
+  async function removeDaRequirement(index: number) {
+    if (!daEditingId.value) return
+    const next = daEditingRequirements.value.filter((_, i) => i !== index)
+    try {
+      await agentsApi.updateDeclarative(daEditingId.value, { skill_requirements: next })
+      daEditingRequirements.value = next
+    } catch (err) {
+      ElMessage.error(extractErrorMessage(err).message || '删除待补项失败')
     }
   }
 
@@ -1142,6 +1205,7 @@
     daTemplate.value = ''
     daFocusId.value = ''
     daEditingVisibility.value = row.visibility
+    daEditingRequirements.value = [...(row.skill_requirements ?? [])]
     decForm.value = {
       agent_code: row.agent_code,
       name: row.name,

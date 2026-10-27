@@ -829,6 +829,12 @@ export interface DeclarativeAgent {
   created_at: string
   updated_at: string
   token_stats?: AgentTokenStats
+  /** v3.5：一句话生成的蓝图框架（使命/边界/工作流/护栏等）；非生成 agent 为 null */
+  blueprint?: Record<string, unknown> | null
+  /** v3.5：待补技能清单（生成时未匹配到绑定的能力）；非生成草稿为空数组 */
+  skill_requirements?:
+    | { need: string; keywords?: string[]; reason?: string; status?: string }[]
+    | null
 }
 
 /** 409 DUPLICATE_NAME 的 details：指向本小院里那条已存在的助手 */
@@ -867,6 +873,8 @@ export interface DeclarativeAgentUpdate {
   supplier_id?: string | null
   model_name?: string | null
   visibility?: AgentVisibility
+  /** v3.5：待补技能清单允许人工维护（删除已补齐项） */
+  skill_requirements?: { need: string; keywords?: string[]; reason?: string; status?: string }[]
 }
 
 /** 「使用该助手」建的会话（只需这两项即可挂进对话实例） */

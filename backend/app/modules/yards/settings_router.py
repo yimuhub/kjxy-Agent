@@ -45,6 +45,7 @@ SETTINGS_PERMISSIONS: dict[str, str] = {
     "search": "search:manage",
     "skill_lab": "settings:manage",
     "self_improve": "settings:manage_protected",
+    "agent_generate": "settings:manage",
 }
 
 

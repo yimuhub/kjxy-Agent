@@ -214,3 +214,12 @@
 | `SELF_IMPROVE_BUDGET_EXHAUSTED` | 409 | 当日 token 预算已用尽；details.used_today / budget |
 | `SELF_IMPROVE_LLM_UNAVAILABLE` | 502 | 模型不可用或输出无法解析，本轮未产生总结 |
 | `SELF_IMPROVE_CONFIRM_REQUIRED` | 400 | 开启 auto_publish 需携带 confirm_auto_publish=true |
+
+## v3.5 一句话生成智能体
+
+| 错误码 | HTTP | 说明 |
+|--------|------|------|
+| `AGENT_GENERATE_DISABLED` | 403 | 小院设置已关闭一句话生成智能体服务（`agent_generate.enabled`） |
+| `AGENT_GENERATE_QUOTA` | 429 | 该成员当日生成次数已用尽（设置项 `agent_generate.daily_limit`，按 tasks 行计数） |
+| `AGENT_GENERATE_LLM_UNAVAILABLE` | 502 | 模型完全不可用，本轮未生成任何草稿（不落兜底垃圾） |
+| `AGENT_GENERATE_FAILED` | 502 | 生成任务执行失败（非模型原因），task 标记 failed 可重试 |

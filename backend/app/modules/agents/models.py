@@ -40,11 +40,14 @@ CREATED_FROM_FACTORY = "factory"
 CREATED_FROM_TEMPLATE = "template"
 #: 对话内生成（chat/capability.py）：需求 → 草稿，来源标记与手工创建区分
 CREATED_FROM_CHAT = "chat"
+#: 一句话生成智能体（agent_builder.py，v3.5）：编码带 gen_ 前缀
+CREATED_FROM_GENERATED = "generated"
 VALID_CREATED_FROM = (
     CREATED_FROM_MANUAL,
     CREATED_FROM_FACTORY,
     CREATED_FROM_TEMPLATE,
     CREATED_FROM_CHAT,
+    CREATED_FROM_GENERATED,
 )
 
 
@@ -90,3 +93,7 @@ class YardAgent(Base, TimestampMixin):
     # 卡片首图：只存随机存储键（文件本体在本地存储后端），无图时前端回落 emoji
     cover_image: Mapped[str | None] = mapped_column(String(255), nullable=True)
     cover_mime: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # v3.5 一句话生成：框架六段 + 参考来源 + 生成元信息（仅生成草稿非空）
+    blueprint_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # v3.5：模型认为需要、但平台当前没有匹配到的技能（[{need,keywords,reason,status}]）
+    skill_requirements: Mapped[list | None] = mapped_column(JSON, nullable=True)
