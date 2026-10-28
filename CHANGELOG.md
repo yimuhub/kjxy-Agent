@@ -2,6 +2,53 @@
 
 本项目遵循《工程开发规范 V3.0》；版本号遵循语义化版本。
 
+## [3.20.0] - 2026-10-29
+
+小院之间也能搭话了：对外公开一张只读的 Agent Card，别的平台凭令牌就能来问「小院概况」或检索知识；反过来，本小院也能登记邻村平台、探测名片、派任务并拿到结果。
+
+### 数据模型与开关（后端）
+
+- 迁移 `0048_a2a`：新增 `a2a_endpoints`（小院入站令牌，只存 sha256 + 展示前缀）、`a2a_peers`（出站协作方、Fernet 加密令牌、Agent Card 快照）、`a2a_tasks`（入站/出站任务，`(yard_id, op_key)` 唯一用于幂等），可完整 downgrade。
+- 新增平台开关 `A2A_ENABLED`（默认关）与 `A2A_HTTP_TIMEOUT_SECONDS`；`.env.example` 已补说明。
+
+### 公开名片（后端）
+
+- 新增 `GET /.well-known/agent.json`（兼容 `/.well-known/agent-card.json`）：协议版本、RPC 地址、能力（不支持流式/推送）、只读技能清单（`yard.summary`、`knowledge.search`），不含任何小院数据；开关关闭时 404 `A2A_DISABLED`。
+
+### 入站任务（后端）
+
+- 新增 `POST /a2a/rpc`：JSON-RPC 2.0，`message/send`（兼容 `tasks/send`）、`tasks/get`、`tasks/cancel`。
+- 鉴权：`Authorization: Bearer <协作令牌>`（兼容 `X-A2A-Token`）；令牌决定小院归属，请求体中的归属字段一律不采信；缺失/无效/停用返回 401，公开端点按 IP 限流。
+- 技能白名单只含只读能力：`yard.summary` 返回地块/在种周期/农事记录/未完结工单数量；`knowledge.search` 检索本小院知识库前 5 条并附来源。未知技能返回 JSON-RPC `-32602`，技能内部失败落任务 `failed` 并带错误码。
+- 幂等：同一 `messageId` 重放返回同一任务；任务对象含 `id/contextId/status/artifacts/metadata`，审计记 `a2a_task_received`。
+
+### 出站协作方（后端）
+
+- 新增 `/settings/a2a*`：入站开关与令牌生成/轮换（明文只返回一次）、协作方 CRUD、探测、发起任务、任务列表/详情；读 `settings:manage`，写与探测/发任务 `settings:manage_protected`。
+- 探测依次请求 `/.well-known/agent-card.json`、`/.well-known/agent.json`，校验 `name`/`skills`/`url` 后缓存；换地址即作废旧卡片。
+- 发任务走 `message/send`（`blocking=true`），非终态最多再轮询两次；远端错误映射为 `A2A_REMOTE_ERROR`/`A2A_REMOTE_UNAUTHORIZED`，并记 `last_error`。
+- 安全：协作方地址在保存、探测、发任务前都过 `net_guard`（元数据/链路本地始终封死）；响应上限 1MB；协作方令牌 Fernet 加密，接口只回 `token_configured`；审计 `a2a_peer_* / a2a_task_sent / a2a_inbound_token_rotated`，不含令牌。
+
+### 前端
+
+- 设置页新增「协作方」Tab：对外入口（平台开关状态、Agent Card 地址可复制、令牌前缀与最近调用、入站启停）、协作方列表（地址/名片摘要/令牌状态/last_error、探测、发起任务、编辑、删除）、任务记录（方向筛选、状态、结果摘要、点击看详情）。
+- 令牌弹窗强调「只显示一次」，可一键复制；编辑协作方时令牌留空表示沿用，另有「清空已存令牌」。
+- API 层新增 `a2aApi` 与完整类型；管理员只读、负责人可写。
+
+### 契约与文档
+
+- OpenAPI 重新生成：**241 路径**（相对 3.19 新增 9 条 A2A 端点），两次生成结果一致。
+- `contracts/error-codes.md` 新增 A2A 错误码（`A2A_DISABLED / A2A_UNAUTHORIZED / A2A_CARD_INVALID / A2A_REMOTE_ERROR` 等 11 个）。
+- `docs/api.md` 新增「跨小院协作 A2A（v3.20）」；`docs/security.md` 新增同一主题的安全口径；状态报告补 3.20 行与延后项。
+
+### 门禁
+
+- 后端 ruff check/format、mypy 全绿；全量测试 **1528 passed**。
+- 新增 `tests/unit/test_a2a.py`（19 条：名片结构与校验、入站令牌/停用/全局开关、小院隔离、messageId 幂等、未知技能、知识检索注入、tasks/get 与取消状态机、协议版本与方法不支持、SSRF、令牌加密、探测成功/404、出站成功/500/停用/未知技能）。
+- 新增 `tests/integration/test_a2a_api.py`（10 条：公开名片、令牌生成与不回显、管理员只读/访客 403、入站全链路与鉴权、幂等、技能拒绝、协作方 CRUD 与掩码、SSRF、探测+发任务、探测失败留痕、开关关闭 404）。
+- 前端 eslint **0 error**、vue-tsc 全绿、单测 **34 passed**、`vite build` 通过；版本面 9 处一致（3.20.0）。
+- 全量 E2E **52 passed**（含新增 `e2e/v320.spec.ts` 3 条），跑在隔离的 8011 后端 + 5174 前端（数据库副本已升到 0048），不触开发中进程。
+
 ## [3.19.0] - 2026-10-29
 
 田埂上没信号也能记账：台账与工单的写操作断网时先存本机，联网后按序补发；两台设备同时改同一条，不会互相覆盖，冲突会摆到明面上让你选。

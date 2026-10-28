@@ -2,7 +2,7 @@
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -96,7 +96,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="科技小院多智能体平台", version="3.19.0", lifespan=lifespan)
+    app = FastAPI(title="科技小院多智能体平台", version="3.20.0", lifespan=lifespan)
     app.add_middleware(RequestIDMiddleware)
     app.add_exception_handler(AppError, app_error_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)
@@ -136,6 +136,16 @@ def create_app() -> FastAPI:
         if not settings.metrics_enabled:
             return Response(status_code=404)
         return Response(metrics.exposition(), media_type="text/plain; version=0.0.4; charset=utf-8")
+
+    @app.get("/.well-known/agent.json", include_in_schema=False)
+    @app.get("/.well-known/agent-card.json", include_in_schema=False)
+    def a2a_agent_card(request: Request):
+        """A2A 公开名片：平台能力与技能清单（不暴露任何小院数据）。"""
+        from app.modules.a2a.service import build_agent_card
+
+        if not settings.a2a_enabled:
+            raise AppError("A2A_DISABLED", "本平台未开启 A2A 协作。", http_status=404)
+        return build_agent_card(str(request.base_url), request.app.version)
 
     app.include_router(v1_router, prefix="/api/v1", tags=["v1"])
     return app

@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter
 
+from app.modules.a2a.router import router as a2a_router
 from app.modules.admin.router import router as admin_router
 from app.modules.agents.router import router as agents_router
 from app.modules.agriculture.router import router as agriculture_router
@@ -41,6 +42,7 @@ router = APIRouter()
 
 router.include_router(auth_router)
 router.include_router(sso_router)  # /auth/sso/*（公开）与 /settings/sso-providers（管理员）
+router.include_router(a2a_router)  # /a2a/rpc（入站）与 /settings/a2a*（协作方管理）
 router.include_router(yards_router)
 router.include_router(yard_quota_router)
 router.include_router(yard_owner_router)  # /yards/current/owner（负责人驾驶舱/授权/转让）

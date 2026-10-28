@@ -64,6 +64,12 @@ class Settings(BaseSettings):
     sso_http_timeout_seconds: int = Field(
         default=10, ge=3, le=30, description="访问 IdP discovery/token/jwks 的超时（秒）"
     )
+
+    # A2A 互通（v3.20）：平台总开关默认关；开启后对外开放 Agent Card 与入站 RPC。
+    a2a_enabled: bool = Field(default=False, description="是否启用 A2A 协作")
+    a2a_http_timeout_seconds: int = Field(
+        default=15, ge=3, le=60, description="访问协作方 Agent Card / RPC 的超时（秒）"
+    )
     llm_model: str = ""
     llm_timeout_seconds: int = 60
     llm_max_tokens: int = 2048

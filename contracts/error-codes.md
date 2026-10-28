@@ -279,3 +279,19 @@
 | 错误码 | HTTP | 说明 |
 |--------|------|------|
 | `FARM_REVISION_CONFLICT` | 409 | 台账/工单的 `expected_revision` 与服务器当前版本不一致；details 含 `expected_revision`、`current_revision` 与服务器当前副本 `current` |
+
+## 跨小院协作 A2A（v3.20）
+
+| 错误码 | HTTP | 说明 |
+|--------|------|------|
+| `A2A_DISABLED` | 404/400 | 平台未开启 A2A（Agent Card/RPC 404；出站任务 400） |
+| `A2A_UNAUTHORIZED` | 401 | 入站令牌缺失、无效或已停用 |
+| `A2A_ENDPOINT_MISSING` | 409 | 尚未生成入站令牌就尝试启停入站 |
+| `A2A_PEER_NOT_FOUND` | 404 | 协作方不存在（含跨小院，统一 404） |
+| `A2A_PEER_EXISTS` | 409 | 同小院同名协作方已存在 |
+| `A2A_PEER_DISABLED` | 409 | 协作方已停用，不能发起任务 |
+| `A2A_CARD_INVALID` | 502 | Agent Card 缺失或结构不合法 |
+| `A2A_REMOTE_ERROR` | 502 | 协作方不可达、返回非 JSON 或 JSON-RPC 错误 |
+| `A2A_REMOTE_UNAUTHORIZED` | 502 | 协作方拒绝了本平台令牌 |
+| `A2A_TASK_NOT_FOUND` | 404 | 任务不存在 |
+| `A2A_SKILL_UNKNOWN` | 400/422 | 技能不在白名单（入站走 JSON-RPC -32602，出站 422） |

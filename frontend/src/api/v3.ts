@@ -1391,3 +1391,118 @@ export const ssoApi = {
     return unwrap(api.post<ApiResponse<SsoTestResult>>(`/settings/sso-providers/${id}/test`, {}))
   },
 }
+
+// ---------------------------------------------------------------------------
+// A2A 协作（v3.20）：对外名片、入站令牌、协作方与任务
+// ---------------------------------------------------------------------------
+
+export type A2aTaskStatus = 'submitted' | 'working' | 'completed' | 'failed' | 'canceled'
+
+export interface A2aSkillInfo {
+  id: string
+  name: string
+  description: string
+}
+
+export interface A2aCardSummary {
+  name?: string | null
+  description?: string
+  url?: string | null
+  version?: string | null
+  skill_count: number
+  skills: { id: string; name: string }[]
+}
+
+export interface A2aEndpointInfo {
+  enabled: boolean
+  token_prefix: string
+  last_used_at?: string | null
+}
+
+export interface A2aStatus {
+  enabled: boolean
+  card_url: string
+  rpc_url: string
+  endpoint?: A2aEndpointInfo | null
+  skills: A2aSkillInfo[]
+}
+
+export interface A2aPeer {
+  id: string
+  name: string
+  base_url: string
+  enabled: boolean
+  token_configured: boolean
+  card?: A2aCardSummary | null
+  card_fetched_at?: string | null
+  last_error?: string | null
+  created_at?: string | null
+}
+
+export interface A2aPeerPayload {
+  name: string
+  base_url: string
+  token?: string
+  clear_token?: boolean
+  enabled?: boolean
+}
+
+export interface A2aTask {
+  id: string
+  direction: 'inbound' | 'outbound'
+  peer_id?: string | null
+  skill_id?: string | null
+  status: A2aTaskStatus
+  error_code?: string | null
+  error_message?: string | null
+  remote_task_id?: string | null
+  result_text?: string
+  created_by?: string | null
+  created_at?: string | null
+  finished_at?: string | null
+}
+
+export const a2aApi = {
+  status(): Promise<A2aStatus> {
+    return unwrap(api.get<ApiResponse<A2aStatus>>('/settings/a2a'))
+  },
+  rotateToken(): Promise<{ token: string; token_prefix: string }> {
+    return unwrap(
+      api.post<ApiResponse<{ token: string; token_prefix: string }>>('/settings/a2a/token', {}),
+    )
+  },
+  setInbound(enabled: boolean): Promise<{ enabled: boolean }> {
+    return unwrap(api.patch<ApiResponse<{ enabled: boolean }>>('/settings/a2a', { enabled }))
+  },
+  listPeers(): Promise<A2aPeer[]> {
+    return unwrap(api.get<ApiResponse<A2aPeer[]>>('/settings/a2a/peers'))
+  },
+  createPeer(payload: A2aPeerPayload): Promise<A2aPeer> {
+    return unwrap(api.post<ApiResponse<A2aPeer>>('/settings/a2a/peers', payload))
+  },
+  updatePeer(id: string, payload: Partial<A2aPeerPayload>): Promise<A2aPeer> {
+    return unwrap(api.patch<ApiResponse<A2aPeer>>(`/settings/a2a/peers/${id}`, payload))
+  },
+  removePeer(id: string): Promise<{ deleted: string }> {
+    return unwrap(api.delete<ApiResponse<{ deleted: string }>>(`/settings/a2a/peers/${id}`))
+  },
+  probe(id: string): Promise<{ ok: boolean; card: A2aCardSummary; card_url: string }> {
+    return unwrap(
+      api.post<ApiResponse<{ ok: boolean; card: A2aCardSummary; card_url: string }>>(
+        `/settings/a2a/peers/${id}/probe`,
+        {},
+      ),
+    )
+  },
+  sendTask(id: string, payload: { skill_id: string; input_text: string }): Promise<A2aTask> {
+    return unwrap(
+      api.post<ApiResponse<A2aTask>>(`/settings/a2a/peers/${id}/tasks`, payload),
+    )
+  },
+  tasks(params: { direction?: string; status?: string; limit?: number }): Promise<A2aTask[]> {
+    return unwrap(api.get<ApiResponse<A2aTask[]>>('/settings/a2a/tasks', { params }))
+  },
+  task(id: string): Promise<A2aTask> {
+    return unwrap(api.get<ApiResponse<A2aTask>>(`/settings/a2a/tasks/${id}`))
+  },
+}

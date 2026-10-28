@@ -46,6 +46,13 @@
       </el-tab-pane>
 
       <el-tab-pane
+        label="协作方"
+        name="a2a"
+      >
+        <SettingsA2a :can-manage="isOwner" />
+      </el-tab-pane>
+
+      <el-tab-pane
         v-if="isOwner"
         label="敏感授权"
         name="grants"
@@ -919,6 +926,7 @@ import SettingsSkillLab from '@/components/settings/SettingsSkillLab.vue'
   import SettingsAgentGenerate from '@/components/settings/SettingsAgentGenerate.vue'
 import SettingsSelfImprove from '@/components/settings/SettingsSelfImprove.vue'
 import SettingsSso from '@/components/settings/SettingsSso.vue'
+import SettingsA2a from '@/components/settings/SettingsA2a.vue'
 import SettingsGrants from '@/components/settings/SettingsGrants.vue'
 import { useAuthStore } from '@/stores/auth'
 import { classifyError, type ViewState } from '@/utils/status'

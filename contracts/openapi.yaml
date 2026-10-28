@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.19.0
+  version: 3.20.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -430,6 +430,328 @@ paths:
         schema:
           type: string
           title: Provider Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/a2a/rpc:
+    post:
+      tags:
+      - v1
+      - a2a
+      summary: A2A Rpc
+      description: A2A JSON-RPC 入口：认证失败走 HTTP 401，协议/业务错误走 JSON-RPC error。
+      operationId: a2a_rpc_api_v1_a2a_rpc_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              additionalProperties: true
+              type: object
+              title: Payload
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/settings/a2a:
+    get:
+      tags:
+      - v1
+      - a2a
+      summary: Get A2A Status
+      operationId: get_a2a_status_api_v1_settings_a2a_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+    patch:
+      tags:
+      - v1
+      - a2a
+      summary: Update A2A Endpoint
+      operationId: update_a2a_endpoint_api_v1_settings_a2a_patch
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/A2aEndpointUpdate'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/settings/a2a/token:
+    post:
+      tags:
+      - v1
+      - a2a
+      summary: Rotate A2A Token
+      description: 生成/轮换入站令牌；完整令牌只在此响应里出现一次。
+      operationId: rotate_a2a_token_api_v1_settings_a2a_token_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/settings/a2a/peers:
+    get:
+      tags:
+      - v1
+      - a2a
+      summary: List Peers
+      operationId: list_peers_api_v1_settings_a2a_peers_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+    post:
+      tags:
+      - v1
+      - a2a
+      summary: Create Peer
+      operationId: create_peer_api_v1_settings_a2a_peers_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/A2aPeerCreate'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/settings/a2a/peers/{peer_id}:
+    patch:
+      tags:
+      - v1
+      - a2a
+      summary: Update Peer
+      operationId: update_peer_api_v1_settings_a2a_peers__peer_id__patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: peer_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Peer Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/A2aPeerUpdate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - v1
+      - a2a
+      summary: Delete Peer
+      operationId: delete_peer_api_v1_settings_a2a_peers__peer_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: peer_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Peer Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/settings/a2a/peers/{peer_id}/probe:
+    post:
+      tags:
+      - v1
+      - a2a
+      summary: Probe Peer
+      operationId: probe_peer_api_v1_settings_a2a_peers__peer_id__probe_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: peer_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Peer Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/settings/a2a/peers/{peer_id}/tasks:
+    post:
+      tags:
+      - v1
+      - a2a
+      summary: Send Task
+      operationId: send_task_api_v1_settings_a2a_peers__peer_id__tasks_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: peer_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Peer Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/A2aTaskSend'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/settings/a2a/tasks:
+    get:
+      tags:
+      - v1
+      - a2a
+      summary: List Tasks
+      operationId: list_tasks_api_v1_settings_a2a_tasks_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: direction
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Direction
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 50
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/settings/a2a/tasks/{task_id}:
+    get:
+      tags:
+      - v1
+      - a2a
+      summary: Get Task
+      operationId: get_task_api_v1_settings_a2a_tasks__task_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: task_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Task Id
       responses:
         '200':
           description: Successful Response
@@ -8694,6 +9016,96 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
+    A2aEndpointUpdate:
+      properties:
+        enabled:
+          type: boolean
+          title: Enabled
+      additionalProperties: false
+      type: object
+      required:
+      - enabled
+      title: A2aEndpointUpdate
+    A2aPeerCreate:
+      properties:
+        name:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Name
+        base_url:
+          type: string
+          maxLength: 500
+          minLength: 8
+          title: Base Url
+        token:
+          anyOf:
+          - type: string
+            maxLength: 2000
+          - type: 'null'
+          title: Token
+        enabled:
+          type: boolean
+          title: Enabled
+          default: true
+      additionalProperties: false
+      type: object
+      required:
+      - name
+      - base_url
+      title: A2aPeerCreate
+    A2aPeerUpdate:
+      properties:
+        name:
+          anyOf:
+          - type: string
+            maxLength: 120
+            minLength: 1
+          - type: 'null'
+          title: Name
+        base_url:
+          anyOf:
+          - type: string
+            maxLength: 500
+            minLength: 8
+          - type: 'null'
+          title: Base Url
+        token:
+          anyOf:
+          - type: string
+            maxLength: 2000
+          - type: 'null'
+          title: Token
+        clear_token:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Clear Token
+        enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Enabled
+      additionalProperties: false
+      type: object
+      title: A2aPeerUpdate
+    A2aTaskSend:
+      properties:
+        skill_id:
+          type: string
+          maxLength: 80
+          minLength: 1
+          title: Skill Id
+        input_text:
+          type: string
+          maxLength: 8000
+          title: Input Text
+          default: ''
+      additionalProperties: false
+      type: object
+      required:
+      - skill_id
+      title: A2aTaskSend
     AgentGeneratePreviewRequest:
       properties:
         utterance:

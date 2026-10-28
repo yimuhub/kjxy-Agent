@@ -49,6 +49,15 @@
 - 访问 IdP 的 discovery/token/JWKS 统一走出网守卫与 1MB 响应上限；IdP 地址由负责人配置，按可信输入放行内网与本机（校园内网 Keycloak 等正当场景），元数据与链路本地地址始终封死；`ENFORCE_MODEL_EGRESS_GUARD=true` 时一并不再放行内网。错误只回稳定错误码。
 - 公开端点按 IP 限流；回调失败不泄露 IdP 原始响应与内部细节；审计记录 `sso_login_success / sso_identity_linked / sso_provider_*`，不含令牌与密钥。
 
+## 跨小院协作（A2A）
+
+- 入站令牌与小院一一绑定，只存 sha256，接口仅展示前缀；令牌决定小院归属，请求体里的任何归属字段都不采信。
+- 入站只开放只读技能白名单（小院概况、知识检索）；不暴露工具执行、写入与成员数据；`A2A_ENABLED=false` 时 Agent Card 与 RPC 一律 404。
+- 协作方令牌 Fernet 加密存储、永不回显；配置属保护型权限（`settings:manage_protected`）。
+- 保存地址、探测 Agent Card、每次发任务前都过出网守卫（元数据/链路本地始终封死，`ENFORCE_MODEL_EGRESS_GUARD=true` 时内网也阻断）；响应上限 1MB、超时按配置、最多再轮询两次。
+- 任务带幂等键（入站 = 对端 messageId，出站 = 本平台生成），重放不重复落库；任务状态机 `submitted → working → completed|failed|canceled`。
+
+
 ## 模型风险
 
 - 模型输出经 Schema + 业务规则校验；不把模型文本当权限决策/法律结论/农业事实。

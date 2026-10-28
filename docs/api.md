@@ -192,6 +192,30 @@ v3.1 行为变化：`/search/status` 新增 `internet` 字段；搜索设置 `pr
 - 前端「用我的覆盖」= 取服务器 `current_revision` 作为新的 `expected_revision` 再发一次，不做静默强制覆盖。
 - 网络不可达的写操作存在浏览器 IndexedDB 队列里，联网后按创建顺序串行补发；服务端明确拒绝（4xx）的操作不会自动重试，需人工处理。
 
+## 跨小院协作 A2A（v3.20）
+
+平台开关 `A2A_ENABLED`（默认关）。开启后：
+
+| 端点 | 说明 |
+|---|---|
+| `GET /.well-known/agent.json`（兼容 `/.well-known/agent-card.json`） | 公开 Agent Card：协议版本、RPC 地址、开放技能（`yard.summary`、`knowledge.search`）；不含任何小院数据。未开启时 404 `A2A_DISABLED` |
+| `POST /api/v1/a2a/rpc` | 入站 JSON-RPC 2.0。请求头 `Authorization: Bearer <协作令牌>`（兼容 `X-A2A-Token`）；令牌决定小院归属 |
+| `GET/POST/PATCH/DELETE /api/v1/settings/a2a/peers[/{id}]` | 协作方 CRUD（读 `settings:manage`，写 `settings:manage_protected`） |
+| `POST /api/v1/settings/a2a/peers/{id}/probe` | 依次请求 `/.well-known/agent-card.json`、`/.well-known/agent.json`，校验并缓存 Agent Card |
+| `POST /api/v1/settings/a2a/peers/{id}/tasks` | 向协作方发起任务（`message/send`，`configuration.blocking=true`） |
+| `GET /api/v1/settings/a2a/tasks[/{id}]` | 入站/出站任务记录（可按 `direction`、`status` 过滤） |
+| `GET/PATCH /api/v1/settings/a2a`、`POST /api/v1/settings/a2a/token` | 入站开关、令牌生成/轮换（明文只返回一次） |
+
+JSON-RPC 方法：
+
+- `message/send`（兼容 `tasks/send`）：`params.message` 至少含 `parts[].{kind:"text",text}` 与 `messageId`；`message.metadata.skill` 指定技能，缺省或未知返回 `-32602`。同一 `messageId` 重复提交返回同一任务。
+- `tasks/get`：`params.id` 取任务；不存在返回 `-32001`。
+- `tasks/cancel`：仅非终态可取消，已结束返回 `-32002`。
+
+任务对象：`{kind:"task", id, contextId, status:{state,timestamp}, artifacts:[{parts:[{kind:"text",text}]}], metadata:{skill,direction,errorCode}}`。状态机 `submitted → working → completed | failed | canceled`。
+
+出网口径：协作方地址在保存、探测与每次发任务前都过 `net_guard`；响应上限 1MB；协作方令牌 Fernet 加密、接口只回 `token_configured`。
+
 ## 任务状态机
 
 `queued → running → succeeded | failed | cancelled | awaiting_review → succeeded | failed | cancelled`
