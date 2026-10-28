@@ -46,6 +46,7 @@ SETTINGS_PERMISSIONS: dict[str, str] = {
     "skill_lab": "settings:manage",
     "self_improve": "settings:manage_protected",
     "agent_generate": "settings:manage",
+    "device_analysis": "settings:manage",
 }
 
 
@@ -145,6 +146,17 @@ def update_setting(
             db,
             yard_id=yard_id,
             setting=settings_service.get_setting(db, yard_id, "self_improve"),
+            actor_id=user.user_id,
+        )
+        db.commit()
+    elif key == "device_analysis":
+        # 设备分析定时任务同样随设置即时对齐
+        from app.modules.devices.analysis_jobs import sync_job as sync_analysis_job
+
+        sync_analysis_job(
+            db,
+            yard_id=yard_id,
+            setting=settings_service.get_setting(db, yard_id, "device_analysis"),
             actor_id=user.user_id,
         )
         db.commit()

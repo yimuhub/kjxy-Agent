@@ -58,6 +58,13 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "daily_limit": 10,  # 每成员每日生成次数（0 = 不限）
         "use_web": True,  # 生成前先联网取证；关闭则直接按本地知识设计
     },
+    "device_analysis": {
+        "enabled": True,  # 有启用设备的小院默认每天分析一次
+        "schedule": {"preset": "daily"},
+        "explain_with_llm": True,  # LLM 只做解释；关闭则只出规则结论
+        "daily_budget_tokens": 100000,
+        "window_hours": 24,
+    },
 }
 
 REGISTRATION_MODES = {"closed", "approval", "open"}
@@ -67,6 +74,7 @@ BUILTIN_SEARCH_SOURCES = ("bing", "sogou", "so360")
 SI_PRESETS = {"daily", "hours12", "hours6", "days3", "weekly", "monthly", "custom"}
 SI_UNITS = {"hours", "days", "months"}
 SI_SCOPES = {"yard", "per_member"}
+DA_PRESETS = {"hours12", "daily", "weekly"}
 
 
 def _row(db: Session, yard_id: str, key: str) -> YardSettings | None:
@@ -170,6 +178,22 @@ def _validate(key: str, value: dict[str, Any], merged: dict[str, Any]) -> None:
             raise AppError("INVALID_REQUEST", "智能体生成配额必须是整数。", http_status=400) from e
         if not 0 <= limit <= 200:
             raise AppError("INVALID_REQUEST", "智能体生成配额超出允许范围。", http_status=400)
+    elif key == "device_analysis":
+        for flag in ("enabled", "explain_with_llm"):
+            if not isinstance(merged[flag], bool):
+                raise AppError("INVALID_REQUEST", "设备分析开关必须是布尔值。", http_status=400)
+        schedule = merged.get("schedule")
+        if not isinstance(schedule, dict) or schedule.get("preset") not in DA_PRESETS:
+            raise AppError("INVALID_REQUEST", "设备分析调度不合法。", http_status=400)
+        try:
+            budget = int(merged["daily_budget_tokens"])
+            window = int(merged["window_hours"])
+        except (TypeError, ValueError) as e:
+            raise AppError(
+                "INVALID_REQUEST", "设备分析预算/窗口必须是整数。", http_status=400
+            ) from e
+        if not 0 <= budget <= 10_000_000 or not 6 <= window <= 168:
+            raise AppError("INVALID_REQUEST", "设备分析预算/窗口超出允许范围。", http_status=400)
     else:
         raise AppError("INVALID_REQUEST", f"未知设置项：{key}", http_status=400)
 

@@ -40,6 +40,15 @@ def run_due_jobs_task() -> dict[str, int]:
 
             team_stats = run_due_teams(db)
             log.info("teams.run_due_jobs: %s", team_stats)
+            try:
+                from app.modules.devices.analysis_jobs import run_due_analyses
+
+                analysis_stats = run_due_analyses(db)
+                if analysis_stats["due"]:
+                    log.info("devices.run_due_analyses: %s", analysis_stats)
+            except Exception as e:  # noqa: BLE001 - 设备分析失败不影响其他调度
+                db.rollback()
+                log.warning("devices.run_due_analyses failed: %s", e)
     finally:
         db.close()
     if stats["due"]:
@@ -73,6 +82,10 @@ def start_inline_scheduler() -> bool:
                         from app.modules.agents.teams.scheduler import run_due_jobs as run_due_teams
 
                         run_due_teams(db)
+                        db.rollback()
+                        from app.modules.devices.analysis_jobs import run_due_analyses
+
+                        run_due_analyses(db)
                 finally:
                     db.close()
             except Exception as e:  # noqa: BLE001 - 调度线程绝不因单次失败退出

@@ -19,7 +19,7 @@ from app.core.deps import YardContext, get_db_session, get_yard_context
 from app.core.errors import AppError
 from app.core.responses import ok
 from app.modules.audit.service import log_audit
-from app.modules.devices import connector, service
+from app.modules.devices import analysis_service, connector, service
 from app.modules.devices.metrics import METRICS
 from app.modules.devices.models import Device, DeviceAlert, DeviceAlertRule, Reading
 from app.modules.devices.schemas import (
@@ -100,6 +100,16 @@ def capabilities(ctx: YardContext = Depends(_member)):
             ],
         },
     )
+
+
+@router.get("/insights", response_model=None)
+def device_insights(
+    ctx: YardContext = Depends(_member),
+    db: Session = Depends(get_db_session),
+    limit: int = Query(default=10, ge=1, le=50),
+):
+    """概览卡：只回需要人处理的设备发现（watch/warning/critical）。"""
+    return ok(analysis_service.insights(db, ctx.yard_id, limit=limit))
 
 
 # ---------------------------------------------------------------------------
@@ -309,7 +319,13 @@ def list_devices(
     if enabled is not None:
         stmt = stmt.where(Device.enabled.is_(enabled))
     rows = list(db.scalars(stmt.order_by(Device.created_at.desc())))
-    return ok([_device_out(db, d) for d in rows])
+    latest = analysis_service.latest_map(db, ctx.yard_id, [d.id for d in rows])
+    items = []
+    for device in rows:
+        out = _device_out(db, device)
+        out["latest_analysis"] = analysis_service.brief(latest.get(device.id))
+        items.append(out)
+    return ok(items)
 
 
 @router.post("", response_model=None)
@@ -367,6 +383,9 @@ def get_device(
     device = service.get_device_or_404(db, ctx.yard_id, device_id)
     out = _device_out(db, device)
     out["latest"] = service.latest_summary(db, device)
+    out["latest_analysis"] = analysis_service.brief(
+        analysis_service.latest_map(db, ctx.yard_id, [device.id]).get(device.id)
+    )
     return ok(out)
 
 
@@ -476,6 +495,40 @@ def device_readings(
         for r in reversed(rows)  # 时序接口按时间升序返回
     ]
     return ok(items)
+
+
+@router.get("/{device_id}/analyses", response_model=None)
+def list_device_analyses(
+    device_id: str,
+    limit: int = Query(default=20, ge=1, le=100),
+    ctx: YardContext = Depends(_member),
+    db: Session = Depends(get_db_session),
+):
+    device = service.get_device_or_404(db, ctx.yard_id, device_id)
+    return ok(analysis_service.list_analyses(db, ctx.yard_id, device.id, limit=limit))
+
+
+@router.post("/{device_id}/analyses", response_model=None)
+def run_device_analysis(
+    device_id: str,
+    ctx: YardContext = Depends(_admin),
+    db: Session = Depends(get_db_session),
+):
+    """立即分析（管理员）：规则结论必出，LLM 解释受设置与每日预算约束。
+
+    同一天同一设备重复运行幂等返回既有结果（created=false）。
+    设备近期没有任何读数时返回 422 DEVICE_ANALYSIS_INSUFFICIENT_DATA。
+    """
+    device = service.get_device_or_404(db, ctx.yard_id, device_id)
+    row, created = analysis_service.run_analysis(
+        db,
+        device,
+        trigger="manual",
+        actor_id=ctx.user_id,
+        request_id=ctx.request_id,
+    )
+    db.commit()
+    return ok({**analysis_service.analysis_to_dict(db, row), "created": created})
 
 
 # ---------------------------------------------------------------------------

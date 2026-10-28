@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.22.0
+  version: 3.23.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -7106,6 +7106,38 @@ paths:
               schema: {}
       security:
       - HTTPBearer: []
+  /api/v1/devices/insights:
+    get:
+      tags:
+      - v1
+      - devices
+      summary: Device Insights
+      description: 概览卡：只回需要人处理的设备发现（watch/warning/critical）。
+      operationId: device_insights_api_v1_devices_insights_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 50
+          minimum: 1
+          default: 10
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/devices/alerts:
     get:
       tags:
@@ -7508,6 +7540,76 @@ paths:
           minimum: 1
           default: 200
           title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/devices/{device_id}/analyses:
+    get:
+      tags:
+      - v1
+      - devices
+      summary: List Device Analyses
+      operationId: list_device_analyses_api_v1_devices__device_id__analyses_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: device_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Device Id
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 20
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - v1
+      - devices
+      summary: Run Device Analysis
+      description: '立即分析（管理员）：规则结论必出，LLM 解释受设置与每日预算约束。
+
+
+        同一天同一设备重复运行幂等返回既有结果（created=false）。
+
+        设备近期没有任何读数时返回 422 DEVICE_ANALYSIS_INSUFFICIENT_DATA。'
+      operationId: run_device_analysis_api_v1_devices__device_id__analyses_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: device_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Device Id
       responses:
         '200':
           description: Successful Response

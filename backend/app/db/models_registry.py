@@ -32,6 +32,7 @@ from app.modules.devices.models import (  # noqa: F401
     Device,
     DeviceAlert,
     DeviceAlertRule,
+    DeviceAnalysis,
     Reading,
 )
 from app.modules.evolution.models import (  # noqa: F401

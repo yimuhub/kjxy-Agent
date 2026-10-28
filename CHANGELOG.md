@@ -2,6 +2,44 @@
 
 本项目遵循《工程开发规范 V3.0》；版本号遵循语义化版本。
 
+## [3.23.0] - 2026-10-29
+
+设备读数从「能看见数字」升级为「会分析、给结论」：定时或手动对一台设备的近 24 小时读数做阈值/趋势/异常/卡死/组合风险分析，每条发现都带具体数值与时间；严重的自动进告警与工单；证据不足时明确说「证据不足」，不编造结论。
+
+### 数据与分析底座（后端）
+
+- 迁移 `0050_device_analyses`（可完整 downgrade，已做 `up → down → up`）：一次分析 = 时间窗 + 规则发现（findings）+ 统计摘要 + 数据质量 + 结论文本 + 可选模型成本；`(device_id, analysis_key)` 唯一，同一天同一设备重复运行幂等。
+- 新增 `devices/analysis.py`（纯函数，便于复核）：
+  - 统计：每指标点数/均值/极值/标准差/首末值与变化量，按小时分桶；
+  - 数据质量：窗口覆盖率、超出合理量程、连续 6 点同值（疑似卡死）、读数跳变、电量 <20%，给出 0–100 质量分与可读说明；
+  - 规则发现：阈值（沿用设备告警规则的指标/方向/阈值）、趋势（土壤水分/温度/水位/虫情变化超门槛）、异常偏离（z-score ≥ 3）、卡死与质量、农艺组合（高湿低温病害风险、土壤水分下降且无雨需灌溉、虫情连续上升防治窗口）；每条含 evidence（时间+数值+单位）与建议；
+  - 分级：info/watch/warning/critical；阈值越限 20% 以上判 critical。
+- 新增 `devices/analysis_service.py`：取数（单指标上限 2000 点）、证据不足判定、可选 LLM 解释（有界输入、必须引用数字、失败回落规则摘要、按 `yard_job_runs` 统计每日 token 预算）、落库与审计 `device_analysis_run`；critical 写 `device_alerts`（同 rule+device 30 分钟去重）并推送，复用既有「告警 → 一键工单」链路。
+- 新增 `devices/analysis_jobs.py`：复用 `yard_jobs`（kind=`device_analysis`），有启用设备的小院自动建任务；默认每天、可配 12 小时/每周；单设备失败用保存点隔离，运行台账记设备数/成功/证据不足/失败与失败原因（Celery beat 与桌面 inline 线程都会执行）。
+- 新增设置项 `device_analysis`：`enabled / schedule.preset / explain_with_llm / daily_budget_tokens / window_hours(6–168)`，保存时即时对齐定时任务；权限 `settings:manage`。
+- 端点：`POST /devices/{id}/analyses`（管理员，立即分析）、`GET /devices/{id}/analyses`（成员，历史）、`GET /devices/insights`（成员，概览洞察）；设备列表/详情新增 `latest_analysis` 摘要。
+- 零读数返回 422 `DEVICE_ANALYSIS_INSUFFICIENT_DATA`；有点但太少返回 200 + `status=insufficient`，不产出结论。
+
+### 界面（前端）
+
+- 设备卡片新增「最近分析：warning · N 条发现」，未分析过显示「尚未分析 · 点击查看」；操作区新增「AI 分析」。
+- 新增 AI 分析弹窗：等级、结论、数据质量分/覆盖率/提示、发现卡片（数值、详情、建议、规则来源）、历史分析列表（可点切换）；管理员可「立即分析」，重复运行提示展示既有结论。
+- 概览页新增「设备洞察」卡：只列需要人处理的发现（等级、设备、首要发现、条数），可跳转设备中心；无异常时给出可行动空状态。
+- 系统设置新增「设备分析」页签：启用、执行周期、分析窗口、模型解释开关、每日 token 预算，并写明「不控制设备、证据不足会直说、用药建议需专家复核」。
+
+### 契约与文档
+
+- OpenAPI 重新生成：**249 路径**（相对 3.22 新增 `/devices/insights` 与 `/devices/{device_id}/analyses`），两次生成一致。
+- `contracts/error-codes.md` 新增 `DEVICE_ANALYSIS_INSUFFICIENT_DATA`；`docs/api.md` 新增「设备数据智能分析（v3.23）」；状态报告与方案文档补交付记录。
+
+### 门禁
+
+- 后端 ruff check/format、mypy 全绿；全量测试 **1567 passed**（新增 14 条）。
+- 新增 `tests/unit/test_device_analysis.py`（9 条：统计、分桶、质量（卡死/越界/低电量）、阈值 warning/critical 分档、趋势、z-score、灌溉/病害/虫情组合、去重与总体分级）。
+- 新增 `tests/integration/test_device_analysis_api.py`（5 条：发现与质量+列表/详情摘要+审计+幂等、critical 自动告警并可一键开单、零读数 422 与稀疏数据 insufficient、洞察与权限与跨小院隔离、定时任务幂等且运行台账可见）。
+- 前端 eslint **0 error**、vue-tsc 全绿、单测 **38 passed**、`vite build` 通过；版本面 9 处一致（3.23.0）。
+- 全量 E2E **62 passed**（chromium 61 + mobile 1，含新增 `e2e/v323.spec.ts` 3 条），跑在隔离的 8011 后端（0050）+ 5174 前端，不触开发中进程。
+
 ## [3.22.0] - 2026-10-29
 
 台账、诊断、工单三个页面各加一条「一句话」输入框：先说一句、看一眼预览、确认即可办完；预览阶段不写任何数据，解析不准时明确告诉你缺什么并一键切回原表单。

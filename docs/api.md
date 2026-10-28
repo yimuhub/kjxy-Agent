@@ -223,7 +223,7 @@ JSON-RPC 方法：
 `GET /api/v1/meta` 返回后端版本与数据库迁移头，前端用它提示「后端版本较旧」：
 
 ```json
-{ "data": { "version": "3.22.0", "migration_head": "0049_skill_auto_upgrade" } }
+{ "data": { "version": "3.23.0", "migration_head": "0050_device_analyses" } }
 ```
 
 - 升级顺序：`alembic upgrade head` → 重启后端 → `curl /api/v1/meta` 确认。
@@ -279,6 +279,46 @@ JSON-RPC 方法：
 - **不假装成功**：`ready=false` 时 confirm 返回 422 `QUICK_ACTION_AMBIGUOUS`，前端给可读提示并可一键切回原表单预填。
 - **指纹防篡改**：confirm 用 `HMAC.compare_digest` 比对 `(module, action, payload)` 的规范化 SHA-256；不一致返回 409 `QUICK_ACTION_STALE`，需重新预览。
 - 一次只办一件事，不支持「顺便把别的也改了」。
+
+## 设备数据智能分析（v3.23）
+
+对设备读数做窗口统计、数据质量检查与规则发现，产出可复核的结论；critical 发现自动进入既有「告警 → 工单」链路。
+
+| 端点 | 说明 |
+|---|---|
+| `POST /api/v1/devices/{device_id}/analyses` | 立即分析（管理员）。规则结论必出；同一天同一设备重复运行幂等返回既有结果（`created=false`） |
+| `GET /api/v1/devices/{device_id}/analyses?limit=20` | 分析历史（时间倒序，成员可读） |
+| `GET /api/v1/devices/insights?limit=10` | 概览卡：每台设备最近一条 watch/warning/critical 发现与计数 |
+
+出参要点：
+
+```json
+{
+  "analysis_id": "...",
+  "status": "ok",              // ok | insufficient
+  "level": "warning",          // info | watch | warning | critical
+  "summary": "一号气象站 本轮发现 3 条：…",
+  "findings": [
+    {"code": "combo:irrigation", "level": "warning", "metric": "soil_moisture_20",
+     "title": "土壤水分下降 11.0 个百分点且无有效降雨",
+     "detail": "…从 35.0% 降到 24.0%，同期降雨累计 0.0 mm。",
+     "evidence": [{"at": "...", "value": 35.0, "unit": "%"}],
+     "suggestion": "建议核查墒情与灌溉计划，确认是否需要安排灌溉。", "rule": "combo"}
+  ],
+  "metrics": {"soil_moisture_20": {"mean": 29.5, "min": 24, "max": 35, "change": -11, "points": 12}},
+  "quality": {"score": 92, "coverage": 0.5, "notes": ["…"]},
+  "model": null, "tokens_used": 0, "trigger": "manual"
+}
+```
+
+口径：
+
+- **规则先行**：阈值（沿用设备告警规则的上下限与方向）、趋势（土壤水分/温度/水位/虫情窗口变化）、异常偏离（z-score ≥ 3）、传感器卡死（连续 6 点同值）、数据质量（覆盖率/越界/低电量）、农艺组合（高湿低温易病、土壤水分骤降且无雨需灌溉、虫情连续上升进入防治窗口）。每条发现都带具体数值与时间。
+- **LLM 只做解释**：`explain_with_llm=true` 时把规则发现与统计摘要交给模型写「发生了什么/建议」，输出必须含数字，否则回落到规则摘要；每日 token 预算用尽即只出规则结论。
+- **证据不足如实说**：窗口内点数/覆盖率不达标时 `status=insufficient`，不产出发现、不调模型、不生成告警；零读数时返回 422 `DEVICE_ANALYSIS_INSUFFICIENT_DATA`。
+- **critical 自动告警**：阈值越限 20% 以上判 critical，写 `device_alerts`（同 rule+device 30 分钟去重）并推送，可在设备页一键开单；普通越限为 warning。
+- **定时分析**：`yard_jobs` 新增 `device_analysis`（默认每天，可配 12 小时/每周），有启用设备的小院自动建任务；运行记录在 `yard_job_runs`（含每轮设备数、成功/证据不足/失败与失败原因）。
+- **只读红线**：分析只读读数，不写设备控制指令；不做因果断言；用药类建议仍需作物诊断与专家复核。
 
 ## 任务状态机
 

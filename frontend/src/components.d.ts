@@ -99,6 +99,7 @@ declare module 'vue' {
     SessionAudit: typeof import('./components/owner/SessionAudit.vue')['default']
     SettingsA2a: typeof import('./components/settings/SettingsA2a.vue')['default']
     SettingsAgentGenerate: typeof import('./components/settings/SettingsAgentGenerate.vue')['default']
+    SettingsDeviceAnalysis: typeof import('./components/settings/SettingsDeviceAnalysis.vue')['default']
     SettingsGrants: typeof import('./components/settings/SettingsGrants.vue')['default']
     SettingsNetwork: typeof import('./components/settings/SettingsNetwork.vue')['default']
     SettingsRegistration: typeof import('./components/settings/SettingsRegistration.vue')['default']

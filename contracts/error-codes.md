@@ -312,3 +312,9 @@
 | `QUICK_ACTION_AMBIGUOUS` | 422 | 解析结果缺字段（details.missing 可读提示）或待办理内容不完整，未写任何数据 |
 | `QUICK_ACTION_UNSUPPORTED` | 422 | 该模块不支持此动作，或确认时 action 不在白名单 |
 | `QUICK_ACTION_STALE` | 409 | 确认时指纹与预览不一致（内容已被改动/篡改），需重新预览确认 |
+
+## 设备数据智能分析（v3.23）
+
+| 错误码 | HTTP | 说明 |
+|--------|------|------|
+| `DEVICE_ANALYSIS_INSUFFICIENT_DATA` | 422 | 设备在分析窗口内没有任何读数，无法分析；数据太少（有点但不足）时返回 200 且 `status=insufficient`，不产出结论 |

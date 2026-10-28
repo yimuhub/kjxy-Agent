@@ -125,3 +125,41 @@ class DeviceAlert(TimestampMixin, Base):
 
 def utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+class DeviceAnalysis(TimestampMixin, Base):
+    """一次设备数据分析：时间窗 + 规则发现 + 数据质量 + 结论（v3.23）。
+
+    ``analysis_key`` 按「设备 + 窗口结束日 + 粒度」唯一：同一天重复运行幂等返回
+    既有结果，不重复计费、不重复告警。``metrics_json`` 只存统计摘要（均值/极值/
+    首末值/点数），不复制原始读数字节。
+    """
+
+    __tablename__ = "device_analyses"
+    __table_args__ = (
+        UniqueConstraint("device_id", "analysis_key", name="uq_device_analyses_key"),
+        Index("ix_device_analyses_yard_created", "yard_id", "created_at"),
+    )
+
+    yard_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    device_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("devices.id"), index=True, nullable=False
+    )
+    window_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    window_to: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # hour | day：聚合粒度（当前窗口按 1 小时桶；历史可按天）
+    granularity: Mapped[str] = mapped_column(String(8), nullable=False)
+    analysis_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    # ok | insufficient | failed
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    # info | watch | warning | critical（insufficient 时固定 info）
+    level: Mapped[str] = mapped_column(String(16), nullable=False)
+    findings_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    metrics_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    quality_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    model: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    tokens_used: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # manual | schedule
+    trigger: Mapped[str] = mapped_column(String(16), nullable=False)
+    actor_id: Mapped[str | None] = mapped_column(String(36), nullable=True)

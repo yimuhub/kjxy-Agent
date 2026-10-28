@@ -157,6 +157,14 @@ export interface YardSettingsBundle {
     daily_limit: number
     use_web: boolean
   }
+  /** v3.23：设备数据智能分析（每日定时 + 立即分析） */
+  device_analysis: {
+    enabled: boolean
+    schedule: { preset: string }
+    explain_with_llm: boolean
+    daily_budget_tokens: number
+    window_hours: number
+  }
 }
 
 export const governanceApi = {
@@ -213,7 +221,8 @@ export const governanceApi = {
       | 'search'
       | 'skill_lab'
       | 'self_improve'
-      | 'agent_generate',
+      | 'agent_generate'
+      | 'device_analysis',
     value: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
     return unwrap(

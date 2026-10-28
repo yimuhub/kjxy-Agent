@@ -39,6 +39,13 @@
       </el-tab-pane>
 
       <el-tab-pane
+        label="设备分析"
+        name="device_analysis"
+      >
+        <SettingsDeviceAnalysis />
+      </el-tab-pane>
+
+      <el-tab-pane
         label="单点登录"
         name="sso"
       >
@@ -925,6 +932,7 @@ import SettingsNetwork from '@/components/settings/SettingsNetwork.vue'
 import SettingsSkillLab from '@/components/settings/SettingsSkillLab.vue'
   import SettingsAgentGenerate from '@/components/settings/SettingsAgentGenerate.vue'
 import SettingsSelfImprove from '@/components/settings/SettingsSelfImprove.vue'
+import SettingsDeviceAnalysis from '@/components/settings/SettingsDeviceAnalysis.vue'
 import SettingsSso from '@/components/settings/SettingsSso.vue'
 import SettingsA2a from '@/components/settings/SettingsA2a.vue'
 import SettingsGrants from '@/components/settings/SettingsGrants.vue'

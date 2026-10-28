@@ -201,6 +201,49 @@
       </el-col>
     </el-row>
 
+    <el-card class="panel insights-panel">
+      <template #header>
+        <div class="panel-head">
+          <span>设备洞察</span>
+          <span class="muted">只显示需要人处理的数据发现</span>
+        </div>
+      </template>
+      <el-empty
+        v-if="!insights.items.length"
+        :image-size="60"
+        description="暂无需要处理的数据异常。到「设备中心」可对单台设备立即分析。"
+      >
+        <el-button @click="go('/devices')">
+          打开设备中心
+        </el-button>
+      </el-empty>
+      <ul v-else class="insight-list">
+        <li
+          v-for="item in insights.items"
+          :key="item.analysis_id"
+          class="insight-item"
+        >
+          <el-tag
+            size="small"
+            :type="insightLevelType(item.level)"
+            effect="plain"
+          >
+            {{ item.level_label }}
+          </el-tag>
+          <span class="insight-device">{{ item.device_name }}</span>
+          <span class="insight-text">{{ item.top_finding || item.summary }}</span>
+          <span class="insight-count">{{ item.findings_count }} 条</span>
+          <el-button
+            link
+            type="primary"
+            @click="go('/devices')"
+          >
+            查看
+          </el-button>
+        </li>
+      </ul>
+    </el-card>
+
     <el-card class="panel timeline-panel">
       <template #header>
         <div class="panel-head">
@@ -257,10 +300,13 @@
   import { useRouter } from 'vue-router'
   import {
     diagnosisApi,
+    deviceApi,
     farmApi,
     knowledgeApi,
     workOrderApi,
     yardApi,
+    type DeviceAnalysisLevel,
+    type DeviceInsights,
     type FarmAlert,
     type FarmDiagnosisSummary,
     type FarmPlot,
@@ -337,6 +383,13 @@
   const failedDocs = ref(0)
   const quota = ref<Record<string, { used?: number; limit?: number; remaining?: number }>>({})
   const quotaPeriod = ref('')
+  const insights = ref<DeviceInsights>({ items: [], counts: {} })
+
+  function insightLevelType(level: DeviceAnalysisLevel): 'info' | 'warning' | 'danger' {
+    if (level === 'critical') return 'danger'
+    if (level === 'warning' || level === 'watch') return 'warning'
+    return 'info'
+  }
 
   const today = (): string => {
     const now = new Date()
@@ -517,6 +570,7 @@
         : Promise.resolve({ items: [], meta: { total: 0 } }),
       knowledgeApi.list({ page: 1, page_size: 100 }),
       yardApi.getQuota(),
+      deviceApi.insights(5),
     ])
     const [
       plotsRes,
@@ -527,6 +581,7 @@
       reviewRes,
       docsRes,
       quotaRes,
+      insightsRes,
     ] = results
 
     if (plotsRes.status === 'fulfilled') {
@@ -563,6 +618,8 @@
       quota.value = {}
       quotaState.value = 'error'
     }
+    insights.value =
+      insightsRes.status === 'fulfilled' ? insightsRes.value : { items: [], counts: {} }
     loading.value = false
   }
 
@@ -702,6 +759,45 @@
   }
   .timeline-panel {
     margin-bottom: 8px;
+  }
+  .insights-panel {
+    margin-bottom: 14px;
+  }
+  .insight-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .insight-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 2px;
+    border-bottom: 1px dashed var(--ds-border);
+    font-size: 13px;
+  }
+  .insight-item:last-child {
+    border-bottom: none;
+  }
+  .insight-device {
+    flex: none;
+    font-weight: 600;
+    color: var(--ds-text-1);
+  }
+  .insight-text {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--ds-text-2);
+  }
+  .insight-count {
+    flex: none;
+    font-size: 12px;
+    color: var(--ds-text-3);
   }
   .feed {
     list-style: none;

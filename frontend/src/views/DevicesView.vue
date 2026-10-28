@@ -27,6 +27,23 @@
               <span v-if="!d.enabled" class="off">（已停用）</span>
               <span v-if="d.consecutive_failures > 0" class="fail">连续失败 {{ d.consecutive_failures }} 次</span>
             </div>
+            <button
+              v-if="d.latest_analysis"
+              type="button"
+              class="analysis-line"
+              @click="openAnalysis(d)"
+            >
+              <el-tag size="small" :type="levelTag(d.latest_analysis.level)" effect="plain">
+                {{ d.latest_analysis.level_label }}
+              </el-tag>
+              <span class="analysis-text">
+                最近分析：{{ d.latest_analysis.status === 'insufficient' ? '证据不足' : `${d.latest_analysis.findings_count} 条发现` }}
+                · {{ formatTime(d.latest_analysis.created_at) }}
+              </span>
+            </button>
+            <button v-else type="button" class="analysis-line muted" @click="openAnalysis(d)">
+              尚未分析 · 点击查看
+            </button>
             <el-table v-if="d.latest && d.latest.length" :data="d.latest.slice(0, 4)" size="small" class="mt8">
               <el-table-column prop="metric_name" label="指标" />
               <el-table-column label="最新值" width="110">
@@ -39,6 +56,7 @@
             <div v-else class="note mt8">暂无读数</div>
             <div class="dev-ops mt8">
               <el-button size="small" @click="openData(d)">数据</el-button>
+              <el-button size="small" @click="openAnalysis(d)">AI 分析</el-button>
               <template v-if="canManage">
                 <el-switch
                   :model-value="d.enabled"
@@ -162,6 +180,94 @@
         <el-table-column label="值"><template #default="{ row }">{{ row.value ?? row.text }} {{ row.unit || '' }}</template></el-table-column>
       </el-table>
     </el-dialog>
+    <!-- 设备分析（v3.23） -->
+    <el-dialog
+      v-model="analysisVisible"
+      :title="`AI 分析：${analysisDevice?.name || ''}`"
+      width="760px"
+      align-center
+    >
+      <div class="analysis-head">
+        <el-button
+          v-if="canManage"
+          type="primary"
+          size="small"
+          :loading="analysisBusy"
+          @click="runAnalysis"
+        >
+          立即分析
+        </el-button>
+        <span class="note">规则结论一定产出；模型解释受「设置 → 设备分析」开关与每日预算约束，不编造未采集的指标。</span>
+      </div>
+      <template v-if="currentAnalysis">
+        <div class="analysis-summary">
+          <el-tag :type="levelTag(currentAnalysis.level)" effect="dark">
+            {{ currentAnalysis.level_label }}
+          </el-tag>
+          <el-tag v-if="currentAnalysis.status === 'insufficient'" type="info" effect="plain">
+            证据不足
+          </el-tag>
+          <span class="note">
+            {{ formatTime(currentAnalysis.created_at) }} ·
+            {{ currentAnalysis.trigger === 'manual' ? '手动' : '定时' }}
+            {{ currentAnalysis.model ? ` · ${currentAnalysis.model}` : ' · 规则结论' }}
+          </span>
+        </div>
+        <p class="analysis-summary-text">
+          {{ currentAnalysis.summary }}
+        </p>
+        <div class="quality-row">
+          <span>数据质量 <b>{{ currentAnalysis.quality.score }}</b> / 100</span>
+          <span>覆盖 {{ Math.round((currentAnalysis.quality.coverage || 0) * 100) }}%</span>
+          <span>点数 {{ currentAnalysis.quality.points }}</span>
+        </div>
+        <ul v-if="currentAnalysis.quality.notes?.length" class="quality-notes">
+          <li v-for="n in currentAnalysis.quality.notes" :key="n">{{ n }}</li>
+        </ul>
+        <div v-if="currentAnalysis.findings.length" class="findings">
+          <div v-for="f in currentAnalysis.findings" :key="f.code" class="finding">
+            <div class="finding-head">
+              <el-tag size="small" :type="levelTag(f.level)" effect="plain">
+                {{ levelLabel(f.level) }}
+              </el-tag>
+              <span class="finding-title">{{ f.title }}</span>
+              <span class="note">{{ f.metric_name }} · {{ ruleLabel(f.rule) }}</span>
+            </div>
+            <p class="finding-detail">{{ f.detail }}</p>
+            <p class="finding-suggestion">建议：{{ f.suggestion }}</p>
+          </div>
+        </div>
+        <el-empty v-else :image-size="60" description="本轮没有需要处理的发现。" />
+      </template>
+      <el-empty
+        v-else
+        :image-size="60"
+        description="还没有分析记录，点上方「立即分析」生成第一份结论。"
+      />
+      <div v-if="analysisList.length > 1" class="history">
+        <h4 class="sec-title">历史分析</h4>
+        <el-table :data="analysisList" size="small" max-height="180" @row-click="selectAnalysis">
+          <el-table-column label="时间" width="150">
+            <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
+          </el-table-column>
+          <el-table-column label="等级" width="90">
+            <template #default="{ row }">
+              <el-tag size="small" :type="levelTag(row.level)" effect="plain">{{ row.level_label }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="发现" width="70">
+            <template #default="{ row }">{{ row.findings.length }}</template>
+          </el-table-column>
+          <el-table-column label="触发" width="70">
+            <template #default="{ row }">{{ row.trigger === 'manual' ? '手动' : '定时' }}</template>
+          </el-table-column>
+          <el-table-column label="摘要" min-width="200" show-overflow-tooltip>
+            <template #default="{ row }">{{ row.summary }}</template>
+          </el-table-column>
+        </el-table>
+      </div>
+    </el-dialog>
+
     <!-- 告警规则与告警记录 -->
     <div class="bar mt">
       <h3 class="sec-title">告警规则</h3>
@@ -242,6 +348,8 @@ import {
   type Device,
   type DeviceAlert,
   type DeviceAlertRule,
+  type DeviceAnalysis,
+  type DeviceAnalysisLevel,
   type DeviceCapabilities,
   type DeviceMetric,
   type DeviceReading,
@@ -477,6 +585,75 @@ async function loadReadings() {
   }
 }
 
+/* ---------- AI 分析（v3.23） ---------- */
+const analysisVisible = ref(false)
+const analysisDevice = ref<Device | null>(null)
+const analysisList = ref<DeviceAnalysis[]>([])
+const currentAnalysis = ref<DeviceAnalysis | null>(null)
+const analysisBusy = ref(false)
+
+const LEVEL_LABELS: Record<DeviceAnalysisLevel, string> = {
+  info: '提示',
+  watch: '关注',
+  warning: '预警',
+  critical: '严重',
+}
+const RULE_LABELS: Record<string, string> = {
+  threshold: '阈值',
+  trend: '趋势',
+  anomaly: '异常偏离',
+  stuck: '传感器',
+  quality: '数据质量',
+  combo: '组合风险',
+}
+function levelTag(level: DeviceAnalysisLevel): 'info' | 'warning' | 'danger' | 'success' {
+  if (level === 'critical') return 'danger'
+  if (level === 'warning') return 'warning'
+  if (level === 'watch') return 'warning'
+  return 'info'
+}
+function levelLabel(level: DeviceAnalysisLevel) {
+  return LEVEL_LABELS[level] || level
+}
+function ruleLabel(rule: string) {
+  return RULE_LABELS[rule] || rule
+}
+function selectAnalysis(row: DeviceAnalysis) {
+  currentAnalysis.value = row
+}
+async function openAnalysis(d: Device) {
+  analysisDevice.value = d
+  analysisVisible.value = true
+  currentAnalysis.value = null
+  analysisList.value = []
+  try {
+    analysisList.value = await deviceApi.analyses(d.id, 20)
+    currentAnalysis.value = analysisList.value[0] || null
+  } catch {
+    /* 错误 toast 已由 client 统一处理 */
+  }
+}
+async function runAnalysis() {
+  if (!analysisDevice.value) return
+  analysisBusy.value = true
+  try {
+    const result = await deviceApi.runAnalysis(analysisDevice.value.id)
+    if (result.created === false) {
+      ElMessage.info('今天已经分析过，展示的是本轮既有结论')
+    } else if (result.status === 'insufficient') {
+      ElMessage.warning('证据不足：数据太少，本轮不产出结论')
+    } else {
+      ElMessage.success(`分析完成：${result.level_label} · ${result.findings.length} 条发现`)
+    }
+    await openAnalysis(analysisDevice.value)
+    await loadAll()
+  } catch {
+    /* 错误 toast 已由 client 统一处理 */
+  } finally {
+    analysisBusy.value = false
+  }
+}
+
 /* ---------- 规则 ---------- */
 const ruleVisible = ref(false)
 const ruleEditing = ref<DeviceAlertRule | null>(null)
@@ -566,4 +743,41 @@ onMounted(loadAll)
 .bar-track { flex: 1; height: 12px; border-radius: var(--ds-radius-pill); background: var(--ds-glass-strong); }
 .bar-fill { height: 100%; border-radius: var(--ds-radius-pill); background: var(--ds-accent); min-width: 2px; }
 .bar-val { width: 64px; font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
+.analysis-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 8px;
+  padding: 6px 8px;
+  border: 1px dashed var(--ds-border);
+  border-radius: var(--ds-radius-control);
+  background: transparent;
+  color: var(--ds-text-1);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.analysis-line:hover { border-color: var(--ds-accent); }
+.analysis-line.muted { color: var(--ds-text-2); }
+.analysis-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.analysis-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.analysis-summary { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.analysis-summary-text { margin: 10px 0; font-size: 14px; line-height: 1.7; color: var(--ds-text-1); white-space: pre-wrap; }
+.quality-row { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: var(--ds-text-2); }
+.quality-row b { color: var(--ds-text-1); font-variant-numeric: tabular-nums; }
+.quality-notes { margin: 8px 0 0; padding-left: 18px; font-size: 12px; color: var(--ds-text-2); }
+.findings { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.finding {
+  padding: 10px 12px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-control);
+  background: var(--ds-glass);
+}
+.finding-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.finding-title { font-weight: 600; color: var(--ds-text-1); }
+.finding-detail { margin: 6px 0 0; font-size: 13px; color: var(--ds-text-2); line-height: 1.6; }
+.finding-suggestion { margin: 4px 0 0; font-size: 13px; color: var(--ds-text-1); line-height: 1.6; }
+.history { margin-top: 16px; }
+.history :deep(.el-table__row) { cursor: pointer; }
 </style>
