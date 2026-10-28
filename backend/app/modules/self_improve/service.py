@@ -676,11 +676,21 @@ def _execute(
         actor_id=actor_id,
         request_id=request_id,
     )
+    # 同一条每日调度顺带处理「已开启自动升级且到门槛」的技能，单条失败不影响总结
+    upgrade_counts: dict[str, Any] = {}
+    try:
+        from app.modules.evolution.auto_upgrade import run_due_upgrades
+
+        upgrade_counts = run_due_upgrades(db, yard_id=yard_id, request_id=request_id)
+    except Exception as e:  # noqa: BLE001 - 自动升级失败不阻断自我总结
+        log.warning("skill auto upgrade failed: %s", e)
+        upgrade_counts = {"error": str(e)[:200]}
     finish(
         RUN_SUCCESS,
         output={
             "report": _clean_str(payload.get("report"), _MAX_REPORT_CHARS),
             "counts": counts,
+            "skill_upgrades": upgrade_counts,
             "window": {"from": window[0].isoformat(), "to": window[1].isoformat()},
         },
     )

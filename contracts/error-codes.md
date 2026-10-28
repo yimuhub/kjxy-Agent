@@ -295,3 +295,12 @@
 | `A2A_REMOTE_UNAUTHORIZED` | 502 | 协作方拒绝了本平台令牌 |
 | `A2A_TASK_NOT_FOUND` | 404 | 任务不存在 |
 | `A2A_SKILL_UNKNOWN` | 400/422 | 技能不在白名单（入站走 JSON-RPC -32602，出站 422） |
+
+## Skill 自动升级（v3.21）
+
+| 错误码 | HTTP | 说明 |
+|--------|------|------|
+| `SKILL_AUTO_UPGRADE_DISABLED` | 409 | 该技能未开启自动升级，手动触发被拒绝 |
+| `SKILL_UPGRADE_NO_EVIDENCE` | 409 | 最近 14 天调用次数未达到门槛（定时按 `min_calls`，手动至少 1 次） |
+| `SKILL_UPGRADE_COOLDOWN` | 409 | 距离上次自动升级未满冷却时间（`cooldown_hours`） |
+| `SKILL_NOT_FOUND` | 404 | 技能不存在或已无可用版本可升级 |

@@ -632,7 +632,7 @@
   const previewManifest = computed(() => manifestExcerpt(previewData.value))
 
   function openLocalSkillManagement() {
-    router.push({ path: '/review', query: { tab: 'skills' } })
+    router.push('/evolution')
   }
 
   async function loadNetworkStatus() {

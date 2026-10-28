@@ -124,7 +124,7 @@
           :loading="publishing"
           @click="onAction(a.key)"
         >
-          {{ a.label }}
+          {{ actionLabel(a) }}
         </el-button>
       </div>
     </template>
@@ -138,6 +138,7 @@
   import { declarativeApi } from '@/api/modules'
   import type { ChatDocumentCard, ChatStandardCard } from '@/api/chat'
   import { useAuthStore } from '@/stores/auth'
+  import { useMenuStore } from '@/stores/menu'
 
   /**
    * 对话内结构化卡片：能力草稿（可发布）、市场能力包（可装载/已装载）
@@ -156,6 +157,7 @@
 
   const router = useRouter()
   const auth = useAuthStore()
+  const menu = useMenuStore()
   const publishing = ref(false)
 
   const kindLabel = computed(() => {
@@ -215,6 +217,23 @@
     return 'primary'
   })
 
+  /** 「我的智能体」在菜单里可被 DIY 改名；卡片文案跟着菜单走，落点仍是同一个列表页 */
+  const agentListLabel = computed(() => {
+    for (const group of menu.groups) {
+      for (const node of group.items) {
+        if (node.path === '/agents/custom') return node.title
+        for (const child of node.children ?? []) {
+          if (child.path === '/agents/custom') return child.title
+        }
+      }
+    }
+    return '我的智能体'
+  })
+
+  function actionLabel(action: { key: string; label: string }): string {
+    return action.key === 'view' ? `在${agentListLabel.value}查看` : action.label
+  }
+
   /** 动作可见性：发布只对小院管理员露出（后端仍会再校验一次） */
   const showActions = computed(() => {
     if (props.card.type !== 'capability') return props.card.actions ?? []
@@ -227,7 +246,7 @@
 
   async function onAction(key: string) {
     if (key === 'view') {
-      await router.push('/agents')
+      await router.push('/agents/custom')
       return
     }
     if (key !== 'publish') return

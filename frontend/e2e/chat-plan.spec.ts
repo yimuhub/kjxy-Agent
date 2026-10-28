@@ -26,7 +26,8 @@ test.describe('对话内完整方案合成', () => {
     )
     await expect(answer).toBeVisible({ timeout: 240_000 })
     // 正文按章节渲染成标题（不是「已生成文档」那一句，也不是裸的 ## 文本）
-    await expect(answer.locator('h2').first()).toBeVisible()
+    // 本地模型首轮冷启动可能较慢：与回答本身的等待时限保持一致
+    await expect(answer.locator('h2').first()).toBeVisible({ timeout: 240_000 })
     await expect(answer).not.toContainText('已生成Word 文档')
 
     // 徽章来自后端：多源方案（绿色）

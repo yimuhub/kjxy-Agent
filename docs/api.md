@@ -216,6 +216,36 @@ JSON-RPC 方法：
 
 出网口径：协作方地址在保存、探测与每次发任务前都过 `net_guard`；响应上限 1MB；协作方令牌 Fernet 加密、接口只回 `token_configured`。
 
+## 版本握手与 Skill 自动升级（v3.21）
+
+### 版本握手
+
+`GET /api/v1/meta` 返回后端版本与数据库迁移头，前端用它提示「后端版本较旧」：
+
+```json
+{ "data": { "version": "3.21.0", "migration_head": "0049_skill_auto_upgrade" } }
+```
+
+- 升级顺序：`alembic upgrade head` → 重启后端 → `curl /api/v1/meta` 确认。
+- 前端编译期带自身版本，与后端不一致时顶部横幅提示；405（`METHOD_NOT_ALLOWED`）文案改为「后端版本较旧或该接口未启用」，不再让用户摸不着头脑。
+
+### 调用埋点与自动升级
+
+| 端点 | 说明 |
+|---|---|
+| `GET /api/v1/skills/auto-upgrade/overview` | 列表页用：按 `skill_code` 返回开关、门槛、冷却与近 30 天调用量（一次分组查询） |
+| `GET /api/v1/skills/{skill_id}/auto-upgrade` | 单技能配置、近 14 天统计与最近 10 次升级记录 |
+| `PATCH /api/v1/skills/{skill_id}/auto-upgrade` | 开关与阈值（`enabled`、`min_calls` 1–1000、`cooldown_hours` 1–8760），需 `skills:manage` |
+| `POST /api/v1/skills/{skill_id}/auto-upgrade/run` | 手动尝试一次升级（仍需已开启且有调用证据） |
+
+口径：
+
+- 埋点只记「哪个技能参与了哪次回答」：`yard_id / skill_code / source(plan|declarative) / session_id / outcome`，不读取、不存储对话正文。
+- 升级证据只取主题级信号：近 14 天调用次数、去重会话标题（截断 40 字）、带文字或点踩的反馈片段（截断 120 字）、来源分布与当前定义。
+- 到门槛且冷却结束才调模型；输出 `needs_update / reason / description / prompt / steps`。
+- **只产待审核草稿**：新版本以 `status=pending_review`、`created_from=auto:upgrade` 落库，发布仍需人工审核；`needs_update=false` 记 `skipped`，模型不可用或解析失败记 `failed` 与原因。
+- 自我总结任务（3.4）结束前会顺带处理本小院已到期的自动升级，单条失败不影响其余；审计 `skill_upgrade_run`、`skill_auto_upgrade_toggled`。
+
 ## 任务状态机
 
 `queued → running → succeeded | failed | cancelled | awaiting_review → succeeded | failed | cancelled`

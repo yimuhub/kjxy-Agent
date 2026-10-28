@@ -196,3 +196,13 @@ class RolloutOut(BaseModel):
     status: str
     created_at: datetime
     updated_at: datetime
+
+
+class SkillAutoUpgradeUpdate(BaseModel):
+    """自动升级开关与门槛（只影响草稿产出，不影响发布）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool | None = None
+    min_calls: int | None = Field(default=None, ge=1, le=1000)
+    cooldown_hours: int | None = Field(default=None, ge=1, le=8760)

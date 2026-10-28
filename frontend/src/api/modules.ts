@@ -767,10 +767,67 @@ export const policyApi = {
 
 // ---------- 自生长管理（第四期） ----------
 
+/** 技能近 30 天调用统计（只统计参与次数，不含对话正文） */
+export interface SkillUsageStats {
+  days?: number
+  calls: number
+  sessions: number
+  failed?: number
+  last_used_at?: string | null
+}
+
+/** 单个技能的自动升级开关与最近一次执行结果 */
+export interface SkillAutoUpgradeInfo {
+  skill_id?: string
+  skill_code?: string
+  enabled: boolean
+  min_calls: number
+  cooldown_hours: number
+  last_run_at: string | null
+  last_status: string | null
+  last_error: string | null
+  usage: SkillUsageStats
+  runs?: SkillUpgradeRunRecord[]
+}
+
+/** 一次自动升级尝试（只产待审核草稿，不自动发布） */
+export interface SkillUpgradeRunRecord {
+  id: string
+  skill_code: string
+  trigger: string
+  status: string
+  summary: string | null
+  error: string | null
+  draft_skill_id: string | null
+  evidence?: Record<string, unknown> | null
+  created_at: string | null
+}
+
 export const evolutionApi = {
   /** Skill 列表 */
   listSkills(): Promise<any[]> {
     return unwrap(api.get<any>('/skills')).then((r: any) => r.data ?? r)
+  },
+  /** 自动升级总览：按 skill_code 返回开关与近 30 天调用量（一次分组查询） */
+  autoUpgradeOverview(): Promise<Record<string, SkillAutoUpgradeInfo>> {
+    return unwrap(
+      api.get<ApiResponse<Record<string, SkillAutoUpgradeInfo>>>('/skills/auto-upgrade/overview'),
+    )
+  },
+  /** 单个技能的自动升级配置与最近运行记录 */
+  getAutoUpgrade(skill_id: string): Promise<SkillAutoUpgradeInfo> {
+    return unwrap(api.get<ApiResponse<SkillAutoUpgradeInfo>>(`/skills/${skill_id}/auto-upgrade`))
+  },
+  /** 开关/门槛/冷却时间；只影响草稿产出，发布仍需人工审核 */
+  setAutoUpgrade(
+    skill_id: string,
+    payload: { enabled?: boolean; min_calls?: number; cooldown_hours?: number },
+  ): Promise<SkillAutoUpgradeInfo> {
+    return unwrap(api.patch<ApiResponse<SkillAutoUpgradeInfo>>(`/skills/${skill_id}/auto-upgrade`, payload))
+  },
+  /** 立即尝试一次升级（仍需已开启且有调用证据） */
+  runAutoUpgrade(skill_id: string): Promise<SkillUpgradeRunRecord> {
+    return unwrap(api.post<ApiResponse<SkillUpgradeRunRecord>>(`/skills/${skill_id}/auto-upgrade/run`, {}))
   },
   /** 设置灰度 */
   setRollout(skill_id: string, payload: Record<string, unknown>): Promise<unknown> {

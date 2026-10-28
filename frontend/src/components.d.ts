@@ -14,6 +14,7 @@ declare module 'vue' {
     AgentUseDialog: typeof import('./components/agents/AgentUseDialog.vue')['default']
     AgentWizard: typeof import('./components/agents/AgentWizard.vue')['default']
     AsyncState: typeof import('./components/AsyncState.vue')['default']
+    BackendVersionBanner: typeof import('./components/layout/BackendVersionBanner.vue')['default']
     BindableExtensionPicker: typeof import('./components/agents/BindableExtensionPicker.vue')['default']
     ChatApprovalPicker: typeof import('./components/chat/ChatApprovalPicker.vue')['default']
     ChatCard: typeof import('./components/chat/ChatCard.vue')['default']

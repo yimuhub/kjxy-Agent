@@ -10,12 +10,13 @@ from app.core.deps import YardContext, get_db_session, get_yard_context
 from app.core.errors import AppError
 from app.core.pagination import pagination_params
 from app.core.responses import ok, paged
+from app.modules.audit.service import log_audit
 from app.modules.evolution import attestation as attestation_service
+from app.modules.evolution import auto_upgrade, service
 from app.modules.evolution import precheck as precheck_service
 from app.modules.evolution import rollout as rollout_service
-from app.modules.evolution import service
 from app.modules.evolution import suggest as suggest_service
-from app.modules.evolution.models import EvalRun
+from app.modules.evolution.models import EvalRun, SkillAutoUpgrade, SkillUpgradeRun
 from app.modules.evolution.schemas import (
     CandidateBatchFailure,
     CandidateBatchReview,
@@ -27,6 +28,7 @@ from app.modules.evolution.schemas import (
     FeedbackOut,
     RolloutCreate,
     RolloutOut,
+    SkillAutoUpgradeUpdate,
     SkillCreate,
     SkillOut,
     SkillReview,
@@ -451,3 +453,130 @@ def halt_skill_rollout(
         db.rollback()
         raise
     return ok(RolloutOut.model_validate(rollout).model_dump(mode="json", by_alias=True), request)
+
+
+# ---------------------------------------------------------------- 自动升级（v3.21）
+
+
+@router.get("/skills/auto-upgrade/overview")
+def auto_upgrade_overview(
+    request: Request,
+    ctx: YardContext = Depends(get_yard_context),
+    db=Depends(get_db_session),
+):
+    """列表页用：所有技能的自动升级开关与近 30 天调用量（一次分组查询）。"""
+    service._require_db_permission(db, ctx, "skills:manage")
+    settings_map = {
+        str(row.skill_code): row
+        for row in db.query(SkillAutoUpgrade).filter(SkillAutoUpgrade.yard_id == ctx.yard_id).all()
+    }
+    usage = auto_upgrade.usage_map(db, ctx.yard_id)
+    codes = set(settings_map) | set(usage)
+    items = {}
+    for code in codes:
+        row = settings_map.get(code)
+        items[code] = {
+            "enabled": bool(row.enabled) if row else False,
+            "min_calls": int(row.min_calls) if row else 10,
+            "cooldown_hours": int(row.cooldown_hours) if row else 168,
+            "last_run_at": row.last_run_at.isoformat() if row and row.last_run_at else None,
+            "last_status": row.last_status if row else None,
+            "last_error": row.last_error if row else None,
+            "usage": usage.get(code, {"calls": 0, "sessions": 0}),
+        }
+    return ok(items, request)
+
+
+@router.get("/skills/{skill_id}/auto-upgrade")
+def get_skill_auto_upgrade(
+    skill_id: str,
+    request: Request,
+    ctx: YardContext = Depends(get_yard_context),
+    db=Depends(get_db_session),
+):
+    skill = service.get_skill(db, ctx, skill_id)
+    setting = auto_upgrade.get_setting(db, ctx.yard_id, skill.skill_code)
+    stats = auto_upgrade.usage_stats(db, ctx.yard_id, skill.skill_code)
+    runs = [
+        auto_upgrade.run_out(run)
+        for run in db.query(SkillUpgradeRun)
+        .filter(
+            SkillUpgradeRun.yard_id == ctx.yard_id,
+            SkillUpgradeRun.skill_code == skill.skill_code,
+        )
+        .order_by(SkillUpgradeRun.created_at.desc())
+        .limit(10)
+        .all()
+    ]
+    return ok(
+        {
+            "skill_id": skill.id,
+            "skill_code": skill.skill_code,
+            **auto_upgrade.setting_out(setting, stats),
+            "runs": runs,
+        },
+        request,
+    )
+
+
+@router.patch("/skills/{skill_id}/auto-upgrade")
+def update_skill_auto_upgrade(
+    skill_id: str,
+    body: SkillAutoUpgradeUpdate,
+    request: Request,
+    ctx: YardContext = Depends(get_yard_context),
+    db=Depends(get_db_session),
+):
+    """开关自动升级；只影响草稿产出，发布仍需人工审核。"""
+    service._require_db_permission(db, ctx, "skills:manage")
+    skill = service.get_skill(db, ctx, skill_id)
+    setting = auto_upgrade.ensure_setting(db, ctx.yard_id, skill.skill_code, ctx.user_id)
+    if body.enabled is not None:
+        setting.enabled = body.enabled
+    if body.min_calls is not None:
+        setting.min_calls = body.min_calls
+    if body.cooldown_hours is not None:
+        setting.cooldown_hours = body.cooldown_hours
+    db.flush()
+    log_audit(
+        db,
+        yard_id=ctx.yard_id,
+        actor_id=ctx.user_id,
+        action="skill_auto_upgrade_toggled",
+        resource_type="skill",
+        resource_id=skill.id,
+        result="success",
+        request_id=ctx.request_id,
+        metadata={
+            "skill_code": skill.skill_code,
+            "enabled": setting.enabled,
+            "min_calls": setting.min_calls,
+            "cooldown_hours": setting.cooldown_hours,
+        },
+    )
+    db.commit()
+    stats = auto_upgrade.usage_stats(db, ctx.yard_id, skill.skill_code)
+    return ok(auto_upgrade.setting_out(setting, stats), request)
+
+
+@router.post("/skills/{skill_id}/auto-upgrade/run")
+def run_skill_auto_upgrade(
+    skill_id: str,
+    request: Request,
+    ctx: YardContext = Depends(get_yard_context),
+    db=Depends(get_db_session),
+):
+    """立即尝试一次升级（仍需已开启开关且近期有调用证据）。"""
+    service._require_db_permission(db, ctx, "skills:manage")
+    skill = service.get_skill(db, ctx, skill_id)
+    run = auto_upgrade.upgrade_skill(
+        db,
+        yard_id=ctx.yard_id,
+        code=skill.skill_code,
+        trigger="manual",
+        actor_id=ctx.user_id,
+        request_id=ctx.request_id,
+        manual=True,
+    )
+    db.commit()
+    return ok(auto_upgrade.run_out(run), request)

@@ -158,7 +158,7 @@ def _card(
     actions: list[dict[str, Any]] = []
     if state == CARD_CREATED and agent_id:
         actions = [
-            {"key": "view", "label": "在能力中心查看"},
+            {"key": "view", "label": "查看智能体"},
             {"key": "publish", "label": "发布", "requires_role": "yard_admin"},
         ]
     return {

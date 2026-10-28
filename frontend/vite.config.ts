@@ -1,11 +1,18 @@
+import { readFileSync } from 'node:fs'
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import Components from 'unplugin-vue-components/vite'
 import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 import { fileURLToPath, URL } from 'node:url'
 
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8')) as {
+  version: string
+}
+
 // https://vite.dev/config/
 export default defineConfig({
+  // 版本握手用：前端把自身版本编译进产物，和后端 /api/v1/meta 比对
+  define: { __APP_VERSION__: JSON.stringify(pkg.version) },
   plugins: [
     vue(),
     // 模板中的 el-* 组件按需引入，避免整包打进首屏（样式仍由 main.ts 全量引入）

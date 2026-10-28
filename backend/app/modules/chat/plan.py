@@ -245,7 +245,13 @@ async def build_plan(
     if on_step:
         on_step(PHASE_TOOL_CALL, "匹配小院已发布技能", STEP_RUNNING)
     skills = select_relevant_skill_codes(db, ctx=ctx, text=question, limit=3)
-    skills_prompt = skills_prompt_for(db, ctx.yard_id, [s["code"] for s in skills])
+    skills_prompt = skills_prompt_for(
+        db,
+        ctx.yard_id,
+        [s["code"] for s in skills],
+        record_source="plan",
+        session_id=session_id,
+    )
     skill_names = [s["name"] for s in skills]
     if on_step:
         on_step(

@@ -1,11 +1,13 @@
 <template>
   <el-config-provider :locale="zhCn">
+    <BackendVersionBanner />
     <router-view />
   </el-config-provider>
 </template>
 
 <script setup lang="ts">
   import zhCn from 'element-plus/es/locale/lang/zh-cn'
+  import BackendVersionBanner from '@/components/layout/BackendVersionBanner.vue'
 </script>
 
 <style>

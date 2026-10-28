@@ -62,6 +62,19 @@ COMPOSE="docker compose -f compose.yaml -f compose.production.yaml" ./deploy/scr
 
 1. 确认版本兼容矩阵（CHANGELOG）→ 2. 备份 → 3. 拉取固定版本镜像 → 4. 执行迁移 → 5. 重建容器 → 6. 健康检查 → 7. 冒烟测试 → 8. 记录版本。
 
+### 本地/单机升级顺序（避免「当前后端版本不支持该操作」）
+
+```bash
+cd backend
+../.venv/bin/python -m alembic -c alembic.ini upgrade head   # 先迁移
+# 再停止并重启后端进程（uvicorn），不要只 reload 前端
+curl -s http://127.0.0.1:8000/api/v1/meta                   # 确认 version 与 migration_head
+```
+
+- 前端启动会调用 `GET /api/v1/meta` 比对版本；后端落后时页面顶部会出现提示横幅。
+- 若接口返回 405/404 且提示「后端版本较旧」，优先检查后端进程是否早于本次代码启动，以及迁移是否执行。
+
+
 ## 回滚
 
 1. 停止扩大影响 → 2. 恢复上版本镜像/配置 → 3. 若迁移不可逆，按备份恢复流程处理（禁止假设"回滚镜像=数据库自动恢复"）→ 4. 验证健康与主流程。

@@ -1506,3 +1506,18 @@ export const a2aApi = {
     return unwrap(api.get<ApiResponse<A2aTask>>(`/settings/a2a/tasks/${id}`))
   },
 }
+
+// ---------------------------------------------------------------------------
+// 版本握手（v3.21）：后端版本与数据库迁移 head
+// ---------------------------------------------------------------------------
+
+export interface BackendMeta {
+  version: string
+  migration_head: string | null
+}
+
+export const metaApi = {
+  get(): Promise<BackendMeta> {
+    return unwrap(api.get<ApiResponse<BackendMeta>>('/meta', silent))
+  },
+}

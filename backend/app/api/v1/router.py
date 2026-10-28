@@ -1,7 +1,12 @@
 """API v1 总路由：挂载各模块 router。"""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, Request
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
+from app.core.deps import get_db_session
+from app.core.responses import ok
 from app.modules.a2a.router import router as a2a_router
 from app.modules.admin.router import router as admin_router
 from app.modules.agents.router import router as agents_router
@@ -75,6 +80,21 @@ router.include_router(pairing_router)  # /pairing（手机扫码配对：建码/
 router.include_router(bots_router)  # /bots（IM 机器人网关：配置/测试/会话批准/账本）
 router.include_router(search_router)  # /search（联网状态探测 + 连通性测试）
 router.include_router(self_improve_router)  # /yards/current/self-improve*（自我总结提升 v3.4）
+
+
+@router.get("/meta", tags=["meta"])
+def meta(request: Request, db: Session = Depends(get_db_session)):
+    """版本握手：前端据此识别「后端进程旧了」，而不是等用户点按钮才报 405。
+
+    公开端点，只返回版本与数据库迁移 head，不含任何环境密钥。
+    """
+    try:
+        head = db.execute(text("SELECT version_num FROM alembic_version")).scalar()
+    except SQLAlchemyError:
+        # 未执行迁移的全新库/测试库没有 alembic_version：如实返回空
+        db.rollback()
+        head = None
+    return ok({"version": request.app.version, "migration_head": head}, request)
 
 
 @router.get("/ping", include_in_schema=False)

@@ -4,6 +4,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     DateTime,
     Float,
     ForeignKey,
@@ -140,3 +141,69 @@ class EvalRun(Base, TimestampMixin):
     report_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     report_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     dataset_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class SkillUsageEvent(Base, TimestampMixin):
+    """Skill 参与回答/执行的调用埋点（v3.21）。
+
+    只记录「哪个技能在哪个来源被用到」与结果类别，不存对话正文；
+    ``session_id`` 用于把调用量与同期反馈关联起来。
+    """
+
+    __tablename__ = "skill_usage_events"
+    __table_args__ = (
+        Index("ix_skill_usage_yard_code_time", "yard_id", "skill_code", "created_at"),
+        Index("ix_skill_usage_yard_session", "yard_id", "session_id"),
+    )
+
+    yard_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    skill_code: Mapped[str] = mapped_column(String(100), nullable=False)
+    skill_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    #: plan=方案合成 declarative=声明式助手 tool=技能工具 chat=对话路由
+    source: Mapped[str] = mapped_column(String(20), nullable=False, default="chat")
+    session_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    #: ok|failed（目前只在可判定时记 failed，其余按 ok）
+    outcome: Mapped[str] = mapped_column(String(10), nullable=False, default="ok")
+
+
+class SkillAutoUpgrade(Base, TimestampMixin):
+    """按技能开启的自动升级配置（v3.21）：只产草稿，不自动发布。"""
+
+    __tablename__ = "skill_auto_upgrade"
+    __table_args__ = (UniqueConstraint("yard_id", "skill_code", name="uq_skill_auto_yard_code"),)
+
+    yard_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    skill_code: Mapped[str] = mapped_column(String(100), nullable=False)
+    enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
+    #: 触发门槛：窗口内调用次数
+    min_calls: Mapped[int] = mapped_column(Integer, nullable=False, default=10, server_default="10")
+    #: 冷却时间（小时），避免同一天反复升级
+    cooldown_hours: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=168, server_default="168"
+    )
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: skipped|success|failed
+    last_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+
+
+class SkillUpgradeRun(Base, TimestampMixin):
+    """一次自动升级运行的证据与产物（v3.21）。"""
+
+    __tablename__ = "skill_upgrade_runs"
+    __table_args__ = (Index("ix_skill_upgrade_yard_code", "yard_id", "skill_code"),)
+
+    yard_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    skill_code: Mapped[str] = mapped_column(String(100), nullable=False)
+    #: schedule|manual
+    trigger: Mapped[str] = mapped_column(String(20), nullable=False)
+    #: success|skipped|failed
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    evidence_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    draft_skill_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    summary: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    error: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    actor_id: Mapped[str | None] = mapped_column(String(36), nullable=True)

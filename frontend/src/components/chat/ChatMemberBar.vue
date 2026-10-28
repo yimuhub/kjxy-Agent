@@ -8,76 +8,102 @@
         :id="titleId"
         class="bar-title"
       >群聊成员 {{ store.participants.length }}/{{ maxMembers }}</span>
-      <el-popover
-        :visible="addOpen"
-        placement="bottom-end"
-        :width="300"
-        :show-arrow="false"
-        popper-class="mention-popper add-popper"
-        @update:visible="onVisible"
+      <button
+        class="add-btn"
+        type="button"
+        :disabled="disabled || full"
+        :title="full ? `最多 ${maxMembers} 位成员` : '把助手或班组拉进群聊'"
+        :aria-label="`向${label}添加群聊成员`"
+        @click="onToggleAdd"
       >
-        <template #reference>
-          <button
-            class="add-btn"
-            type="button"
-            :disabled="disabled || full"
-            :title="full ? `最多 ${maxMembers} 位成员` : '把助手或班组拉进群聊'"
-            :aria-label="`向${label}添加群聊成员`"
-            @click="onToggleAdd"
-          >
-            <el-icon><Plus /></el-icon>
-            添加
-          </button>
-        </template>
-        <div class="add-panel">
-          <p
-            :id="`${titleId}-add`"
-            class="add-title"
-          >
-            选择要拉进来的助手或班组
-          </p>
-          <ul
-            role="listbox"
-            class="add-list"
-            :aria-labelledby="`${titleId}-add`"
-          >
+        <el-icon><Plus /></el-icon>
+        添加
+      </button>
+    </header>
+
+    <el-dialog
+      v-model="addOpen"
+      :title="`添加${label}成员`"
+      width="520px"
+      append-to-body
+      class="add-member-dialog"
+      @opened="focusSearch"
+    >
+      <el-input
+        ref="searchInput"
+        v-model="search"
+        class="search-input"
+        placeholder="搜索助手或班组：名称 / 编码 / 简介"
+        clearable
+        :prefix-icon="Search"
+        aria-label="搜索可添加的助手或班组"
+      />
+      <div
+        class="add-body"
+        role="listbox"
+        :aria-label="`可添加的${label}成员`"
+      >
+        <section
+          v-for="group in groupedCandidates"
+          :key="group.kind"
+          class="cand-group"
+        >
+          <h4 class="group-title">
+            {{ group.title }}
+            <span class="group-count">{{ group.items.length }}</span>
+          </h4>
+          <ul class="cand-list">
             <li
-              v-for="c in addableCandidates"
+              v-for="c in group.items"
               :key="`${c.kind}-${c.id}`"
+              class="cand-item"
+              :class="{ joined: c.joined }"
               role="option"
-              :aria-selected="false"
-              class="add-opt"
-              @mousedown.prevent
-              @click="onAdd(c)"
+              :aria-selected="c.joined"
             >
               <span
-                class="opt-emoji"
+                class="cand-avatar"
                 aria-hidden="true"
               >{{ c.emoji || (c.kind === 'team' ? '👥' : '🤖') }}</span>
-              <span class="opt-text">
-                <span class="opt-name">{{ displayName(c) }}</span>
+              <span class="cand-text">
+                <span class="cand-name">{{ displayName(c) }}</span>
                 <span
                   v-if="c.blurb"
-                  class="opt-blurb"
+                  class="cand-blurb"
                 >{{ c.blurb }}</span>
               </span>
+              <el-button
+                size="small"
+                :type="c.joined ? 'info' : 'primary'"
+                :plain="!c.joined"
+                :disabled="c.joined || full"
+                :loading="busy && pendingId === c.id"
+                @click="onAdd(c)"
+              >
+                {{ c.joined ? '已在群聊' : '添加' }}
+              </el-button>
             </li>
           </ul>
-          <p
-            v-if="store.mentionLoading"
-            class="add-tip"
-          >
-            候选加载中…
-          </p>
-          <p
-            v-else-if="!addableCandidates.length"
-            class="add-tip"
-          >
-            没有可添加的对象（候选接口未就绪或都已加入）
-          </p>
-        </div>
-      </el-popover>
-    </header>
+        </section>
+        <p
+          v-if="store.mentionLoading"
+          class="cand-tip"
+        >
+          候选加载中…
+        </p>
+        <el-empty
+          v-else-if="!filteredCandidates.length"
+          :image-size="64"
+          :description="search ? '没有匹配的助手，换个关键词试试' : '没有可添加的对象'"
+        />
+      </div>
+      <template #footer>
+        <span class="footer-tip">已加入 {{ store.participants.length }}/{{ maxMembers }}；可连续添加多位</span>
+        <el-button @click="addOpen = false">
+          完成
+        </el-button>
+      </template>
+    </el-dialog>
 
     <ul
       v-if="rows.length"
@@ -161,8 +187,7 @@
 
 <script setup lang="ts">
   import { computed, ref } from 'vue'
-  import { ElPopover } from 'element-plus'
-  import { Bottom, Close, Plus, Top, Warning } from '@element-plus/icons-vue'
+  import { Bottom, Close, Plus, Search, Top, Warning } from '@element-plus/icons-vue'
   import { MAX_GROUP_MEMBERS, mentionDisplayName } from '@/api/chat'
   import type { MentionCandidate } from '@/api/chat'
   import type { ChatStoreInstance } from '@/stores/chat'
@@ -185,37 +210,71 @@
   const titleId = `member-title-${Math.random().toString(36).slice(2, 8)}`
   const addOpen = ref(false)
   const busy = ref(false)
+  const pendingId = ref('')
+  const search = ref('')
+  const searchInput = ref<{ focus: () => void } | null>(null)
 
   /** 成员行：store 已按 position 排好并补齐「未回答」说明 */
   const rows = computed(() => props.store.memberRounds)
   const full = computed(() => props.store.participants.length >= maxMembers)
   const missingCount = computed(() => rows.value.filter(m => m.missing).length)
 
-  const addableCandidates = computed(() => {
-    const inGroup = new Set(props.store.participants.map(p => p.agent_id || p.agent_code || ''))
-    return props.store.mentionCandidates.filter(c => !inGroup.has(c.id) && !inGroup.has(c.code ?? ''))
+  /** 候选行：带上「是否已在群聊」，让列表稳定、不因加入而跳动 */
+  const candidateRows = computed(() => {
+    const inGroup = new Set<string>()
+    for (const p of props.store.participants) {
+      if (p.agent_id) inGroup.add(p.agent_id)
+      if (p.agent_code) inGroup.add(p.agent_code)
+    }
+    return props.store.mentionCandidates.map(c => ({
+      ...c,
+      joined: inGroup.has(c.id) || Boolean(c.code && inGroup.has(c.code)),
+    }))
   })
+
+  const filteredCandidates = computed(() => {
+    const q = search.value.trim().toLowerCase()
+    if (!q) return candidateRows.value
+    return candidateRows.value.filter(c =>
+      [displayName(c), c.code, c.blurb]
+        .filter(Boolean)
+        .some(v => String(v).toLowerCase().includes(q)),
+    )
+  })
+
+  const groupedCandidates = computed(() =>
+    [
+      { kind: 'agent', title: '助手', items: filteredCandidates.value.filter(c => c.kind !== 'team') },
+      { kind: 'team', title: '班组', items: filteredCandidates.value.filter(c => c.kind === 'team') },
+    ].filter(g => g.items.length > 0),
+  )
 
   /** 后端可能多回一个成员表外的 role：它只读，不给调序/删除按钮 */
   function isLastVisible(index: number): boolean {
     return index >= rows.value.length - 1
   }
 
-  /** 弹层可见性由本组件的按钮控制：只接受外部的「关闭」，避免点参考区反复开关 */
-  function onVisible(value: boolean) {
-    if (!value) addOpen.value = false
-  }
-
   async function onToggleAdd() {
+    if (full.value) return
     addOpen.value = !addOpen.value
-    if (addOpen.value) await props.store.loadMentionCandidates()
+    if (addOpen.value) {
+      search.value = ''
+      await props.store.loadMentionCandidates()
+    }
   }
 
-  async function onAdd(candidate: MentionCandidate) {
+  function focusSearch() {
+    searchInput.value?.focus()
+  }
+
+  /** 添加后不关闭弹窗：允许连续把多位助手/班组拉进来 */
+  async function onAdd(candidate: MentionCandidate & { joined?: boolean }) {
+    if (candidate.joined || full.value) return
+    pendingId.value = candidate.id
     busy.value = true
-    const ok = await props.store.addParticipant(candidate)
+    await props.store.addParticipant(candidate)
     busy.value = false
-    if (ok) addOpen.value = false
+    pendingId.value = ''
   }
 
   async function onRemove(key: string) {
@@ -408,63 +467,107 @@
     border-radius: var(--ds-radius-control);
   }
 
-  .add-panel {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
+  .search-input {
+    margin-bottom: 10px;
   }
-  .add-title,
-  .add-tip {
-    margin: 0;
-    font-size: 11.5px;
+
+  .add-body {
+    max-height: min(52vh, 420px);
+    overflow-y: auto;
+    padding-right: 2px;
+  }
+
+  .cand-group + .cand-group {
+    margin-top: 10px;
+  }
+
+  .group-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 0 6px;
+    font-size: 12px;
+    font-weight: 600;
     color: var(--ds-text-3);
   }
-  .add-list {
+  .group-count {
+    font-weight: 400;
+    color: var(--ds-text-3);
+  }
+
+  .cand-list {
     list-style: none;
     margin: 0;
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    max-height: 220px;
-    overflow-y: auto;
+    gap: 4px;
   }
-  .add-opt {
+
+  .cand-item {
     display: flex;
-    align-items: flex-start;
-    gap: 8px;
-    padding: 6px 8px;
-    border-radius: var(--ds-radius-control);
-    cursor: pointer;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 8px;
+    border: 1px solid transparent;
+    border-radius: 10px;
   }
-  .add-opt:hover {
+  .cand-item:hover {
     background: var(--ds-glass-strong);
+    border-color: var(--ds-border);
   }
-  .opt-emoji {
+  .cand-item.joined {
+    opacity: 0.62;
+  }
+
+  .cand-avatar {
     flex: none;
-    width: 20px;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     font-size: 15px;
-    text-align: center;
+    background: var(--ds-glass-strong);
+    border: 1px solid var(--ds-border);
+    border-radius: 50%;
   }
-  .opt-text {
+
+  .cand-text {
+    flex: 1;
     min-width: 0;
     display: flex;
     flex-direction: column;
+    gap: 2px;
   }
-  .opt-name {
+
+  .cand-name {
     font-size: 13px;
     color: var(--ds-text-1);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .opt-blurb {
+
+  .cand-blurb {
     font-size: 11.5px;
+    line-height: 1.35;
     color: var(--ds-text-3);
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
     overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .cand-tip {
+    margin: 10px 0 0;
+    font-size: 12px;
+    color: var(--ds-text-3);
+  }
+
+  .footer-tip {
+    margin-right: auto;
+    font-size: 12px;
+    color: var(--ds-text-3);
   }
 
   @media (max-width: 640px) {

@@ -2,6 +2,54 @@
 
 本项目遵循《工程开发规范 V3.0》；版本号遵循语义化版本。
 
+## [3.21.0] - 2026-10-29
+
+把「版本对不上、入口找不到、技能改不动」这三件小事一次收干净：后端版本可自查、能力卡片直达「我的智能体」、群聊加人可搜索；自生长管理一个页面管完 Skill，状态全中文、点名称看说明，并可按调用量自动改进（只产待审核草稿，不自动发布）。
+
+### 版本握手与运维（后端/前端）
+
+- 新增 `GET /api/v1/meta`：返回后端版本与 Alembic 迁移头；数据库未迁移时 `migration_head=null` 而不是 500。
+- 前端编译期写入自身版本（`__APP_VERSION__`），启动比对后端版本，落后时显示可关闭的顶部横幅；405 文案改为「后端版本较旧或该接口未启用：请先执行数据库迁移并重启后端」，不再把「重启一下」留到用户点按钮才说。
+- `docs/operations.md` 补「本地/单机升级顺序」：`alembic upgrade head` → 重启 → `curl /api/v1/meta` 确认。
+
+### 入口与群聊（前端）
+
+- 对话能力卡片：后端动作文案改为中性的「查看智能体」；前端按菜单 store 取 `/agents/custom` 的当前标题（默认「我的智能体」，DIY 改名后同步），点击直达智能体列表。
+- 群聊加人从 300px 浮层改为 520px 居中弹窗：顶部搜索（名称/编码/简介即时过滤）、助手/班组分组、已加入置灰、添加后不关闭可连续拉人、底部显示已加入人数。
+
+### Skill 调用埋点与自动升级（后端）
+
+- 迁移 `0049_skill_auto_upgrade`（可完整 downgrade，已做 `up → down → up`）：
+  - `skill_usage_events`：只记 `yard_id / skill_code / source / session_id / outcome`，不读取、不存储对话正文；
+  - `skill_auto_upgrade`：按小院的技能开关、调用门槛（默认 10）、冷却小时（默认 168）与最近执行结果；
+  - `skill_upgrade_runs`：每次升级尝试的触发方式、状态、证据快照、草稿 ID 与失败原因。
+- 对话规划（`plan`）与声明式助手（`declarative`）两条链路在解析出实际使用的技能后写埋点；记录失败不影响回答。
+- 新增 `/skills/auto-upgrade/overview`、`/skills/{id}/auto-upgrade`（GET/PATCH）、`/skills/{id}/auto-upgrade/run`，写操作需 `skills:manage`。
+- 升级门槛：开关开启 + 近 14 天调用达到 `min_calls` + 冷却结束；证据只取主题级信号（去重会话标题、带文字/点踩的反馈片段、来源分布、当前定义），输出 `needs_update / reason / description / prompt / steps`。
+- **只产 `pending_review` 草稿**（`created_from=auto:upgrade`），发布仍需人工；模型判断无需更新记 `skipped`，模型不可用或输出不合法记 `failed` 并留原因。自我总结每日调度结束前顺带处理到期技能，单条失败不影响其余；审计 `skill_upgrade_run`、`skill_auto_upgrade_toggled`。
+
+### 自生长管理（前端）
+
+- 专家审核页移除「Skill 管理」页签，只保留待审核知识，并在工具条给出「自生长管理」入口；GitHub/市场导入继续走「插件与技能库」。
+- Skill 列表：状态全部中文（草稿/测试中/待审核/已发布/已下线/已驳回）；技能名称大号在上、编码小号在下，点名称或编码打开详情抽屉，展示「能做什么」、执行提示词、步骤、来源/范围/许可证/风险/签名与自动升级状态，并可打开评测报告。
+- 新增「近 30 天调用」列（次数 + 会话数）与「自动升级」开关；设置弹窗可调开关、调用门槛与冷却小时，展示最近 10 次升级记录，并可「立即尝试升级」。
+- 新建 Skill 草稿与上传 SKILL.md 并入该页；列表显示「AI 生成」与「灰度中」徽标，审核动作（提交审核/发布/驳回/回滚）按状态出现。
+
+### 契约与文档
+
+- OpenAPI 重新生成：**245 路径**（相对 3.20 新增 `/meta` 与 3 条自动升级端点），两次生成结果一致。
+- `contracts/error-codes.md` 新增 `SKILL_AUTO_UPGRADE_DISABLED / SKILL_UPGRADE_NO_EVIDENCE / SKILL_UPGRADE_COOLDOWN`。
+- `docs/api.md` 新增「版本握手与 Skill 自动升级（v3.21）」；状态报告补 3.21 行；方案文档补交付记录。
+
+### 门禁
+
+- 后端 ruff check/format、mypy 全绿；全量测试 **1541 passed**。
+- 新增 `tests/unit/test_skill_auto_upgrade.py`（8 条：埋点去重、统计口径、门槛/冷却/未开启、成功产草稿、无需更新跳过、模型失败留痕、版本递增、到期调度）。
+- 新增 `tests/integration/test_skill_auto_upgrade_api.py`（3 条：总览与配置、升级/冷却/证据不足错误码、权限只读拒绝）；新增 `test_meta_api.py`（2 条：版本与迁移头、数据库未迁移时的空值）。
+- 前端 eslint **0 error**、vue-tsc 全绿、单测 **38 passed**、`vite build` 通过；版本面 9 处一致（3.21.0）。
+- 全量 E2E **54 passed**（含新增 `e2e/v321.spec.ts` 3 条），跑在隔离的 8011 后端 + 5174 前端（数据库副本升到 0049，`A2A_ENABLED=true`），不触开发中进程。
+- 顺手把 `chat-plan.spec.ts` 的「分节正文」等待时限与回答对齐（本地模型首轮冷启动时正文晚于气泡出现），避免把慢响应误判为回归。
+
 ## [3.20.0] - 2026-10-29
 
 小院之间也能搭话了：对外公开一张只读的 Agent Card，别的平台凭令牌就能来问「小院概况」或检索知识；反过来，本小院也能登记邻村平台、探测名片、派任务并拿到结果。

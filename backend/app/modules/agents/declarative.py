@@ -972,12 +972,31 @@ def _context_block(context: str) -> str:
     return f"\n\n{context}"
 
 
-def skills_prompt_for(db: Session, yard_id: str, codes: list[str] | None) -> str:
-    """对外入口：按 ``skill:<id>`` / ``plugin:<id>`` 编码取不可信包裹后的技能指令块。"""
-    return _resolve_bound_skills_prompt(db, yard_id, codes)
+def skills_prompt_for(
+    db: Session,
+    yard_id: str,
+    codes: list[str] | None,
+    *,
+    record_source: str = "",
+    session_id: str | None = None,
+) -> str:
+    """对外入口：按 ``skill:<id>`` / ``plugin:<id>`` 编码取不可信包裹后的技能指令块。
+
+    ``record_source`` 非空时同时记录一次技能调用埋点（v3.21 自动升级的证据来源）。
+    """
+    return _resolve_bound_skills_prompt(
+        db, yard_id, codes, record_source=record_source, session_id=session_id
+    )
 
 
-def _resolve_bound_skills_prompt(db: Session, yard_id: str, bound_skills: list[str] | None) -> str:
+def _resolve_bound_skills_prompt(
+    db: Session,
+    yard_id: str,
+    bound_skills: list[str] | None,
+    *,
+    record_source: str = "",
+    session_id: str | None = None,
+) -> str:
     """将 Agent 绑定的多个 Skill / 插件（bound_skills）解析为附加的技能 SOP 指令块。
 
     bound_skills 的存储编码是 ``skill:<Skill.id>`` / ``plugin:<plugin_id>``（编辑弹窗
@@ -1004,6 +1023,7 @@ def _resolve_bound_skills_prompt(db: Session, yard_id: str, bound_skills: list[s
     from app.modules.plugins.models import PluginManifest
 
     skill_blocks: list[str] = []
+    used_codes: list[str] = []
     try:
         skill_query = db.query(Skill).filter(
             Skill.status == "published",
@@ -1023,6 +1043,7 @@ def _resolve_bound_skills_prompt(db: Session, yard_id: str, bound_skills: list[s
             if r.skill_code in seen_skill:
                 continue
             seen_skill.add(r.skill_code)
+            used_codes.append(str(r.skill_code))
             defn = r.definition_json if isinstance(r.definition_json, dict) else {}
             desc = str(defn.get("description") or defn.get("summary") or "")
             body = str(defn.get("prompt") or defn.get("content") or "").strip()
@@ -1059,6 +1080,20 @@ def _resolve_bound_skills_prompt(db: Session, yard_id: str, bound_skills: list[s
             skill_blocks.append(f"- 工作流插件【{pname} ({p.plugin_id})】：{pdesc}".strip())
     except Exception as e:
         log.warning("resolve bound_skills failed: %s", e)
+
+    if record_source and used_codes:
+        try:
+            from app.modules.evolution import auto_upgrade
+
+            auto_upgrade.record_usage(
+                db,
+                yard_id=yard_id,
+                codes=used_codes,
+                source=record_source,
+                session_id=session_id,
+            )
+        except Exception as e:  # noqa: BLE001 - 埋点失败不影响回答
+            log.warning("record skill usage failed: %s", e)
 
     if not skill_blocks:
         return ""
@@ -1334,7 +1369,11 @@ async def run_declarative_agent(
         bound_supplier_id = None
 
     skills_prompt = _resolve_bound_skills_prompt(
-        db, ctx.yard_id, getattr(agent, "bound_skills", None)
+        db,
+        ctx.yard_id,
+        getattr(agent, "bound_skills", None),
+        record_source="declarative",
+        session_id=task_id,
     )
 
     # ------------------------------------------------ ① 无工具白名单：单轮路径

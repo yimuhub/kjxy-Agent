@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.20.0
+  version: 3.21.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -4110,6 +4110,113 @@ paths:
       - evolution
       summary: Halt Skill Rollout
       operationId: halt_skill_rollout_api_v1_skills__skill_id__rollout_halt_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: skill_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Skill Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/skills/auto-upgrade/overview:
+    get:
+      tags:
+      - v1
+      - evolution
+      summary: Auto Upgrade Overview
+      description: 列表页用：所有技能的自动升级开关与近 30 天调用量（一次分组查询）。
+      operationId: auto_upgrade_overview_api_v1_skills_auto_upgrade_overview_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/skills/{skill_id}/auto-upgrade:
+    get:
+      tags:
+      - v1
+      - evolution
+      summary: Get Skill Auto Upgrade
+      operationId: get_skill_auto_upgrade_api_v1_skills__skill_id__auto_upgrade_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: skill_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Skill Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    patch:
+      tags:
+      - v1
+      - evolution
+      summary: Update Skill Auto Upgrade
+      description: 开关自动升级；只影响草稿产出，发布仍需人工审核。
+      operationId: update_skill_auto_upgrade_api_v1_skills__skill_id__auto_upgrade_patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: skill_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Skill Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SkillAutoUpgradeUpdate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/skills/{skill_id}/auto-upgrade/run:
+    post:
+      tags:
+      - v1
+      - evolution
+      summary: Run Skill Auto Upgrade
+      description: 立即尝试一次升级（仍需已开启开关且近期有调用证据）。
+      operationId: run_skill_auto_upgrade_api_v1_skills__skill_id__auto_upgrade_run_post
       security:
       - HTTPBearer: []
       parameters:
@@ -9014,6 +9121,23 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/meta:
+    get:
+      tags:
+      - v1
+      - meta
+      summary: Meta
+      description: '版本握手：前端据此识别「后端进程旧了」，而不是等用户点按钮才报 405。
+
+
+        公开端点，只返回版本与数据库迁移 head，不含任何环境密钥。'
+      operationId: meta_api_v1_meta_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
 components:
   schemas:
     A2aEndpointUpdate:
@@ -11444,6 +11568,31 @@ components:
       - resource_type
       title: ShareCreate
       description: 创建分享：报表按区间重新生成后快照；诊断复制为脱敏摘要。
+    SkillAutoUpgradeUpdate:
+      properties:
+        enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Enabled
+        min_calls:
+          anyOf:
+          - type: integer
+            maximum: 1000.0
+            minimum: 1.0
+          - type: 'null'
+          title: Min Calls
+        cooldown_hours:
+          anyOf:
+          - type: integer
+            maximum: 8760.0
+            minimum: 1.0
+          - type: 'null'
+          title: Cooldown Hours
+      additionalProperties: false
+      type: object
+      title: SkillAutoUpgradeUpdate
+      description: 自动升级开关与门槛（只影响草稿产出，不影响发布）。
     SkillCreate:
       properties:
         skill_code:
