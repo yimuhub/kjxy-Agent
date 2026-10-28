@@ -7,6 +7,7 @@ from app.modules.agents.router import router as agents_router
 from app.modules.agriculture.router import router as agriculture_router
 from app.modules.audit.router import router as audit_router
 from app.modules.auth.router import router as auth_router
+from app.modules.auth.sso_router import router as sso_router
 from app.modules.bots.router import router as bots_router
 from app.modules.chat.router import media_router as chat_media_router
 from app.modules.chat.router import mention_router as chat_mention_router
@@ -39,6 +40,7 @@ from app.modules.yards.signup_router import router as yard_signup_router
 router = APIRouter()
 
 router.include_router(auth_router)
+router.include_router(sso_router)  # /auth/sso/*（公开）与 /settings/sso-providers（管理员）
 router.include_router(yards_router)
 router.include_router(yard_quota_router)
 router.include_router(yard_owner_router)  # /yards/current/owner（负责人驾驶舱/授权/转让）

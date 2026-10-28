@@ -52,6 +52,18 @@ class Settings(BaseSettings):
     # 技能签名私钥种子（base64url 编码的 32 字节，Ed25519）；留空则由 app_secret_key
     # 域分离派生。显式配置可独立于登录密钥轮换；更换后旧签名会如实判为无效。
     skill_signing_seed: str = ""
+
+    # SSO/OIDC（v3.18）：平台总开关默认关；每个小院在「单点登录」里单独配置 IdP。
+    sso_enabled: bool = Field(default=False, description="是否启用 SSO/OIDC 登录")
+    sso_state_ttl_seconds: int = Field(
+        default=300, ge=60, le=900, description="授权请求 state 有效期（秒）"
+    )
+    sso_exchange_ttl_seconds: int = Field(
+        default=60, ge=30, le=300, description="回调换取登录态的一次性短码有效期（秒）"
+    )
+    sso_http_timeout_seconds: int = Field(
+        default=10, ge=3, le=30, description="访问 IdP discovery/token/jwks 的超时（秒）"
+    )
     llm_model: str = ""
     llm_timeout_seconds: int = 60
     llm_max_tokens: int = 2048

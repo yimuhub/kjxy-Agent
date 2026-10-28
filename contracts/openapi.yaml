@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.17.0
+  version: 3.18.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -212,6 +212,236 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - HTTPBearer: []
+  /api/v1/auth/sso/providers:
+    get:
+      tags:
+      - v1
+      - sso
+      summary: List Public Providers
+      description: 登录页可用的第三方登录方式（不含任何密钥与端点细节）。
+      operationId: list_public_providers_api_v1_auth_sso_providers_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /api/v1/auth/sso/{provider_id}/start:
+    get:
+      tags:
+      - v1
+      - sso
+      summary: Start Sso
+      description: 生成授权地址与 state，并把 code_verifier 写入 HttpOnly Cookie。
+      operationId: start_sso_api_v1_auth_sso__provider_id__start_get
+      parameters:
+      - name: provider_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Provider Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/auth/sso/callback:
+    get:
+      tags:
+      - v1
+      - sso
+      summary: Sso Callback
+      description: IdP 回调：换取令牌、JIT/绑定、角色同步，302 回前端并带一次性 code。
+      operationId: sso_callback_api_v1_auth_sso_callback_get
+      parameters:
+      - name: code
+        in: query
+        required: true
+        schema:
+          type: string
+          title: Code
+      - name: state
+        in: query
+        required: true
+        schema:
+          type: string
+          title: State
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/auth/sso/exchange:
+    post:
+      tags:
+      - v1
+      - sso
+      summary: Exchange Sso
+      description: 一次性 code 换正式登录响应（access/refresh + 用户 + 小院列表）。
+      operationId: exchange_sso_api_v1_auth_sso_exchange_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SsoExchangeRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/settings/sso-providers:
+    get:
+      tags:
+      - v1
+      - sso
+      summary: List Sso Providers
+      operationId: list_sso_providers_api_v1_settings_sso_providers_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+    post:
+      tags:
+      - v1
+      - sso
+      summary: Create Sso Provider
+      operationId: create_sso_provider_api_v1_settings_sso_providers_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SsoProviderCreate'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/settings/sso-providers/{provider_id}:
+    patch:
+      tags:
+      - v1
+      - sso
+      summary: Update Sso Provider
+      operationId: update_sso_provider_api_v1_settings_sso_providers__provider_id__patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: provider_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Provider Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SsoProviderUpdate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - v1
+      - sso
+      summary: Delete Sso Provider
+      operationId: delete_sso_provider_api_v1_settings_sso_providers__provider_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: provider_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Provider Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/settings/sso-providers/{provider_id}/test:
+    post:
+      tags:
+      - v1
+      - sso
+      summary: Test Sso Provider
+      operationId: test_sso_provider_api_v1_settings_sso_providers__provider_id__test_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: provider_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Provider Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/yards/current:
     get:
       tags:
@@ -10799,6 +11029,202 @@ components:
       type: object
       title: SkillSuggest
       description: AI 技能总结请求（v1.3-B C1）：可选关注点提示，纯文本 ≤200 字。
+    SsoExchangeRequest:
+      properties:
+        code:
+          type: string
+          maxLength: 200
+          minLength: 20
+          title: Code
+      additionalProperties: false
+      type: object
+      required:
+      - code
+      title: SsoExchangeRequest
+    SsoProviderCreate:
+      properties:
+        name:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Name
+        issuer:
+          type: string
+          maxLength: 500
+          minLength: 8
+          title: Issuer
+        client_id:
+          type: string
+          maxLength: 255
+          minLength: 1
+          title: Client Id
+        redirect_uri:
+          type: string
+          maxLength: 500
+          minLength: 8
+          title: Redirect Uri
+        frontend_redirect_uri:
+          anyOf:
+          - type: string
+            maxLength: 500
+          - type: 'null'
+          title: Frontend Redirect Uri
+        scopes:
+          type: string
+          maxLength: 255
+          title: Scopes
+          default: openid email profile
+        group_claim:
+          type: string
+          maxLength: 80
+          minLength: 1
+          title: Group Claim
+          default: groups
+        role_mapping:
+          additionalProperties:
+            type: string
+          type: object
+          title: Role Mapping
+        default_role:
+          type: string
+          maxLength: 32
+          title: Default Role
+          default: viewer
+        email_domains:
+          items:
+            type: string
+          type: array
+          maxItems: 50
+          title: Email Domains
+        enabled:
+          type: boolean
+          title: Enabled
+          default: true
+        auto_create_users:
+          type: boolean
+          title: Auto Create Users
+          default: true
+        link_by_email:
+          type: boolean
+          title: Link By Email
+          default: true
+        require_email_verified:
+          type: boolean
+          title: Require Email Verified
+          default: true
+        client_secret:
+          type: string
+          maxLength: 2000
+          minLength: 1
+          title: Client Secret
+      additionalProperties: false
+      type: object
+      required:
+      - name
+      - issuer
+      - client_id
+      - redirect_uri
+      - client_secret
+      title: SsoProviderCreate
+    SsoProviderUpdate:
+      properties:
+        name:
+          anyOf:
+          - type: string
+            maxLength: 120
+            minLength: 1
+          - type: 'null'
+          title: Name
+        issuer:
+          anyOf:
+          - type: string
+            maxLength: 500
+            minLength: 8
+          - type: 'null'
+          title: Issuer
+        client_id:
+          anyOf:
+          - type: string
+            maxLength: 255
+            minLength: 1
+          - type: 'null'
+          title: Client Id
+        client_secret:
+          anyOf:
+          - type: string
+            maxLength: 2000
+          - type: 'null'
+          title: Client Secret
+        redirect_uri:
+          anyOf:
+          - type: string
+            maxLength: 500
+            minLength: 8
+          - type: 'null'
+          title: Redirect Uri
+        frontend_redirect_uri:
+          anyOf:
+          - type: string
+            maxLength: 500
+          - type: 'null'
+          title: Frontend Redirect Uri
+        scopes:
+          anyOf:
+          - type: string
+            maxLength: 255
+          - type: 'null'
+          title: Scopes
+        group_claim:
+          anyOf:
+          - type: string
+            maxLength: 80
+            minLength: 1
+          - type: 'null'
+          title: Group Claim
+        role_mapping:
+          anyOf:
+          - additionalProperties:
+              type: string
+            type: object
+          - type: 'null'
+          title: Role Mapping
+        default_role:
+          anyOf:
+          - type: string
+            maxLength: 32
+          - type: 'null'
+          title: Default Role
+        email_domains:
+          anyOf:
+          - items:
+              type: string
+            type: array
+            maxItems: 50
+          - type: 'null'
+          title: Email Domains
+        enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Enabled
+        auto_create_users:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Auto Create Users
+        link_by_email:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Link By Email
+        require_email_verified:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Require Email Verified
+      additionalProperties: false
+      type: object
+      title: SsoProviderUpdate
     SupervisorAskRequest:
       properties:
         question:

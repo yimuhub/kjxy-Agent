@@ -267,6 +267,54 @@ def login(
     )
 
 
+def issue_login_response(
+    db: Session,
+    user: User,
+    yard_id: str,
+    *,
+    request_id: str = "",
+    method: str = "password",
+) -> LoginResponseData:
+    """按指定小院签发与密码登录完全一致的登录响应（SSO 复用）。
+
+    角色一律从数据库 membership 重算，不信任外部 claim 直接写进 JWT；
+    audit 的 method 字段用于区分 password / sso，便于审计追溯。
+    """
+    yards = _yard_briefs(db, user.id)
+    chosen = next((t for t in yards if t.yard_id == yard_id), None)
+    if chosen is None:
+        raise AppError("YARD_FORBIDDEN", "您不属于该小院。", http_status=403)
+    roles = _bootstrap_platform_admin(db, user, list(chosen.roles), request_id=request_id)
+    user.last_login_at = _utcnow()
+    refresh_token = _issue_refresh_session(
+        db, user_id=user.id, yard_id=chosen.yard_id, token_version=user.token_version
+    )
+    log_audit(
+        db,
+        yard_id=chosen.yard_id,
+        actor_id=user.id,
+        action="login_success",
+        resource_type="auth",
+        resource_id=user.id,
+        result="success",
+        request_id=request_id,
+        metadata={"username": user.username, "yard_id": chosen.yard_id, "method": method},
+    )
+    db.commit()
+    return LoginResponseData(
+        access_token=create_access_token(
+            user_id=user.id,
+            yard_id=chosen.yard_id,
+            roles=roles,
+            token_version=user.token_version,
+        ),
+        refresh_token=refresh_token,
+        user=_user_out(user),
+        roles=roles,
+        yards=yards,
+    )
+
+
 def refresh(db: Session, refresh_token: str, *, request_id: str) -> RefreshResponseData:
     payload = decode_token(refresh_token, expected_type="refresh")
     user = repo.get_by_id(db, payload["sub"])

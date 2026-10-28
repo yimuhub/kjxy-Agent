@@ -62,7 +62,7 @@ interface RetryConfig extends InternalAxiosRequestConfig {
 }
 
 /** 登录/刷新自身返回 401 时不触发刷新，避免递归与误跳转 */
-const AUTH_ENDPOINTS = ['/auth/login', '/auth/refresh']
+const AUTH_ENDPOINTS = ['/auth/login', '/auth/refresh', '/auth/sso/exchange']
 
 function isAuthEndpoint(url?: string): boolean {
   return !!url && AUTH_ENDPOINTS.some(path => url.includes(path))

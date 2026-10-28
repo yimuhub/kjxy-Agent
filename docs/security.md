@@ -38,6 +38,17 @@
 - 签名私钥优先取 `SKILL_SIGNING_SEED`，未配置时由 `APP_SECRET_KEY` 域分离派生；公钥经 `GET /skills/signing-key` 公布，`key_id` 便于轮换后定位。
 - 签名只证明「签名后未被改动」，不证明内容正确；3.17 之前的存量版本没有签名，接口如实返回 `unsigned`，不冒充已验证。
 
+## 单点登录（SSO/OIDC）
+
+- 授权码 + PKCE（S256）+ 签名 state + nonce；一次性短码换登录态（哈希存储、单次使用、默认 60 秒）。
+- id_token 只接受非对称签名（RS/ES/EdDSA），按 JWKS 验签并校验 iss/aud/exp/nonce；拒绝 HS*。
+- 角色只来自小院成员关系：IdP 分组最多映射到 yard_admin/expert/operator/viewer，负责人与平台管理员不可由 IdP 授予。
+- JIT 建号要求邮箱已验证；可选关闭自动建号、关闭按邮箱关联，并可限制邮箱域名。
+- client_secret 用与小院供应商密钥相同的 Fernet 主密钥加密存储，列表只回「是否已配置」；修改时留空表示沿用旧密钥。
+- IdP 配置属保护型权限（`settings:manage_protected`），默认仅负责人或获逐人授权的管理员可改；只读列表对 yard_admin 开放。
+- 访问 IdP 的 discovery/token/JWKS 统一走出网守卫与 1MB 响应上限；IdP 地址由负责人配置，按可信输入放行内网与本机（校园内网 Keycloak 等正当场景），元数据与链路本地地址始终封死；`ENFORCE_MODEL_EGRESS_GUARD=true` 时一并不再放行内网。错误只回稳定错误码。
+- 公开端点按 IP 限流；回调失败不泄露 IdP 原始响应与内部细节；审计记录 `sso_login_success / sso_identity_linked / sso_provider_*`，不含令牌与密钥。
+
 ## 模型风险
 
 - 模型输出经 Schema + 业务规则校验；不把模型文本当权限决策/法律结论/农业事实。

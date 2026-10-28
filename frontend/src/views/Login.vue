@@ -79,6 +79,25 @@
           class="error-alert"
         />
       </el-form>
+      <div
+        v-if="ssoProviders.length"
+        class="sso-block"
+      >
+        <div class="sso-divider">
+          或使用单位账号登录
+        </div>
+        <el-button
+          v-for="p in ssoProviders"
+          :key="p.id"
+          class="sso-btn"
+          size="large"
+          :loading="ssoLoading === p.id"
+          :title="p.issuer_host"
+          @click="startSso(p.id)"
+        >
+          {{ p.yard_name }} · {{ p.name }}
+        </el-button>
+      </div>
       <div class="foot">
         <router-link
           class="foot-link"
@@ -96,13 +115,14 @@
 </template>
 
 <script setup lang="ts">
-  import { reactive, ref } from 'vue'
+  import { onMounted, reactive, ref } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
   import type { FormInstance, FormRules } from 'element-plus'
   import { useAuthStore } from '@/stores/auth'
   import { defaultHomePath } from '@/utils/home'
   import { extractErrorDetails, extractErrorMessage } from '@/api/client'
   import { friendlyErrorMessage } from '@/utils/status'
+  import { ssoApi, type SsoPublicProvider } from '@/api/v3'
   import type { YardBrief } from '@/types/api'
 
   const router = useRouter()
@@ -112,6 +132,8 @@
   const loading = ref(false)
   const errorMsg = ref('')
   const yards = ref<YardBrief[]>([])
+  const ssoProviders = ref<SsoPublicProvider[]>([])
+  const ssoLoading = ref('')
 
   const form = reactive({ username: '', password: '', yard_id: '' })
   /** 生产构建不展示演示账号提示，避免误导真实用户 */
@@ -149,6 +171,29 @@
       errorMsg.value = friendlyErrorMessage(code, message)
     } finally {
       loading.value = false
+    }
+  }
+
+  /** 第三方登录入口：后端未启用/未配置时静默隐藏，不打扰密码登录 */
+  onMounted(async () => {
+    try {
+      const res = await ssoApi.publicProviders()
+      ssoProviders.value = res.enabled ? res.providers : []
+    } catch {
+      ssoProviders.value = []
+    }
+  })
+
+  async function startSso(providerId: string) {
+    errorMsg.value = ''
+    ssoLoading.value = providerId
+    try {
+      const res = await ssoApi.start(providerId)
+      window.location.href = res.authorize_url
+    } catch (err: unknown) {
+      ssoLoading.value = ''
+      const { code, message } = extractErrorMessage(err)
+      errorMsg.value = friendlyErrorMessage(code, message)
     }
   }
 </script>
@@ -218,6 +263,31 @@
   }
   .error-alert {
     margin-top: 12px;
+  }
+  .sso-block {
+    margin-top: 4px;
+  }
+  .sso-divider {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 18px 0 14px;
+    font-size: 12px;
+    color: var(--ds-text-3);
+  }
+  .sso-divider::before,
+  .sso-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--ds-border);
+  }
+  .sso-btn {
+    width: 100%;
+  }
+  .sso-btn + .sso-btn {
+    margin-top: 10px;
+    margin-left: 0;
   }
   .foot {
     margin-top: 20px;

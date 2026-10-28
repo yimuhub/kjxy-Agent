@@ -152,6 +152,29 @@ v3.1 行为变化：`/search/status` 新增 `internet` 字段；搜索设置 `pr
 - 报告写入 `eval_runs.report_json`，附 `report_sha256` 与 `dataset_sha256`；`kind` 区分 `gate|static|install|promote`。
 - 通过后对 `skill_code + version + definition_sha256` 做 Ed25519 签名；回滚与灰度发布前验签，定义被改动返回 `SKILL_ATTESTATION_INVALID`（409）。3.17 之前的存量已发布版本没有签名，接口如实返回 `unsigned`，回滚/灰度时补签。
 
+## 单点登录 SSO/OIDC（v3.18）
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | /auth/sso/providers | 公开 | 登录页可用的第三方登录方式（仅名称、小院、IdP 主机名；全局开关关闭时为空） |
+| GET | /auth/sso/{provider_id}/start | 公开 | 生成授权地址与签名 state，并把 PKCE code_verifier 写进 HttpOnly Cookie |
+| GET | /auth/sso/callback | 公开 | IdP 回调：校验 state/nonce/PKCE → 换令牌 → 建号/绑定 → 302 回前端并带一次性 code |
+| POST | /auth/sso/exchange | 公开 | 一次性 code 换正式登录响应（access/refresh、roles、yards、yard_id） |
+| GET | /settings/sso-providers | settings:manage | 本小院身份提供方列表（密钥只回 `client_secret_configured`） |
+| POST | /settings/sso-providers | settings:manage_protected | 新增身份提供方（同名 409） |
+| PATCH | /settings/sso-providers/{id} | settings:manage_protected | 修改配置；`client_secret` 留空表示沿用已存密钥 |
+| DELETE | /settings/sso-providers/{id} | settings:manage_protected | 删除配置并解绑其身份记录（本地账号保留） |
+| POST | /settings/sso-providers/{id}/test | settings:manage_protected | 探测 discovery 与 JWKS，只回端点与公钥数量 |
+
+口径：
+
+- 授权码流程 + `state` JWT（类型 `sso_state`，含 IdP id 与 nonce）+ PKCE S256 + 一次性短码（默认 60 秒，哈希存储、用后即焚）。
+- id_token 只接受非对称算法（RS256/384/512、ES256/384、EdDSA），按 JWKS 验签；校验 `iss/aud/exp/iat/nonce`，`HS*` 一律拒绝。
+- 角色只来自小院成员关系：IdP 分组经 `role_mapping` 映射到 `yard_admin/expert/operator/viewer`，超出范围的映射在保存配置时即 422；负责人与平台管理员永远不能由 IdP 授予。
+- JIT：默认自动建号（随机密码、状态 active），要求邮箱已验证；可关闭自动建号、关闭按邮箱关联，并限制邮箱域名。
+- 全局开关 `SSO_ENABLED` 关闭时，公开端点返回空列表/`SSO_DISABLED`，已配置的 IdP 不生效。
+- 出网走 `net_guard`（元数据/链路本地地址始终禁止；IdP 地址按负责人配置的可信输入放行内网与本机），单次响应上限 1MB；错误只回错误码，不回 IdP 原始响应。
+
 ## 任务状态机
 
 `queued → running → succeeded | failed | cancelled | awaiting_review → succeeded | failed | cancelled`

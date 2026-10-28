@@ -31,6 +31,7 @@ const EvolutionView = () => import('@/views/EvolutionView.vue')
 const QuotaView = () => import('@/views/QuotaView.vue')
 const SignupView = () => import('@/views/SignupView.vue')
 const InviteAcceptView = () => import('@/views/InviteAcceptView.vue')
+const SsoCallbackView = () => import('@/views/SsoCallbackView.vue')
 const LibraryView = () => import('@/views/LibraryView.vue')
 const OwnerView = () => import('@/views/OwnerView.vue')
 const ProfileView = () => import('@/views/ProfileView.vue')
@@ -67,6 +68,13 @@ const routes: RouteRecordRaw[] = [
     name: 'InviteAccept',
     component: InviteAcceptView,
     meta: { public: true, title: '接受邀请' },
+  },
+  {
+    // 单点登录回跳：用一次性 code 换正式登录态（v3.18）
+    path: '/sso/callback',
+    name: 'SsoCallback',
+    component: SsoCallbackView,
+    meta: { public: true, title: '单点登录' },
   },
   {
     path: '/',

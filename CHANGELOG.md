@@ -2,6 +2,40 @@
 
 本项目遵循《工程开发规范 V3.0》；版本号遵循语义化版本。
 
+## [3.18.0] - 2026-10-29
+
+单位身份接进来了：小院可以配置自己的 OIDC 身份提供方，成员用单位账号登录；但 IdP 只能给到可分配角色，负责人与平台管理员永远由本地决定。
+
+### 数据模型与开关（后端）
+
+- 迁移 `0046_sso_providers`：新增 `sso_providers`（小院维度 IdP 配置，客户端密钥 Fernet 加密）、`sso_identities`（`(idp_id, subject)` 唯一，绑定本地账号）、`sso_exchange_codes`（回调一次性短码，哈希存储、带过期与已用时间），可完整 downgrade。
+- 新增平台开关：`SSO_ENABLED`（默认关）、`SSO_STATE_TTL_SECONDS`、`SSO_EXCHANGE_TTL_SECONDS`、`SSO_HTTP_TIMEOUT_SECONDS`；`.env.example` 已补说明。
+
+### 授权码登录（后端）
+
+- 新增 `auth/sso.py`：discovery 缓存 10 分钟；授权请求带签名 `state`（类型 `sso_state`，含 IdP 与 nonce）与 PKCE S256，`code_verifier` 只放 HttpOnly Cookie（路径限定 `/api/v1/auth/sso`）。
+- 回调校验 state/provider/PKCE → 用授权码换令牌 → id_token 只接受非对称算法（RS/ES/EdDSA），按 JWKS 验签并校验 `iss/aud/exp/iat/nonce`，`HS*` 直接拒绝。
+- JIT 建号：默认自动创建（随机密码、状态 active），要求邮箱已验证；可关闭自动建号、关闭按邮箱关联、限制邮箱域名。已有账号按 `(provider, subject)` 或同邮箱绑定，绑定与建号都写审计。
+- 角色只来自小院成员关系：IdP 分组经 `role_mapping` 落到 `yard_admin/expert/operator/viewer`，无命中用默认角色；映射到负责人/平台管理员在保存配置时即 422，运行时也会跳过不可分配角色。成员资格同步时不会把负责人降级。
+- 回调成功后 302 回前端并带一次性短码；`POST /auth/sso/exchange` 用短码换与密码登录完全一致的登录响应（含 `yard_id` 供多小院账号落地），短码默认 60 秒、用后即焚，重放/过期返回 `SSO_CODE_INVALID`。
+- 出网统一走 `net_guard`（禁止元数据与保留地址）、响应上限 1MB；公开端点按 IP 限流；错误只回稳定错误码，不泄露 IdP 原始响应。
+
+### 管理与前端
+
+- 新增 `GET /settings/sso-providers`（`settings:manage`）与增删改/探测（`settings:manage_protected`）：列表只回 `client_secret_configured`，修改时密钥留空表示沿用；删除配置同时解绑身份、保留本地账号。
+- 登录页读取 `GET /auth/sso/providers`，有可用身份源时显示「或使用单位账号登录」按钮；新增公开路由 `/sso/callback`，用一次性 code 换登录态并按 IdP 归属小院进入首页，失败给出可读原因与返回登录。
+- 设置页新增「单点登录」Tab：身份源列表（Issuer、角色映射、密钥状态、启用状态、最近探测）、新增/编辑弹窗（默认回调地址一键填入、角色映射 JSON 校验、邮箱域名、自动建号/邮箱验证开关）、探测结果弹窗。只读对管理员开放，写入仅负责人或获授权管理员。
+
+### 门禁
+
+- 后端 ruff check/format、mypy 全绿；全量测试 **1492 passed**。
+- 新增 `tests/unit/test_sso_oidc.py`（19 条：PKCE/state、issuer 不一致、JIT 建号与角色映射、邮箱绑定/未验证/域名限制、关闭自动建号、未知分组回落、负责人映射被拒、nonce/受众/HS256 拒绝、短码重放与过期、停用 IdP、全局开关、角色只来自 DB）。
+- 新增 `tests/integration/test_sso_api.py`（9 条：密钥不回显与留空沿用、同名 409、越权角色 422、管理员只读/访客 403、探测端点、删除解绑、公开 start→callback→exchange 全链路、未知 IdP、缺 PKCE Cookie）。
+- 前端 eslint **0 error**、vue-tsc 全绿、单测 **34 passed**、`vite build` 通过；版本面 9 处一致（3.18.0）。
+- 全量 E2E **46 passed**（4.1 分钟，含新增 `e2e/v318.spec.ts` 3 条），跑在隔离的 8011 后端 + 5174 前端（数据库副本已升到 0046），不触开发中进程。
+- 另起本地假 OIDC 身份源（discovery/JWKS/authorize/token 全真实）走了一遍浏览器登录：登录页出现「单位账号登录」→ 授权码 + PKCE 回调 → 自动建号「王老师」并按 `{lab: expert}` 落到专家角色 → 直接进入演示小院概览；设置页探测身份源、编辑保存（密钥留空沿用）均正常，审计留 `sso_login_success / sso_identity_linked / sso_membership_created`。
+- 契约重新生成：OpenAPI **232 路径**，相对 3.17 只增 SSO 公开 4 条与配置管理 5 条，无路径删除。
+
 ## [3.17.0] - 2026-10-29
 
 技能上架前必须有可复现的评测报告，发布后定义可验签：报告回答「它凭什么能上架」，签名回答「上架后有没有被改过」。

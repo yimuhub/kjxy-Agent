@@ -12,6 +12,11 @@ from app.modules.agents.run_steps import AgentRunStep  # noqa: F401
 from app.modules.agents.teams.models import AgentTeam, TeamRun, TeamRunMember  # noqa: F401
 from app.modules.audit.models import AuditLog  # noqa: F401
 from app.modules.auth.models import User  # noqa: F401
+from app.modules.auth.sso_models import (  # noqa: F401
+    SsoExchangeCode,
+    SsoIdentity,
+    SsoProvider,
+)
 from app.modules.bots.models import (  # noqa: F401
     BotConfig,
     BotConversation,

@@ -249,3 +249,27 @@
 | `AGENT_GENERATE_QUOTA` | 429 | 该成员当日生成次数已用尽（设置项 `agent_generate.daily_limit`，按 tasks 行计数） |
 | `AGENT_GENERATE_LLM_UNAVAILABLE` | 502 | 模型完全不可用，本轮未生成任何草稿（不落兜底垃圾） |
 | `AGENT_GENERATE_FAILED` | 502 | 生成任务执行失败（非模型原因），task 标记 failed 可重试 |
+
+## SSO/OIDC（v3.18）
+
+| 错误码 | HTTP | 说明 |
+|--------|------|------|
+| `SSO_DISABLED` | 404 | 部署未启用单点登录（`SSO_ENABLED=false`） |
+| `SSO_PROVIDER_NOT_FOUND` | 404 | 身份提供方不存在 |
+| `SSO_PROVIDER_DISABLED` | 403 | 该登录方式已停用 |
+| `SSO_PROVIDER_EXISTS` | 409 | 同名身份提供方已存在 |
+| `SSO_STATE_INVALID` | 400 | state 缺失/签名无效/过期，或与浏览器 PKCE 不匹配 |
+| `SSO_PKCE_MISSING` | 400 | 浏览器缺少 PKCE 校验信息，需重新发起登录 |
+| `SSO_IDP_INVALID` | 502 | IdP discovery 文档不完整或不合法 |
+| `SSO_IDP_UNAVAILABLE` | 502 | 无法访问 IdP（超时/网络被拒/响应过大） |
+| `SSO_ISSUER_MISMATCH` | 502 | discovery 的 issuer 与配置不一致 |
+| `SSO_ID_TOKEN_INVALID` | 401 | id_token 验签失败、算法不允许或必需 claim 缺失 |
+| `SSO_NONCE_MISMATCH` | 401 | id_token 的 nonce 与授权请求不一致 |
+| `SSO_TOKEN_EXCHANGE_FAILED` | 401 | 用授权码换取令牌失败或响应缺少 id_token |
+| `SSO_EMAIL_UNVERIFIED` | 403 | 邮箱未验证，拒绝建号/绑定 |
+| `SSO_EMAIL_DOMAIN_DENIED` | 403 | 邮箱域名不在允许列表 |
+| `SSO_USER_NOT_PROVISIONED` | 403 | 账号不存在且该 IdP 未开启自动建号 |
+| `SSO_USER_DISABLED` | 403 | 账号已停用 |
+| `SSO_USERNAME_CONFLICT` | 409 | 自动建号时用户名冲突且无法自动区分 |
+| `SSO_SECRET_DECRYPT_FAILED` | 500 | 已存客户端密钥无法解密（主密钥已轮换） |
+| `SSO_CODE_INVALID` | 401 | 一次性短码已使用/过期/不存在 |

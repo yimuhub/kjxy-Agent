@@ -1,6 +1,12 @@
 import { isAxiosError, type AxiosRequestConfig, type AxiosResponse } from 'axios'
 import { api, extractErrorMessage } from './client'
-import type { ApiResponse, Skill, SkillReviewAction, SkillVisibility } from '@/types/api'
+import type {
+  ApiResponse,
+  LoginResponse,
+  Skill,
+  SkillReviewAction,
+  SkillVisibility,
+} from '@/types/api'
 import { friendlyErrorMessage } from '@/utils/status'
 
 /** v2.2 / v3.0 新增接口：搜索、市场、身份权限、负责人驾驶舱。 */
@@ -1271,5 +1277,117 @@ export const ownerApi = {
         user_id: userId,
       }),
     )
+  },
+}
+
+// ---------------------------------------------------------------------------
+// 单点登录 SSO/OIDC（v3.18）
+// ---------------------------------------------------------------------------
+
+/** 登录页可见的第三方登录方式（不含端点与密钥细节） */
+export interface SsoPublicProvider {
+  id: string
+  name: string
+  yard_id: string
+  yard_name: string
+  issuer_host: string
+}
+
+/** 管理端 IdP 配置（密钥只回传 configured 布尔） */
+export interface SsoProviderAdmin {
+  id: string
+  yard_id: string
+  yard_name?: string | null
+  name: string
+  issuer: string
+  client_id: string
+  client_secret_configured: boolean
+  redirect_uri: string
+  frontend_redirect_uri?: string | null
+  scopes: string
+  group_claim: string
+  role_mapping: Record<string, string>
+  default_role: string
+  email_domains: string[]
+  enabled: boolean
+  auto_create_users: boolean
+  link_by_email: boolean
+  require_email_verified: boolean
+  last_test_at?: string | null
+  last_error?: string | null
+  created_at?: string
+}
+
+export interface SsoProviderPayload {
+  name: string
+  issuer: string
+  client_id: string
+  client_secret?: string
+  redirect_uri: string
+  frontend_redirect_uri?: string | null
+  scopes?: string
+  group_claim?: string
+  role_mapping?: Record<string, string>
+  default_role?: string
+  email_domains?: string[]
+  enabled?: boolean
+  auto_create_users?: boolean
+  link_by_email?: boolean
+  require_email_verified?: boolean
+}
+
+/** 一次性 code 换回的登录响应：附带 IdP 归属小院，供多小院账号落地 */
+export interface SsoExchangeResult extends LoginResponse {
+  yard_id: string
+}
+
+export interface SsoTestResult {
+  issuer: string
+  authorization_endpoint: string
+  token_endpoint: string
+  jwks_uri: string
+  signing_keys: number
+  supported_algorithms: string[]
+}
+
+export const ssoApi = {
+  /** 登录页：可用第三方登录方式（全局开关关闭时为空） */
+  publicProviders(): Promise<{ enabled: boolean; providers: SsoPublicProvider[] }> {
+    return unwrap(api.get<ApiResponse<{ enabled: boolean; providers: SsoPublicProvider[] }>>(
+      '/auth/sso/providers',
+      silent,
+    ))
+  },
+  /** 发起授权：返回 authorize_url（PKCE verifier 由后端写 HttpOnly Cookie） */
+  start(providerId: string): Promise<{ authorize_url: string; state: string }> {
+    return unwrap(
+      api.get<ApiResponse<{ authorize_url: string; state: string }>>(
+        `/auth/sso/${providerId}/start`,
+        silent,
+      ),
+    )
+  },
+  /** 回调页：一次性 code 换正式登录响应 */
+  exchange(code: string): Promise<SsoExchangeResult> {
+    return unwrap(
+      api.post<ApiResponse<SsoExchangeResult>>('/auth/sso/exchange', { code }, silent),
+    )
+  },
+  list(): Promise<SsoProviderAdmin[]> {
+    return unwrap(api.get<ApiResponse<SsoProviderAdmin[]>>('/settings/sso-providers'))
+  },
+  create(payload: SsoProviderPayload): Promise<SsoProviderAdmin> {
+    return unwrap(api.post<ApiResponse<SsoProviderAdmin>>('/settings/sso-providers', payload))
+  },
+  update(id: string, payload: Partial<SsoProviderPayload>): Promise<SsoProviderAdmin> {
+    return unwrap(
+      api.patch<ApiResponse<SsoProviderAdmin>>(`/settings/sso-providers/${id}`, payload),
+    )
+  },
+  remove(id: string): Promise<{ deleted: string }> {
+    return unwrap(api.delete<ApiResponse<{ deleted: string }>>(`/settings/sso-providers/${id}`))
+  },
+  test(id: string): Promise<SsoTestResult> {
+    return unwrap(api.post<ApiResponse<SsoTestResult>>(`/settings/sso-providers/${id}/test`, {}))
   },
 }
