@@ -10,10 +10,15 @@ from fastapi import APIRouter, Depends, Query, Request
 from app.core.deps import CurrentUser, get_db_session, require_yard_permission
 from app.core.errors import AppError
 from app.core.responses import ok, paged
-from app.modules.farm import service
+from app.modules.farm import diagnosis_service, service
 from app.modules.farm.schemas import (
     CycleCreate,
     CycleUpdate,
+    DiagnosisCreate,
+    DiagnosisReviewRequest,
+    FollowUpCreate,
+    PesticideCreate,
+    PesticideUpdate,
     PlotCreate,
     PlotUpdate,
     RecordCreate,
@@ -208,6 +213,148 @@ def build_report(
             **data,
             "start": data["start"].isoformat(),
             "end": data["end"].isoformat(),
+        },
+        request,
+    )
+
+
+# ---------------------------------------------------------------------------
+# 作物诊断闭环（v3.9）
+# ---------------------------------------------------------------------------
+
+
+@router.post("/diagnoses", status_code=201)
+def create_diagnosis(
+    payload: DiagnosisCreate,
+    request: Request,
+    user: CurrentUser = Depends(require_yard_permission("farm:write")),
+    db=Depends(get_db_session),
+):
+    data = diagnosis_service.create_diagnosis(db, _yard_id(user), user.user_id, payload)
+    return ok(data, request)
+
+
+@router.get("/diagnoses")
+def list_diagnoses(
+    request: Request,
+    status: str | None = Query(default=None, max_length=16),
+    plot_id: str | None = Query(default=None, max_length=36),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=200),
+    user: CurrentUser = Depends(require_yard_permission("farm:read")),
+    db=Depends(get_db_session),
+):
+    items, total = diagnosis_service.list_diagnoses(
+        db,
+        _yard_id(user),
+        status=status,
+        plot_id=plot_id,
+        page=page,
+        page_size=page_size,
+    )
+    return paged(items, page, page_size, total, request)
+
+
+@router.get("/diagnoses/{diagnosis_id}")
+def get_diagnosis(
+    diagnosis_id: str,
+    request: Request,
+    user: CurrentUser = Depends(require_yard_permission("farm:read")),
+    db=Depends(get_db_session),
+):
+    return ok(diagnosis_service.get_diagnosis(db, _yard_id(user), diagnosis_id), request)
+
+
+@router.post("/diagnoses/{diagnosis_id}/review")
+def review_diagnosis(
+    diagnosis_id: str,
+    payload: DiagnosisReviewRequest,
+    request: Request,
+    user: CurrentUser = Depends(require_yard_permission("review:approve")),
+    db=Depends(get_db_session),
+):
+    data = diagnosis_service.review_diagnosis(
+        db, _yard_id(user), diagnosis_id, user.user_id, payload
+    )
+    return ok(data, request)
+
+
+@router.post("/diagnoses/{diagnosis_id}/follow-ups", status_code=201)
+def add_follow_up(
+    diagnosis_id: str,
+    payload: FollowUpCreate,
+    request: Request,
+    user: CurrentUser = Depends(require_yard_permission("farm:write")),
+    db=Depends(get_db_session),
+):
+    data = diagnosis_service.add_follow_up(db, _yard_id(user), diagnosis_id, user.user_id, payload)
+    return ok(data, request)
+
+
+# ---------------------------------------------------------------------------
+# 药剂登记与安全间隔期
+# ---------------------------------------------------------------------------
+
+
+@router.get("/pesticides")
+def list_pesticides(
+    request: Request,
+    user: CurrentUser = Depends(require_yard_permission("farm:read")),
+    db=Depends(get_db_session),
+):
+    return ok(diagnosis_service.list_pesticides(db, _yard_id(user)), request)
+
+
+@router.post("/pesticides", status_code=201)
+def create_pesticide(
+    payload: PesticideCreate,
+    request: Request,
+    user: CurrentUser = Depends(require_yard_permission("farm:write")),
+    db=Depends(get_db_session),
+):
+    data = diagnosis_service.create_pesticide(db, _yard_id(user), user.user_id, payload)
+    return ok(data, request)
+
+
+@router.patch("/pesticides/{pesticide_id}")
+def update_pesticide(
+    pesticide_id: str,
+    payload: PesticideUpdate,
+    request: Request,
+    user: CurrentUser = Depends(require_yard_permission("farm:write")),
+    db=Depends(get_db_session),
+):
+    data = diagnosis_service.update_pesticide(
+        db, _yard_id(user), pesticide_id, user.user_id, payload
+    )
+    return ok(data, request)
+
+
+@router.delete("/pesticides/{pesticide_id}")
+def delete_pesticide(
+    pesticide_id: str,
+    request: Request,
+    user: CurrentUser = Depends(require_yard_permission("farm:write")),
+    db=Depends(get_db_session),
+):
+    diagnosis_service.delete_pesticide(db, _yard_id(user), pesticide_id, user.user_id)
+    return ok({"ok": True}, request)
+
+
+@router.get("/pesticides/{pesticide_id}/safe-harvest")
+def safe_harvest(
+    pesticide_id: str,
+    request: Request,
+    applied_on: date = Query(...),
+    user: CurrentUser = Depends(require_yard_permission("farm:read")),
+    db=Depends(get_db_session),
+):
+    data = diagnosis_service.safe_harvest(db, _yard_id(user), pesticide_id, applied_on)
+    return ok(
+        {
+            **data,
+            "applied_on": data["applied_on"].isoformat(),
+            "earliest_harvest_on": data["earliest_harvest_on"].isoformat(),
         },
         request,
     )

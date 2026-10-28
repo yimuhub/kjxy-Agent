@@ -68,6 +68,7 @@ class DiagnosisOutput(BaseModel):
     risk_notes: list[str] = Field(default_factory=list, description="风险说明")
     next_steps: list[str] = Field(default_factory=list, description="建议的下一步观察")
     needs_expert_review: bool = Field(description="是否需要专家复核")
+    medication_intent: bool = Field(default=False, description="问题是否涉及用药（触发用药护栏）")
     confidence: float = Field(ge=0.0, le=1.0, description="整体置信度")
     disclaimer: str = Field(description="诊断辅助免责声明")
     corrected_by: str | None = Field(default=None, description="专家纠正人（预留）")

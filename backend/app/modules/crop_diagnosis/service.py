@@ -232,6 +232,7 @@ def diagnose(db: Any, yard_id: str, user_id: str, input_data: dict) -> dict:
         risk_notes=risk_notes,
         next_steps=next_steps,
         needs_expert_review=needs_expert_review,
+        medication_intent=medication,
         confidence=confidence,
         disclaimer=DISCLAIMER,
     )

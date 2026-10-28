@@ -260,9 +260,7 @@ def overview(db: Session, yard_id: str) -> dict[str, Any]:
             ),
             "failed_messages_7d": failed_week,
             "llm_calls_7d": llm_calls_7d,
-            "llm_success_rate_7d": (
-                round(llm_ok_7d / llm_calls_7d, 4) if llm_calls_7d else None
-            ),
+            "llm_success_rate_7d": (round(llm_ok_7d / llm_calls_7d, 4) if llm_calls_7d else None),
             "llm_cost_7d": llm_cost_7d,
         },
         "pending_reviews": {

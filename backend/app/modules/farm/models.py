@@ -7,9 +7,20 @@
 - 周期单独成表，支持同一地块一年内多茬（早稻/晚稻/冬种）。
 """
 
-from datetime import date
+from datetime import date, datetime
 
-from sqlalchemy import JSON, Date, Float, Index, String, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Date,
+    DateTime,
+    Float,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin
@@ -94,4 +105,73 @@ class FarmRecord(Base, TimestampMixin):
     operator_name: Mapped[str] = mapped_column(String(60), nullable=False, default="")
     # 照片/附件等扩展信息，先留结构位，不把大对象写进主表
     metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+
+
+DIAGNOSIS_STATUSES = ("open", "expert_review", "confirmed", "closed")
+
+#: 图像识别接入点状态：当前只保存图片引用，不做识别
+VISION_STATUSES = ("not_configured", "pending", "done", "failed")
+
+
+class CropDiagnosis(Base, TimestampMixin):
+    """作物诊断记录（v3.9）：保存输入、诊断辅助输出与专家复核闭环。"""
+
+    __tablename__ = "crop_diagnoses"
+    __table_args__ = (
+        Index("ix_crop_diagnoses_yard_created", "yard_id", "created_at"),
+        Index("ix_crop_diagnoses_yard_status", "yard_id", "status"),
+    )
+
+    yard_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    plot_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    crop: Mapped[str] = mapped_column(String(100), nullable=False)
+    variety: Mapped[str] = mapped_column(String(100), nullable=False, default="")
+    growth_stage: Mapped[str] = mapped_column(String(100), nullable=False, default="")
+    region: Mapped[str] = mapped_column(String(100), nullable=False, default="")
+    symptoms: Mapped[str] = mapped_column(Text, nullable=False)
+    image_refs: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    environment_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    output_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    needs_expert_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="open")
+    vision_status: Mapped[str] = mapped_column(String(16), nullable=False, default="not_configured")
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    expert_reviewer_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    expert_note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    final_diagnosis: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    expert_reviewed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class DiagnosisFollowUp(Base, TimestampMixin):
+    """诊断跟进：现场观察、处置与结果，按时间追加。"""
+
+    __tablename__ = "diagnosis_followups"
+    __table_args__ = (Index("ix_diagnosis_followups_yard_diag", "yard_id", "diagnosis_id"),)
+
+    yard_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    diagnosis_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    occurred_on: Mapped[date] = mapped_column(Date, nullable=False)
+    note: Mapped[str] = mapped_column(Text, nullable=False)
+    image_refs: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+
+
+class PesticideProduct(Base, TimestampMixin):
+    """本院登记药剂：只记录标签信息与安全间隔期，不替代当地登记查询。"""
+
+    __tablename__ = "pesticide_products"
+    __table_args__ = (UniqueConstraint("yard_id", "name", name="uq_pesticide_products_yard_name"),)
+
+    yard_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    active_ingredient: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    registered_crops: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    pre_harvest_interval_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    label_notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
     created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)

@@ -197,9 +197,9 @@ def delete_plot(db: Session, yard_id: str, plot_id: str, user_id: str) -> None:
             "该地块已有农事记录，不能删除；如需停用请将状态改为归档。",
             http_status=409,
         )
-    db.query(FarmCycle).filter(
-        FarmCycle.yard_id == yard_id, FarmCycle.plot_id == plot.id
-    ).delete(synchronize_session=False)
+    db.query(FarmCycle).filter(FarmCycle.yard_id == yard_id, FarmCycle.plot_id == plot.id).delete(
+        synchronize_session=False
+    )
     log_audit(
         db,
         yard_id=yard_id,
@@ -228,9 +228,7 @@ def _validate_plot_status(status: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def create_cycle(
-    db: Session, yard_id: str, plot_id: str, user_id: str, req: CycleCreate
-) -> dict:
+def create_cycle(db: Session, yard_id: str, plot_id: str, user_id: str, req: CycleCreate) -> dict:
     plot = _get_plot(db, yard_id, plot_id)
     if req.status not in CYCLE_STATUSES:
         raise AppError("INVALID_REQUEST", "未知周期状态。", http_status=400)
@@ -282,9 +280,7 @@ def _get_cycle(db: Session, yard_id: str, cycle_id: str) -> FarmCycle:
     return cycle
 
 
-def update_cycle(
-    db: Session, yard_id: str, cycle_id: str, user_id: str, req: CycleUpdate
-) -> dict:
+def update_cycle(db: Session, yard_id: str, cycle_id: str, user_id: str, req: CycleUpdate) -> dict:
     cycle = _get_cycle(db, yard_id, cycle_id)
     changes = req.model_dump(exclude_unset=True)
     status = changes.get("status")
@@ -422,9 +418,11 @@ def list_records(
     page: int = 1,
     page_size: int = 20,
 ) -> tuple[list[dict], int]:
-    q = select(FarmRecord, FarmPlot.name).join(
-        FarmPlot, FarmPlot.id == FarmRecord.plot_id, isouter=True
-    ).where(FarmRecord.yard_id == yard_id)
+    q = (
+        select(FarmRecord, FarmPlot.name)
+        .join(FarmPlot, FarmPlot.id == FarmRecord.plot_id, isouter=True)
+        .where(FarmRecord.yard_id == yard_id)
+    )
     if plot_id:
         q = q.where(FarmRecord.plot_id == plot_id)
     if kind:
@@ -434,9 +432,7 @@ def list_records(
         q = q.where(FarmRecord.occurred_on >= start)
     if end:
         q = q.where(FarmRecord.occurred_on <= end)
-    total = int(
-        db.scalar(select(func.count()).select_from(q.order_by(None).subquery())) or 0
-    )
+    total = int(db.scalar(select(func.count()).select_from(q.order_by(None).subquery())) or 0)
     rows = db.execute(
         q.order_by(FarmRecord.occurred_on.desc(), FarmRecord.created_at.desc())
         .offset((page - 1) * page_size)

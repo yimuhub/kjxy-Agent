@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.8.0
+  version: 3.9.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -2081,6 +2081,322 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - HTTPBearer: []
+  /api/v1/farm/diagnoses:
+    post:
+      tags:
+      - v1
+      - farm
+      summary: Create Diagnosis
+      operationId: create_diagnosis_api_v1_farm_diagnoses_post
+      security:
+      - HTTPBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DiagnosisCreate'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - v1
+      - farm
+      summary: List Diagnoses
+      operationId: list_diagnoses_api_v1_farm_diagnoses_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 16
+          - type: 'null'
+          title: Status
+      - name: plot_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 36
+          - type: 'null'
+          title: Plot Id
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+          title: Page
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 20
+          title: Page Size
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/farm/diagnoses/{diagnosis_id}:
+    get:
+      tags:
+      - v1
+      - farm
+      summary: Get Diagnosis
+      operationId: get_diagnosis_api_v1_farm_diagnoses__diagnosis_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: diagnosis_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Diagnosis Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/farm/diagnoses/{diagnosis_id}/review:
+    post:
+      tags:
+      - v1
+      - farm
+      summary: Review Diagnosis
+      operationId: review_diagnosis_api_v1_farm_diagnoses__diagnosis_id__review_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: diagnosis_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Diagnosis Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DiagnosisReviewRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/farm/diagnoses/{diagnosis_id}/follow-ups:
+    post:
+      tags:
+      - v1
+      - farm
+      summary: Add Follow Up
+      operationId: add_follow_up_api_v1_farm_diagnoses__diagnosis_id__follow_ups_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: diagnosis_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Diagnosis Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FollowUpCreate'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/farm/pesticides:
+    get:
+      tags:
+      - v1
+      - farm
+      summary: List Pesticides
+      operationId: list_pesticides_api_v1_farm_pesticides_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+    post:
+      tags:
+      - v1
+      - farm
+      summary: Create Pesticide
+      operationId: create_pesticide_api_v1_farm_pesticides_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PesticideCreate'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/farm/pesticides/{pesticide_id}:
+    patch:
+      tags:
+      - v1
+      - farm
+      summary: Update Pesticide
+      operationId: update_pesticide_api_v1_farm_pesticides__pesticide_id__patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: pesticide_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Pesticide Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PesticideUpdate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - v1
+      - farm
+      summary: Delete Pesticide
+      operationId: delete_pesticide_api_v1_farm_pesticides__pesticide_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: pesticide_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Pesticide Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/farm/pesticides/{pesticide_id}/safe-harvest:
+    get:
+      tags:
+      - v1
+      - farm
+      summary: Safe Harvest
+      operationId: safe_harvest_api_v1_farm_pesticides__pesticide_id__safe_harvest_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: pesticide_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Pesticide Id
+      - name: applied_on
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date
+          title: Applied On
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/feedback:
     post:
       tags:
@@ -7824,6 +8140,85 @@ components:
           description: 仅 connector 设备可换配置
       type: object
       title: DevicePatch
+    DiagnosisCreate:
+      properties:
+        crop:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Crop
+        symptoms:
+          type: string
+          maxLength: 4000
+          minLength: 1
+          title: Symptoms
+        plot_id:
+          anyOf:
+          - type: string
+            maxLength: 36
+          - type: 'null'
+          title: Plot Id
+        variety:
+          anyOf:
+          - type: string
+            maxLength: 100
+          - type: 'null'
+          title: Variety
+        growth_stage:
+          anyOf:
+          - type: string
+            maxLength: 100
+          - type: 'null'
+          title: Growth Stage
+        region:
+          anyOf:
+          - type: string
+            maxLength: 100
+          - type: 'null'
+          title: Region
+        environment:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Environment
+        image_refs:
+          items:
+            type: string
+          type: array
+          title: Image Refs
+        observed_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Observed At
+      type: object
+      required:
+      - crop
+      - symptoms
+      title: DiagnosisCreate
+    DiagnosisReviewRequest:
+      properties:
+        expert_note:
+          type: string
+          maxLength: 4000
+          minLength: 1
+          title: Expert Note
+        final_diagnosis:
+          type: string
+          maxLength: 4000
+          title: Final Diagnosis
+          default: ''
+        status:
+          type: string
+          title: Status
+          description: confirmed|closed
+          default: confirmed
+      type: object
+      required:
+      - expert_note
+      title: DiagnosisReviewRequest
     DocumentCreateRequest:
       properties:
         format:
@@ -7954,6 +8349,27 @@ components:
       - metric
       title: FieldMapEntry
       description: 厂商字段 → 统一指标的映射条目。
+    FollowUpCreate:
+      properties:
+        occurred_on:
+          type: string
+          format: date
+          title: Occurred On
+        note:
+          type: string
+          maxLength: 4000
+          minLength: 1
+          title: Note
+        image_refs:
+          items:
+            type: string
+          type: array
+          title: Image Refs
+      type: object
+      required:
+      - occurred_on
+      - note
+      title: FollowUpCreate
     GrantsUpdateRequest:
       properties:
         grants:
@@ -8348,6 +8764,86 @@ components:
       type: object
       title: ParticipantSetRequest
       description: 整表覆盖会话的群聊成员名单（PUT 幂等：空数组 = 清空名单）。
+    PesticideCreate:
+      properties:
+        name:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Name
+        active_ingredient:
+          type: string
+          maxLength: 120
+          title: Active Ingredient
+          default: ''
+        registered_crops:
+          items:
+            type: string
+          type: array
+          title: Registered Crops
+        pre_harvest_interval_days:
+          type: integer
+          maximum: 365.0
+          minimum: 0.0
+          title: Pre Harvest Interval Days
+          default: 0
+        label_notes:
+          type: string
+          maxLength: 2000
+          title: Label Notes
+          default: ''
+        status:
+          type: string
+          maxLength: 16
+          title: Status
+          default: active
+      type: object
+      required:
+      - name
+      title: PesticideCreate
+    PesticideUpdate:
+      properties:
+        name:
+          anyOf:
+          - type: string
+            maxLength: 120
+            minLength: 1
+          - type: 'null'
+          title: Name
+        active_ingredient:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Active Ingredient
+        registered_crops:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Registered Crops
+        pre_harvest_interval_days:
+          anyOf:
+          - type: integer
+            maximum: 365.0
+            minimum: 0.0
+          - type: 'null'
+          title: Pre Harvest Interval Days
+        label_notes:
+          anyOf:
+          - type: string
+            maxLength: 2000
+          - type: 'null'
+          title: Label Notes
+        status:
+          anyOf:
+          - type: string
+            maxLength: 16
+          - type: 'null'
+          title: Status
+      type: object
+      title: PesticideUpdate
     PlotCreate:
       properties:
         name:

@@ -1841,3 +1841,142 @@ export const farmApi = {
     return unwrap(api.post<ApiResponse<FarmReport>>('/farm/reports', payload))
   },
 }
+
+// ---------- 作物诊断闭环（v3.9） ----------
+
+export interface FarmDiagnosisSummary {
+  diagnosis_id: string
+  plot_id: string | null
+  plot_name: string
+  crop: string
+  growth_stage: string
+  status: 'open' | 'expert_review' | 'confirmed' | 'closed'
+  confidence: number
+  needs_expert_review: boolean
+  top_candidate: string | null
+  top_confidence: number | null
+  vision_status: string
+  created_at: string
+}
+
+export interface FarmDiagnosisCandidate {
+  name: string
+  confidence: number
+  matched_symptoms: string[]
+  notes: string
+}
+
+export interface FarmDiagnosisEvidence {
+  document_id: string
+  chunk_id: string
+  title: string
+  source: string
+  page_number: number | null
+  quote: string
+  score: number | null
+}
+
+export interface FarmDiagnosisOutput {
+  candidates: FarmDiagnosisCandidate[]
+  evidence: FarmDiagnosisEvidence[]
+  needs_info: string[]
+  risk_notes: string[]
+  next_steps: string[]
+  needs_expert_review: boolean
+  medication_intent: boolean
+  confidence: number
+  disclaimer: string
+}
+
+export interface FarmFollowUp {
+  followup_id: string
+  diagnosis_id: string
+  occurred_on: string
+  note: string
+  image_refs: string[] | null
+  created_by: string | null
+  created_at: string
+}
+
+export interface FarmDiagnosis extends Omit<FarmDiagnosisSummary, 'top_candidate' | 'top_confidence' | 'plot_name'> {
+  variety: string
+  region: string
+  symptoms: string
+  image_refs: string[] | null
+  environment: Record<string, unknown> | null
+  observed_at: string | null
+  output: FarmDiagnosisOutput | null
+  medication_guard: {
+    requires_expert_confirmation: boolean
+    registered_products: {
+      pesticide_id: string
+      name: string
+      active_ingredient: string
+      pre_harvest_interval_days: number
+    }[]
+    note: string
+  } | null
+  expert_reviewer_id: string | null
+  expert_note: string
+  final_diagnosis: string
+  expert_reviewed_at: string | null
+  follow_ups: FarmFollowUp[]
+  updated_at: string
+}
+
+export interface PesticideProduct {
+  pesticide_id: string
+  name: string
+  active_ingredient: string
+  registered_crops: string[] | null
+  pre_harvest_interval_days: number
+  label_notes: string
+  status: 'active' | 'archived'
+  created_at: string
+  updated_at: string
+}
+
+export const diagnosisApi = {
+  create(payload: {
+    crop: string
+    symptoms: string
+    plot_id?: string
+    variety?: string
+    growth_stage?: string
+    region?: string
+    environment?: Record<string, unknown>
+    image_refs?: string[]
+  }): Promise<FarmDiagnosis> {
+    return unwrap(api.post<ApiResponse<FarmDiagnosis>>('/farm/diagnoses', payload))
+  },
+  list(query: { status?: string; plot_id?: string; page?: number; page_size?: number } = {}): Promise<ListResult<FarmDiagnosisSummary>> {
+    return unwrapList(api.get<ListResponse<FarmDiagnosisSummary>>('/farm/diagnoses', { params: query }))
+  },
+  detail(diagnosisId: string): Promise<FarmDiagnosis> {
+    return unwrap(api.get<ApiResponse<FarmDiagnosis>>(`/farm/diagnoses/${diagnosisId}`))
+  },
+  review(
+    diagnosisId: string,
+    payload: { expert_note: string; final_diagnosis?: string; status?: 'confirmed' | 'closed' },
+  ): Promise<FarmDiagnosis> {
+    return unwrap(api.post<ApiResponse<FarmDiagnosis>>(`/farm/diagnoses/${diagnosisId}/review`, payload))
+  },
+  followUp(diagnosisId: string, payload: { occurred_on: string; note: string; image_refs?: string[] }): Promise<FarmFollowUp> {
+    return unwrap(api.post<ApiResponse<FarmFollowUp>>(`/farm/diagnoses/${diagnosisId}/follow-ups`, payload))
+  },
+  pesticides(): Promise<PesticideProduct[]> {
+    return unwrap(api.get<ApiResponse<PesticideProduct[]>>('/farm/pesticides'))
+  },
+  createPesticide(payload: Partial<PesticideProduct> & { name: string }): Promise<PesticideProduct> {
+    return unwrap(api.post<ApiResponse<PesticideProduct>>('/farm/pesticides', payload))
+  },
+  updatePesticide(pesticideId: string, payload: Partial<PesticideProduct>): Promise<PesticideProduct> {
+    return unwrap(api.patch<ApiResponse<PesticideProduct>>(`/farm/pesticides/${pesticideId}`, payload))
+  },
+  deletePesticide(pesticideId: string): Promise<unknown> {
+    return unwrap(api.delete(`/farm/pesticides/${pesticideId}`))
+  },
+  safeHarvest(pesticideId: string, appliedOn: string): Promise<{ earliest_harvest_on: string; pre_harvest_interval_days: number; note: string }> {
+    return unwrap(api.get(`/farm/pesticides/${pesticideId}/safe-harvest`, { params: { applied_on: appliedOn } }))
+  },
+}
