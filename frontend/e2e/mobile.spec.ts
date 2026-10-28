@@ -16,7 +16,7 @@ test('窄屏导航为抽屉：可打开、Esc 关闭、跳转后自动收起', a
   await expect(aside).not.toHaveClass(/aside--open/)
 
   await toggle.click()
-  await page.getByRole('menuitem', { name: '问答' }).click()
-  await expect(page).toHaveURL(/\/qa$/)
+  await page.getByRole('menuitem', { name: '对话' }).click()
+  await expect(page).toHaveURL(/\/chat$/)
   await expect(aside).not.toHaveClass(/aside--open/)
 })

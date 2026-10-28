@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
+import { defaultHomePath } from '@/utils/home'
 import MainLayout from '@/layouts/MainLayout.vue'
 import Login from '@/views/Login.vue'
 
@@ -10,7 +11,6 @@ const ADMIN_ROLES = ['yard_owner', 'yard_admin', 'platform_admin']
 /** 业务页按路由懒加载，首屏只下载登录页与主框架 */
 const Dashboard = () => import('@/views/Dashboard.vue')
 const ChatView = () => import('@/views/ChatView.vue')
-const QaView = () => import('@/views/QaView.vue')
 const KnowledgeView = () => import('@/views/KnowledgeView.vue')
 const TasksView = () => import('@/views/TasksView.vue')
 const ReviewView = () => import('@/views/ReviewView.vue')
@@ -39,6 +39,11 @@ const NotFoundView = () => import('@/views/NotFoundView.vue')
 
 // meta.roles 声明允许访问的角色；缺省表示所有登录用户可见
 const routes: RouteRecordRaw[] = [
+  {
+    // 旧问答页已并入对话（v3.13）：保留路径，带上原问题进入知识问答模式
+    path: '/qa',
+    redirect: to => ({ path: '/chat', query: { ...to.query, qa: '1' } }),
+  },
   {
     path: '/login',
     name: 'Login',
@@ -70,7 +75,6 @@ const routes: RouteRecordRaw[] = [
       { path: '', name: 'Dashboard', component: Dashboard, meta: { title: '概览' } },
       // 对话模式：全员可用（§10 契约：全部登录可用，成员级）
       { path: 'chat', name: 'Chat', component: ChatView, meta: { title: '对话' } },
-      { path: 'qa', name: 'QA', component: QaView, meta: { title: '知识问答' } },
       { path: 'knowledge', name: 'Knowledge', component: KnowledgeView, meta: { title: '知识库' } },
       { path: 'farm', name: 'Farm', component: FarmView, meta: { title: '农业台账' } },
       { path: 'diagnosis', name: 'Diagnosis', component: DiagnosisView, meta: { title: '作物诊断' } },
@@ -181,8 +185,16 @@ router.beforeEach(async to => {
   const auth = useAuthStore()
   if (to.meta.public) {
     if ((to.path === '/login' || to.path === '/signup') && auth.isLoggedIn()) {
-      const redirect = typeof to.query.redirect === 'string' ? to.query.redirect : '/'
-      return redirect.startsWith('/') ? redirect : '/'
+      if (!auth.meLoaded) {
+        try {
+          await auth.fetchMe()
+        } catch {
+          /* 角色取不到时按普通成员落地对话 */
+        }
+      }
+      const redirect =
+        typeof to.query.redirect === 'string' ? to.query.redirect : defaultHomePath(auth.roles)
+      return redirect.startsWith('/') ? redirect : defaultHomePath(auth.roles)
     }
     return true
   }

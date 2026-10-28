@@ -28,8 +28,8 @@ test.describe('对话附件与能力生成', () => {
     await login(page)
     await newChat(page)
 
-    // 输入框左侧的附件按钮 + 待发附件 chip
-    const attachBtn = page.locator('.attach-btn')
+    // 输入框左侧的附件按钮 + 待发附件 chip（语音按钮与它同款式，按名称取附件按钮）
+    const attachBtn = page.getByRole('button', { name: '上传附件', exact: true })
     await expect(attachBtn).toBeVisible()
     await expect(attachBtn).toHaveAttribute('title', '上传附件（图片或文档）')
 

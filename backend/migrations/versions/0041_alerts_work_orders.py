@@ -72,9 +72,7 @@ def upgrade() -> None:
         sa.Column("to_status", sa.String(16), nullable=True),
     )
     op.create_index("ix_work_order_events_yard_id", "work_order_events", ["yard_id"])
-    op.create_index(
-        "ix_work_order_events_work_order_id", "work_order_events", ["work_order_id"]
-    )
+    op.create_index("ix_work_order_events_work_order_id", "work_order_events", ["work_order_id"])
     op.create_index(
         "ix_work_order_events_yard_order",
         "work_order_events",

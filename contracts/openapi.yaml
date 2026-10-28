@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.12.0
+  version: 3.13.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -7537,6 +7537,46 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/chat/sessions/{session_id}/qa:
+    post:
+      tags:
+      - v1
+      - chat
+      summary: Ask Knowledge Question
+      description: '对话内知识问答：复用农业问答 Agent，回答与引用作为普通消息落库。
+
+
+        与「通用对话」的差别：只依据知识库检索结果作答，不路由到助手/班组，
+
+        回答必带引用；资料不足时明确说明而不是编造。'
+      operationId: ask_knowledge_question_api_v1_chat_sessions__session_id__qa_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KnowledgeAskRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/chat/sessions/{session_id}/documents:
     post:
       tags:
@@ -9142,6 +9182,25 @@ components:
       required:
       - role
       title: InvitationCreateRequest
+    KnowledgeAskRequest:
+      properties:
+        question:
+          type: string
+          maxLength: 2000
+          minLength: 1
+          title: Question
+        top_k:
+          type: integer
+          maximum: 20.0
+          minimum: 1.0
+          title: Top K
+          default: 5
+      additionalProperties: false
+      type: object
+      required:
+      - question
+      title: KnowledgeAskRequest
+      description: 对话内知识问答（v3.13）：单轮、严格引用，回答落库可回放。
     LoginRequest:
       properties:
         username:

@@ -33,9 +33,7 @@ def upgrade() -> None:
         sa.Column("last_viewed_at", sa.DateTime(timezone=True), nullable=True),
     )
     op.create_index("ix_share_links_yard_id", "share_links", ["yard_id"])
-    op.create_index(
-        "ix_share_links_token_hash", "share_links", ["token_hash"], unique=True
-    )
+    op.create_index("ix_share_links_token_hash", "share_links", ["token_hash"], unique=True)
     op.create_index("ix_share_links_yard_created", "share_links", ["yard_id", "created_at"])
 
 

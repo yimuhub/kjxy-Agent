@@ -46,7 +46,14 @@ import type { ApiResponse } from '@/types/api'
 export type ChatTarget = 'auto' | 'agent' | 'team'
 
 /** 路由来源（诚实标记口径）：规则命中 / 智能分类 / 频率兜底 / 手动指定 / 对话直办 / 执行失败 */
-export type ChatRoutedBy = 'rules' | 'llm' | 'fallback' | 'manual' | 'local' | 'error'
+export type ChatRoutedBy =
+  | 'rules'
+  | 'llm'
+  | 'fallback'
+  | 'manual'
+  | 'local'
+  | 'qa'
+  | 'error'
 
 /**
  * 徽章色调白名单：与后端 routed_tone 受控词表对齐，同时正好是 el-tag 的合法 type。
@@ -549,6 +556,20 @@ export const chatApi = {
   /** 会话附件列表 */
   listAttachments(id: string): Promise<ChatAttachmentList> {
     return unwrap(api.get<ApiResponse<ChatAttachmentList>>(`/chat/sessions/${id}/attachments`))
+  },
+  /** 对话内知识问答（v3.13）：单轮、严格引用，问答消息落库可回放 */
+  askKnowledge(
+    sessionId: string,
+    question: string,
+    topK = 5,
+  ): Promise<{ user_message: ChatMessage; assistant_message: ChatMessage }> {
+    return unwrap(
+      api.post<ApiResponse<{ user_message: ChatMessage; assistant_message: ChatMessage }>>(
+        `/chat/sessions/${sessionId}/qa`,
+        { question, top_k: topK },
+        silentCfg,
+      ),
+    )
   },
   /** 语音转写（v3.11）：音频只在服务端内存中转发上游，不落库 */
   transcribeAudio(file: File): Promise<{ text: string; model: string }> {

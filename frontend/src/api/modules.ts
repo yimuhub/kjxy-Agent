@@ -33,9 +33,6 @@ import type {
   PolicyProfile,
   ApplicationDraft,
   ApplicationDraftPayload,
-  QAAnswerRequest,
-  QAAnswerResult,
-  QAOutput,
   ReviewCandidatePayload,
   SubmitFeedbackPayload,
   Task,
@@ -288,22 +285,6 @@ export const knowledgeApi = {
         review_note,
       }),
     )
-  },
-}
-
-// ---------- 问答 ----------
-
-export const qaApi = {
-  async answer(payload: QAAnswerRequest): Promise<QAAnswerResult> {
-    // 同步问答包含检索 + LLM 生成，可能超过默认 30s；异步模式立即返回
-    const data = await unwrap<Record<string, unknown>>(
-      api.post('/qa/answers', payload, { timeout: 120_000 }),
-    )
-    if (data && typeof data === 'object' && 'answer' in data) {
-      return { kind: 'sync', output: data as unknown as QAOutput }
-    }
-    const task_id = (data as { task_id?: string })?.task_id ?? ''
-    return { kind: 'async', task_id }
   },
 }
 

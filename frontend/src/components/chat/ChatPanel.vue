@@ -168,6 +168,70 @@
                 <el-icon><CopyDocument /></el-icon>
                 <span>{{ copiedId === row.m.id ? '已复制' : '复制' }}</span>
               </button>
+              <!-- 回答反馈回流（v3.13）：有用/有问题进反馈队列，纠错进专家审核后合入知识库 -->
+              <template v-if="row.m.role === 'assistant'">
+                <button
+                  class="msg-fb"
+                  type="button"
+                  :class="{ done: fbState[row.m.id] === 'up' || fbState[row.m.id] === 'corrected' }"
+                  :disabled="fbBusy === row.m.id"
+                  :aria-label="fbState[row.m.id] === 'up' ? '已反馈：这条回答有用' : '反馈这条回答有用'"
+                  :aria-pressed="fbState[row.m.id] === 'up'"
+                  @click="submitRating(row.m, 'up')"
+                >
+                  <el-icon><Goods /></el-icon>
+                  <span>{{ fbState[row.m.id] === 'up' ? '已反馈' : '有用' }}</span>
+                </button>
+                <button
+                  class="msg-fb"
+                  type="button"
+                  :class="{ done: fbState[row.m.id] === 'down' || fbState[row.m.id] === 'corrected' }"
+                  :disabled="fbBusy === row.m.id"
+                  :aria-label="'反馈这条回答有问题并可补充正确说法'"
+                  @click="markWrong(row.m)"
+                >
+                  <el-icon><EditPen /></el-icon>
+                  <span>{{
+                    fbState[row.m.id] === 'corrected'
+                      ? '已提交纠错'
+                      : fbState[row.m.id] === 'down'
+                        ? '补充正确说法'
+                        : '有问题'
+                  }}</span>
+                </button>
+              </template>
+            </div>
+            <!-- 纠错输入：提交后进入「专家审核」，通过后合入知识库，不再只是聊天里抱怨一句 -->
+            <div
+              v-if="fbOpenId === row.m.id"
+              class="msg-correct"
+            >
+              <el-input
+                v-model="fbDraft[row.m.id]"
+                type="textarea"
+                :rows="3"
+                maxlength="2000"
+                placeholder="写下正确说法（至少 10 个字）。提交后由小院专家审核，通过才进知识库。"
+                :aria-label="'这条回答的纠错内容'"
+              />
+              <div class="correct-foot">
+                <span class="correct-hint">{{ (fbDraft[row.m.id] ?? '').trim().length }} / 10 字起</span>
+                <button
+                  class="correct-btn"
+                  type="button"
+                  @click="closeCorrection"
+                >
+                  取消
+                </button>
+                <button
+                  class="correct-btn primary"
+                  type="button"
+                  :disabled="fbBusy === row.m.id || (fbDraft[row.m.id] ?? '').trim().length < 10"
+                  @click="submitCorrection(row.m)"
+                >
+                  提交纠错
+                </button>
+              </div>
             </div>
             <!-- 消息级 Token 消耗统计（每条回答及每次输入均透明可查） -->
             <div
@@ -294,7 +358,7 @@
         </span>
       </div>
       <div
-        v-if="groupable"
+        v-if="groupable && !qaMode"
         class="group-band"
         :style="{ maxWidth }"
       >
@@ -313,7 +377,7 @@
 
       <!-- 本轮点名提示条：比把 @ 文本硬塞进正文更好回收 -->
       <div
-        v-if="mentionable && store.mention"
+        v-if="mentionable && !qaMode && store.mention"
         class="mention-bar"
         :style="{ maxWidth }"
         role="status"
@@ -332,6 +396,56 @@
           <el-icon><Close /></el-icon>
           取消
         </button>
+      </div>
+
+      <!-- 模式切换（v3.13）：通用对话自动路由助手；知识问答只依据知识库且必带引用 -->
+      <div
+        v-if="qaToggle"
+        class="qa-bar"
+        :style="{ maxWidth }"
+      >
+        <div
+          class="qa-tabs"
+          role="group"
+          aria-label="对话模式"
+        >
+          <button
+            type="button"
+            class="qa-tab"
+            :class="{ active: !qaMode }"
+            :aria-pressed="!qaMode"
+            @click="setQaMode(false)"
+          >
+            通用对话
+          </button>
+          <button
+            type="button"
+            class="qa-tab"
+            :class="{ active: qaMode }"
+            :aria-pressed="qaMode"
+            @click="setQaMode(true)"
+          >
+            知识问答
+          </button>
+        </div>
+        <span
+          v-if="qaMode"
+          class="qa-hint"
+        >只依据知识库资料，回答带引用；不支持附件与 @ 点名</span>
+        <label
+          v-if="qaMode"
+          class="qa-topk"
+        >
+          检索条数
+          <el-input-number
+            v-model="qaTopK"
+            :min="1"
+            :max="20"
+            size="small"
+            controls-position="right"
+            aria-label="知识库检索条数"
+          />
+        </label>
       </div>
 
       <!--
@@ -353,8 +467,8 @@
             <button
               class="attach-btn"
               type="button"
-              :disabled="store.sending || store.uploading"
-              title="上传附件（图片或文档）"
+              :disabled="store.sending || store.uploading || qaMode"
+              :title="qaMode ? '知识问答只依据知识库资料，不支持附件' : '上传附件（图片或文档）'"
               aria-label="上传附件"
               @click="onPickFile"
             >
@@ -401,7 +515,7 @@
               :autosize="{ minRows: 1, maxRows: 6 }"
               :maxlength="2000"
               resize="none"
-              :placeholder="placeholder"
+              :placeholder="placeholderText"
               :aria-label="`${label}输入`"
               :role="mentionable ? 'combobox' : undefined"
               :aria-expanded="mentionable ? mentionOpen : undefined"
@@ -485,6 +599,8 @@
     Close,
     CopyDocument,
     Document,
+    EditPen,
+    Goods,
     Loading,
     Microphone,
     Paperclip,
@@ -503,6 +619,7 @@
   import PluginCard from '@/components/chat/PluginCard.vue'
   import SkillCard from '@/components/chat/SkillCard.vue'
   import { chatApi, mentionDisplayName, normalizeRoutedTone } from '@/api/chat'
+  import { feedbackApi } from '@/api/modules'
   import type {
     ChatAttachment,
     ChatDocumentCard,
@@ -528,6 +645,7 @@
     fallback: { label: '兜底', type: 'warning', tip: '未命中规则与分类，按近期频率兜底' },
     manual: { label: '手动指定', type: 'info', tip: '用户手动指定的执行对象' },
     local: { label: '对话直办', type: 'info', tip: '由对话直接处理，未走助手路由' },
+    qa: { label: '知识问答', type: 'primary', tip: '只依据知识库资料回答，附引用来源' },
     error: { label: '执行失败', type: 'danger', tip: '执行遇到问题，可换个说法再问' },
   }
 
@@ -564,6 +682,10 @@
       mentionable?: boolean
       /** 开启多助手群聊（成员条 + 本轮策略） */
       groupable?: boolean
+      /** 显示「通用对话 / 知识问答」模式切换（v3.13） */
+      qaToggle?: boolean
+      /** 当前是否知识问答模式（v-model:qa-mode） */
+      qaMode?: boolean
     }>(),
     {
       panelId: 'main',
@@ -581,6 +703,8 @@
       maxWidth: '820px',
       mentionable: false,
       groupable: false,
+      qaToggle: false,
+      qaMode: false,
     },
   )
 
@@ -589,11 +713,23 @@
     (e: 'sent', ok: boolean): void
     /** 卡片内发布动作成功：父级可据此刷新外部列表 */
     (e: 'card-published', messageId: string, status: string): void
+    /** 切换通用对话 / 知识问答模式 */
+    (e: 'update:qaMode', value: boolean): void
   }>()
 
   const draft = ref('')
+  /** 知识问答模式的检索条数（1–20，默认 5；只在问答模式生效） */
+  const qaTopK = ref(5)
   /** 刚复制过的消息 id（按钮短暂显示「已复制」） */
   const copiedId = ref('')
+  /**
+   * 回答反馈（v3.13）：按消息 id 记录本次会话内的已反馈状态。
+   * 服务端反馈队列不回填到消息上，所以刷新后不回显，避免谎称已反馈。
+   */
+  const fbState = ref<Record<string, 'up' | 'down' | 'corrected'>>({})
+  const fbDraft = ref<Record<string, string>>({})
+  const fbOpenId = ref('')
+  const fbBusy = ref('')
   const streamRef = ref<HTMLElement | null>(null)
   const inputRef = ref<InstanceType<typeof ElInput> | null>(null)
   const fileRef = ref<HTMLInputElement | null>(null)
@@ -658,6 +794,18 @@
 
   const showAvatar = computed(() => props.groupable)
   const blockedReason = computed(() => props.store.sendBlockReason)
+  const placeholderText = computed(() =>
+    props.qaMode
+      ? '向知识库提问：只依据已上传资料回答，必附引用'
+      : props.placeholder,
+  )
+
+  function setQaMode(value: boolean) {
+    if (props.qaMode === value) return
+    if (props.store.sending) return
+    mentionOpen.value = false
+    emit('update:qaMode', value)
+  }
   const memberLiveRows = computed<MemberRoundRow[]>(() => props.store.memberRounds)
   const mentionListboxId = computed(() => mentionLayerRef.value?.listboxId)
   const mentionActiveDescendant = computed(() => mentionLayerRef.value?.activeOptionId ?? undefined)
@@ -701,6 +849,79 @@
     window.setTimeout(() => {
       if (copiedId.value === m.id) copiedId.value = ''
     }, 1500)
+  }
+
+  /**
+   * 反馈正文带上下文：队列里只有反馈本身，专家需要知道是哪一问的回答、来源是谁。
+   * 首行会被后端截成候选标题，所以首行放用户原问题，审核列表一眼可对号。
+   */
+  function feedbackContext(m: ChatMessage): string {
+    const list = props.store.messages
+    const idx = list.findIndex(x => x.id === m.id)
+    const question = [...list.slice(0, idx < 0 ? 0 : idx)].reverse().find(x => x.role === 'user')
+    return [
+      question?.content?.trim() || '对话回答反馈',
+      `会话 ${props.store.activeId || '未保存'}${m.routed_label ? ` · 来源 ${m.routed_label}` : ''}`,
+      `原回答摘要：${(m.content ?? '').slice(0, 300)}`,
+    ].join('\n')
+  }
+
+  /** 点赞/点踩：先落评分，点踩顺带打开纠错框，愿意写就写、不写也算有效反馈 */
+  async function submitRating(m: ChatMessage, rating: 'up' | 'down'): Promise<void> {
+    if (fbBusy.value === m.id || fbState.value[m.id] === rating) return
+    fbBusy.value = m.id
+    try {
+      await feedbackApi.submit({ rating, feedback_text: feedbackContext(m) })
+      fbState.value = { ...fbState.value, [m.id]: rating }
+      if (rating === 'down') openCorrection(m)
+      else ElMessage.success('已记录，感谢反馈')
+    } catch {
+      ElMessage.warning('反馈提交失败，请稍后重试')
+    } finally {
+      fbBusy.value = ''
+    }
+  }
+
+  /** 「有问题」：还没评分时先补一条 down，再进入纠错输入 */
+  async function markWrong(m: ChatMessage): Promise<void> {
+    if (fbState.value[m.id] !== 'down' && fbState.value[m.id] !== 'corrected') {
+      await submitRating(m, 'down')
+      return
+    }
+    openCorrection(m)
+  }
+
+  function openCorrection(m: ChatMessage): void {
+    if (!(m.id in fbDraft.value)) fbDraft.value = { ...fbDraft.value, [m.id]: '' }
+    fbOpenId.value = m.id
+  }
+
+  function closeCorrection(): void {
+    fbOpenId.value = ''
+  }
+
+  /** 纠错提交后自动成为知识候选，走「专家审核」才能进知识库（后端已保证不直写） */
+  async function submitCorrection(m: ChatMessage): Promise<void> {
+    const text = (fbDraft.value[m.id] ?? '').trim()
+    if (text.length < 10) {
+      ElMessage.warning('纠错内容至少 10 个字，便于专家判断')
+      return
+    }
+    fbBusy.value = m.id
+    try {
+      await feedbackApi.submit({
+        rating: fbState.value[m.id] === 'up' ? undefined : 'down',
+        corrected_answer: text,
+        feedback_text: feedbackContext(m),
+      })
+      fbState.value = { ...fbState.value, [m.id]: 'corrected' }
+      closeCorrection()
+      ElMessage.success('纠错已提交，已生成待审核候选')
+    } catch {
+      ElMessage.warning('纠错提交失败，请稍后重试')
+    } finally {
+      fbBusy.value = ''
+    }
   }
 
   function onPickFile() {
@@ -881,7 +1102,7 @@
    * 按 selectionStart 取而不是正则匹配整串——用户在中间插入 @ 也要能点名。
    */
   function syncMentionFrom(el: HTMLTextAreaElement) {
-    if (!props.mentionable) return
+    if (!props.mentionable || props.qaMode) return
     const caret = el.selectionStart ?? el.value.length
     const before = el.value.slice(0, caret)
     if (!/(^|\s)@[^@\s]*$/.test(before)) {
@@ -936,8 +1157,14 @@
     // named 策略没点名：按钮已置灰，键盘 Enter 这条路也要拦下并说明原因
     if (blockedReason.value) return
     mentionOpen.value = false
+    if (props.qaMode && props.store.attachments.length) {
+      ElMessage.warning('知识问答模式不支持附件，请先移除附件或切回通用对话')
+      return
+    }
     // 发送失败保留草稿便于重发；成功才清空
-    const ok = await props.store.send(text)
+    const ok = props.qaMode
+      ? await props.store.sendQa(text, qaTopK.value)
+      : await props.store.send(text)
     if (ok) draft.value = ''
     scrollToBottom()
     emit('sent', ok)
@@ -1087,7 +1314,8 @@
     gap: 6px;
     margin: 4px 4px 0;
   }
-  .msg-copy {
+  .msg-copy,
+  .msg-fb {
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -1105,13 +1333,65 @@
       background 0.15s;
   }
   .msg-copy:hover,
-  .msg-copy:focus-visible {
+  .msg-copy:focus-visible,
+  .msg-fb:hover,
+  .msg-fb:focus-visible {
     color: var(--ds-text-1);
     background: var(--ds-glass-strong);
     border-color: var(--ds-border);
   }
-  .msg-copy:active {
+  .msg-copy:active,
+  .msg-fb:active {
     color: var(--ds-accent-text);
+  }
+  /* 已反馈：让「说过一次」在会话内可见，避免重复提交 */
+  .msg-copy.done,
+  .msg-fb.done {
+    color: var(--el-color-success);
+    border-color: var(--ds-border);
+    background: var(--ds-glass-strong);
+  }
+  .msg-copy:disabled,
+  .msg-fb:disabled {
+    cursor: default;
+    opacity: 0.6;
+  }
+
+  /* 纠错输入区：紧贴被纠正的那条回答，写清去向是专家审核 */
+  .msg-correct {
+    margin: 6px 4px 0;
+    padding: 10px 12px;
+    border: 1px solid var(--ds-border);
+    border-radius: 10px;
+    background: var(--ds-glass);
+  }
+  .correct-foot {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .correct-hint {
+    flex: 1;
+    font-size: 11.5px;
+    color: var(--ds-text-3);
+  }
+  .correct-btn {
+    padding: 2px 12px;
+    font-size: 12px;
+    border-radius: var(--ds-radius-pill);
+    border: 1px solid var(--ds-border);
+    background: transparent;
+    color: var(--ds-text-2);
+    cursor: pointer;
+  }
+  .correct-btn.primary {
+    color: var(--ds-accent-text);
+    border-color: var(--ds-border-strong);
+  }
+  .correct-btn:disabled {
+    cursor: default;
+    opacity: 0.55;
   }
 
   /* 群聊署名头像：每条 assistant 气泡各带一位，多助手同屏不混淆 */
@@ -1271,6 +1551,46 @@
     font-size: 11.5px;
     line-height: 1.5;
     color: var(--ds-warning);
+  }
+  .qa-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin: 0 auto 8px;
+    font-size: 12px;
+    color: var(--ds-text-3);
+  }
+  .qa-tabs {
+    display: inline-flex;
+    padding: 2px;
+    border-radius: 999px;
+    background: var(--ds-glass);
+    border: 1px solid var(--ds-border);
+  }
+  .qa-tab {
+    padding: 4px 12px;
+    border: none;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--ds-text-2);
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .qa-tab.active {
+    background: var(--ds-accent);
+    color: #fff;
+  }
+  .qa-hint {
+    color: var(--ds-text-3);
+  }
+  .qa-topk {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .qa-topk :deep(.el-input-number) {
+    width: 92px;
   }
   .att-chip {
     display: inline-flex;

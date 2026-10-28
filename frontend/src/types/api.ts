@@ -281,7 +281,7 @@ export interface DocumentReparseResult {
   status: string
 }
 
-// ---------- 问答 ----------
+// ---------- 用量 ----------
 
 export interface TokenUsage {
   input_tokens: number
@@ -292,35 +292,6 @@ export interface TokenUsage {
   latency_ms?: number | null
   estimated?: boolean
 }
-
-/** 与 contracts/json-schema/qa-output.schema.json 一一对应 */
-export interface QAOutput {
-  answer: string
-  citations: Citation[]
-  warnings: string[]
-  needs_expert_review: boolean
-  token_usage?: TokenUsage | null
-}
-
-/** 与 qa-output.schema.json 中 citations 元素一一对应 */
-export interface Citation {
-  chunk_id: string
-  document_id: string
-  title: string
-  source: string
-  quote: string
-  page_number: number | null
-}
-
-export interface QAAnswerRequest {
-  question: string
-  top_k?: number
-  mode?: 'sync' | 'async'
-  crop_type?: string
-}
-
-/** /qa/answers 200：sync 返回结构化答案，async 返回任务 ID */
-export type QAAnswerResult = { kind: 'sync'; output: QAOutput } | { kind: 'async'; task_id: string }
 
 // ---------- 反馈 ----------
 

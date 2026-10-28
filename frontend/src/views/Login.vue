@@ -100,6 +100,7 @@
   import { useRoute, useRouter } from 'vue-router'
   import type { FormInstance, FormRules } from 'element-plus'
   import { useAuthStore } from '@/stores/auth'
+  import { defaultHomePath } from '@/utils/home'
   import { extractErrorDetails, extractErrorMessage } from '@/api/client'
   import { friendlyErrorMessage } from '@/utils/status'
   import type { YardBrief } from '@/types/api'
@@ -132,8 +133,9 @@
     loading.value = true
     try {
       await auth.login(form.username, form.password, form.yard_id || undefined)
-      const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/'
-      router.replace(redirect.startsWith('/') ? redirect : '/')
+      const redirect =
+        typeof route.query.redirect === 'string' ? route.query.redirect : defaultHomePath(auth.roles)
+      router.replace(redirect.startsWith('/') ? redirect : defaultHomePath(auth.roles))
     } catch (err: unknown) {
       const { code, message } = extractErrorMessage(err)
       if (code === 'YARD_REQUIRED') {

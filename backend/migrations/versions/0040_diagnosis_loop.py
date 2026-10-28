@@ -42,9 +42,7 @@ def upgrade() -> None:
         sa.Column("expert_reviewed_at", sa.DateTime(timezone=True), nullable=True),
     )
     op.create_index("ix_crop_diagnoses_yard_id", "crop_diagnoses", ["yard_id"])
-    op.create_index(
-        "ix_crop_diagnoses_yard_created", "crop_diagnoses", ["yard_id", "created_at"]
-    )
+    op.create_index("ix_crop_diagnoses_yard_created", "crop_diagnoses", ["yard_id", "created_at"])
     op.create_index("ix_crop_diagnoses_yard_status", "crop_diagnoses", ["yard_id", "status"])
 
     op.create_table(
@@ -60,9 +58,7 @@ def upgrade() -> None:
         sa.Column("created_by", sa.String(36), nullable=True),
     )
     op.create_index("ix_diagnosis_followups_yard_id", "diagnosis_followups", ["yard_id"])
-    op.create_index(
-        "ix_diagnosis_followups_diagnosis_id", "diagnosis_followups", ["diagnosis_id"]
-    )
+    op.create_index("ix_diagnosis_followups_diagnosis_id", "diagnosis_followups", ["diagnosis_id"])
     op.create_index(
         "ix_diagnosis_followups_yard_diag",
         "diagnosis_followups",

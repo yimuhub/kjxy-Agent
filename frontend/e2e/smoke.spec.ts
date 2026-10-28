@@ -12,14 +12,15 @@ test.describe('认证与导航', () => {
     await expect(page).toHaveURL(/\/login/)
   })
 
-  test('登录后导航收敛为 11 个一级入口，二级菜单可跳转', async ({ page }) => {
+  test('登录后导航按分组收敛，二级菜单可跳转', async ({ page }) => {
     await login(page)
     await expect(page).toHaveTitle('概览 · 阗策 · 科技小院')
 
     const topLevel = page.locator(
       '#main-nav > .el-menu > .el-menu-item-group > ul > li',
     )
-    await expect(topLevel).toHaveCount(11)
+    // 默认布局：工作台 2 + 能力协作 2 + 知识数据 6 + 管理与统计 3（问答已并入对话）
+    await expect(topLevel).toHaveCount(13)
 
     // 自我升级（/evolution）必须是一级可见入口，不能只藏在折叠菜单里
     await expect(page.getByRole('menuitem', { name: '自我升级' })).toBeVisible()
@@ -56,6 +57,21 @@ test.describe('认证与导航', () => {
     await expect(page).toHaveURL(/\/$/)
   })
 
+  test('旧问答入口重定向到对话并进入知识问答模式', async ({ page }) => {
+    await login(page)
+
+    await page.goto('/qa?q=水稻')
+    await expect(page).toHaveURL(/\/chat\?.*qa=1/)
+
+    const qaButton = page.getByRole('button', { name: '知识问答', exact: true })
+    await expect(qaButton).toHaveCount(1)
+    await expect(qaButton).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByRole('button', { name: '通用对话', exact: true })).toBeVisible()
+    await expect(page.getByRole('textbox', { name: '对话输入' })).toBeVisible()
+    // 问答模式下点名/班组入口收敛，避免出现两套问答
+    await expect(page.locator('.group-band')).toHaveCount(0)
+  })
+
   test('全部业务页可加载且无运行时异常', async ({ page }) => {
     const errors: string[] = []
     page.on('console', msg => {
@@ -66,7 +82,6 @@ test.describe('认证与导航', () => {
     await login(page)
     const routes = [
       '/chat',
-      '/qa',
       '/knowledge',
       '/tasks',
       '/review',

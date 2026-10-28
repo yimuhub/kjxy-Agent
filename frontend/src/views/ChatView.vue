@@ -108,11 +108,13 @@
       <!-- 消息流 + 输入区交给面板组件，状态来自 chat-main 这一个 store 实例 -->
       <ChatPanel
         ref="mainPanelRef"
+        v-model:qa-mode="qaMode"
         :store="store"
         panel-id="main"
         label="对话"
         mentionable
         groupable
+        qa-toggle
       />
     </section>
 
@@ -172,6 +174,8 @@
 
   const route = useRoute()
   const store = useChatStore()
+  /** 知识问答模式（v3.13）：/qa 重定向与站内切换共用同一开关 */
+  const qaMode = ref(route.query.qa === '1')
   const popupStore = useChatStore(HARNESS_SCOPE)
   const mainPanelRef = ref<InstanceType<typeof ChatPanel> | null>(null)
 
@@ -285,6 +289,11 @@
     const targetSid = route.query.session_id
     if (typeof targetSid === 'string' && targetSid) {
       await store.selectSession(targetSid).catch(() => undefined)
+    }
+    // 旧问答页带来的问题：只预填不自动发送（与旧 /qa 行为一致）
+    const preset = route.query.q
+    if (typeof preset === 'string' && preset.trim()) {
+      mainPanelRef.value?.fillDraft(preset.trim())
     }
     mainPanelRef.value?.scrollToBottom()
   })

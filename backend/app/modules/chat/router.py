@@ -57,6 +57,15 @@ class SessionCreateRequest(BaseModel):
     target_code: str | None = Field(default=None, max_length=100)
 
 
+class KnowledgeAskRequest(BaseModel):
+    """对话内知识问答（v3.13）：单轮、严格引用，回答落库可回放。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    question: str = Field(..., min_length=1, max_length=2000)
+    top_k: int = Field(default=5, ge=1, le=20)
+
+
 class SessionUpdateRequest(BaseModel):
     """改会话标题（非空）。"""
 
@@ -509,6 +518,98 @@ async def recognize_attachment_image(
         raise AppError("CHAT_ATTACHMENT_NOT_FOUND", "附件不存在或无权访问。", http_status=404)
     result = await multimodal.recognize_image(db, ctx, att)
     return ok({**result, "attachment": attachments_service.attachment_out(att)}, request)
+
+
+@router.post("/{session_id}/qa")
+async def ask_knowledge_question(
+    session_id: str,
+    payload: KnowledgeAskRequest,
+    request: Request,
+    ctx: YardContext = Depends(get_yard_context),
+    db: Session = Depends(get_db_session),
+):
+    """对话内知识问答：复用农业问答 Agent，回答与引用作为普通消息落库。
+
+    与「通用对话」的差别：只依据知识库检索结果作答，不路由到助手/班组，
+    回答必带引用；资料不足时明确说明而不是编造。
+    """
+    from app.modules.agriculture.qa_agent import AgricultureQAAgent, QAAgentContext
+
+    question = payload.question.strip()
+    if not question:
+        raise AppError("INVALID_REQUEST", "问题不能为空。", http_status=400)
+    session = service.get_session(
+        db, yard_id=ctx.yard_id, created_by=ctx.user_id, session_id=session_id
+    )
+    user_msg = service.persist_user_message(
+        db, ctx=ctx, session=session, content=question, attachments=[]
+    )
+    db.commit()
+
+    agent_ctx = QAAgentContext(
+        yard_id=ctx.yard_id,
+        user_id=ctx.user_id,
+        roles=list(ctx.roles),
+        request_id=ctx.request_id,
+        db=db,
+    )
+    result = await AgricultureQAAgent().run(
+        {"question": question, "top_k": payload.top_k}, agent_ctx
+    )
+    if result.status != "succeeded":
+        raise AppError("QA_FAILED", "知识问答执行失败，请稍后重试。", http_status=502)
+
+    output = dict(result.output)
+    answer = str(output.get("answer") or "").strip()
+    if not answer:
+        raise AppError("QA_FAILED", "知识问答没有返回内容，请稍后重试。", http_status=502)
+    needs_review = bool(output.get("needs_expert_review"))
+    content = answer
+    if needs_review:
+        content += "\n\n建议提交专家复核后再用于生产决策。"
+    raw_citations = [c for c in (output.get("citations") or []) if isinstance(c, dict)]
+    citations = [{**c, "kind": "knowledge"} for c in raw_citations]
+    assistant = service.persist_assistant_message(
+        db,
+        ctx=ctx,
+        session=session,
+        content=content,
+        routed_by="qa",
+        choice={"code": "knowledge_qa", "name": "知识问答"},
+        reason=f"知识库检索 · 引用 {len(citations)} 条",
+        payload={
+            "type": "qa_answer",
+            "warnings": output.get("warnings") or [],
+            "needs_expert_review": needs_review,
+            "top_k": payload.top_k,
+        },
+        citations=citations,
+    )
+    from app.modules.audit.service import log_audit
+
+    log_audit(
+        db,
+        yard_id=ctx.yard_id,
+        actor_id=ctx.user_id,
+        action="chat_knowledge_ask",
+        resource_type="chat_session",
+        resource_id=session.id,
+        result="success",
+        request_id=ctx.request_id,
+        metadata={
+            "citations": len(citations),
+            "needs_expert_review": needs_review,
+            "top_k": payload.top_k,
+        },
+    )
+    db.commit()
+    return ok(
+        {
+            "user_message": service.message_out(user_msg),
+            "assistant_message": service.message_out(assistant),
+        },
+        request,
+    )
 
 
 @media_router.post("/transcribe")

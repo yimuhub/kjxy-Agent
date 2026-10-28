@@ -519,6 +519,49 @@ function buildChatStore(scope: string) {
       }
     }
 
+    /**
+     * 知识问答模式（v3.13）：单轮检索增强回答，不路由助手/班组。
+     * 与通用对话共用消息表：刷新历史后问答记录仍在，引用可回看。
+     */
+    async function sendQa(content: string, topK = 5): Promise<boolean> {
+      const question = content.trim()
+      if (!question || sending.value) return false
+      if (!activeId.value) {
+        try {
+          await newSession()
+        } catch {
+          return false
+        }
+      }
+      const sid = activeId.value
+      const localId = `local-qa-${Date.now()}`
+      sending.value = true
+      liveSteps.value = []
+      streamError.value = ''
+      resetRoundView()
+      messages.value.push({
+        id: localId,
+        role: 'user',
+        content: question,
+        created_at: new Date().toISOString(),
+      })
+      try {
+        const res = await chatApi.askKnowledge(sid, question, topK)
+        const i = messages.value.findIndex(m => m.id === localId)
+        if (i >= 0) messages.value.splice(i, 1, res.user_message)
+        else messages.value.push(res.user_message)
+        messages.value.push(res.assistant_message)
+        await fetchSessions().catch(() => undefined)
+        return true
+      } catch (err) {
+        messages.value = messages.value.filter(m => m.id !== localId)
+        toastError(err)
+        return false
+      } finally {
+        sending.value = false
+      }
+    }
+
     function parseFrameData(raw: string): Record<string, unknown> {
       try {
         const parsed = JSON.parse(raw)
@@ -898,6 +941,7 @@ function buildChatStore(scope: string) {
       saveParticipantOrder,
       setGroupPolicy,
       send,
+      sendQa,
       sendViaStream,
       /* 技能卡片：状态与动作都在实例内，多面板互不串台 */
       skillCardOp,

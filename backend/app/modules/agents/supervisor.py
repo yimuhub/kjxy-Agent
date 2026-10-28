@@ -54,6 +54,7 @@ _ROUTED_LABEL: dict[str, str] = {
     "bound": "定向执行",
     "local": "对话直办",
     "group": "群聊说明",
+    "qa": "知识问答",
 }
 
 #: 徽章色调（前端按此取标签样式，词表同样只在这里维护）
@@ -64,6 +65,7 @@ _ROUTED_TONE: dict[str, str] = {
     "bound": "info",
     "local": "info",
     "group": "primary",
+    "qa": "primary",
     "error": "danger",
 }
 

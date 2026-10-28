@@ -54,7 +54,6 @@ export const ALL_MENU_ATOMS: DiyMenuLeaf[] = [
   { key: 'farm', path: '/farm', title: '农业台账', iconName: 'Grid' },
   { key: 'diagnosis', path: '/diagnosis', title: '作物诊断', iconName: 'Reading' },
   { key: 'work-orders', path: '/work-orders', title: '告警与工单', iconName: 'Checked' },
-  { key: 'qa', path: '/qa', title: '知识问答', iconName: 'Reading' },
   { key: 'review', path: '/review', title: '专家审核', iconName: 'Checked', roles: REVIEW_ROLES },
   { key: 'policies', path: '/policies', title: '政策服务', iconName: 'Document' },
   { key: 'devices', path: '/devices', title: '设备接入', iconName: 'Connection' },
@@ -81,7 +80,6 @@ export function buildDefaultMenuGroups(): DiyMenuGroup[] {
       items: [
         { key: 'dashboard', path: '/', title: '概览', iconName: 'Odometer' },
         { key: 'chat', path: '/chat', title: '对话', iconName: 'ChatDotRound' },
-        { key: 'qa', path: '/qa', title: '问答', iconName: 'Reading' },
       ],
     },
     {
@@ -163,7 +161,6 @@ export function buildFlatQuickGroups(): DiyMenuGroup[] {
         { key: 'farm', path: '/farm', title: '农业台账', iconName: 'Grid' },
         { key: 'diagnosis', path: '/diagnosis', title: '作物诊断', iconName: 'Reading' },
         { key: 'work-orders', path: '/work-orders', title: '告警与工单', iconName: 'Checked' },
-        { key: 'qa', path: '/qa', title: '问答', iconName: 'Reading' },
         { key: 'quota', path: '/quota', title: '用量额度', iconName: 'DataLine' },
       ],
     },
