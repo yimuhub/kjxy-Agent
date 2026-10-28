@@ -304,3 +304,11 @@
 | `SKILL_UPGRADE_NO_EVIDENCE` | 409 | 最近 14 天调用次数未达到门槛（定时按 `min_calls`，手动至少 1 次） |
 | `SKILL_UPGRADE_COOLDOWN` | 409 | 距离上次自动升级未满冷却时间（`cooldown_hours`） |
 | `SKILL_NOT_FOUND` | 404 | 技能不存在或已无可用版本可升级 |
+
+## 一句话业务（v3.22）
+
+| 错误码 | HTTP | 说明 |
+|--------|------|------|
+| `QUICK_ACTION_AMBIGUOUS` | 422 | 解析结果缺字段（details.missing 可读提示）或待办理内容不完整，未写任何数据 |
+| `QUICK_ACTION_UNSUPPORTED` | 422 | 该模块不支持此动作，或确认时 action 不在白名单 |
+| `QUICK_ACTION_STALE` | 409 | 确认时指纹与预览不一致（内容已被改动/篡改），需重新预览确认 |

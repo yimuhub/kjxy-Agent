@@ -29,6 +29,7 @@ from app.modules.pairing.router import router as pairing_router
 from app.modules.plugins.router import router as plugins_router
 from app.modules.policy.router import router as policy_router
 from app.modules.push.router import router as push_router
+from app.modules.quick_actions.router import router as quick_actions_router
 from app.modules.search.router import router as search_router
 from app.modules.self_improve.router import router as self_improve_router
 from app.modules.share.router import public_router as share_public_router
@@ -58,6 +59,7 @@ router.include_router(tasks_router)
 router.include_router(knowledge_router)
 router.include_router(agriculture_router)
 router.include_router(farm_router)  # /farm（农业台账：地块/周期/农事记录/报表）
+router.include_router(quick_actions_router)  # /quick-actions（一句话业务：预览/确认 v3.22）
 router.include_router(share_router)  # /shares（跨院只读分享：创建/列表/撤销）
 router.include_router(share_public_router)  # /public/shares/{token}（匿名只读快照）
 router.include_router(evolution_router)

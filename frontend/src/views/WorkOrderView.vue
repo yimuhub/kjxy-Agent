@@ -27,6 +27,16 @@
       </div>
     </div>
 
+    <QuickActionBar
+      v-if="canWrite"
+      module="work_order"
+      title="告警与工单"
+      placeholder="说一句：把东一号田的虫情告警转成工单，派给张三，明天到期"
+      :examples="QUICK_EXAMPLES"
+      @created="onQuickCreated"
+      @fallback="onQuickFallback"
+    />
+
     <el-tabs v-model="tab">
       <el-tab-pane
         label="工单"
@@ -652,6 +662,7 @@
   import { useAuthStore } from '@/stores/auth'
   import { formatDateTime as formatTime } from '@/utils/format'
   import OfflineBar from '@/components/offline/OfflineBar.vue'
+  import QuickActionBar from '@/components/farm/QuickActionBar.vue'
   import { installOfflineQueue, writeWithQueue } from '@/offline/queue'
 
   const STATUS_OPTIONS: { value: WorkOrderStatus; label: string }[] = [
@@ -840,6 +851,29 @@
     } catch {
       members.value = []
     }
+  }
+
+  const QUICK_EXAMPLES = ['把东一号田的虫情告警转成工单，派给张三，明天到期']
+
+  async function onQuickCreated() {
+    await Promise.all([loadOrders(1), loadAlerts(1)])
+    tab.value = 'orders'
+  }
+
+  function onQuickFallback(data: { action: string; payload: Record<string, unknown> }) {
+    if (data.action === 'alert.convert') {
+      // 告警转单缺责任人时，回到告警列表用「转工单」补全，避免另建一张重复工单
+      tab.value = 'alerts'
+      ElMessage.info('请到「告警」列表点「转工单」补全责任人后再提交')
+      return
+    }
+    openCreate()
+    createForm.title = String(data.payload.title ?? '')
+    createForm.description = String(data.payload.description ?? '')
+    createForm.priority = String(data.payload.priority ?? 'normal') as WorkOrderPriority
+    createForm.plot_id = String(data.payload.plot_id ?? '')
+    createForm.assignee_id = String(data.payload.assignee_id ?? '')
+    createForm.due_on = String(data.payload.due_on ?? '')
   }
 
   function openCreate() {

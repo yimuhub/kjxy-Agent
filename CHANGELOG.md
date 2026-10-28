@@ -2,6 +2,40 @@
 
 本项目遵循《工程开发规范 V3.0》；版本号遵循语义化版本。
 
+## [3.22.0] - 2026-10-29
+
+台账、诊断、工单三个页面各加一条「一句话」输入框：先说一句、看一眼预览、确认即可办完；预览阶段不写任何数据，解析不准时明确告诉你缺什么并一键切回原表单。
+
+### 一句话业务（后端）
+
+- 新增 `POST /api/v1/quick-actions/preview` 与 `POST /api/v1/quick-actions/confirm`，均需 `farm:write`，模块 `farm`（新增地块/记农事）、`diagnosis`（登记症状）、`work_order`（把告警转单/直接开工单）。
+- **预览零副作用**：preview 不写库、不发通知、不建任务，只返回 `action / payload / summary / missing / ready / source / fingerprint`。
+- **规则优先、模型兜底**：地块名、作物、面积（亩/公顷/平方米）、数量+单位（不误取面积单位「亩」）、相对与绝对日期、责任人姓名、农事类型、优先级都由确定性规则解析；仅当规则缺字段时才调模型补齐，模型不可用即返回 `missing`。
+- **确认走既有通道**：confirm 复用台账/诊断/工单服务与权限校验，落库后写审计 `quick_action_confirmed`；转告警时可通过 `assignee_id / due_on / priority` 追加更新工单。
+- **指纹防篡改**：`(module, action, payload)` 规范化后取 SHA-256（整数与浮点同值、键序无关），confirm 用 `hmac.compare_digest` 比对；不一致返回 409 `QUICK_ACTION_STALE`，缺字段返回 422 `QUICK_ACTION_AMBIGUOUS`，白名单外动作返回 422 `QUICK_ACTION_UNSUPPORTED`。
+- 一句话文案里的 `今天/明天/后天` 按请求可选 `today` 解析，默认取服务器当天。
+
+### 一句话业务（前端）
+
+- 新增 `QuickActionBar` 组件：输入条 + 「确认办理」弹窗（中文摘要、缺失字段提示、结构化明细），底部提供「取消 / 用表单填写 / 确认办理」。
+- 农业台账、作物诊断、告警与工单三页顶部各自接入，占位文案与示例随场景变化；办理成功后自动切到对应页签并刷新列表。
+- 解析缺字段或失败时提示可读原因，点「用表单填写」打开原表单并预填已解析出的字段（作物、地块、症状、标题、优先级、负责人、到期日等），不丢用户已输入的信息。
+- 移动端窄屏下输入条与按钮自动换行，不挤压页面标题。
+
+### 契约与文档
+
+- OpenAPI 重新生成：**247 路径**（相对 3.21 新增 2 条一句话端点），两次生成一致。
+- `contracts/error-codes.md` 新增「一句话业务（v3.22）」：`QUICK_ACTION_AMBIGUOUS`、`QUICK_ACTION_UNSUPPORTED`、`QUICK_ACTION_STALE`。
+- `docs/api.md` 新增「一句话业务（v3.22）」：端点、请求体、支持的模块动作与四条口径；`docs/plan-v3.21-ux-and-device-ai.md` 更新 B 批状态。
+
+### 门禁
+
+- 后端 ruff check/format、mypy 全绿；全量测试 **1553 passed**（新增 12 条）。
+- 新增 `tests/unit/test_quick_actions_parser.py`（8 条：中文数字、面积单位换算、数量不误取亩、相对/绝对日期、名称切分、农事类型、优先级、指纹整数浮点与键序等价）。
+- 新增 `tests/integration/test_quick_actions_api.py`（4 条：预览零副作用→确认落库与审计、农事与诊断落库、缺字段 422/指纹不符 409/只读 403、告警转单带到期日）。
+- 前端 eslint **0 error**、vue-tsc 全绿、单测 **38 passed**、`vite build` 通过；版本面 9 处一致（3.22.0）。
+- 全量 E2E **58 passed**（含新增 `e2e/v322.spec.ts` 4 条），跑在隔离的 8011 后端 + 5174 前端，不触开发中进程。
+
 ## [3.21.0] - 2026-10-29
 
 把「版本对不上、入口找不到、技能改不动」这三件小事一次收干净：后端版本可自查、能力卡片直达「我的智能体」、群聊加人可搜索；自生长管理一个页面管完 Skill，状态全中文、点名称看说明，并可按调用量自动改进（只产待审核草稿，不自动发布）。

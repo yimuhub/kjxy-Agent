@@ -92,6 +92,7 @@ declare module 'vue' {
     PermissionMatrix: typeof import('./components/settings/PermissionMatrix.vue')['default']
     PlanCard: typeof import('./components/chat/PlanCard.vue')['default']
     PluginCard: typeof import('./components/chat/PluginCard.vue')['default']
+    QuickActionBar: typeof import('./components/farm/QuickActionBar.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     SafeMarkdown: typeof import('./components/teams/SafeMarkdown.vue')['default']

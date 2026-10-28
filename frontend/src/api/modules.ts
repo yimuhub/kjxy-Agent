@@ -1884,6 +1884,50 @@ export const farmApi = {
   },
 }
 
+// ---------- 一句话业务（v3.22） ----------
+
+export type QuickModule = 'farm' | 'diagnosis' | 'work_order'
+
+export interface QuickActionPreview {
+  module: QuickModule
+  /** plot.create | record.create | diagnosis.create | work_order.create | alert.convert */
+  action: string
+  payload: Record<string, unknown>
+  summary: string
+  missing: string[]
+  ready: boolean
+  source: 'rule' | 'llm' | string
+  fingerprint: string
+}
+
+export interface QuickActionConfirmResult {
+  module: QuickModule
+  action: string
+  created: Record<string, unknown>
+  summary: string
+}
+
+export const quickActionApi = {
+  /** 只解析不落库；缺字段通过 missing 返回 */
+  preview(payload: {
+    module: QuickModule
+    text: string
+    plot_id?: string
+    today?: string
+  }): Promise<QuickActionPreview> {
+    return unwrap(api.post<ApiResponse<QuickActionPreview>>('/quick-actions/preview', payload))
+  },
+  /** 确认落库：指纹必须与预览一致，服务端仍走原有权限与校验 */
+  confirm(payload: {
+    module: QuickModule
+    action: string
+    payload: Record<string, unknown>
+    fingerprint: string
+  }): Promise<QuickActionConfirmResult> {
+    return unwrap(api.post<ApiResponse<QuickActionConfirmResult>>('/quick-actions/confirm', payload))
+  },
+}
+
 // ---------- 作物诊断闭环（v3.9） ----------
 
 export interface FarmDiagnosisSummary {

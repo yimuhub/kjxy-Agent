@@ -18,6 +18,16 @@
       </el-button>
     </div>
 
+    <QuickActionBar
+      v-if="canWrite"
+      module="diagnosis"
+      title="作物诊断"
+      placeholder="说一句：东一号田 水稻 叶片发黄有褐斑，最近连阴雨"
+      :examples="QUICK_EXAMPLES"
+      @created="onQuickCreated"
+      @fallback="onQuickFallback"
+    />
+
     <el-tabs v-model="tab">
       <el-tab-pane
         label="诊断记录"
@@ -768,6 +778,7 @@
     type PesticideProduct,
   } from '@/api/modules'
   import { useAuthStore } from '@/stores/auth'
+  import QuickActionBar from '@/components/farm/QuickActionBar.vue'
   import { formatDateTime as formatTime } from '@/utils/format'
 
   const STATUS_OPTIONS = [
@@ -880,6 +891,20 @@
     } finally {
       pesticideLoading.value = false
     }
+  }
+
+  const QUICK_EXAMPLES = ['东一号田 水稻 叶片发黄有褐斑，最近连阴雨']
+
+  async function onQuickCreated() {
+    await loadDiagnoses(1)
+    tab.value = 'records'
+  }
+
+  function onQuickFallback(data: { action: string; payload: Record<string, unknown> }) {
+    openCreate()
+    createForm.crop = String(data.payload.crop ?? createForm.crop)
+    createForm.plot_id = String(data.payload.plot_id ?? '')
+    createForm.symptoms = String(data.payload.symptoms ?? '')
   }
 
   function openCreate() {

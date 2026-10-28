@@ -1,6 +1,6 @@
 # v3.21–v3.23 方案：体验修复、信息架构重构、一句话业务与设备数据智能
 
-> 日期：2026-10-29　状态：A（3.21.0）已交付，B（3.22.0）/ C（3.23.0）待开工　版本纪律：只递增 3.x 小版本（3.21.0 / 3.22.0 / 3.23.0）
+> 日期：2026-10-29　状态：A（3.21.0）、B（3.22.0）已交付，C（3.23.0）待开工　版本纪律：只递增 3.x 小版本（3.21.0 / 3.22.0 / 3.23.0）
 >
 > 依据：本轮你提出的 7 条反馈 + 对当前代码与运行中服务的实测核查。文中所有「现状」均标注了文件与行号，便于逐条对照。
 
@@ -266,3 +266,12 @@ GET  http://127.0.0.1:8000/api/v1/ping                  → 200
 - 1.4 自生长管理：`ReviewView` 的 Skill 页签已移除（保留知识审核并给出入口）；`EvolutionView` 状态全中文、中文名大/编码小、点名称开详情（能做什么/提示词/步骤/签名/自动升级）、自动升级开关与设置弹窗（门槛/冷却/记录/立即尝试）、新建与上传 SKILL.md 并入；GitHub/市场导入统一走「插件与技能库」。
 - 自动升级底座：迁移 `0049_skill_auto_upgrade`（调用事件、开关、升级记录），plan/declarative 两条链路埋点，`/skills/auto-upgrade/*` 四个端点，自我总结调度顺带执行；**只产 `pending_review` 草稿，不自动发布**。
 - 契约 245 路径；新增错误码 `SKILL_AUTO_UPGRADE_DISABLED / SKILL_UPGRADE_NO_EVIDENCE / SKILL_UPGRADE_COOLDOWN`；`docs/api.md` 增「版本握手与 Skill 自动升级（v3.21）」。
+
+## 9. 交付记录（3.22.0，2026-10-29）
+
+- 1.5 一句话业务：新增 `POST /quick-actions/preview`（只解析、零副作用）与 `POST /quick-actions/confirm`（指纹校验后走既有服务落库），模块覆盖 `farm`（新增地块 / 记农事）、`diagnosis`（登记症状）、`work_order`（告警转单 / 直接开工单）。
+- 解析策略按方案执行：规则优先（名称、数字+单位、面积单位换算、相对/绝对日期、责任人、农事类型、优先级），仅缺字段时才调模型补齐；模型不可用即返回 `missing`，不假装成功。
+- 安全与可追溯：preview 不写库；confirm 复用 `farm:write` 与台账/诊断/工单服务，写审计 `quick_action_confirmed`；`(module, action, payload)` 规范化 SHA-256 指纹 + `compare_digest`，不一致 409 `QUICK_ACTION_STALE`，缺字段 422 `QUICK_ACTION_AMBIGUOUS`，白名单外动作 422 `QUICK_ACTION_UNSUPPORTED`。
+- 前端三页接入 `QuickActionBar`（输入条 + 确认弹窗 + 缺失提示 + 「用表单填写」预填），办理成功后切页签并刷新；移动端自动换行。
+- 验收：`e2e/v322.spec.ts` 四条（台账两句话、诊断一句、告警转单、缺字段提示并回填表单）全绿；全量 E2E 58 passed；后端 1553 passed；契约 247 路径。
+- C 批（3.23.0 设备数据智能）待开工，按第 1.6 节三层方案推进。

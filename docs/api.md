@@ -223,7 +223,7 @@ JSON-RPC 方法：
 `GET /api/v1/meta` 返回后端版本与数据库迁移头，前端用它提示「后端版本较旧」：
 
 ```json
-{ "data": { "version": "3.21.0", "migration_head": "0049_skill_auto_upgrade" } }
+{ "data": { "version": "3.22.0", "migration_head": "0049_skill_auto_upgrade" } }
 ```
 
 - 升级顺序：`alembic upgrade head` → 重启后端 → `curl /api/v1/meta` 确认。
@@ -245,6 +245,40 @@ JSON-RPC 方法：
 - 到门槛且冷却结束才调模型；输出 `needs_update / reason / description / prompt / steps`。
 - **只产待审核草稿**：新版本以 `status=pending_review`、`created_from=auto:upgrade` 落库，发布仍需人工审核；`needs_update=false` 记 `skipped`，模型不可用或解析失败记 `failed` 与原因。
 - 自我总结任务（3.4）结束前会顺带处理本小院已到期的自动升级，单条失败不影响其余；审计 `skill_upgrade_run`、`skill_auto_upgrade_toggled`。
+
+## 一句话业务（v3.22）
+
+农业台账、作物诊断、告警与工单三个页面顶部的一句话条：先预览、再确认，两段式落库。
+
+| 端点 | 说明 |
+|---|---|
+| `POST /api/v1/quick-actions/preview` | 只解析不落库；返回 `action`、结构化 `payload`、中文 `summary`、`missing`（缺字段提示）、`ready`、`source(rule\|llm)` 与 `fingerprint` |
+| `POST /api/v1/quick-actions/confirm` | 带预览返回的 `payload` 与 `fingerprint` 确认落库；返回 `created` 与 `summary` |
+
+请求体：
+
+```json
+// preview
+{"module": "farm", "text": "新增地块 东一号田 水稻 12 亩，沙壤土"}
+// confirm
+{"module": "farm", "action": "plot.create", "payload": {"name": "东一号田", "crop": "水稻", "area_mu": 12}, "fingerprint": "<preview 返回值>"}
+```
+
+支持的模块与动作：
+
+| module | action | 说明 |
+|---|---|---|
+| `farm` | `plot.create` / `record.create` | 新增地块、记一条农事（施肥/打药/灌溉/巡查/采收） |
+| `diagnosis` | `diagnosis.create` | 一句话登记症状并出诊断 |
+| `work_order` | `alert.convert` / `work_order.create` | 把未处理告警转工单、或直接开一张工单（可带负责人/到期日，落库后补更新） |
+
+口径：
+
+- **预览零副作用**：preview 不写库、不发通知、不建任务；只有 confirm 才走既有服务层（同样校验 `farm:write`、写审计 `quick_action_confirmed`）。
+- **规则优先**：名称/数字+单位/日期/人名由确定性规则解析（农事单位不误取「亩」，相对日期如「今天/明天/后天」按请求里可选 `today` 解析，默认服务器当天）；规则缺字段时才调模型补齐，模型不可用或失败就返回 `missing` 让用户改用表单。
+- **不假装成功**：`ready=false` 时 confirm 返回 422 `QUICK_ACTION_AMBIGUOUS`，前端给可读提示并可一键切回原表单预填。
+- **指纹防篡改**：confirm 用 `HMAC.compare_digest` 比对 `(module, action, payload)` 的规范化 SHA-256；不一致返回 409 `QUICK_ACTION_STALE`，需重新预览。
+- 一次只办一件事，不支持「顺便把别的也改了」。
 
 ## 任务状态机
 

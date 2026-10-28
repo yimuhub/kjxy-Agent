@@ -26,6 +26,17 @@
       </div>
     </div>
 
+    <QuickActionBar
+      v-if="canWrite"
+      module="farm"
+      title="农业台账"
+      placeholder="说一句：新增地块 东一号田 水稻 12 亩，沙壤土；或 东一号田 今天追肥 尿素 5 公斤"
+      :examples="QUICK_EXAMPLES"
+      :plot-id="filters.plot_id || undefined"
+      @created="onQuickCreated"
+      @fallback="onQuickFallback"
+    />
+
     <el-tabs v-model="tab">
       <el-tab-pane
         label="农事记录"
@@ -735,6 +746,7 @@
   import { useAuthStore } from '@/stores/auth'
   import SafeMarkdown from '@/components/teams/SafeMarkdown.vue'
   import OfflineBar from '@/components/offline/OfflineBar.vue'
+  import QuickActionBar from '@/components/farm/QuickActionBar.vue'
   import { installOfflineQueue, writeWithQueue } from '@/offline/queue'
   import { formatDateTime as formatTime } from '@/utils/format'
 
@@ -896,6 +908,29 @@
 
   const recordRevision = ref(0)
   const plotRevision = ref(0)
+
+  const QUICK_EXAMPLES = [
+    '新增地块 东一号田 水稻 12 亩，沙壤土',
+    '东一号田 今天追肥 尿素 5 公斤',
+  ]
+
+  async function onQuickCreated(result: { action: string; created: Record<string, unknown> }) {
+    if (result.action === 'plot.create') {
+      await loadPlots()
+      tab.value = 'plots'
+      return
+    }
+    await Promise.all([loadRecords(1), loadPlots()])
+    tab.value = 'records'
+  }
+
+  function onQuickFallback(data: { action: string; payload: Record<string, unknown> }) {
+    if (data.action === 'plot.create') {
+      openPlot(data.payload as unknown as FarmPlot)
+      return
+    }
+    openRecord(data.payload as unknown as FarmRecord)
+  }
 
   function openRecord(row?: FarmRecord) {
     recordRevision.value = row?.revision ?? 0

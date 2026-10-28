@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.21.0
+  version: 3.22.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -3386,6 +3386,60 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/quick-actions/preview:
+    post:
+      tags:
+      - v1
+      - quick-actions
+      summary: Preview
+      operationId: preview_api_v1_quick_actions_preview_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuickActionPreviewIn'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/quick-actions/confirm:
+    post:
+      tags:
+      - v1
+      - quick-actions
+      summary: Confirm
+      operationId: confirm_api_v1_quick_actions_confirm_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuickActionConfirmIn'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
   /api/v1/shares:
     post:
       tags:
@@ -10929,6 +10983,67 @@ components:
       required:
       - question
       title: QAInput
+    QuickActionConfirmIn:
+      properties:
+        module:
+          type: string
+          enum:
+          - farm
+          - diagnosis
+          - work_order
+          title: Module
+        action:
+          type: string
+          maxLength: 40
+          minLength: 1
+          title: Action
+        payload:
+          additionalProperties: true
+          type: object
+          title: Payload
+        fingerprint:
+          type: string
+          maxLength: 64
+          minLength: 32
+          title: Fingerprint
+      type: object
+      required:
+      - module
+      - action
+      - payload
+      - fingerprint
+      title: QuickActionConfirmIn
+    QuickActionPreviewIn:
+      properties:
+        module:
+          type: string
+          enum:
+          - farm
+          - diagnosis
+          - work_order
+          title: Module
+        text:
+          type: string
+          maxLength: 500
+          minLength: 2
+          title: Text
+        plot_id:
+          anyOf:
+          - type: string
+            maxLength: 36
+          - type: 'null'
+          title: Plot Id
+        today:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Today
+      type: object
+      required:
+      - module
+      - text
+      title: QuickActionPreviewIn
     QuotaAdminPatchRequest:
       properties:
         llm_calls_limit:
