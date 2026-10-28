@@ -46,6 +46,7 @@ def _plot_out(plot: FarmPlot) -> dict:
         "irrigation_type": plot.irrigation_type,
         "status": plot.status,
         "notes": plot.notes,
+        "revision": int(plot.revision or 1),
         "created_at": plot.created_at,
         "updated_at": plot.updated_at,
     }
@@ -61,6 +62,7 @@ def _cycle_out(cycle: FarmCycle) -> dict:
         "expected_harvest_on": cycle.expected_harvest_on,
         "status": cycle.status,
         "notes": cycle.notes,
+        "revision": int(cycle.revision or 1),
         "created_at": cycle.created_at,
         "updated_at": cycle.updated_at,
     }
@@ -81,9 +83,32 @@ def _record_out(record: FarmRecord, plot_name: str) -> dict:
         "unit": record.unit,
         "operator_name": record.operator_name,
         "metadata_json": record.metadata_json,
+        "revision": int(record.revision or 1),
         "created_at": record.created_at,
         "updated_at": record.updated_at,
     }
+
+
+def _bump(row) -> None:
+    """成功写入后版本 +1：离线客户端用旧版本保存时能可靠检出冲突。"""
+    row.revision = int(row.revision or 1) + 1
+
+
+def _ensure_revision(row, expected: int | None, current: dict, label: str) -> None:
+    if expected is None:
+        return
+    actual = int(row.revision or 1)
+    if actual != expected:
+        raise AppError(
+            "FARM_REVISION_CONFLICT",
+            f"这条{label}已被他人修改，请查看最新版本后再保存。",
+            http_status=409,
+            details={
+                "expected_revision": expected,
+                "current_revision": actual,
+                "current": current,
+            },
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -107,6 +132,14 @@ def _get_plot(db: Session, yard_id: str, plot_id: str) -> FarmPlot:
 
 
 def create_plot(db: Session, yard_id: str, user_id: str, req: PlotCreate) -> dict:
+    if req.client_op_id:
+        existing = db.scalar(
+            select(FarmPlot).where(
+                FarmPlot.yard_id == yard_id, FarmPlot.client_op_id == req.client_op_id
+            )
+        )
+        if existing is not None:  # 离线重放：同一操作只落一条
+            return _plot_out(existing)
     _validate_plot_status(req.status)
     name = req.name.strip()
     if not name:
@@ -127,6 +160,7 @@ def create_plot(db: Session, yard_id: str, user_id: str, req: PlotCreate) -> dic
         status=req.status,
         notes=req.notes.strip(),
         created_by=user_id,
+        client_op_id=req.client_op_id,
     )
     db.add(plot)
     try:
@@ -151,6 +185,8 @@ def create_plot(db: Session, yard_id: str, user_id: str, req: PlotCreate) -> dic
 def update_plot(db: Session, yard_id: str, plot_id: str, user_id: str, req: PlotUpdate) -> dict:
     plot = _get_plot(db, yard_id, plot_id)
     changes = req.model_dump(exclude_unset=True)
+    expected = changes.pop("expected_revision", None)
+    _ensure_revision(plot, expected, _plot_out(plot), "地块")
     if "status" in changes and changes["status"] is not None:
         _validate_plot_status(changes["status"])
     if "name" in changes and changes["name"] is not None:
@@ -171,6 +207,7 @@ def update_plot(db: Session, yard_id: str, plot_id: str, user_id: str, req: Plot
     for field, value in changes.items():
         if value is not None:
             setattr(plot, field, value)
+    _bump(plot)
     log_audit(
         db,
         yard_id=yard_id,
@@ -186,8 +223,11 @@ def update_plot(db: Session, yard_id: str, plot_id: str, user_id: str, req: Plot
     return _plot_out(plot)
 
 
-def delete_plot(db: Session, yard_id: str, plot_id: str, user_id: str) -> None:
+def delete_plot(
+    db: Session, yard_id: str, plot_id: str, user_id: str, expected_revision: int | None = None
+) -> None:
     plot = _get_plot(db, yard_id, plot_id)
+    _ensure_revision(plot, expected_revision, _plot_out(plot), "地块")
     records = db.scalar(
         select(func.count()).select_from(FarmRecord).where(FarmRecord.plot_id == plot.id)
     )
@@ -229,6 +269,14 @@ def _validate_plot_status(status: str) -> None:
 
 
 def create_cycle(db: Session, yard_id: str, plot_id: str, user_id: str, req: CycleCreate) -> dict:
+    if req.client_op_id:
+        existing = db.scalar(
+            select(FarmCycle).where(
+                FarmCycle.yard_id == yard_id, FarmCycle.client_op_id == req.client_op_id
+            )
+        )
+        if existing is not None:
+            return _cycle_out(existing)
     plot = _get_plot(db, yard_id, plot_id)
     if req.status not in CYCLE_STATUSES:
         raise AppError("INVALID_REQUEST", "未知周期状态。", http_status=400)
@@ -244,6 +292,7 @@ def create_cycle(db: Session, yard_id: str, plot_id: str, user_id: str, req: Cyc
         status=req.status,
         notes=req.notes.strip(),
         created_by=user_id,
+        client_op_id=req.client_op_id,
     )
     db.add(cycle)
     db.flush()
@@ -283,6 +332,8 @@ def _get_cycle(db: Session, yard_id: str, cycle_id: str) -> FarmCycle:
 def update_cycle(db: Session, yard_id: str, cycle_id: str, user_id: str, req: CycleUpdate) -> dict:
     cycle = _get_cycle(db, yard_id, cycle_id)
     changes = req.model_dump(exclude_unset=True)
+    expected = changes.pop("expected_revision", None)
+    _ensure_revision(cycle, expected, _cycle_out(cycle), "种植周期")
     status = changes.get("status")
     if status is not None and status not in CYCLE_STATUSES:
         raise AppError("INVALID_REQUEST", "未知周期状态。", http_status=400)
@@ -296,6 +347,7 @@ def update_cycle(db: Session, yard_id: str, cycle_id: str, user_id: str, req: Cy
     for field, value in changes.items():
         if value is not None:
             setattr(cycle, field, value)
+    _bump(cycle)
     log_audit(
         db,
         yard_id=yard_id,
@@ -310,8 +362,11 @@ def update_cycle(db: Session, yard_id: str, cycle_id: str, user_id: str, req: Cy
     return _cycle_out(cycle)
 
 
-def delete_cycle(db: Session, yard_id: str, cycle_id: str, user_id: str) -> None:
+def delete_cycle(
+    db: Session, yard_id: str, cycle_id: str, user_id: str, expected_revision: int | None = None
+) -> None:
     cycle = _get_cycle(db, yard_id, cycle_id)
+    _ensure_revision(cycle, expected_revision, _cycle_out(cycle), "种植周期")
     linked = db.scalar(
         select(func.count()).select_from(FarmRecord).where(FarmRecord.cycle_id == cycle.id)
     )
@@ -373,6 +428,15 @@ def _validate_cycle(db: Session, yard_id: str, plot_id: str, cycle_id: str | Non
 
 
 def create_record(db: Session, yard_id: str, user_id: str, req: RecordCreate) -> dict:
+    if req.client_op_id:
+        existing = db.scalar(
+            select(FarmRecord).where(
+                FarmRecord.yard_id == yard_id, FarmRecord.client_op_id == req.client_op_id
+            )
+        )
+        if existing is not None:
+            plot = db.scalar(select(FarmPlot).where(FarmPlot.id == existing.plot_id))
+            return _record_out(existing, plot.name if plot else "")
     _validate_kind(req.kind)
     plot = _get_plot(db, yard_id, req.plot_id)
     _validate_cycle(db, yard_id, plot.id, req.cycle_id)
@@ -389,6 +453,7 @@ def create_record(db: Session, yard_id: str, user_id: str, req: RecordCreate) ->
         operator_name=req.operator_name.strip(),
         metadata_json=req.metadata_json,
         created_by=user_id,
+        client_op_id=req.client_op_id,
     )
     db.add(record)
     db.flush()
@@ -446,6 +511,11 @@ def update_record(
 ) -> dict:
     record = _get_record(db, yard_id, record_id)
     changes = req.model_dump(exclude_unset=True)
+    expected = changes.pop("expected_revision", None)
+    current_plot = db.scalar(select(FarmPlot).where(FarmPlot.id == record.plot_id))
+    _ensure_revision(
+        record, expected, _record_out(record, current_plot.name if current_plot else ""), "农事记录"
+    )
     if "kind" in changes and changes["kind"] is not None:
         _validate_kind(changes["kind"])
     if "cycle_id" in changes:
@@ -456,6 +526,7 @@ def update_record(
     for field, value in changes.items():
         if value is not None or field == "cycle_id":
             setattr(record, field, value)
+    _bump(record)
     plot = db.scalar(select(FarmPlot).where(FarmPlot.id == record.plot_id))
     log_audit(
         db,
@@ -472,8 +543,14 @@ def update_record(
     return _record_out(record, plot.name if plot else "")
 
 
-def delete_record(db: Session, yard_id: str, record_id: str, user_id: str) -> None:
+def delete_record(
+    db: Session, yard_id: str, record_id: str, user_id: str, expected_revision: int | None = None
+) -> None:
     record = _get_record(db, yard_id, record_id)
+    plot = db.scalar(select(FarmPlot).where(FarmPlot.id == record.plot_id))
+    _ensure_revision(
+        record, expected_revision, _record_out(record, plot.name if plot else ""), "农事记录"
+    )
     log_audit(
         db,
         yard_id=yard_id,

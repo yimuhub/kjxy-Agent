@@ -56,6 +56,8 @@ class FarmPlot(Base, TimestampMixin):
     __tablename__ = "farm_plots"
     __table_args__ = (
         UniqueConstraint("yard_id", "name", name="uq_farm_plots_yard_name"),
+        # 离线重放：同一台设备同一次操作只落一条（NULL 视为互不相等，不占用名额）
+        UniqueConstraint("yard_id", "client_op_id", name="uq_farm_plots_yard_op"),
         Index("ix_farm_plots_yard_status", "yard_id", "status"),
     )
 
@@ -69,11 +71,17 @@ class FarmPlot(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
     notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
     created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # 乐观并发：每次成功写入 +1，离线客户端拿旧版本保存时用于冲突检测
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    client_op_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class FarmCycle(Base, TimestampMixin):
     __tablename__ = "farm_cycles"
-    __table_args__ = (Index("ix_farm_cycles_yard_plot", "yard_id", "plot_id"),)
+    __table_args__ = (
+        UniqueConstraint("yard_id", "client_op_id", name="uq_farm_cycles_yard_op"),
+        Index("ix_farm_cycles_yard_plot", "yard_id", "plot_id"),
+    )
 
     yard_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     plot_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
@@ -84,11 +92,14 @@ class FarmCycle(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="growing")
     notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
     created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    client_op_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class FarmRecord(Base, TimestampMixin):
     __tablename__ = "farm_records"
     __table_args__ = (
+        UniqueConstraint("yard_id", "client_op_id", name="uq_farm_records_yard_op"),
         Index("ix_farm_records_yard_date", "yard_id", "occurred_on"),
         Index("ix_farm_records_yard_plot_date", "yard_id", "plot_id", "occurred_on"),
     )
@@ -106,6 +117,8 @@ class FarmRecord(Base, TimestampMixin):
     # 照片/附件等扩展信息，先留结构位，不把大对象写进主表
     metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    client_op_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 DIAGNOSIS_STATUSES = ("open", "expert_review", "confirmed", "closed")
@@ -205,6 +218,7 @@ class WorkOrder(Base, TimestampMixin):
 
     __tablename__ = "work_orders"
     __table_args__ = (
+        UniqueConstraint("yard_id", "client_op_id", name="uq_work_orders_yard_op"),
         Index("ix_work_orders_yard_status", "yard_id", "status"),
         Index("ix_work_orders_yard_due", "yard_id", "due_on"),
     )
@@ -224,13 +238,19 @@ class WorkOrder(Base, TimestampMixin):
     resolution: Mapped[str] = mapped_column(Text, nullable=False, default="")
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    client_op_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class WorkOrderEvent(Base, TimestampMixin):
     """工单事件流：创建、指派、状态变更、评论、回执、升级，只追加不改写。"""
 
     __tablename__ = "work_order_events"
-    __table_args__ = (Index("ix_work_order_events_yard_order", "yard_id", "work_order_id"),)
+    __table_args__ = (
+        # 回执/评论的离线重放去重键
+        UniqueConstraint("yard_id", "client_op_id", name="uq_work_order_events_yard_op"),
+        Index("ix_work_order_events_yard_order", "yard_id", "work_order_id"),
+    )
 
     yard_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     work_order_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
@@ -239,3 +259,4 @@ class WorkOrderEvent(Base, TimestampMixin):
     actor_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     from_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
     to_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    client_op_id: Mapped[str | None] = mapped_column(String(64), nullable=True)

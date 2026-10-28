@@ -1,5 +1,6 @@
 <template>
   <div class="farm">
+    <OfflineBar />
     <div class="page-head">
       <div>
         <h2 class="page-title">
@@ -733,6 +734,8 @@
   } from '@/api/modules'
   import { useAuthStore } from '@/stores/auth'
   import SafeMarkdown from '@/components/teams/SafeMarkdown.vue'
+  import OfflineBar from '@/components/offline/OfflineBar.vue'
+  import { installOfflineQueue, writeWithQueue } from '@/offline/queue'
   import { formatDateTime as formatTime } from '@/utils/format'
 
   const KIND_OPTIONS = [
@@ -891,7 +894,11 @@
     }
   }
 
+  const recordRevision = ref(0)
+  const plotRevision = ref(0)
+
   function openRecord(row?: FarmRecord) {
+    recordRevision.value = row?.revision ?? 0
     Object.assign(recordForm, {
       record_id: row?.record_id ?? '',
       plot_id: row?.plot_id ?? filters.plot_id ?? plots.value[0]?.plot_id ?? '',
@@ -923,11 +930,22 @@
         operator_name: recordForm.operator_name,
       }
       if (recordForm.record_id) {
-        await farmApi.updateRecord(recordForm.record_id, payload)
-        ElMessage.success('记录已更新')
+        const res = await writeWithQueue({
+          label: `更新农事记录「${payload.title || payload.kind}」`,
+          method: 'PATCH',
+          url: `/farm/records/${recordForm.record_id}`,
+          body: { ...payload, expected_revision: recordRevision.value },
+        })
+        ElMessage.success(res.queued ? '已保存到本机，联网后自动同步' : '记录已更新')
       } else {
-        await farmApi.createRecord(payload)
-        ElMessage.success('记录已保存')
+        const res = await writeWithQueue({
+          label: `农事记录「${payload.title || payload.kind}」`,
+          method: 'POST',
+          url: '/farm/records',
+          body: payload,
+          needsClientOpId: true,
+        })
+        ElMessage.success(res.queued ? '已保存到本机，联网后自动同步' : '记录已保存')
       }
       recordDialog.value = false
       await loadRecords()
@@ -940,12 +958,17 @@
     await ElMessageBox.confirm(`删除 ${row.occurred_on} 的「${row.title || row.kind_label}」？`, '删除记录', {
       type: 'warning',
     })
-    await farmApi.deleteRecord(row.record_id)
-    ElMessage.success('已删除')
+    const res = await writeWithQueue({
+      label: `删除农事记录「${row.title || row.kind_label}」`,
+      method: 'DELETE',
+      url: `/farm/records/${row.record_id}?expected_revision=${row.revision}`,
+    })
+    ElMessage.success(res.queued ? '已在本机标记删除，联网后自动同步' : '已删除')
     await loadRecords()
   }
 
   function openPlot(row?: FarmPlot) {
+    plotRevision.value = row?.revision ?? 0
     Object.assign(plotForm, {
       plot_id: row?.plot_id ?? '',
       name: row?.name ?? '',
@@ -975,11 +998,22 @@
         notes: plotForm.notes,
       }
       if (plotForm.plot_id) {
-        await farmApi.updatePlot(plotForm.plot_id, payload)
-        ElMessage.success('地块已更新')
+        const res = await writeWithQueue({
+          label: `更新地块「${payload.name}」`,
+          method: 'PATCH',
+          url: `/farm/plots/${plotForm.plot_id}`,
+          body: { ...payload, expected_revision: plotRevision.value },
+        })
+        ElMessage.success(res.queued ? '已保存到本机，联网后自动同步' : '地块已更新')
       } else {
-        await farmApi.createPlot(payload)
-        ElMessage.success('地块已创建')
+        const res = await writeWithQueue({
+          label: `地块「${payload.name}」`,
+          method: 'POST',
+          url: '/farm/plots',
+          body: payload,
+          needsClientOpId: true,
+        })
+        ElMessage.success(res.queued ? '已保存到本机，联网后自动同步' : '地块已创建')
       }
       plotDialog.value = false
       await loadPlots()
@@ -994,8 +1028,12 @@
       '删除地块',
       { type: 'warning' },
     )
-    await farmApi.deletePlot(row.plot_id)
-    ElMessage.success('已删除')
+    const res = await writeWithQueue({
+      label: `删除地块「${row.name}」`,
+      method: 'DELETE',
+      url: `/farm/plots/${row.plot_id}?expected_revision=${row.revision}`,
+    })
+    ElMessage.success(res.queued ? '已在本机标记删除，联网后自动同步' : '已删除')
     await loadPlots()
     await loadRecords(1)
   }
@@ -1017,14 +1055,20 @@
     if (!cyclePlot.value || !cycleForm.crop.trim()) return ElMessage.warning('请填写作物')
     saving.value = true
     try {
-      await farmApi.createCycle(cyclePlot.value.plot_id, {
-        crop: cycleForm.crop.trim(),
-        variety: cycleForm.variety,
-        planted_on: cycleForm.planted_on || null,
-        expected_harvest_on: cycleForm.expected_harvest_on || null,
-        status: cycleForm.status,
+      const res = await writeWithQueue({
+        label: `种植周期「${cycleForm.crop.trim()}」`,
+        method: 'POST',
+        url: `/farm/plots/${cyclePlot.value.plot_id}/cycles`,
+        body: {
+          crop: cycleForm.crop.trim(),
+          variety: cycleForm.variety,
+          planted_on: cycleForm.planted_on || null,
+          expected_harvest_on: cycleForm.expected_harvest_on || null,
+          status: cycleForm.status,
+        },
+        needsClientOpId: true,
       })
-      ElMessage.success('周期已创建')
+      ElMessage.success(res.queued ? '已保存到本机，联网后自动同步' : '周期已创建')
       cycles.value = await farmApi.cycles(cyclePlot.value.plot_id)
       cycleCounts[cyclePlot.value.plot_id] = cycles.value.length
     } finally {
@@ -1038,7 +1082,12 @@
       '删除周期',
       { type: 'warning' },
     )
-    await farmApi.deleteCycle(row.cycle_id)
+    const res = await writeWithQueue({
+      label: `删除种植周期「${row.crop}」`,
+      method: 'DELETE',
+      url: `/farm/cycles/${row.cycle_id}?expected_revision=${row.revision}`,
+    })
+    if (res.queued) ElMessage.success('已在本机标记删除，联网后自动同步')
     if (cyclePlot.value) {
       cycles.value = await farmApi.cycles(cyclePlot.value.plot_id)
       cycleCounts[cyclePlot.value.plot_id] = cycles.value.length
@@ -1145,6 +1194,7 @@
   }
 
   onMounted(async () => {
+    installOfflineQueue()
     await loadPlots()
     await loadRecords(1)
   })

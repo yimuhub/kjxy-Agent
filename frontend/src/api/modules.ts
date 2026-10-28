@@ -1716,6 +1716,8 @@ export interface FarmPlot {
   irrigation_type: string
   status: 'active' | 'fallow' | 'archived'
   notes: string
+  /** 乐观并发版本（v3.19）：更新时回传 expected_revision 以检测冲突 */
+  revision: number
   created_at: string
   updated_at: string
 }
@@ -1729,6 +1731,7 @@ export interface FarmCycle {
   expected_harvest_on: string | null
   status: 'growing' | 'harvested' | 'failed'
   notes: string
+  revision: number
   created_at: string
   updated_at: string
 }
@@ -1757,6 +1760,7 @@ export interface FarmRecord {
   unit: string
   operator_name: string
   metadata_json: Record<string, unknown> | null
+  revision: number
   created_at: string
   updated_at: string
 }
@@ -2008,6 +2012,7 @@ export interface WorkOrder {
   assignee_id: string | null
   assignee_name: string
   due_on: string | null
+  revision?: number
   escalation_level: number
   resolution: string
   closed_at: string | null

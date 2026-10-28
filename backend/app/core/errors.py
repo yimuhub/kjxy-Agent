@@ -1,6 +1,7 @@
 """统一错误模型。错误码见 contracts/error-codes.md。"""
 
 from fastapi import Request, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -31,7 +32,8 @@ async def app_error_handler(request: Request, exc: Exception) -> JSONResponse:
     return JSONResponse(
         status_code=http_status,
         content={
-            "error": {"code": code, "message": message, "details": details},
+            # details 可能携带资源快照（含 datetime 等），统一编码后再输出
+            "error": {"code": code, "message": message, "details": jsonable_encoder(details)},
             "request_id": _request_id(request),
         },
     )

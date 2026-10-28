@@ -86,6 +86,7 @@ def _event(
     actor_id: str | None,
     from_status: str | None = None,
     to_status: str | None = None,
+    client_op_id: str | None = None,
 ) -> None:
     db.add(
         WorkOrderEvent(
@@ -96,6 +97,7 @@ def _event(
             actor_id=actor_id,
             from_status=from_status,
             to_status=to_status,
+            client_op_id=client_op_id,
         )
     )
 
@@ -113,6 +115,7 @@ def _new_order(
     plot_id: str | None,
     assignee_id: str | None,
     due_on: date | None,
+    client_op_id: str | None = None,
 ) -> WorkOrder:
     if priority not in WORK_ORDER_PRIORITIES:
         raise AppError("INVALID_REQUEST", "未知工单优先级。", http_status=400)
@@ -132,6 +135,7 @@ def _new_order(
         assignee_name=assignee_name,
         due_on=due_on,
         created_by=user_id,
+        client_op_id=client_op_id,
     )
     db.add(order)
     db.flush()
@@ -196,6 +200,7 @@ def _order_out(row: WorkOrder, events: Sequence[WorkOrderEvent] | None = None) -
         "escalation_level": row.escalation_level,
         "resolution": row.resolution,
         "closed_at": row.closed_at,
+        "revision": int(row.revision or 1),
         "created_at": row.created_at,
         "updated_at": row.updated_at,
         "events": [_event_out(e) for e in (events or [])],
@@ -338,6 +343,14 @@ def convert_alert(db: Session, yard_id: str, alert_id: str, user_id: str) -> dic
 
 
 def create_work_order(db: Session, yard_id: str, user_id: str, req: WorkOrderCreate) -> dict:
+    if req.client_op_id:
+        existing = db.scalar(
+            select(WorkOrder).where(
+                WorkOrder.yard_id == yard_id, WorkOrder.client_op_id == req.client_op_id
+            )
+        )
+        if existing is not None:  # 离线重放：同一操作只落一条
+            return _order_out(existing)
     _ensure_plot(db, yard_id, req.plot_id)
     order = _new_order(
         db,
@@ -351,6 +364,7 @@ def create_work_order(db: Session, yard_id: str, user_id: str, req: WorkOrderCre
         plot_id=req.plot_id,
         assignee_id=req.assignee_id,
         due_on=req.due_on,
+        client_op_id=req.client_op_id,
     )
     log_audit(
         db,
@@ -402,6 +416,23 @@ def _get_order(db: Session, yard_id: str, order_id: str) -> WorkOrder:
     return row
 
 
+def _ensure_revision(row: WorkOrder, expected: int | None) -> None:
+    if expected is None:
+        return
+    actual = int(row.revision or 1)
+    if actual != expected:
+        raise AppError(
+            "FARM_REVISION_CONFLICT",
+            "该工单已被他人修改，请查看最新状态后再提交。",
+            http_status=409,
+            details={
+                "expected_revision": expected,
+                "current_revision": actual,
+                "current": _order_out(row),
+            },
+        )
+
+
 def get_work_order(db: Session, yard_id: str, order_id: str) -> dict:
     row = _get_order(db, yard_id, order_id)
     events = db.scalars(
@@ -420,6 +451,7 @@ def update_work_order(
 ) -> dict:
     row = _get_order(db, yard_id, order_id)
     changes = req.model_dump(exclude_unset=True)
+    _ensure_revision(row, changes.pop("expected_revision", None))
     if "priority" in changes and changes["priority"] is not None:
         if changes["priority"] not in WORK_ORDER_PRIORITIES:
             raise AppError("INVALID_REQUEST", "未知工单优先级。", http_status=400)
@@ -472,6 +504,7 @@ def update_work_order(
         row.description = changes["description"].strip()
     if "priority" in changes and changes["priority"] is not None:
         row.priority = changes["priority"]
+    row.revision = int(row.revision or 1) + 1
     log_audit(
         db,
         yard_id=yard_id,
@@ -497,6 +530,7 @@ def add_comment(db: Session, yard_id: str, order_id: str, user_id: str, note: st
         note=note.strip(),
         actor_id=user_id,
     )
+    row.revision = int(row.revision or 1) + 1
     db.commit()
     return get_work_order(db, yard_id, row.id)
 
@@ -505,6 +539,15 @@ def submit_receipt(
     db: Session, yard_id: str, order_id: str, user_id: str, req: WorkOrderReceipt
 ) -> dict:
     row = _get_order(db, yard_id, order_id)
+    if req.client_op_id:
+        replay = db.scalar(
+            select(WorkOrderEvent).where(
+                WorkOrderEvent.yard_id == yard_id,
+                WorkOrderEvent.client_op_id == req.client_op_id,
+            )
+        )
+        if replay is not None:  # 离线重放：回执只生效一次
+            return get_work_order(db, yard_id, row.id)
     if row.status in ("closed", "cancelled"):
         raise AppError("WORK_ORDER_CLOSED", "工单已关闭或取消，不能再回执。", http_status=409)
     from_status = row.status
@@ -520,7 +563,9 @@ def submit_receipt(
         actor_id=user_id,
         from_status=from_status,
         to_status=row.status,
+        client_op_id=req.client_op_id,
     )
+    row.revision = int(row.revision or 1) + 1
     log_audit(
         db,
         yard_id=yard_id,
@@ -543,6 +588,7 @@ def escalate(db: Session, yard_id: str, order_id: str, user_id: str | None) -> d
     idx = _PRIORITY_ORDER.index(row.priority) if row.priority in _PRIORITY_ORDER else 1
     row.priority = _PRIORITY_ORDER[min(idx + 1, len(_PRIORITY_ORDER) - 1)]
     row.escalation_level += 1
+    row.revision = int(row.revision or 1) + 1
     _event(
         db,
         yard_id=yard_id,
@@ -592,6 +638,7 @@ def escalate_overdue(db: Session, *, today: date | None = None) -> dict[str, int
             continue
         row.priority = new_priority
         row.escalation_level += 1
+        row.revision = int(row.revision or 1) + 1
         _event(
             db,
             yard_id=row.yard_id,

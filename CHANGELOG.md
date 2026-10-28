@@ -2,6 +2,44 @@
 
 本项目遵循《工程开发规范 V3.0》；版本号遵循语义化版本。
 
+## [3.19.0] - 2026-10-29
+
+田埂上没信号也能记账：台账与工单的写操作断网时先存本机，联网后按序补发；两台设备同时改同一条，不会互相覆盖，冲突会摆到明面上让你选。
+
+### 数据模型（后端）
+
+- 迁移 `0047_offline_sync`（SQLite 用 batch 模式，可完整 downgrade）：给 `farm_plots / farm_cycles / farm_records / work_orders` 增加 `revision`（默认 1）与 `client_op_id`，并建 `(yard_id, client_op_id)` 唯一约束；`work_order_events` 同样加 `client_op_id` 与唯一约束。
+- 已用 `up → down → up` 验证迁移可逆。
+
+### 乐观锁与幂等（后端）
+
+- 创建类接口（地块、周期、农事记录、工单、工单回执）接受可选 `client_op_id`（8–64 位安全字符）；同键重放直接返回已落库的那一条，不重复写、不重复推进版本。
+- 更新类接口接受可选 `expected_revision`：与服务器当前版本不一致返回 409 `FARM_REVISION_CONFLICT`，`details` 同时给出 `expected_revision`、`current_revision` 与服务器当前副本 `current`；删除类接口通过查询参数传同名字段。
+- 所有写成功路径（含工单评论/升级/回执）版本 +1，出参统一带 `revision` 供下次回传。
+- 回执重放：同一 `client_op_id` 只写一条回执、只推进一次版本，重复提交返回当前工单。
+- 修复错误响应在 `details` 携带日期时间时序列化失败导致 500 —— 统一经 `jsonable_encoder` 编码。
+
+### 前端离线队列
+
+- 新增 `src/offline/queue.ts`：IndexedDB（`kjxy-offline / operations`）存待发操作，联网与启动时按创建顺序串行补发；4xx 视为明确拒绝不再自动重试，网络类错误则停下等下次。
+- `writeWithQueue` 只在网络不可达时入队，在线时行为与普通请求一致；写创建类请求自动补 `client_op_id`，更新类自动带 `expected_revision`。
+- 冲突时保留服务器副本快照，`resolveConflictKeepMine` 以服务器当前版本作为新的 `expected_revision` 重发「用我的覆盖」，`resolveConflictDiscard` 直接丢弃本地修改。
+- 新增 `OfflineBar` 横幅（待同步 / 冲突 / 失败计数），可「立即同步」或打开明细逐条处理；挂在农场台账页与工单页。
+- 台账页与工单页的全部写入改为走队列（含周期、农事记录、工单创建、指派、状态、回执）。
+
+### 契约与文档
+
+- 新增错误码 `FARM_REVISION_CONFLICT`（409）并登记到 `contracts/error-codes.md`。
+- `docs/api.md` 新增「离线写入与冲突合并（v3.19）」：字段语义、重放口径、覆盖行为、队列重试策略。
+- OpenAPI 重新生成：**232 路径**，相对 3.18 只增字段与查询参数，无路径增删；两次生成结果一致。
+
+### 门禁
+
+- 后端 ruff check/format、mypy 全绿；全量测试 **1499 passed**。
+- 新增 `tests/integration/test_offline_sync.py`（7 条：地块创建重放、地块过期更新 409、删除版本校验、农事记录重放与冲突、非法幂等键 400、工单创建/回执重放、工单过期更新）。
+- 前端 eslint **0 error**、vue-tsc 全绿、单测 **34 passed**、`vite build` 通过；版本面 9 处一致（3.19.0）。
+- 全量 E2E **49 passed**（4.1 分钟，新增 `e2e/v319.spec.ts` 3 条：断网存地块→恢复联网自动同步、离线农事记录入队后落库、服务器已更新时冲突→「用我的覆盖」后版本 +2），跑在隔离的 8011 后端 + 5174 前端（数据库副本已升到 0047），不触开发中进程。
+
 ## [3.18.0] - 2026-10-29
 
 单位身份接进来了：小院可以配置自己的 OIDC 身份提供方，成员用单位账号登录；但 IdP 只能给到可分配角色，负责人与平台管理员永远由本地决定。

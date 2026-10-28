@@ -1,11 +1,16 @@
 """农业台账 Schema。"""
 
 from datetime import date, datetime
+from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+#: 离线队列的幂等键：客户端生成，重放同一键只落一条（格式限安全字符，长度 8-64）
+ClientOpId = Annotated[str, Field(min_length=8, max_length=64, pattern=r"^[A-Za-z0-9._:-]+$")]
+
 
 class PlotCreate(BaseModel):
+    client_op_id: ClientOpId | None = None
     name: str = Field(..., min_length=1, max_length=80)
     crop: str = Field(default="", max_length=60)
     area_mu: float | None = Field(default=None, gt=0, le=100000)
@@ -17,6 +22,8 @@ class PlotCreate(BaseModel):
 
 
 class PlotUpdate(BaseModel):
+    #: 离线冲突检测：带上客户端看到的版本，后端版本不同则 409 并回传当前副本
+    expected_revision: int | None = Field(default=None, ge=1)
     name: str | None = Field(default=None, min_length=1, max_length=80)
     crop: str | None = Field(default=None, max_length=60)
     area_mu: float | None = Field(default=None, gt=0, le=100000)
@@ -43,6 +50,7 @@ class PlotOut(BaseModel):
     irrigation_type: str
     status: str
     notes: str
+    revision: int = 1
     created_at: datetime
     updated_at: datetime
 
@@ -50,6 +58,7 @@ class PlotOut(BaseModel):
 
 
 class CycleCreate(BaseModel):
+    client_op_id: ClientOpId | None = None
     crop: str = Field(..., min_length=1, max_length=60)
     variety: str = Field(default="", max_length=60)
     planted_on: date | None = None
@@ -59,6 +68,7 @@ class CycleCreate(BaseModel):
 
 
 class CycleUpdate(BaseModel):
+    expected_revision: int | None = Field(default=None, ge=1)
     crop: str | None = Field(default=None, min_length=1, max_length=60)
     variety: str | None = Field(default=None, max_length=60)
     planted_on: date | None = None
@@ -82,6 +92,7 @@ class CycleOut(BaseModel):
     expected_harvest_on: date | None
     status: str
     notes: str
+    revision: int = 1
     created_at: datetime
     updated_at: datetime
 
@@ -89,6 +100,7 @@ class CycleOut(BaseModel):
 
 
 class RecordCreate(BaseModel):
+    client_op_id: ClientOpId | None = None
     plot_id: str = Field(..., min_length=1, max_length=36)
     cycle_id: str | None = Field(default=None, max_length=36)
     kind: str = Field(..., min_length=1, max_length=20)
@@ -102,6 +114,7 @@ class RecordCreate(BaseModel):
 
 
 class RecordUpdate(BaseModel):
+    expected_revision: int | None = Field(default=None, ge=1)
     cycle_id: str | None = Field(default=None, max_length=36)
     kind: str | None = Field(default=None, max_length=20)
     occurred_on: date | None = None
@@ -133,6 +146,7 @@ class RecordOut(BaseModel):
     unit: str
     operator_name: str
     metadata_json: dict | None
+    revision: int = 1
     created_at: datetime
     updated_at: datetime
 
@@ -314,6 +328,7 @@ class AlertOut(BaseModel):
 
 
 class WorkOrderCreate(BaseModel):
+    client_op_id: ClientOpId | None = None
     title: str = Field(..., min_length=1, max_length=160)
     description: str = Field(default="", max_length=4000)
     priority: str = Field(default="normal")
@@ -325,6 +340,7 @@ class WorkOrderCreate(BaseModel):
 
 
 class WorkOrderUpdate(BaseModel):
+    expected_revision: int | None = Field(default=None, ge=1)
     priority: str | None = None
     status: str | None = None
     assignee_id: str | None = Field(default=None, max_length=36)
@@ -339,6 +355,8 @@ class WorkOrderUpdate(BaseModel):
 
 
 class WorkOrderReceipt(BaseModel):
+    #: 离线回执的幂等键：同一键重放不会重复写事件/重复改状态
+    client_op_id: ClientOpId | None = None
     resolution: str = Field(..., min_length=1, max_length=4000)
     close: bool = Field(default=True, description="true=直接关闭，false=仅完成待验收")
 
@@ -372,6 +390,7 @@ class WorkOrderOut(BaseModel):
     escalation_level: int
     resolution: str
     closed_at: datetime | None
+    revision: int = 1
     created_at: datetime
     updated_at: datetime
     events: list[WorkOrderEventOut] = Field(default_factory=list)

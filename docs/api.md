@@ -175,6 +175,23 @@ v3.1 行为变化：`/search/status` 新增 `internet` 字段；搜索设置 `pr
 - 全局开关 `SSO_ENABLED` 关闭时，公开端点返回空列表/`SSO_DISABLED`，已配置的 IdP 不生效。
 - 出网走 `net_guard`（元数据/链路本地地址始终禁止；IdP 地址按负责人配置的可信输入放行内网与本机），单次响应上限 1MB；错误只回错误码，不回 IdP 原始响应。
 
+## 离线写入与冲突合并（v3.19）
+
+台账（地块/周期/农事记录）与工单写接口支持离线队列：
+
+| 位置 | 字段 | 说明 |
+|---|---|---|
+| 创建类请求体（POST /farm/plots、/farm/plots/{id}/cycles、/farm/records、/farm/work-orders、/farm/work-orders/{id}/receipt） | `client_op_id`（可选，8-64 位安全字符） | 幂等键；同一键重放只落一条、不重复写事件。前端离线队列自动生成 |
+| 更新类请求体（PATCH /farm/plots/{id}、/farm/cycles/{id}、/farm/records/{id}、/farm/work-orders/{id}） | `expected_revision`（可选，≥1） | 乐观并发；与服务器版本不一致返回 `FARM_REVISION_CONFLICT`（409），details 带 `current_revision` 与 `current` 副本 |
+| 删除类查询参数（DELETE 同上资源） | `expected_revision`（可选） | 同上 |
+| 出参 | `revision` | 每次成功写入 +1（含工单回执/评论/升级），供下次更新回传 |
+
+口径：
+
+- 回执重放：同一 `client_op_id` 只写一条回执事件、只推进一次版本；重复提交返回当前工单。
+- 前端「用我的覆盖」= 取服务器 `current_revision` 作为新的 `expected_revision` 再发一次，不做静默强制覆盖。
+- 网络不可达的写操作存在浏览器 IndexedDB 队列里，联网后按创建顺序串行补发；服务端明确拒绝（4xx）的操作不会自动重试，需人工处理。
+
 ## 任务状态机
 
 `queued → running → succeeded | failed | cancelled | awaiting_review → succeeded | failed | cancelled`

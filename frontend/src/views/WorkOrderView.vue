@@ -1,5 +1,6 @@
 <template>
   <div class="workorders">
+    <OfflineBar />
     <div class="page-head">
       <div>
         <h2 class="page-title">
@@ -650,6 +651,8 @@
   } from '@/api/modules'
   import { useAuthStore } from '@/stores/auth'
   import { formatDateTime as formatTime } from '@/utils/format'
+  import OfflineBar from '@/components/offline/OfflineBar.vue'
+  import { installOfflineQueue, writeWithQueue } from '@/offline/queue'
 
   const STATUS_OPTIONS: { value: WorkOrderStatus; label: string }[] = [
     { value: 'open', label: '待处理' },
@@ -858,15 +861,21 @@
     }
     creating.value = true
     try {
-      await workOrderApi.create({
-        title: createForm.title.trim(),
-        description: createForm.description.trim() || undefined,
-        priority: createForm.priority,
-        plot_id: createForm.plot_id || undefined,
-        assignee_id: createForm.assignee_id || undefined,
-        due_on: createForm.due_on || undefined,
+      const res = await writeWithQueue({
+        label: `新建工单「${createForm.title.trim()}」`,
+        method: 'POST',
+        url: '/farm/work-orders',
+        body: {
+          title: createForm.title.trim(),
+          description: createForm.description.trim() || undefined,
+          priority: createForm.priority,
+          plot_id: createForm.plot_id || undefined,
+          assignee_id: createForm.assignee_id || undefined,
+          due_on: createForm.due_on || undefined,
+        },
+        needsClientOpId: true,
       })
-      ElMessage.success('工单已创建')
+      ElMessage.success(res.queued ? '已保存到本机，联网后自动同步' : '工单已创建')
       createDialog.value = false
       tab.value = 'orders'
       await loadOrders(1)
@@ -941,10 +950,17 @@
     if (!detail.value) return
     acting.value = true
     try {
-      const data = await workOrderApi.update(detail.value.work_order_id, {
-        assignee_id: assigneeDraft.value || undefined,
+      const res = await writeWithQueue<WorkOrder>({
+        label: '指派工单',
+        method: 'PATCH',
+        url: `/farm/work-orders/${detail.value.work_order_id}`,
+        body: {
+          assignee_id: assigneeDraft.value || undefined,
+          expected_revision: detail.value.revision,
+        },
       })
-      applyDetail(data)
+      if (res.queued) ElMessage.success('已保存到本机，联网后自动同步')
+      else if (res.data) applyDetail(res.data)
       await loadOrders()
     } finally {
       acting.value = false
@@ -959,8 +975,14 @@
     acting.value = true
     const target = statusDraft.value
     try {
-      const data = await workOrderApi.update(detail.value.work_order_id, { status: target })
-      applyDetail(data)
+      const res = await writeWithQueue<WorkOrder>({
+        label: '更新工单状态',
+        method: 'PATCH',
+        url: `/farm/work-orders/${detail.value.work_order_id}`,
+        body: { status: target, expected_revision: detail.value.revision },
+      })
+      if (res.queued) ElMessage.success('已保存到本机，联网后自动同步')
+      else if (res.data) applyDetail(res.data)
       await loadOrders()
     } finally {
       acting.value = false
@@ -999,12 +1021,22 @@
     }
     acting.value = true
     try {
-      const data = await workOrderApi.receipt(detail.value.work_order_id, {
-        resolution: receiptForm.resolution.trim(),
-        close: receiptForm.close,
+      const res = await writeWithQueue<WorkOrder>({
+        label: '提交工单回执',
+        method: 'POST',
+        url: `/farm/work-orders/${detail.value.work_order_id}/receipt`,
+        body: {
+          resolution: receiptForm.resolution.trim(),
+          close: receiptForm.close,
+        },
+        needsClientOpId: true,
       })
-      applyDetail(data)
-      ElMessage.success(receiptForm.close ? '已关闭并留存回执' : '已标记完成，待验收')
+      if (res.queued) {
+        ElMessage.success('回执已存到本机，联网后自动同步')
+      } else if (res.data) {
+        applyDetail(res.data)
+        ElMessage.success(receiptForm.close ? '已关闭并留存回执' : '已标记完成，待验收')
+      }
       await loadOrders()
     } finally {
       acting.value = false
@@ -1016,6 +1048,7 @@
   })
 
   onMounted(async () => {
+    installOfflineQueue()
     await loadRefs()
     await loadOrders(1)
   })

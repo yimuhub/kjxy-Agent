@@ -82,10 +82,13 @@ def update_plot(
 def delete_plot(
     plot_id: str,
     request: Request,
+    expected_revision: int | None = Query(default=None, ge=1),
     user: CurrentUser = Depends(require_yard_permission("farm:write")),
     db=Depends(get_db_session),
 ):
-    service.delete_plot(db, _yard_id(user), plot_id, user.user_id)
+    service.delete_plot(
+        db, _yard_id(user), plot_id, user.user_id, expected_revision=expected_revision
+    )
     return ok({"ok": True}, request)
 
 
@@ -131,10 +134,13 @@ def update_cycle(
 def delete_cycle(
     cycle_id: str,
     request: Request,
+    expected_revision: int | None = Query(default=None, ge=1),
     user: CurrentUser = Depends(require_yard_permission("farm:write")),
     db=Depends(get_db_session),
 ):
-    service.delete_cycle(db, _yard_id(user), cycle_id, user.user_id)
+    service.delete_cycle(
+        db, _yard_id(user), cycle_id, user.user_id, expected_revision=expected_revision
+    )
     return ok({"ok": True}, request)
 
 
@@ -194,10 +200,13 @@ def update_record(
 def delete_record(
     record_id: str,
     request: Request,
+    expected_revision: int | None = Query(default=None, ge=1),
     user: CurrentUser = Depends(require_yard_permission("farm:write")),
     db=Depends(get_db_session),
 ):
-    service.delete_record(db, _yard_id(user), record_id, user.user_id)
+    service.delete_record(
+        db, _yard_id(user), record_id, user.user_id, expected_revision=expected_revision
+    )
     return ok({"ok": True}, request)
 
 

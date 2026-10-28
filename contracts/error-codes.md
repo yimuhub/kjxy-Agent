@@ -273,3 +273,9 @@
 | `SSO_USERNAME_CONFLICT` | 409 | 自动建号时用户名冲突且无法自动区分 |
 | `SSO_SECRET_DECRYPT_FAILED` | 500 | 已存客户端密钥无法解密（主密钥已轮换） |
 | `SSO_CODE_INVALID` | 401 | 一次性短码已使用/过期/不存在 |
+
+## 离线写入与冲突合并（v3.19）
+
+| 错误码 | HTTP | 说明 |
+|--------|------|------|
+| `FARM_REVISION_CONFLICT` | 409 | 台账/工单的 `expected_revision` 与服务器当前版本不一致；details 含 `expected_revision`、`current_revision` 与服务器当前副本 `current` |

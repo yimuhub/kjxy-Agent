@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.18.0
+  version: 3.19.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -1988,6 +1988,15 @@ paths:
         schema:
           type: string
           title: Plot Id
+      - name: expected_revision
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+            minimum: 1
+          - type: 'null'
+          title: Expected Revision
       responses:
         '200':
           description: Successful Response
@@ -2110,6 +2119,15 @@ paths:
         schema:
           type: string
           title: Cycle Id
+      - name: expected_revision
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+            minimum: 1
+          - type: 'null'
+          title: Expected Revision
       responses:
         '200':
           description: Successful Response
@@ -2272,6 +2290,15 @@ paths:
         schema:
           type: string
           title: Record Id
+      - name: expected_revision
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+            minimum: 1
+          - type: 'null'
+          title: Expected Revision
       responses:
         '200':
           description: Successful Response
@@ -9022,6 +9049,14 @@ components:
       description: 自定义连接器配置（写入形态；headers 值为明文，入库即 Fernet 加密）。
     CycleCreate:
       properties:
+        client_op_id:
+          anyOf:
+          - type: string
+            maxLength: 64
+            minLength: 8
+            pattern: ^[A-Za-z0-9._:-]+$
+          - type: 'null'
+          title: Client Op Id
         crop:
           type: string
           maxLength: 60
@@ -9060,6 +9095,12 @@ components:
       title: CycleCreate
     CycleUpdate:
       properties:
+        expected_revision:
+          anyOf:
+          - type: integer
+            minimum: 1.0
+          - type: 'null'
+          title: Expected Revision
         crop:
           anyOf:
           - type: string
@@ -9955,6 +9996,14 @@ components:
       title: PesticideUpdate
     PlotCreate:
       properties:
+        client_op_id:
+          anyOf:
+          - type: string
+            maxLength: 64
+            minLength: 8
+            pattern: ^[A-Za-z0-9._:-]+$
+          - type: 'null'
+          title: Client Op Id
         name:
           type: string
           maxLength: 80
@@ -10003,6 +10052,12 @@ components:
       title: PlotCreate
     PlotUpdate:
       properties:
+        expected_revision:
+          anyOf:
+          - type: integer
+            minimum: 1.0
+          - type: 'null'
+          title: Expected Revision
         name:
           anyOf:
           - type: string
@@ -10366,6 +10421,14 @@ components:
       description: 运营调整小院配额限额：三个限额字段均 ge=0，至少提供一个。
     RecordCreate:
       properties:
+        client_op_id:
+          anyOf:
+          - type: string
+            maxLength: 64
+            minLength: 8
+            pattern: ^[A-Za-z0-9._:-]+$
+          - type: 'null'
+          title: Client Op Id
         plot_id:
           type: string
           maxLength: 36
@@ -10427,6 +10490,12 @@ components:
       title: RecordCreate
     RecordUpdate:
       properties:
+        expected_revision:
+          anyOf:
+          - type: integer
+            minimum: 1.0
+          - type: 'null'
+          title: Expected Revision
         cycle_id:
           anyOf:
           - type: string
@@ -11599,6 +11668,14 @@ components:
       title: WorkOrderComment
     WorkOrderCreate:
       properties:
+        client_op_id:
+          anyOf:
+          - type: string
+            maxLength: 64
+            minLength: 8
+            pattern: ^[A-Za-z0-9._:-]+$
+          - type: 'null'
+          title: Client Op Id
         title:
           type: string
           maxLength: 160
@@ -11648,6 +11725,14 @@ components:
       title: WorkOrderCreate
     WorkOrderReceipt:
       properties:
+        client_op_id:
+          anyOf:
+          - type: string
+            maxLength: 64
+            minLength: 8
+            pattern: ^[A-Za-z0-9._:-]+$
+          - type: 'null'
+          title: Client Op Id
         resolution:
           type: string
           maxLength: 4000
@@ -11664,6 +11749,12 @@ components:
       title: WorkOrderReceipt
     WorkOrderUpdate:
       properties:
+        expected_revision:
+          anyOf:
+          - type: integer
+            minimum: 1.0
+          - type: 'null'
+          title: Expected Revision
         priority:
           anyOf:
           - type: string

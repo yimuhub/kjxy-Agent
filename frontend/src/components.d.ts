@@ -86,6 +86,7 @@ declare module 'vue' {
     GrantMatrix: typeof import('./components/settings/GrantMatrix.vue')['default']
     LibraryItemCard: typeof import('./components/library/LibraryItemCard.vue')['default']
     MenuDiyEditor: typeof import('./components/layout/MenuDiyEditor.vue')['default']
+    OfflineBar: typeof import('./components/offline/OfflineBar.vue')['default']
     PermissionMatrix: typeof import('./components/settings/PermissionMatrix.vue')['default']
     PlanCard: typeof import('./components/chat/PlanCard.vue')['default']
     PluginCard: typeof import('./components/chat/PluginCard.vue')['default']
