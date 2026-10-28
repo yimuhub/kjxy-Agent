@@ -21,6 +21,7 @@ const CustomAgentsView = () => import('@/views/CustomAgentsView.vue')
 const TeamsView = () => import('@/views/TeamsView.vue')
 const FarmView = () => import('@/views/FarmView.vue')
 const DiagnosisView = () => import('@/views/DiagnosisView.vue')
+const WorkOrderView = () => import('@/views/WorkOrderView.vue')
 const AgentFactoryView = () => import('@/views/AgentFactoryView.vue')
 const DevicesView = () => import('@/views/DevicesView.vue')
 const MarketView = () => import('@/views/MarketView.vue')
@@ -66,6 +67,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'knowledge', name: 'Knowledge', component: KnowledgeView, meta: { title: '知识库' } },
       { path: 'farm', name: 'Farm', component: FarmView, meta: { title: '农业台账' } },
       { path: 'diagnosis', name: 'Diagnosis', component: DiagnosisView, meta: { title: '作物诊断' } },
+      { path: 'work-orders', name: 'WorkOrders', component: WorkOrderView, meta: { title: '告警与工单' } },
       { path: 'tasks', name: 'Tasks', component: TasksView, meta: { title: '任务中心' } },
       {
         path: 'review',

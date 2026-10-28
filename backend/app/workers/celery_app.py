@@ -28,6 +28,11 @@ celery_app.conf.update(
         "devices-poll-connectors": {"task": "devices.poll_connectors", "schedule": 60.0},
         # 自我总结提升（v3.4）：beat 每 5 分钟巡检，各小院按 next_run_at 判定到期
         "yards-run-due-jobs": {"task": "yards.run_due_jobs", "schedule": 300.0},
+        # 逾期工单升级（v3.10）：每 6 小时巡检，避免每天只升一次响应过慢
+        "workorders-escalate-overdue": {
+            "task": "workorders.escalate_overdue",
+            "schedule": 21600.0,
+        },
     },
 )
 

@@ -53,6 +53,7 @@ export const ALL_MENU_ATOMS: DiyMenuLeaf[] = [
   { key: 'knowledge', path: '/knowledge', title: '知识库', iconName: 'Files' },
   { key: 'farm', path: '/farm', title: '农业台账', iconName: 'Grid' },
   { key: 'diagnosis', path: '/diagnosis', title: '作物诊断', iconName: 'Reading' },
+  { key: 'work-orders', path: '/work-orders', title: '告警与工单', iconName: 'Checked' },
   { key: 'qa', path: '/qa', title: '知识问答', iconName: 'Reading' },
   { key: 'review', path: '/review', title: '专家审核', iconName: 'Checked', roles: REVIEW_ROLES },
   { key: 'policies', path: '/policies', title: '政策服务', iconName: 'Document' },
@@ -111,6 +112,7 @@ export function buildDefaultMenuGroups(): DiyMenuGroup[] {
         { key: 'knowledge', path: '/knowledge', title: '知识库', iconName: 'Files' },
         { key: 'farm', path: '/farm', title: '农业台账', iconName: 'Grid' },
         { key: 'diagnosis', path: '/diagnosis', title: '作物诊断', iconName: 'Reading' },
+        { key: 'work-orders', path: '/work-orders', title: '告警与工单', iconName: 'Checked' },
         { key: 'tasks', path: '/tasks', title: '任务中心', iconName: 'List' },
         {
           key: 'data',
@@ -160,6 +162,7 @@ export function buildFlatQuickGroups(): DiyMenuGroup[] {
         { key: 'knowledge', path: '/knowledge', title: '知识库', iconName: 'Files' },
         { key: 'farm', path: '/farm', title: '农业台账', iconName: 'Grid' },
         { key: 'diagnosis', path: '/diagnosis', title: '作物诊断', iconName: 'Reading' },
+        { key: 'work-orders', path: '/work-orders', title: '告警与工单', iconName: 'Checked' },
         { key: 'qa', path: '/qa', title: '问答', iconName: 'Reading' },
         { key: 'quota', path: '/quota', title: '用量额度', iconName: 'DataLine' },
       ],

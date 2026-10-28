@@ -279,3 +279,92 @@ class SafeHarvestOut(BaseModel):
     applied_on: date
     earliest_harvest_on: date
     note: str
+
+
+# ---------------------------------------------------------------------------
+# 告警与工单（v3.10）
+# ---------------------------------------------------------------------------
+
+
+class AlertCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=160)
+    detail: str = Field(default="", max_length=4000)
+    severity: str = Field(default="normal", description="low|normal|high|critical")
+    source: str = Field(default="manual", max_length=32)
+    plot_id: str | None = Field(default=None, max_length=36)
+
+
+class AlertOut(BaseModel):
+    alert_id: str
+    title: str
+    detail: str
+    severity: str
+    source: str
+    plot_id: str | None
+    status: str
+    work_order_id: str | None
+    created_at: datetime
+
+
+class WorkOrderCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=160)
+    description: str = Field(default="", max_length=4000)
+    priority: str = Field(default="normal")
+    plot_id: str | None = Field(default=None, max_length=36)
+    source: str = Field(default="manual", max_length=32)
+    source_ref: str | None = Field(default=None, max_length=36)
+    assignee_id: str | None = Field(default=None, max_length=36)
+    due_on: date | None = None
+
+
+class WorkOrderUpdate(BaseModel):
+    priority: str | None = None
+    status: str | None = None
+    assignee_id: str | None = Field(default=None, max_length=36)
+    due_on: date | None = None
+    description: str | None = Field(default=None, max_length=4000)
+
+    @model_validator(mode="after")
+    def _not_empty(self) -> "WorkOrderUpdate":
+        if not self.model_fields_set:
+            raise ValueError("没有需要更新的字段")
+        return self
+
+
+class WorkOrderReceipt(BaseModel):
+    resolution: str = Field(..., min_length=1, max_length=4000)
+    close: bool = Field(default=True, description="true=直接关闭，false=仅完成待验收")
+
+
+class WorkOrderComment(BaseModel):
+    note: str = Field(..., min_length=1, max_length=4000)
+
+
+class WorkOrderEventOut(BaseModel):
+    event_id: str
+    kind: str
+    note: str
+    actor_id: str | None
+    from_status: str | None
+    to_status: str | None
+    created_at: datetime
+
+
+class WorkOrderOut(BaseModel):
+    work_order_id: str
+    title: str
+    description: str
+    priority: str
+    status: str
+    source: str
+    source_ref: str | None
+    plot_id: str | None
+    assignee_id: str | None
+    assignee_name: str
+    due_on: date | None
+    escalation_level: int
+    resolution: str
+    closed_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+    events: list[WorkOrderEventOut] = Field(default_factory=list)

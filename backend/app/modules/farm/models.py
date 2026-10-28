@@ -175,3 +175,67 @@ class PesticideProduct(Base, TimestampMixin):
     label_notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
     created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+
+
+WORK_ORDER_STATUSES = ("open", "assigned", "in_progress", "done", "closed", "cancelled")
+TERMINAL_WORK_ORDER_STATUSES = ("done", "closed", "cancelled")
+WORK_ORDER_PRIORITIES = ("low", "normal", "high", "urgent")
+ALERT_SEVERITIES = ("low", "normal", "high", "critical")
+
+
+class FarmAlert(Base, TimestampMixin):
+    """小院告警：虫情/天气/设备等事件，可转工单。"""
+
+    __tablename__ = "farm_alerts"
+    __table_args__ = (Index("ix_farm_alerts_yard_created", "yard_id", "created_at"),)
+
+    yard_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(160), nullable=False)
+    detail: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    severity: Mapped[str] = mapped_column(String(16), nullable=False, default="normal")
+    source: Mapped[str] = mapped_column(String(32), nullable=False, default="manual")
+    plot_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="new")
+    work_order_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+
+
+class WorkOrder(Base, TimestampMixin):
+    """作业工单：从告警/诊断/人工创建，支持指派、回执、升级。"""
+
+    __tablename__ = "work_orders"
+    __table_args__ = (
+        Index("ix_work_orders_yard_status", "yard_id", "status"),
+        Index("ix_work_orders_yard_due", "yard_id", "due_on"),
+    )
+
+    yard_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(160), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    priority: Mapped[str] = mapped_column(String(16), nullable=False, default="normal")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="open")
+    source: Mapped[str] = mapped_column(String(32), nullable=False, default="manual")
+    source_ref: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    plot_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    assignee_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    assignee_name: Mapped[str] = mapped_column(String(60), nullable=False, default="")
+    due_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    escalation_level: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    resolution: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+
+
+class WorkOrderEvent(Base, TimestampMixin):
+    """工单事件流：创建、指派、状态变更、评论、回执、升级，只追加不改写。"""
+
+    __tablename__ = "work_order_events"
+    __table_args__ = (Index("ix_work_order_events_yard_order", "yard_id", "work_order_id"),)
+
+    yard_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    work_order_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    actor_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    from_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    to_status: Mapped[str | None] = mapped_column(String(16), nullable=True)

@@ -10,8 +10,9 @@ from fastapi import APIRouter, Depends, Query, Request
 from app.core.deps import CurrentUser, get_db_session, require_yard_permission
 from app.core.errors import AppError
 from app.core.responses import ok, paged
-from app.modules.farm import diagnosis_service, service
+from app.modules.farm import diagnosis_service, service, workorder_service
 from app.modules.farm.schemas import (
+    AlertCreate,
     CycleCreate,
     CycleUpdate,
     DiagnosisCreate,
@@ -24,6 +25,10 @@ from app.modules.farm.schemas import (
     RecordCreate,
     RecordUpdate,
     ReportRequest,
+    WorkOrderComment,
+    WorkOrderCreate,
+    WorkOrderReceipt,
+    WorkOrderUpdate,
 )
 
 router = APIRouter(prefix="/farm", tags=["farm"])
@@ -358,3 +363,151 @@ def safe_harvest(
         },
         request,
     )
+
+
+# ---------------------------------------------------------------------------
+# 告警与工单（v3.10）
+# ---------------------------------------------------------------------------
+
+
+@router.post("/alerts", status_code=201)
+def create_alert(
+    payload: AlertCreate,
+    request: Request,
+    user: CurrentUser = Depends(require_yard_permission("farm:write")),
+    db=Depends(get_db_session),
+):
+    data = workorder_service.create_alert(db, _yard_id(user), user.user_id, payload)
+    return ok(data, request)
+
+
+@router.get("/alerts")
+def list_alerts(
+    request: Request,
+    status: str | None = Query(default=None, max_length=16),
+    severity: str | None = Query(default=None, max_length=16),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=200),
+    user: CurrentUser = Depends(require_yard_permission("farm:read")),
+    db=Depends(get_db_session),
+):
+    items, total = workorder_service.list_alerts(
+        db,
+        _yard_id(user),
+        status=status,
+        severity=severity,
+        page=page,
+        page_size=page_size,
+    )
+    return paged(items, page, page_size, total, request)
+
+
+@router.post("/alerts/{alert_id}/convert", status_code=201)
+def convert_alert(
+    alert_id: str,
+    request: Request,
+    user: CurrentUser = Depends(require_yard_permission("farm:write")),
+    db=Depends(get_db_session),
+):
+    data = workorder_service.convert_alert(db, _yard_id(user), alert_id, user.user_id)
+    return ok(data, request)
+
+
+@router.get("/work-orders/assignable")
+def list_assignable(
+    request: Request,
+    user: CurrentUser = Depends(require_yard_permission("farm:read")),
+    db=Depends(get_db_session),
+):
+    return ok(workorder_service.list_assignable_members(db, _yard_id(user)), request)
+
+
+@router.post("/work-orders", status_code=201)
+def create_work_order(
+    payload: WorkOrderCreate,
+    request: Request,
+    user: CurrentUser = Depends(require_yard_permission("farm:write")),
+    db=Depends(get_db_session),
+):
+    data = workorder_service.create_work_order(db, _yard_id(user), user.user_id, payload)
+    return ok(data, request)
+
+
+@router.get("/work-orders")
+def list_work_orders(
+    request: Request,
+    status: str | None = Query(default=None, max_length=16),
+    priority: str | None = Query(default=None, max_length=16),
+    assignee_id: str | None = Query(default=None, max_length=36),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=200),
+    user: CurrentUser = Depends(require_yard_permission("farm:read")),
+    db=Depends(get_db_session),
+):
+    items, total = workorder_service.list_work_orders(
+        db,
+        _yard_id(user),
+        status=status,
+        priority=priority,
+        assignee_id=assignee_id,
+        page=page,
+        page_size=page_size,
+    )
+    return paged(items, page, page_size, total, request)
+
+
+@router.get("/work-orders/{order_id}")
+def get_work_order(
+    order_id: str,
+    request: Request,
+    user: CurrentUser = Depends(require_yard_permission("farm:read")),
+    db=Depends(get_db_session),
+):
+    return ok(workorder_service.get_work_order(db, _yard_id(user), order_id), request)
+
+
+@router.patch("/work-orders/{order_id}")
+def update_work_order(
+    order_id: str,
+    payload: WorkOrderUpdate,
+    request: Request,
+    user: CurrentUser = Depends(require_yard_permission("farm:write")),
+    db=Depends(get_db_session),
+):
+    data = workorder_service.update_work_order(db, _yard_id(user), order_id, user.user_id, payload)
+    return ok(data, request)
+
+
+@router.post("/work-orders/{order_id}/comments")
+def add_work_order_comment(
+    order_id: str,
+    payload: WorkOrderComment,
+    request: Request,
+    user: CurrentUser = Depends(require_yard_permission("farm:write")),
+    db=Depends(get_db_session),
+):
+    data = workorder_service.add_comment(db, _yard_id(user), order_id, user.user_id, payload.note)
+    return ok(data, request)
+
+
+@router.post("/work-orders/{order_id}/receipt")
+def submit_work_order_receipt(
+    order_id: str,
+    payload: WorkOrderReceipt,
+    request: Request,
+    user: CurrentUser = Depends(require_yard_permission("farm:write")),
+    db=Depends(get_db_session),
+):
+    data = workorder_service.submit_receipt(db, _yard_id(user), order_id, user.user_id, payload)
+    return ok(data, request)
+
+
+@router.post("/work-orders/{order_id}/escalate")
+def escalate_work_order(
+    order_id: str,
+    request: Request,
+    user: CurrentUser = Depends(require_yard_permission("farm:write")),
+    db=Depends(get_db_session),
+):
+    data = workorder_service.escalate(db, _yard_id(user), order_id, user.user_id)
+    return ok(data, request)

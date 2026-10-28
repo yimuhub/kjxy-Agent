@@ -1980,3 +1980,103 @@ export const diagnosisApi = {
     return unwrap(api.get(`/farm/pesticides/${pesticideId}/safe-harvest`, { params: { applied_on: appliedOn } }))
   },
 }
+
+// ---------- 告警与工单闭环（v3.10） ----------
+
+export type AlertSeverity = 'low' | 'normal' | 'high' | 'critical'
+export type WorkOrderPriority = 'low' | 'normal' | 'high' | 'urgent'
+export type WorkOrderStatus = 'open' | 'assigned' | 'in_progress' | 'done' | 'closed' | 'cancelled'
+
+export interface FarmAlert {
+  alert_id: string
+  title: string
+  detail: string
+  severity: AlertSeverity
+  source: string
+  plot_id: string | null
+  status: 'new' | 'converted' | 'dismissed'
+  work_order_id: string | null
+  created_at: string
+}
+
+export interface WorkOrderEvent {
+  event_id: string
+  kind: string
+  note: string
+  actor_id: string | null
+  from_status: string | null
+  to_status: string | null
+  created_at: string
+}
+
+export interface WorkOrder {
+  work_order_id: string
+  title: string
+  description: string
+  priority: WorkOrderPriority
+  status: WorkOrderStatus
+  source: string
+  source_ref: string | null
+  plot_id: string | null
+  assignee_id: string | null
+  assignee_name: string
+  due_on: string | null
+  escalation_level: number
+  resolution: string
+  closed_at: string | null
+  created_at: string
+  updated_at: string
+  events: WorkOrderEvent[]
+}
+
+export interface AssignableMember {
+  user_id: string
+  display_name: string
+  role: string
+}
+
+export const workOrderApi = {
+  alerts(query: { status?: string; severity?: string; page?: number; page_size?: number } = {}): Promise<ListResult<FarmAlert>> {
+    return unwrapList(api.get<ListResponse<FarmAlert>>('/farm/alerts', { params: query }))
+  },
+  createAlert(payload: { title: string; detail?: string; severity?: AlertSeverity; source?: string; plot_id?: string }): Promise<FarmAlert> {
+    return unwrap(api.post<ApiResponse<FarmAlert>>('/farm/alerts', payload))
+  },
+  convertAlert(alertId: string): Promise<WorkOrder> {
+    return unwrap(api.post<ApiResponse<WorkOrder>>(`/farm/alerts/${alertId}/convert`))
+  },
+  assignable(): Promise<AssignableMember[]> {
+    return unwrap(api.get<ApiResponse<AssignableMember[]>>('/farm/work-orders/assignable'))
+  },
+  list(query: { status?: string; priority?: string; assignee_id?: string; page?: number; page_size?: number } = {}): Promise<ListResult<WorkOrder>> {
+    return unwrapList(api.get<ListResponse<WorkOrder>>('/farm/work-orders', { params: query }))
+  },
+  create(payload: {
+    title: string
+    description?: string
+    priority?: WorkOrderPriority
+    plot_id?: string
+    assignee_id?: string
+    due_on?: string
+  }): Promise<WorkOrder> {
+    return unwrap(api.post<ApiResponse<WorkOrder>>('/farm/work-orders', payload))
+  },
+  detail(orderId: string): Promise<WorkOrder> {
+    return unwrap(api.get<ApiResponse<WorkOrder>>(`/farm/work-orders/${orderId}`))
+  },
+  update(
+    orderId: string,
+    payload: { status?: WorkOrderStatus; priority?: WorkOrderPriority; assignee_id?: string; due_on?: string; description?: string },
+  ): Promise<WorkOrder> {
+    return unwrap(api.patch<ApiResponse<WorkOrder>>(`/farm/work-orders/${orderId}`, payload))
+  },
+  comment(orderId: string, note: string): Promise<WorkOrder> {
+    return unwrap(api.post<ApiResponse<WorkOrder>>(`/farm/work-orders/${orderId}/comments`, { note }))
+  },
+  receipt(orderId: string, payload: { resolution: string; close?: boolean }): Promise<WorkOrder> {
+    return unwrap(api.post<ApiResponse<WorkOrder>>(`/farm/work-orders/${orderId}/receipt`, payload))
+  },
+  escalate(orderId: string): Promise<WorkOrder> {
+    return unwrap(api.post<ApiResponse<WorkOrder>>(`/farm/work-orders/${orderId}/escalate`))
+  },
+}

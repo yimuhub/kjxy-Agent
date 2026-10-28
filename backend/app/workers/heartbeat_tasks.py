@@ -198,3 +198,17 @@ def quota_monthly_reset() -> bool:
         db.close()
     log.info("quota monthly reset done for %s", period)
     return True
+
+
+@celery_app.task(name="workorders.escalate_overdue")
+def escalate_overdue_work_orders() -> dict[str, int]:
+    """逾期未结束的工单自动升级（v3.10）。"""
+    from app.modules.farm.workorder_service import escalate_overdue
+
+    db = _get_session_factory()()
+    try:
+        stats = escalate_overdue(db)
+        log.info("workorder overdue scan: %s", stats)
+        return stats
+    finally:
+        db.close()

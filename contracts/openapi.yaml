@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.9.0
+  version: 3.10.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -2385,6 +2385,381 @@ paths:
           type: string
           format: date
           title: Applied On
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/farm/alerts:
+    post:
+      tags:
+      - v1
+      - farm
+      summary: Create Alert
+      operationId: create_alert_api_v1_farm_alerts_post
+      security:
+      - HTTPBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlertCreate'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - v1
+      - farm
+      summary: List Alerts
+      operationId: list_alerts_api_v1_farm_alerts_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 16
+          - type: 'null'
+          title: Status
+      - name: severity
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 16
+          - type: 'null'
+          title: Severity
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+          title: Page
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 20
+          title: Page Size
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/farm/alerts/{alert_id}/convert:
+    post:
+      tags:
+      - v1
+      - farm
+      summary: Convert Alert
+      operationId: convert_alert_api_v1_farm_alerts__alert_id__convert_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: alert_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Alert Id
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/farm/work-orders/assignable:
+    get:
+      tags:
+      - v1
+      - farm
+      summary: List Assignable
+      operationId: list_assignable_api_v1_farm_work_orders_assignable_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/farm/work-orders:
+    post:
+      tags:
+      - v1
+      - farm
+      summary: Create Work Order
+      operationId: create_work_order_api_v1_farm_work_orders_post
+      security:
+      - HTTPBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkOrderCreate'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - v1
+      - farm
+      summary: List Work Orders
+      operationId: list_work_orders_api_v1_farm_work_orders_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 16
+          - type: 'null'
+          title: Status
+      - name: priority
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 16
+          - type: 'null'
+          title: Priority
+      - name: assignee_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 36
+          - type: 'null'
+          title: Assignee Id
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+          title: Page
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 20
+          title: Page Size
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/farm/work-orders/{order_id}:
+    get:
+      tags:
+      - v1
+      - farm
+      summary: Get Work Order
+      operationId: get_work_order_api_v1_farm_work_orders__order_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: order_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Order Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    patch:
+      tags:
+      - v1
+      - farm
+      summary: Update Work Order
+      operationId: update_work_order_api_v1_farm_work_orders__order_id__patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: order_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Order Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkOrderUpdate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/farm/work-orders/{order_id}/comments:
+    post:
+      tags:
+      - v1
+      - farm
+      summary: Add Work Order Comment
+      operationId: add_work_order_comment_api_v1_farm_work_orders__order_id__comments_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: order_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Order Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkOrderComment'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/farm/work-orders/{order_id}/receipt:
+    post:
+      tags:
+      - v1
+      - farm
+      summary: Submit Work Order Receipt
+      operationId: submit_work_order_receipt_api_v1_farm_work_orders__order_id__receipt_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: order_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Order Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkOrderReceipt'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/farm/work-orders/{order_id}/escalate:
+    post:
+      tags:
+      - v1
+      - farm
+      summary: Escalate Work Order
+      operationId: escalate_work_order_api_v1_farm_work_orders__order_id__escalate_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: order_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Order Id
       responses:
         '200':
           description: Successful Response
@@ -7689,6 +8064,38 @@ components:
           description: 可选：关联任务 ID，不传则自动生成
       type: object
       title: AgentRunRequest
+    AlertCreate:
+      properties:
+        title:
+          type: string
+          maxLength: 160
+          minLength: 1
+          title: Title
+        detail:
+          type: string
+          maxLength: 4000
+          title: Detail
+          default: ''
+        severity:
+          type: string
+          title: Severity
+          description: low|normal|high|critical
+          default: normal
+        source:
+          type: string
+          maxLength: 32
+          title: Source
+          default: manual
+        plot_id:
+          anyOf:
+          - type: string
+            maxLength: 36
+          - type: 'null'
+          title: Plot Id
+      type: object
+      required:
+      - title
+      title: AlertCreate
     ApplicationDraftCreate:
       properties:
         applicant_name:
@@ -10160,6 +10567,114 @@ components:
       - msg
       - type
       title: ValidationError
+    WorkOrderComment:
+      properties:
+        note:
+          type: string
+          maxLength: 4000
+          minLength: 1
+          title: Note
+      type: object
+      required:
+      - note
+      title: WorkOrderComment
+    WorkOrderCreate:
+      properties:
+        title:
+          type: string
+          maxLength: 160
+          minLength: 1
+          title: Title
+        description:
+          type: string
+          maxLength: 4000
+          title: Description
+          default: ''
+        priority:
+          type: string
+          title: Priority
+          default: normal
+        plot_id:
+          anyOf:
+          - type: string
+            maxLength: 36
+          - type: 'null'
+          title: Plot Id
+        source:
+          type: string
+          maxLength: 32
+          title: Source
+          default: manual
+        source_ref:
+          anyOf:
+          - type: string
+            maxLength: 36
+          - type: 'null'
+          title: Source Ref
+        assignee_id:
+          anyOf:
+          - type: string
+            maxLength: 36
+          - type: 'null'
+          title: Assignee Id
+        due_on:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Due On
+      type: object
+      required:
+      - title
+      title: WorkOrderCreate
+    WorkOrderReceipt:
+      properties:
+        resolution:
+          type: string
+          maxLength: 4000
+          minLength: 1
+          title: Resolution
+        close:
+          type: boolean
+          title: Close
+          description: true=直接关闭，false=仅完成待验收
+          default: true
+      type: object
+      required:
+      - resolution
+      title: WorkOrderReceipt
+    WorkOrderUpdate:
+      properties:
+        priority:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Priority
+        status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+        assignee_id:
+          anyOf:
+          - type: string
+            maxLength: 36
+          - type: 'null'
+          title: Assignee Id
+        due_on:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Due On
+        description:
+          anyOf:
+          - type: string
+            maxLength: 4000
+          - type: 'null'
+          title: Description
+      type: object
+      title: WorkOrderUpdate
     YardSignupRequest:
       properties:
         yard_name:
