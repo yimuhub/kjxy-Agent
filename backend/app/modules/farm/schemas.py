@@ -286,6 +286,13 @@ class SafeHarvestOut(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class DiagnosisConsultRequest(BaseModel):
+    """把诊断升级为专家会诊工单（v3.12）。"""
+
+    expert_id: str | None = Field(default=None, max_length=36)
+    note: str = Field(default="", max_length=2000)
+
+
 class AlertCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=160)
     detail: str = Field(default="", max_length=4000)

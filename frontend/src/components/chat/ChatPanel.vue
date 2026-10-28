@@ -266,6 +266,24 @@
             <span class="err">解析失败</span>
           </el-tooltip>
           <button
+            v-else-if="a.kind === 'image'"
+            class="vision"
+            type="button"
+            :disabled="visionId === a.id"
+            :title="a.chars > 0 ? '已识别，点击重新识别' : '识别图片内容（会消耗模型额度）'"
+            :aria-label="`识别图片 ${a.filename}`"
+            @click="onVision(a)"
+          >
+            <el-icon>
+              <Loading
+                v-if="visionId === a.id"
+                class="is-spin"
+              />
+              <View v-else />
+            </el-icon>
+            {{ a.chars > 0 ? '已识别' : '识别' }}
+          </button>
+          <button
             class="x"
             type="button"
             aria-label="移除附件"
@@ -356,6 +374,26 @@
               :aria-label="`为${label}选择附件`"
               @change="onFilePicked"
             >
+            <!-- 语音输入：录音 → 后端转写 → 文本落入草稿（不支持时明确提示） -->
+            <button
+              class="attach-btn"
+              type="button"
+              :class="{ recording }"
+              :disabled="store.sending || transcribing"
+              :title="recording ? '停止录音并转写' : '语音输入'"
+              :aria-label="recording ? '停止录音并转写' : '语音输入'"
+              :aria-pressed="recording"
+              @click="onToggleRecord"
+            >
+              <el-icon>
+                <Loading
+                  v-if="transcribing"
+                  class="is-spin"
+                />
+                <VideoPause v-else-if="recording" />
+                <Microphone v-else />
+              </el-icon>
+            </button>
             <el-input
               ref="inputRef"
               v-model="draft"
@@ -425,7 +463,9 @@
         />
       </div>
       <template #footer>
-        <el-button @click="previewOpen = false">关闭</el-button>
+        <el-button @click="previewOpen = false">
+          关闭
+        </el-button>
         <el-button
           type="primary"
           :loading="downloadingId === previewCard?.attachment_id"
@@ -439,17 +479,19 @@
 </template>
 
 <script setup lang="ts">
-  import { computed, nextTick, onMounted, ref } from 'vue'
+  import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
   import { ElInput, ElMessage } from 'element-plus'
   import {
     Close,
     CopyDocument,
     Document,
     Loading,
+    Microphone,
     Paperclip,
     Picture,
     Promotion,
     VideoPause,
+    View,
     Warning,
   } from '@element-plus/icons-vue'
   import ChatCard from '@/components/chat/ChatCard.vue'
@@ -462,6 +504,7 @@
   import SkillCard from '@/components/chat/SkillCard.vue'
   import { chatApi, mentionDisplayName, normalizeRoutedTone } from '@/api/chat'
   import type {
+    ChatAttachment,
     ChatDocumentCard,
     ChatGroupPolicy,
     ChatMessage,
@@ -676,6 +719,112 @@
   async function onRemoveAttachment(id: string) {
     await props.store.removeAttachment(id)
   }
+
+  /** ---- 图片识别（v3.11，手动触发，明确消耗模型额度） ---- */
+  const visionId = ref('')
+
+  async function onVision(a: ChatAttachment) {
+    if (visionId.value) return
+    visionId.value = a.id
+    try {
+      await props.store.recognizeAttachment(a.id)
+      ElMessage.success('图片已识别，将随下一条消息进入上下文')
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error
+          ?.message || '图片识别失败，请稍后重试'
+      ElMessage.warning(msg)
+    } finally {
+      visionId.value = ''
+    }
+  }
+
+  /** ---- 语音输入（v3.11）：MediaRecorder 录音 → 后端转写 → 文本填入草稿 ---- */
+  const recording = ref(false)
+  const transcribing = ref(false)
+  let recorder: MediaRecorder | null = null
+  let recordChunks: Blob[] = []
+  let recordStream: MediaStream | null = null
+
+  function stopRecordTracks() {
+    recordStream?.getTracks().forEach(track => track.stop())
+    recordStream = null
+  }
+
+  async function onToggleRecord() {
+    if (recording.value) {
+      recorder?.stop()
+      return
+    }
+    if (typeof MediaRecorder === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      ElMessage.warning('当前环境不支持录音，请改用文字输入')
+      return
+    }
+    try {
+      recordStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    } catch {
+      ElMessage.warning('无法访问麦克风，请在系统或浏览器设置中允许后重试')
+      return
+    }
+    recordChunks = []
+    const preferred = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg']
+    const mimeType = preferred.find(type => MediaRecorder.isTypeSupported(type)) || ''
+    recorder = mimeType ? new MediaRecorder(recordStream, { mimeType }) : new MediaRecorder(recordStream)
+    recorder.ondataavailable = event => {
+      if (event.data.size > 0) recordChunks.push(event.data)
+    }
+    recorder.onstop = () => {
+      stopRecordTracks()
+      recording.value = false
+      const type = recorder?.mimeType || 'audio/webm'
+      recorder = null
+      const blob = new Blob(recordChunks, { type })
+      recordChunks = []
+      if (!blob.size) return
+      if (blob.size > 10 * 1024 * 1024) {
+        ElMessage.warning('录音超过 10MB，请缩短后重试')
+        return
+      }
+      const ext = type.includes('mp4')
+        ? 'm4a'
+        : type.includes('ogg')
+          ? 'ogg'
+          : type.includes('wav')
+            ? 'wav'
+            : 'webm'
+      void transcribeBlob(new File([blob], `voice-${Date.now()}.${ext}`, { type }))
+    }
+    recorder.start()
+    recording.value = true
+  }
+
+  async function transcribeBlob(file: File) {
+    transcribing.value = true
+    try {
+      const res = await chatApi.transcribeAudio(file)
+      draft.value = draft.value.trim() ? `${draft.value.trim()} ${res.text}` : res.text
+      await nextTick()
+      inputRef.value?.focus()
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error
+          ?.message || '语音转写失败，请稍后重试或改用文字输入'
+      ElMessage.warning(msg)
+    } finally {
+      transcribing.value = false
+    }
+  }
+
+  onBeforeUnmount(() => {
+    if (recording.value) {
+      try {
+        recorder?.stop()
+      } catch {
+        /* 组件卸载时停止失败无需处理 */
+      }
+    }
+    stopRecordTracks()
+  })
 
   /** ---- 生成文档：预览（沙箱 iframe + srcdoc）与下载（带登录态的 blob） ---- */
   const previewOpen = ref(false)
@@ -1147,6 +1296,28 @@
     font-size: 11px;
     color: var(--ds-danger);
   }
+  .att-chip .vision {
+    flex: none;
+    padding: 0 6px;
+    height: 18px;
+    border: 1px solid var(--ds-border);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--ds-text-3);
+    font-size: 11px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+  }
+  .att-chip .vision:hover:not(:disabled) {
+    color: var(--ds-accent);
+    border-color: var(--ds-border-strong);
+  }
+  .att-chip .vision:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
   .att-chip .x {
     flex: none;
     width: 18px;
@@ -1292,6 +1463,16 @@
   .attach-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+  .attach-btn.recording {
+    color: var(--ds-danger);
+    border-color: color-mix(in srgb, var(--ds-danger) 55%, transparent);
+    animation: attach-rec 1.2s ease-in-out infinite;
+  }
+  @keyframes attach-rec {
+    50% {
+      background: color-mix(in srgb, var(--ds-danger) 14%, transparent);
+    }
   }
   .is-spin {
     animation: attach-spin 0.9s linear infinite;

@@ -305,6 +305,78 @@
       </template>
     </el-dialog>
 
+    <!-- 转专家会诊 -->
+    <el-dialog
+      v-model="consultDialog"
+      title="转专家会诊"
+      width="480px"
+    >
+      <el-form label-width="84px">
+        <el-form-item label="指派专家">
+          <el-select
+            v-model="consultForm.expert_id"
+            clearable
+            filterable
+            class="full"
+            placeholder="可暂不指派"
+          >
+            <el-option
+              v-for="m in members"
+              :key="m.user_id"
+              :label="m.display_name"
+              :value="m.user_id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="补充说明">
+          <el-input
+            v-model="consultForm.note"
+            type="textarea"
+            :rows="3"
+            maxlength="2000"
+            placeholder="希望专家重点确认的问题"
+          />
+        </el-form-item>
+      </el-form>
+      <p class="muted">
+        会创建一个高优先级工单（3 天截止），处置结论走工单回执，全程留痕。
+      </p>
+      <template #footer>
+        <el-button @click="consultDialog = false">
+          取消
+        </el-button>
+        <el-button
+          type="primary"
+          :loading="consulting"
+          @click="submitConsult"
+        >
+          发起会诊
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 诊断分享链接 -->
+    <el-dialog
+      v-model="shareDialog"
+      title="只读分享链接"
+      width="520px"
+    >
+      <p class="muted">
+        分享内容为诊断摘要快照：不含地块、图片与人员信息；可随时在「农业台账 → 对外分享」撤销。
+      </p>
+      <el-input
+        v-if="sharePath"
+        :model-value="shareUrl"
+        readonly
+      >
+        <template #append>
+          <el-button @click="copyShare">
+            复制
+          </el-button>
+        </template>
+      </el-input>
+    </el-dialog>
+
     <!-- 详情 -->
     <el-drawer
       v-model="detailDrawer"
@@ -329,6 +401,32 @@
           >
             未启用图像识别
           </el-tag>
+        </div>
+
+        <div
+          v-if="canWrite"
+          class="detail-actions"
+        >
+          <el-button
+            v-if="detail.status !== 'closed'"
+            size="small"
+            type="warning"
+            plain
+            @click="openConsult"
+          >
+            转专家会诊
+          </el-button>
+          <el-button
+            size="small"
+            :loading="sharing"
+            @click="createShare"
+          >
+            生成只读分享
+          </el-button>
+          <span
+            v-if="consultOrderId"
+            class="muted"
+          >已生成会诊工单，可在「告警与工单」跟进。</span>
         </div>
 
         <section class="block">
@@ -660,6 +758,9 @@
   import {
     diagnosisApi,
     farmApi,
+    shareApi,
+    workOrderApi,
+    type AssignableMember,
     type FarmDiagnosis,
     type FarmDiagnosisSummary,
     type FarmPlot,
@@ -830,7 +931,83 @@
     reviewForm.status = detail.value.status === 'closed' ? 'closed' : 'confirmed'
     followForm.occurred_on = new Date().toISOString().slice(0, 10)
     followForm.note = ''
+    consultOrderId.value = ''
+    sharePath.value = ''
     detailDrawer.value = true
+  }
+
+  /** ---- 转专家会诊（v3.12）：复用告警与工单闭环 ---- */
+  const members = ref<AssignableMember[]>([])
+  const consultDialog = ref(false)
+  const consulting = ref(false)
+  const consultOrderId = ref('')
+  const consultForm = reactive({ expert_id: '', note: '' })
+
+  async function openConsult() {
+    consultForm.expert_id = ''
+    consultForm.note = ''
+    consultDialog.value = true
+    try {
+      members.value = await workOrderApi.assignable()
+    } catch {
+      members.value = []
+    }
+  }
+
+  async function submitConsult() {
+    if (!detail.value) return
+    consulting.value = true
+    try {
+      const res = await diagnosisApi.consult(detail.value.diagnosis_id, {
+        expert_id: consultForm.expert_id || undefined,
+        note: consultForm.note.trim() || undefined,
+      })
+      detail.value = res.diagnosis
+      consultOrderId.value = res.work_order.work_order_id
+      consultDialog.value = false
+      ElMessage.success('已生成专家会诊工单')
+      await loadDiagnoses()
+    } catch (err: unknown) {
+      const message =
+        (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error
+          ?.message || '发起会诊失败，请稍后重试'
+      ElMessage.warning(message)
+    } finally {
+      consulting.value = false
+    }
+  }
+
+  /** ---- 诊断只读分享（v3.12）：脱敏快照 ---- */
+  const shareDialog = ref(false)
+  const sharing = ref(false)
+  const sharePath = ref('')
+  const shareUrl = computed(() =>
+    sharePath.value ? `${window.location.origin}${sharePath.value}` : '',
+  )
+
+  async function createShare() {
+    if (!detail.value) return
+    sharing.value = true
+    try {
+      const res = await shareApi.create({
+        resource_type: 'diagnosis',
+        diagnosis_id: detail.value.diagnosis_id,
+        expires_days: 7,
+      })
+      sharePath.value = res.path
+      shareDialog.value = true
+    } finally {
+      sharing.value = false
+    }
+  }
+
+  async function copyShare() {
+    try {
+      await navigator.clipboard.writeText(shareUrl.value)
+      ElMessage.success('链接已复制')
+    } catch {
+      ElMessage.warning('复制失败，请手动选中复制')
+    }
   }
 
   async function submitReview() {
@@ -989,6 +1166,21 @@
     font-size: 12px;
     color: var(--ds-text-3);
     margin-bottom: 12px;
+  }
+  .detail-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+    border-radius: 8px;
+    background: var(--ds-glass);
+    border: 1px solid var(--ds-border);
+  }
+  .detail-actions .muted {
+    font-size: 12px;
+    color: var(--ds-text-3);
   }
   .block {
     padding: 14px 0;

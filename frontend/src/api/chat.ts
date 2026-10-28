@@ -550,6 +550,28 @@ export const chatApi = {
   listAttachments(id: string): Promise<ChatAttachmentList> {
     return unwrap(api.get<ApiResponse<ChatAttachmentList>>(`/chat/sessions/${id}/attachments`))
   },
+  /** 语音转写（v3.11）：音频只在服务端内存中转发上游，不落库 */
+  transcribeAudio(file: File): Promise<{ text: string; model: string }> {
+    const form = new FormData()
+    form.append('file', file)
+    return unwrap(
+      api.post<ApiResponse<{ text: string; model: string }>>('/chat/transcribe', form, {
+        ...silentCfg,
+        headers: { 'Content-Type': 'multipart/form-data' },
+      }),
+    )
+  },
+  /** 图片理解（v3.11，用户手动触发）：结果写回附件文本，随后随消息进入上下文 */
+  recognizeImage(
+    sessionId: string,
+    attachmentId: string,
+  ): Promise<{ text: string; chars: number; model: string; attachment: ChatAttachment }> {
+    return unwrap(
+      api.post<
+        ApiResponse<{ text: string; chars: number; model: string; attachment: ChatAttachment }>
+      >(`/chat/sessions/${sessionId}/attachments/${attachmentId}/vision`, {}, silentCfg),
+    )
+  },
   /** 删附件（连带删存储文件） */
   deleteAttachment(id: string, attachmentId: string): Promise<void> {
     return api

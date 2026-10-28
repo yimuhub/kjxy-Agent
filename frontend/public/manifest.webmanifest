@@ -1,0 +1,19 @@
+{
+  "name": "科技小院 · 多智能体平台",
+  "short_name": "科技小院",
+  "description": "农业科技小院的多智能体工作台：对话、知识库、台账、诊断与工单闭环",
+  "lang": "zh-CN",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0b1020",
+  "theme_color": "#0b1020",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

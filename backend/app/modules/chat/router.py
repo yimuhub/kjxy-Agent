@@ -30,11 +30,13 @@ from app.core.deps import YardContext, get_db_session, get_yard_context
 from app.core.errors import AppError
 from app.core.responses import ok
 from app.modules.chat import attachments as attachments_service
-from app.modules.chat import group, schemas, service
+from app.modules.chat import group, multimodal, schemas, service
 from app.modules.chat import stream as chat_stream
 from app.modules.docs import service as docs_service
 
 router = APIRouter(prefix="/chat/sessions", tags=["chat"])
+#: 集合级多模态入口（不属于某个会话）：/chat/transcribe
+media_router = APIRouter(prefix="/chat", tags=["chat"])
 
 # @ 点名候选是**集合资源**（不属于任何会话），单挂一个 /chat 前缀的路由：
 # 若挤进 /chat/sessions，会被 /chat/sessions/{session_id} 的位置参数吞掉。
@@ -486,6 +488,39 @@ def delete_attachment(
     )
     db.commit()
     return ok({"deleted": True}, request)
+
+
+@router.post("/{session_id}/attachments/{attachment_id}/vision")
+async def recognize_attachment_image(
+    session_id: str,
+    attachment_id: str,
+    request: Request,
+    ctx: YardContext = Depends(get_yard_context),
+    db: Session = Depends(get_db_session),
+):
+    """图片理解（用户手动触发，明确计费）：结果写回附件文本，随后随消息进入上下文。"""
+    session = service.get_session(
+        db, yard_id=ctx.yard_id, created_by=ctx.user_id, session_id=session_id
+    )
+    att = attachments_service.get_attachment(
+        db, yard_id=ctx.yard_id, created_by=ctx.user_id, attachment_id=attachment_id
+    )
+    if att.session_id != session.id:
+        raise AppError("CHAT_ATTACHMENT_NOT_FOUND", "附件不存在或无权访问。", http_status=404)
+    result = await multimodal.recognize_image(db, ctx, att)
+    return ok({**result, "attachment": attachments_service.attachment_out(att)}, request)
+
+
+@media_router.post("/transcribe")
+async def transcribe_audio(
+    request: Request,
+    file: UploadFile = File(...),
+    ctx: YardContext = Depends(get_yard_context),
+    db: Session = Depends(get_db_session),
+):
+    """语音转写：音频只在内存中转发给上游，不落库（隐私最小化）。"""
+    data = await multimodal.transcribe_audio(db, ctx, file)
+    return ok(data, request)
 
 
 def _document_urls(session_id: str, attachment_id: str) -> dict[str, str]:

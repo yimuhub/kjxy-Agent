@@ -14,3 +14,12 @@ const app = createApp(App)
 app.use(createPinia())
 app.use(router)
 app.mount('#app')
+
+// PWA 外壳缓存（仅生产构建）：离线可打开界面，数据仍需联网；/api/ 永不缓存
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {
+      /* 注册失败不影响在线使用 */
+    })
+  })
+}

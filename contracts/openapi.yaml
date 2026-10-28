@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.10.0
+  version: 3.12.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -2192,6 +2192,41 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/farm/diagnoses/{diagnosis_id}/consult:
+    post:
+      tags:
+      - v1
+      - farm
+      summary: Consult Diagnosis
+      description: 把诊断升级为专家会诊工单：复用工单闭环，避免会诊只停在口头。
+      operationId: consult_diagnosis_api_v1_farm_diagnoses__diagnosis_id__consult_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: diagnosis_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Diagnosis Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DiagnosisConsultRequest'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/farm/diagnoses/{diagnosis_id}/review:
     post:
       tags:
@@ -2760,6 +2795,118 @@ paths:
         schema:
           type: string
           title: Order Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/shares:
+    post:
+      tags:
+      - v1
+      - shares
+      summary: Create Share
+      description: 生成只读分享链接；原始 token 只在本次响应中出现一次。
+      operationId: create_share_api_v1_shares_post
+      security:
+      - HTTPBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShareCreate'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - v1
+      - shares
+      summary: List Shares
+      operationId: list_shares_api_v1_shares_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: include_revoked
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Include Revoked
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/shares/{share_id}:
+    delete:
+      tags:
+      - v1
+      - shares
+      summary: Revoke Share
+      description: 撤销分享：立即失效（访客拿到的旧链接返回 404）。
+      operationId: revoke_share_api_v1_shares__share_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: share_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Share Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/public/shares/{token}:
+    get:
+      tags:
+      - v1
+      - public
+      summary: View Public Share
+      description: 匿名读取分享快照；限流按来源 IP，失败不区分“不存在/撤销/过期”。
+      operationId: view_public_share_api_v1_public_shares__token__get
+      parameters:
+      - name: token
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Token
       responses:
         '200':
           description: Successful Response
@@ -7355,6 +7502,41 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/chat/sessions/{session_id}/attachments/{attachment_id}/vision:
+    post:
+      tags:
+      - v1
+      - chat
+      summary: Recognize Attachment Image
+      description: 图片理解（用户手动触发，明确计费）：结果写回附件文本，随后随消息进入上下文。
+      operationId: recognize_attachment_image_api_v1_chat_sessions__session_id__attachments__attachment_id__vision_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      - name: attachment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Attachment Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/chat/sessions/{session_id}/documents:
     post:
       tags:
@@ -7483,6 +7665,34 @@ paths:
           content:
             application/json:
               schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/chat/transcribe:
+    post:
+      tags:
+      - v1
+      - chat
+      summary: Transcribe Audio
+      description: 语音转写：音频只在内存中转发给上游，不落库（隐私最小化）。
+      operationId: transcribe_audio_api_v1_chat_transcribe_post
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_transcribe_audio_api_v1_chat_transcribe_post'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
       security:
       - HTTPBearer: []
   /api/v1/pairing/codes:
@@ -8190,6 +8400,16 @@ components:
       required:
       - file
       title: Body_import_skill_api_v1_market_skills_import_post
+    Body_transcribe_audio_api_v1_chat_transcribe_post:
+      properties:
+        file:
+          type: string
+          format: binary
+          title: File
+      type: object
+      required:
+      - file
+      title: Body_transcribe_audio_api_v1_chat_transcribe_post
     Body_upload_attachment_api_v1_chat_sessions__session_id__attachments_post:
       properties:
         file:
@@ -8547,6 +8767,22 @@ components:
           description: 仅 connector 设备可换配置
       type: object
       title: DevicePatch
+    DiagnosisConsultRequest:
+      properties:
+        expert_id:
+          anyOf:
+          - type: string
+            maxLength: 36
+          - type: 'null'
+          title: Expert Id
+        note:
+          type: string
+          maxLength: 2000
+          title: Note
+          default: ''
+      type: object
+      title: DiagnosisConsultRequest
+      description: 把诊断升级为专家会诊工单（v3.12）。
     DiagnosisCreate:
       properties:
         crop:
@@ -10140,6 +10376,58 @@ components:
       required:
       - supplier_id
       title: SetActiveBody
+    ShareCreate:
+      properties:
+        resource_type:
+          type: string
+          enum:
+          - farm_report
+          - diagnosis
+          title: Resource Type
+        expires_days:
+          type: integer
+          maximum: 30.0
+          minimum: 1.0
+          title: Expires Days
+          default: 7
+        report_kind:
+          anyOf:
+          - type: string
+            enum:
+            - log
+            - weekly
+            - quarterly
+          - type: 'null'
+          title: Report Kind
+        start:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Start
+        end:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: End
+        plot_id:
+          anyOf:
+          - type: string
+            maxLength: 36
+          - type: 'null'
+          title: Plot Id
+        diagnosis_id:
+          anyOf:
+          - type: string
+            maxLength: 36
+          - type: 'null'
+          title: Diagnosis Id
+      type: object
+      required:
+      - resource_type
+      title: ShareCreate
+      description: 创建分享：报表按区间重新生成后快照；诊断复制为脱敏摘要。
     SkillCreate:
       properties:
         skill_code:

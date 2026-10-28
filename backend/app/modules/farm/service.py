@@ -501,14 +501,14 @@ def _fmt_quantity(record: FarmRecord) -> str:
     return f"{qty} {record.unit}".strip()
 
 
-def _one_line(record: FarmRecord, plot_name: str) -> str:
+def _one_line(record: FarmRecord, plot_name: str, *, include_operator: bool = True) -> str:
     parts = [f"**{plot_name or '未命名地块'}**", RECORD_KIND_LABELS.get(record.kind, record.kind)]
     if record.title:
         parts.append(record.title)
     qty = _fmt_quantity(record)
     if qty:
         parts.append(qty)
-    if record.operator_name:
+    if record.operator_name and include_operator:
         parts.append(f"操作人：{record.operator_name}")
     line = " · ".join(parts)
     if record.content:
@@ -528,7 +528,9 @@ def _group_key(record: FarmRecord, kind: str) -> str:
     return record.occurred_on.isoformat()
 
 
-def build_report(db: Session, yard_id: str, req: ReportRequest) -> dict:
+def build_report(
+    db: Session, yard_id: str, req: ReportRequest, *, redact_operators: bool = False
+) -> dict:
     rows = db.execute(
         select(FarmRecord, FarmPlot.name)
         .join(FarmPlot, FarmPlot.id == FarmRecord.plot_id, isouter=True)
@@ -578,7 +580,9 @@ def build_report(db: Session, yard_id: str, req: ReportRequest) -> dict:
             total = len(items)
             lines += ["", f"## {key}（{total} 条）", ""]
             for record in items:
-                line = _one_line(record, names.get(record.id, ""))
+                line = _one_line(
+                    record, names.get(record.id, ""), include_operator=not redact_operators
+                )
                 if kind == "log":
                     lines.append(f"- {record.occurred_on.isoformat()}：{line}")
                 else:

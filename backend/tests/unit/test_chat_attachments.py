@@ -166,10 +166,11 @@ def test_context_marks_untrusted_data(db_session):
     assert "note.txt" in ctx
 
 
-def test_context_for_image_states_no_vision(db_session):
+def test_context_for_image_states_not_recognized(db_session):
     att = _upload(db_session, "leaf.png", PNG_BYTES)
     ctx = attachments.build_attachment_context([att])
-    assert "不具备图像识别能力" in ctx
+    assert "尚未做图片识别" in ctx
+    assert "识别图片" in ctx
 
 
 def test_context_empty_when_no_attachments():

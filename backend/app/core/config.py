@@ -53,6 +53,16 @@ class Settings(BaseSettings):
     llm_timeout_seconds: int = 60
     llm_max_tokens: int = 2048
 
+    # 多模态（v3.11）：均走当前生效供应商的 OpenAI 兼容端点。
+    # 供应商模型不支持对应能力时返回明确错误，绝不伪造转写/识别结果。
+    asr_model: str = Field(
+        default="whisper-1", description="语音转写模型名（POST {base_url}/audio/transcriptions）"
+    )
+    asr_language: str = Field(default="zh", description="语音转写语言提示")
+    transcribe_max_mb: int = Field(default=10, ge=1, le=100, description="语音文件大小上限（MB）")
+    vision_model: str = Field(default="", description="图片理解模型名；留空则复用当前供应商的模型")
+    vision_max_mb: int = Field(default=8, ge=1, le=50, description="图片理解原图大小上限（MB）")
+
     embedding_provider: str = Field(default="mock", description="mock|openai_compatible")
     embedding_model: str = ""
     embedding_dim: int = 1536

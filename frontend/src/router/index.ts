@@ -34,6 +34,7 @@ const InviteAcceptView = () => import('@/views/InviteAcceptView.vue')
 const LibraryView = () => import('@/views/LibraryView.vue')
 const OwnerView = () => import('@/views/OwnerView.vue')
 const ProfileView = () => import('@/views/ProfileView.vue')
+const ShareView = () => import('@/views/ShareView.vue')
 const NotFoundView = () => import('@/views/NotFoundView.vue')
 
 // meta.roles 声明允许访问的角色；缺省表示所有登录用户可见
@@ -49,6 +50,12 @@ const routes: RouteRecordRaw[] = [
     name: 'Signup',
     component: SignupView,
     meta: { public: true, title: '小院注册' },
+  },
+  {
+    path: '/share/:token',
+    name: 'PublicShare',
+    component: ShareView,
+    meta: { public: true, title: '分享查看' },
   },
   {
     path: '/invite/:token',

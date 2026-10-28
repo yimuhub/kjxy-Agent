@@ -290,6 +290,12 @@
           >
             下载 Markdown
           </el-button>
+          <el-button
+            v-if="report && canWrite"
+            @click="openShare"
+          >
+            对外分享
+          </el-button>
         </div>
 
         <el-empty
@@ -307,6 +313,122 @@
         </div>
       </el-tab-pane>
     </el-tabs>
+
+    <!-- 对外分享（只读快照） -->
+    <el-dialog
+      v-model="shareDialog"
+      title="对外分享报表"
+      width="600px"
+    >
+      <p class="share-tip">
+        分享内容为创建时的只读快照：已隐去操作人姓名，不含院内其他数据；可随时撤销，过期自动失效。
+      </p>
+      <div class="share-create">
+        <el-select
+          v-model="shareDays"
+          class="w150"
+        >
+          <el-option
+            label="1 天"
+            :value="1"
+          />
+          <el-option
+            label="7 天"
+            :value="7"
+          />
+          <el-option
+            label="30 天"
+            :value="30"
+          />
+        </el-select>
+        <el-button
+          type="primary"
+          :loading="sharing"
+          :disabled="!report"
+          @click="createShare"
+        >
+          生成分享链接
+        </el-button>
+      </div>
+      <div
+        v-if="createdShare"
+        class="share-created"
+      >
+        <el-input
+          :model-value="shareUrl(createdShare.path)"
+          readonly
+        >
+          <template #append>
+            <el-button @click="copyShareUrl(createdShare.path)">
+              复制
+            </el-button>
+          </template>
+        </el-input>
+        <span class="muted">有效期至 {{ formatTime(createdShare.expires_at) }}，原始链接只展示这一次。</span>
+      </div>
+
+      <div class="share-list">
+        <div class="share-list-head">
+          <span>已创建的分享</span>
+          <el-button
+            link
+            size="small"
+            @click="loadShares"
+          >
+            刷新
+          </el-button>
+        </div>
+        <el-empty
+          v-if="!sharesLoading && !shares.length"
+          description="还没有分享链接"
+          :image-size="60"
+        />
+        <el-table
+          v-else
+          v-loading="sharesLoading"
+          :data="shares"
+          size="small"
+        >
+          <el-table-column
+            prop="title"
+            label="标题"
+            min-width="180"
+            show-overflow-tooltip
+          />
+          <el-table-column
+            label="访问"
+            width="70"
+          >
+            <template #default="{ row }">
+              {{ row.view_count }}
+            </template>
+          </el-table-column>
+          <el-table-column
+            label="有效期至"
+            width="150"
+          >
+            <template #default="{ row }">
+              {{ formatTime(row.expires_at) }}
+            </template>
+          </el-table-column>
+          <el-table-column
+            label="操作"
+            width="80"
+          >
+            <template #default="{ row }">
+              <el-button
+                link
+                type="danger"
+                size="small"
+                @click="revokeShare(row.share_id)"
+              >
+                撤销
+              </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+    </el-dialog>
 
     <!-- 记录编辑 -->
     <el-dialog
@@ -599,11 +721,14 @@
   import { ElMessage, ElMessageBox } from 'element-plus'
   import {
     farmApi,
+    shareApi,
+    type CreatedShareLink,
     type FarmCycle,
     type FarmPlot,
     type FarmRecord,
     type FarmRecordKind,
     type FarmReport,
+    type ShareLink,
   } from '@/api/modules'
   import { useAuthStore } from '@/stores/auth'
   import SafeMarkdown from '@/components/teams/SafeMarkdown.vue'
@@ -944,6 +1069,84 @@
     URL.revokeObjectURL(url)
   }
 
+  /** ---- 对外分享（v3.12）：只读快照，可撤销 ---- */
+  const shareDialog = ref(false)
+  const shareDays = ref(7)
+  const sharing = ref(false)
+  const sharesLoading = ref(false)
+  const shares = ref<ShareLink[]>([])
+  const createdShare = ref<CreatedShareLink | null>(null)
+
+  function formatTime(value?: string | null): string {
+    if (!value) return '—'
+    return value.replace('T', ' ').slice(0, 16)
+  }
+
+  function shareUrl(path: string): string {
+    return `${window.location.origin}${path}`
+  }
+
+  async function loadShares() {
+    sharesLoading.value = true
+    try {
+      shares.value = await shareApi.list()
+    } catch {
+      shares.value = []
+    } finally {
+      sharesLoading.value = false
+    }
+  }
+
+  async function openShare() {
+    createdShare.value = null
+    shareDialog.value = true
+    await loadShares()
+  }
+
+  async function createShare() {
+    if (!report.value || !reportForm.range?.length) {
+      ElMessage.warning('请先生成报表')
+      return
+    }
+    sharing.value = true
+    try {
+      createdShare.value = await shareApi.create({
+        resource_type: 'farm_report',
+        report_kind: reportForm.kind,
+        start: reportForm.range[0],
+        end: reportForm.range[1],
+        plot_id: reportForm.plot_id,
+        expires_days: shareDays.value,
+      })
+      ElMessage.success('分享链接已生成')
+      await loadShares()
+    } finally {
+      sharing.value = false
+    }
+  }
+
+  async function copyShareUrl(path: string) {
+    try {
+      await navigator.clipboard.writeText(shareUrl(path))
+      ElMessage.success('链接已复制')
+    } catch {
+      ElMessage.warning('复制失败，请手动选中复制')
+    }
+  }
+
+  async function revokeShare(shareId: string) {
+    try {
+      await ElMessageBox.confirm('撤销后旧链接立即失效，确定撤销？', '撤销分享', {
+        type: 'warning',
+      })
+    } catch {
+      return
+    }
+    await shareApi.revoke(shareId)
+    ElMessage.success('已撤销')
+    await loadShares()
+  }
+
   onMounted(async () => {
     await loadPlots()
     await loadRecords(1)
@@ -1047,6 +1250,36 @@
     margin-bottom: 8px;
     font-size: 12px;
     color: var(--ds-text-3);
+  }
+  .share-tip {
+    margin: 0 0 12px;
+    font-size: 12px;
+    color: var(--ds-text-3);
+    line-height: 1.6;
+  }
+  .share-create {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+  .share-created {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 16px;
+  }
+  .share-created .muted {
+    font-size: 12px;
+    color: var(--ds-text-3);
+  }
+  .share-list-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    font-size: 13px;
+    font-weight: 600;
   }
   .cycle-row {
     display: grid;

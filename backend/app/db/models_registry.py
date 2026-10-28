@@ -36,6 +36,17 @@ from app.modules.evolution.models import (  # noqa: F401
     Skill,
     SkillRollout,
 )
+from app.modules.farm.models import (  # noqa: F401
+    CropDiagnosis,
+    DiagnosisFollowUp,
+    FarmAlert,
+    FarmCycle,
+    FarmPlot,
+    FarmRecord,
+    PesticideProduct,
+    WorkOrder,
+    WorkOrderEvent,
+)
 from app.modules.knowledge.models import KnowledgeChunk, KnowledgeDocument  # noqa: F401
 from app.modules.llm.models import LLMCall, LLMTrace  # noqa: F401
 from app.modules.llm.supplier_models import Supplier, YardActiveSupplier  # noqa: F401
@@ -50,6 +61,7 @@ from app.modules.self_improve.models import (  # noqa: F401
     YardJob,
     YardJobRun,
 )
+from app.modules.share.models import ShareLink  # noqa: F401
 from app.modules.tasks.models import Task, TaskEvent  # noqa: F401
 from app.modules.tools.models import ToolApproval, ToolDefinition  # noqa: F401
 from app.modules.yards.models import (  # noqa: F401

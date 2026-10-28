@@ -1979,6 +1979,12 @@ export const diagnosisApi = {
   safeHarvest(pesticideId: string, appliedOn: string): Promise<{ earliest_harvest_on: string; pre_harvest_interval_days: number; note: string }> {
     return unwrap(api.get(`/farm/pesticides/${pesticideId}/safe-harvest`, { params: { applied_on: appliedOn } }))
   },
+  consult(
+    diagnosisId: string,
+    payload: { expert_id?: string; note?: string } = {},
+  ): Promise<{ diagnosis: FarmDiagnosis; work_order: WorkOrder }> {
+    return unwrap(api.post<ApiResponse<{ diagnosis: FarmDiagnosis; work_order: WorkOrder }>>(`/farm/diagnoses/${diagnosisId}/consult`, payload))
+  },
 }
 
 // ---------- 告警与工单闭环（v3.10） ----------
@@ -2078,5 +2084,63 @@ export const workOrderApi = {
   },
   escalate(orderId: string): Promise<WorkOrder> {
     return unwrap(api.post<ApiResponse<WorkOrder>>(`/farm/work-orders/${orderId}/escalate`))
+  },
+}
+
+// ---------- 跨院只读分享（v3.12） ----------
+
+export type ShareResourceType = 'farm_report' | 'diagnosis'
+
+export interface ShareLink {
+  share_id: string
+  resource_type: ShareResourceType
+  resource_id: string
+  title: string
+  expires_at: string
+  revoked_at: string | null
+  view_count: number
+  last_viewed_at: string | null
+  created_at: string
+}
+
+export interface CreatedShareLink extends ShareLink {
+  token: string
+  path: string
+}
+
+export interface PublicShare {
+  title: string
+  resource_type: ShareResourceType
+  content_md: string
+  created_at: string
+  expires_at: string
+  view_count: number
+}
+
+export const shareApi = {
+  create(payload: {
+    resource_type: ShareResourceType
+    expires_days?: number
+    report_kind?: 'log' | 'weekly' | 'quarterly'
+    start?: string
+    end?: string
+    plot_id?: string
+    diagnosis_id?: string
+  }): Promise<CreatedShareLink> {
+    return unwrap(api.post<ApiResponse<CreatedShareLink>>('/shares', payload))
+  },
+  list(includeRevoked = false): Promise<ShareLink[]> {
+    return unwrap(api.get<ApiResponse<ShareLink[]>>('/shares', { params: { include_revoked: includeRevoked } }))
+  },
+  revoke(shareId: string): Promise<ShareLink> {
+    return unwrap(api.delete<ApiResponse<ShareLink>>(`/shares/${shareId}`))
+  },
+  /** 匿名读取分享快照（无需登录；令牌失效统一 404，由页面自身提示，不弹全局 toast） */
+  publicView(token: string): Promise<PublicShare> {
+    return unwrap(
+      api.get<ApiResponse<PublicShare>>(`/public/shares/${token}`, {
+        skipErrorToast: true,
+      } as AxiosRequestConfig & { skipErrorToast?: boolean }),
+    )
   },
 }

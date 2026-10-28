@@ -15,19 +15,24 @@ from sqlalchemy.orm import Session
 from app.core.errors import AppError
 from app.modules.audit.service import log_audit
 from app.modules.crop_diagnosis.service import diagnose as run_diagnosis
+from app.modules.farm import workorder_service
 from app.modules.farm.models import (
     DIAGNOSIS_STATUSES,
+    TERMINAL_WORK_ORDER_STATUSES,
     CropDiagnosis,
     DiagnosisFollowUp,
     FarmPlot,
     PesticideProduct,
+    WorkOrder,
 )
 from app.modules.farm.schemas import (
+    DiagnosisConsultRequest,
     DiagnosisCreate,
     DiagnosisReviewRequest,
     FollowUpCreate,
     PesticideCreate,
     PesticideUpdate,
+    WorkOrderCreate,
 )
 
 REVIEW_STATUSES = ("confirmed", "closed")
@@ -246,6 +251,75 @@ def list_diagnoses(
 
 def get_diagnosis(db: Session, yard_id: str, diagnosis_id: str) -> dict:
     return _detail_out(db, yard_id, _get_diagnosis(db, yard_id, diagnosis_id))
+
+
+def request_consult(
+    db: Session, yard_id: str, diagnosis_id: str, user_id: str, req: DiagnosisConsultRequest
+) -> dict:
+    """诊断转专家会诊工单（复用 3.10 工单闭环）。
+
+    - 已关闭的诊断不再受理；
+    - 同一诊断已有未结束的会诊工单时返回 409，避免重复派单；
+    - 工单来源标记 ``diagnosis`` 并回指诊断，处置结论仍走工单回执。
+    """
+    row = _get_diagnosis(db, yard_id, diagnosis_id)
+    if row.status == "closed":
+        raise AppError("DIAGNOSIS_CLOSED", "诊断已关闭，不能再发起会诊。", http_status=409)
+    existing = db.scalar(
+        select(WorkOrder).where(
+            WorkOrder.yard_id == yard_id,
+            WorkOrder.source == "diagnosis",
+            WorkOrder.source_ref == row.id,
+            WorkOrder.status.not_in(TERMINAL_WORK_ORDER_STATUSES),
+        )
+    )
+    if existing is not None:
+        raise AppError(
+            "CONSULT_ALREADY_OPEN",
+            "该诊断已有未结束的会诊工单，请直接在工单中跟进。",
+            http_status=409,
+            details={"work_order_id": existing.id},
+        )
+    output = row.output_json or {}
+    candidates = output.get("candidates") or []
+    top = str(candidates[0].get("name") or "") if candidates else ""
+    title = f"专家会诊：{row.crop}{'｜' + top if top else ''}"
+    lines = [
+        f"症状：{row.symptoms or '（未填写）'}",
+        f"生长阶段：{row.growth_stage or '未填写'}；品种：{row.variety or '未填写'}",
+        f"综合置信度：{round(float(row.confidence or 0) * 100)}%",
+    ]
+    if req.note.strip():
+        lines.append(f"发起人补充：{req.note.strip()}")
+    order = workorder_service.create_work_order(
+        db,
+        yard_id,
+        user_id,
+        WorkOrderCreate(
+            title=title[:160],
+            description="\n".join(lines)[:4000],
+            priority="high",
+            source="diagnosis",
+            source_ref=row.id,
+            assignee_id=req.expert_id,
+            due_on=datetime.now(UTC).date() + timedelta(days=3),
+        ),
+    )
+    if row.status == "open":
+        row.status = "expert_review"
+    log_audit(
+        db,
+        yard_id=yard_id,
+        actor_id=user_id,
+        action="diagnosis_consult_requested",
+        resource_type="crop_diagnosis",
+        resource_id=row.id,
+        result="success",
+        request_id="",
+        metadata={"work_order_id": order["work_order_id"]},
+    )
+    db.commit()
+    return {"diagnosis": get_diagnosis(db, yard_id, row.id), "work_order": order}
 
 
 def review_diagnosis(

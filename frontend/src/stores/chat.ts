@@ -498,6 +498,15 @@ function buildChatStore(scope: string) {
       }
     }
 
+    /** 识别图片（用户手动触发，明确计费）；失败向上抛出由调用方提示 */
+    async function recognizeAttachment(id: string): Promise<string> {
+      const att = attachments.value.find(a => a.id === id)
+      if (!att) return ''
+      const res = await chatApi.recognizeImage(att.session_id, id)
+      attachments.value = attachments.value.map(a => (a.id === id ? res.attachment : a))
+      return res.text
+    }
+
     /** 移除待发附件（同时删服务端文件，避免留垃圾） */
     async function removeAttachment(id: string) {
       const sid = activeId.value
@@ -877,6 +886,7 @@ function buildChatStore(scope: string) {
       renameSession,
       removeSession,
       uploadAttachment,
+      recognizeAttachment,
       removeAttachment,
       loadMentionCandidates,
       setMention,

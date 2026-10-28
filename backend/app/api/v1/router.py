@@ -8,6 +8,7 @@ from app.modules.agriculture.router import router as agriculture_router
 from app.modules.audit.router import router as audit_router
 from app.modules.auth.router import router as auth_router
 from app.modules.bots.router import router as bots_router
+from app.modules.chat.router import media_router as chat_media_router
 from app.modules.chat.router import mention_router as chat_mention_router
 from app.modules.chat.router import router as chat_router
 from app.modules.devices.router import router as devices_router
@@ -23,6 +24,8 @@ from app.modules.policy.router import router as policy_router
 from app.modules.push.router import router as push_router
 from app.modules.search.router import router as search_router
 from app.modules.self_improve.router import router as self_improve_router
+from app.modules.share.router import public_router as share_public_router
+from app.modules.share.router import router as share_router
 from app.modules.tasks.router import router as tasks_router
 from app.modules.tools.approvals_router import router as tool_approvals_router
 from app.modules.tools.router import router as tools_router
@@ -46,6 +49,8 @@ router.include_router(tasks_router)
 router.include_router(knowledge_router)
 router.include_router(agriculture_router)
 router.include_router(farm_router)  # /farm（农业台账：地块/周期/农事记录/报表）
+router.include_router(share_router)  # /shares（跨院只读分享：创建/列表/撤销）
+router.include_router(share_public_router)  # /public/shares/{token}（匿名只读快照）
 router.include_router(evolution_router)
 router.include_router(llm_router)  # 含 /llm/status 与供应商管理 /llm/providers*
 router.include_router(tools_router)
@@ -61,6 +66,7 @@ router.include_router(push_router)  # /settings/push-channels（W4 事件推送�
 router.include_router(mcp_router)  # /settings/mcp-servers（W5a MCP 工具服务器）
 router.include_router(chat_router)  # /chat/sessions（对话模式：会话+消息，执行复用 supervisor）
 router.include_router(chat_mention_router)  # /chat/mention-candidates（@ 点名候选集合资源）
+router.include_router(chat_media_router)  # /chat/transcribe（语音转写，v3.11）
 router.include_router(pairing_router)  # /pairing（手机扫码配对：建码/交换/设备台账）
 router.include_router(bots_router)  # /bots（IM 机器人网关：配置/测试/会话批准/账本）
 router.include_router(search_router)  # /search（联网状态探测 + 连通性测试）

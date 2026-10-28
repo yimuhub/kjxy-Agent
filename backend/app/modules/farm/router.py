@@ -15,6 +15,7 @@ from app.modules.farm.schemas import (
     AlertCreate,
     CycleCreate,
     CycleUpdate,
+    DiagnosisConsultRequest,
     DiagnosisCreate,
     DiagnosisReviewRequest,
     FollowUpCreate,
@@ -268,6 +269,21 @@ def get_diagnosis(
     db=Depends(get_db_session),
 ):
     return ok(diagnosis_service.get_diagnosis(db, _yard_id(user), diagnosis_id), request)
+
+
+@router.post("/diagnoses/{diagnosis_id}/consult", status_code=201)
+def consult_diagnosis(
+    diagnosis_id: str,
+    payload: DiagnosisConsultRequest,
+    request: Request,
+    user: CurrentUser = Depends(require_yard_permission("farm:write")),
+    db=Depends(get_db_session),
+):
+    """把诊断升级为专家会诊工单：复用工单闭环，避免会诊只停在口头。"""
+    data = diagnosis_service.request_consult(
+        db, _yard_id(user), diagnosis_id, user.user_id, payload
+    )
+    return ok(data, request)
 
 
 @router.post("/diagnoses/{diagnosis_id}/review")
