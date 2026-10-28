@@ -51,6 +51,7 @@ export const ALL_MENU_ATOMS: DiyMenuLeaf[] = [
   { key: 'library', path: '/library', title: '插件与技能库', iconName: 'Shop', roles: LIBRARY_ROLES },
   { key: 'factory', path: '/agents/factory', title: '智能工厂', iconName: 'Operation', roles: ADMIN_ROLES },
   { key: 'knowledge', path: '/knowledge', title: '知识库', iconName: 'Files' },
+  { key: 'farm', path: '/farm', title: '农业台账', iconName: 'Grid' },
   { key: 'qa', path: '/qa', title: '知识问答', iconName: 'Reading' },
   { key: 'review', path: '/review', title: '专家审核', iconName: 'Checked', roles: REVIEW_ROLES },
   { key: 'policies', path: '/policies', title: '政策服务', iconName: 'Document' },
@@ -107,6 +108,7 @@ export function buildDefaultMenuGroups(): DiyMenuGroup[] {
       label: '知识数据',
       items: [
         { key: 'knowledge', path: '/knowledge', title: '知识库', iconName: 'Files' },
+        { key: 'farm', path: '/farm', title: '农业台账', iconName: 'Grid' },
         { key: 'tasks', path: '/tasks', title: '任务中心', iconName: 'List' },
         {
           key: 'data',
@@ -154,6 +156,7 @@ export function buildFlatQuickGroups(): DiyMenuGroup[] {
         { key: 'custom-agents', path: '/agents/custom', title: '我的智能体', iconName: 'UserFilled' },
         { key: 'teams', path: '/teams', title: '协作班组', iconName: 'Connection' },
         { key: 'knowledge', path: '/knowledge', title: '知识库', iconName: 'Files' },
+        { key: 'farm', path: '/farm', title: '农业台账', iconName: 'Grid' },
         { key: 'qa', path: '/qa', title: '问答', iconName: 'Reading' },
         { key: 'quota', path: '/quota', title: '用量额度', iconName: 'DataLine' },
       ],

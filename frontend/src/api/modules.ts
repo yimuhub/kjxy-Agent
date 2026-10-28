@@ -1722,3 +1722,122 @@ export const botsApi = {
     return unwrap(api.post<ApiResponse<BotConversationOut>>(`/bots/conversations/${conversationId}/revoke`))
   },
 }
+
+// ---------- 农业台账（v3.8） ----------
+
+export interface FarmPlot {
+  plot_id: string
+  name: string
+  crop: string
+  area_mu: number | null
+  location: string
+  soil_type: string
+  irrigation_type: string
+  status: 'active' | 'fallow' | 'archived'
+  notes: string
+  created_at: string
+  updated_at: string
+}
+
+export interface FarmCycle {
+  cycle_id: string
+  plot_id: string
+  crop: string
+  variety: string
+  planted_on: string | null
+  expected_harvest_on: string | null
+  status: 'growing' | 'harvested' | 'failed'
+  notes: string
+  created_at: string
+  updated_at: string
+}
+
+export type FarmRecordKind =
+  | 'sowing'
+  | 'fertilizing'
+  | 'irrigation'
+  | 'pesticide'
+  | 'weeding'
+  | 'scouting'
+  | 'harvest'
+  | 'other'
+
+export interface FarmRecord {
+  record_id: string
+  plot_id: string
+  plot_name: string
+  cycle_id: string | null
+  kind: FarmRecordKind
+  kind_label: string
+  occurred_on: string
+  title: string
+  content: string
+  quantity: number | null
+  unit: string
+  operator_name: string
+  metadata_json: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
+}
+
+export interface FarmReport {
+  title: string
+  kind: 'log' | 'weekly' | 'quarterly'
+  start: string
+  end: string
+  records: number
+  plots: number
+  content_md: string
+  stats: { by_kind: Record<string, number>; by_plot: Record<string, number> }
+}
+
+export interface FarmRecordQuery {
+  plot_id?: string
+  kind?: string
+  start?: string
+  end?: string
+  page?: number
+  page_size?: number
+}
+
+export const farmApi = {
+  plots(includeArchived = false): Promise<FarmPlot[]> {
+    return unwrap(api.get<ApiResponse<FarmPlot[]>>('/farm/plots', { params: { include_archived: includeArchived } }))
+  },
+  createPlot(payload: Partial<FarmPlot> & { name: string }): Promise<FarmPlot> {
+    return unwrap(api.post<ApiResponse<FarmPlot>>('/farm/plots', payload))
+  },
+  updatePlot(plotId: string, payload: Partial<FarmPlot>): Promise<FarmPlot> {
+    return unwrap(api.patch<ApiResponse<FarmPlot>>(`/farm/plots/${plotId}`, payload))
+  },
+  deletePlot(plotId: string): Promise<unknown> {
+    return unwrap(api.delete(`/farm/plots/${plotId}`))
+  },
+  cycles(plotId: string): Promise<FarmCycle[]> {
+    return unwrap(api.get<ApiResponse<FarmCycle[]>>(`/farm/plots/${plotId}/cycles`))
+  },
+  createCycle(plotId: string, payload: Partial<FarmCycle> & { crop: string }): Promise<FarmCycle> {
+    return unwrap(api.post<ApiResponse<FarmCycle>>(`/farm/plots/${plotId}/cycles`, payload))
+  },
+  updateCycle(cycleId: string, payload: Partial<FarmCycle>): Promise<FarmCycle> {
+    return unwrap(api.patch<ApiResponse<FarmCycle>>(`/farm/cycles/${cycleId}`, payload))
+  },
+  deleteCycle(cycleId: string): Promise<unknown> {
+    return unwrap(api.delete(`/farm/cycles/${cycleId}`))
+  },
+  records(query: FarmRecordQuery = {}): Promise<ListResult<FarmRecord>> {
+    return unwrapList(api.get<ListResponse<FarmRecord>>('/farm/records', { params: query }))
+  },
+  createRecord(payload: Partial<FarmRecord> & { plot_id: string; kind: string; occurred_on: string }): Promise<FarmRecord> {
+    return unwrap(api.post<ApiResponse<FarmRecord>>('/farm/records', payload))
+  },
+  updateRecord(recordId: string, payload: Partial<FarmRecord>): Promise<FarmRecord> {
+    return unwrap(api.patch<ApiResponse<FarmRecord>>(`/farm/records/${recordId}`, payload))
+  },
+  deleteRecord(recordId: string): Promise<unknown> {
+    return unwrap(api.delete(`/farm/records/${recordId}`))
+  },
+  report(payload: { kind: string; start: string; end: string; plot_id?: string }): Promise<FarmReport> {
+    return unwrap(api.post<ApiResponse<FarmReport>>('/farm/reports', payload))
+  },
+}

@@ -4276,7 +4276,7 @@ dependencies = [
 
 [[package]]
 name = "techyard-desktop"
-version = "3.7.0"
+version = "3.8.0"
 dependencies = [
  "dirs 6.0.0",
  "reqwest 0.12.28",

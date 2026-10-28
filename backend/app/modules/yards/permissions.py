@@ -16,6 +16,8 @@ ALL_PERMISSIONS: frozenset[str] = frozenset(
     {
         "knowledge:read",
         "knowledge:write",
+        "farm:read",
+        "farm:write",
         "tasks:create",
         "tasks:read",
         "tasks:retry",
@@ -91,6 +93,8 @@ PERMISSIONS: dict[str, frozenset[str]] = {
         {
             "knowledge:read",
             "knowledge:write",
+            "farm:read",
+            "farm:write",
             "feedback:write",
             "feedback:read",
             "review:approve",
@@ -109,6 +113,8 @@ PERMISSIONS: dict[str, frozenset[str]] = {
     "operator": frozenset(
         {
             "knowledge:read",
+            "farm:read",
+            "farm:write",
             "tasks:create",
             "tasks:read",
             "tasks:retry",
@@ -118,7 +124,14 @@ PERMISSIONS: dict[str, frozenset[str]] = {
         }
     ),
     "viewer": frozenset(
-        {"knowledge:read", "tasks:read", "feedback:write", "skills:generate", "tools:execute"}
+        {
+            "knowledge:read",
+            "farm:read",
+            "tasks:read",
+            "feedback:write",
+            "skills:generate",
+            "tools:execute",
+        }
     ),
     "service_worker": frozenset({"tasks:create", "tasks:read"}),
 }
@@ -161,11 +174,18 @@ PERMISSION_GROUPS: tuple[dict[str, object], ...] = (
         ],
     },
     {
+        "key": "farm",
+        "label": "农业台账",
+        "permissions": ["farm:read", "farm:write"],
+    },
+    {
         "key": "content",
         "label": "知识与审核",
         "permissions": [
             "knowledge:read",
             "knowledge:write",
+            "farm:read",
+            "farm:write",
             "feedback:write",
             "feedback:read",
             "review:approve",
