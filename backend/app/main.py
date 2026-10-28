@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.v1.router import router as v1_router
 from app.core.config import settings
@@ -12,6 +13,7 @@ from app.core.context import metrics
 from app.core.errors import (
     AppError,
     app_error_handler,
+    http_error_handler,
     unhandled_error_handler,
     validation_error_handler,
 )
@@ -94,10 +96,12 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="科技小院多智能体平台", version="3.13.0", lifespan=lifespan)
+    app = FastAPI(title="科技小院多智能体平台", version="3.16.0", lifespan=lifespan)
     app.add_middleware(RequestIDMiddleware)
     app.add_exception_handler(AppError, app_error_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)
+    # 框架自带的 404/405/403 也套统一信封：否则前端拿到 {"detail": ...} 会误报「网络连接失败」
+    app.add_exception_handler(StarletteHTTPException, http_error_handler)
     app.add_exception_handler(Exception, unhandled_error_handler)
 
     @app.get("/health/live", tags=["health"])

@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from fastapi import UploadFile
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -269,16 +269,98 @@ def delete_attachment(db: Session, *, yard_id: str, created_by: str, attachment_
     db.delete(att)
 
 
-def delete_session_attachments(
-    db: Session, *, yard_id: str, created_by: str, session_id: str
-) -> None:
-    """会话删除时级联清理附件与文件。"""
-    for att in list_attachments(db, yard_id=yard_id, created_by=created_by, session_id=session_id):
+def clone_attachments_for_branch(
+    db: Session,
+    *,
+    yard_id: str,
+    created_by: str,
+    source_session_id: str,
+    target_session_id: str,
+    attachment_ids: set[str] | None = None,
+) -> dict[str, str]:
+    """分支会话复制附件行（不复制文件本体），返回「原附件 id → 新附件 id」。
+
+    ``attachment_ids`` 限定只复制被分支消息真正引用到的附件；为 None 时复制全部。
+
+    两条附件行共用同一 ``storage_key``：文件只在没有任何行再引用它时才被删
+    （见 ``delete_session_attachments``），所以删掉分支不会弄坏原会话的附件。
+    """
+    id_map: dict[str, str] = {}
+    for att in list_attachments(
+        db, yard_id=yard_id, created_by=created_by, session_id=source_session_id
+    ):
+        if attachment_ids is not None and att.id not in attachment_ids:
+            continue
+        clone = ChatAttachment(
+            session_id=target_session_id,
+            yard_id=yard_id,
+            created_by=created_by,
+            filename=att.filename,
+            storage_key=att.storage_key,
+            mime=att.mime,
+            size_bytes=att.size_bytes,
+            kind=att.kind,
+            status=att.status,
+            extracted_text=att.extracted_text,
+            error=att.error,
+            doc_format=att.doc_format,
+            doc_model_json=att.doc_model_json,
+            generated=att.generated,
+        )
+        db.add(clone)
+        db.flush()
+        id_map[att.id] = clone.id
+    return id_map
+
+
+def remove_attachment_files(keys: list[str]) -> None:
+    """删掉已无人引用的存储键对应文件；单键失败只告警，不影响已落库的行删除。"""
+    backend = LocalStorageBackend()
+    for key in dict.fromkeys(k for k in keys if k):
         try:
-            LocalStorageBackend().delete(att.storage_key)
+            backend.delete(key)
         except Exception as e:  # noqa: BLE001
-            log.warning("附件文件删除失败 key=%s: %s", att.storage_key, e)
+            log.warning("附件文件删除失败 key=%s: %s", key, e)
+
+
+def delete_session_attachments(
+    db: Session,
+    *,
+    yard_id: str,
+    created_by: str,
+    session_id: str,
+    file_sink: list[str] | None = None,
+) -> None:
+    """会话删除时级联清理附件；文件仅在无人再引用该存储键时才动（分支共用同一份）。
+
+    ``file_sink`` 非空时**只登记待删键、不碰磁盘**：调用方（路由）在 ``db.commit()``
+    之后统一 ``remove_attachment_files``。在事务里直接 unlink 的话，一旦后面几步回滚，
+    行还在、文件已经没了——附件列会指向一个不存在的文件，用户看到的是永久损坏。
+    不传则维持原行为（就地删除），供独立调用方使用。
+    """
+    rows = list_attachments(db, yard_id=yard_id, created_by=created_by, session_id=session_id)
+    keys = [att.storage_key for att in rows]
+    for att in rows:
         db.delete(att)
+    db.flush()
+    unique = list(dict.fromkeys(k for k in keys if k))
+    if not unique:
+        return
+    # 一次分组查询问完「这些存储键还有谁在引用」，而不是每个键各跑一遍 COUNT
+    still_used = {
+        str(key)
+        for key, num in db.execute(
+            select(ChatAttachment.storage_key, func.count())
+            .where(ChatAttachment.storage_key.in_(unique))
+            .group_by(ChatAttachment.storage_key)
+        ).all()
+        if num
+    }
+    removable = [key for key in unique if key not in still_used]
+    if file_sink is not None:
+        file_sink.extend(removable)
+        return
+    remove_attachment_files(removable)
 
 
 def build_attachment_context(attachments: list[ChatAttachment]) -> str:
@@ -334,5 +416,6 @@ __all__ = [
     "delete_session_attachments",
     "get_attachment",
     "list_attachments",
+    "remove_attachment_files",
     "upload_attachment",
 ]

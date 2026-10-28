@@ -972,6 +972,11 @@ def _context_block(context: str) -> str:
     return f"\n\n{context}"
 
 
+def skills_prompt_for(db: Session, yard_id: str, codes: list[str] | None) -> str:
+    """对外入口：按 ``skill:<id>`` / ``plugin:<id>`` 编码取不可信包裹后的技能指令块。"""
+    return _resolve_bound_skills_prompt(db, yard_id, codes)
+
+
 def _resolve_bound_skills_prompt(db: Session, yard_id: str, bound_skills: list[str] | None) -> str:
     """将 Agent 绑定的多个 Skill / 插件（bound_skills）解析为附加的技能 SOP 指令块。
 

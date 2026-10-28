@@ -600,10 +600,11 @@
         </el-button>
       </template>
     </el-dialog>
-    <el-drawer
+    <el-dialog
       v-model="runResultVisible"
       title="插件运行结果"
-      size="480px"
+      width="480px"
+      align-center
     >
       <div class="run-body">
         <div class="run-section-title">
@@ -615,7 +616,7 @@
         </div>
         <pre>{{ runOutputsText }}</pre>
       </div>
-    </el-drawer>
+    </el-dialog>
   </div>
 </template>
 <script setup lang="ts">

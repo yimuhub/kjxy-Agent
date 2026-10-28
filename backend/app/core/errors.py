@@ -3,6 +3,7 @@
 from fastapi import Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 
 class AppError(Exception):
@@ -66,6 +67,39 @@ async def unhandled_error_handler(request: Request, exc: Exception) -> JSONRespo
                 "message": "服务暂时不可用，请稍后重试。",
                 "details": {},
             },
+            "request_id": _request_id(request),
+        },
+    )
+
+
+# HTTP 状态码 -> 统一错误码：框架自带的 404/405/403 等也走同一套信封，
+# 否则前端只能拿到 {"detail": ...}，会被当成「网络连接失败」误报。
+_HTTP_STATUS_CODES = {
+    400: "VALIDATION_ERROR",
+    401: "UNAUTHORIZED",
+    403: "FORBIDDEN",
+    404: "NOT_FOUND",
+    405: "METHOD_NOT_ALLOWED",
+    409: "CONFLICT",
+    422: "VALIDATION_ERROR",
+    429: "RATE_LIMITED",
+}
+
+
+async def http_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    if isinstance(exc, StarletteHTTPException):
+        http_status = exc.status_code
+        detail = exc.detail
+    else:  # pragma: no cover - 防御分支
+        http_status, detail = 500, "服务暂时不可用，请稍后重试。"
+    code = _HTTP_STATUS_CODES.get(
+        http_status, "INTERNAL_ERROR" if http_status >= 500 else "UNKNOWN"
+    )
+    message = detail if isinstance(detail, str) and detail else ""
+    return JSONResponse(
+        status_code=http_status,
+        content={
+            "error": {"code": code, "message": message, "details": {}},
             "request_id": _request_id(request),
         },
     )

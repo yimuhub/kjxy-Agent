@@ -460,10 +460,11 @@
       </template>
     </el-dialog>
 
-    <el-drawer
+    <el-dialog
       v-model="detailDrawer"
       :title="detail ? detail.title : '工单详情'"
-      size="520px"
+      width="520px"
+      align-center
     >
       <div
         v-if="detail"
@@ -629,7 +630,7 @@
           </el-button>
         </div>
       </div>
-    </el-drawer>
+    </el-dialog>
   </div>
 </template>
 
@@ -648,6 +649,7 @@
     type AlertSeverity,
   } from '@/api/modules'
   import { useAuthStore } from '@/stores/auth'
+  import { formatDateTime as formatTime } from '@/utils/format'
 
   const STATUS_OPTIONS: { value: WorkOrderStatus; label: string }[] = [
     { value: 'open', label: '待处理' },
@@ -770,11 +772,6 @@
   const statusDraft = ref<WorkOrderStatus | ''>('')
   const commentDraft = ref('')
   const receiptForm = reactive({ resolution: '', close: true })
-
-  function formatTime(value?: string | null): string {
-    if (!value) return '—'
-    return value.replace('T', ' ').slice(0, 16)
-  }
 
   function isTerminal(status: string): boolean {
     return TERMINAL.includes(status as WorkOrderStatus)
@@ -1078,6 +1075,10 @@
     margin: 0;
     color: var(--el-text-color-secondary);
     font-size: 12px;
+  }
+  .detail {
+    max-height: min(62vh, 640px);
+    overflow-y: auto;
   }
   .detail-meta {
     display: flex;

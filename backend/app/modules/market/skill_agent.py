@@ -39,6 +39,7 @@ from app.core.progress import (
     STEP_FAILED,
     STEP_RUNNING,
 )
+from app.modules.agents.bindable import list_bindable_extensions
 from app.modules.audit.service import log_audit
 from app.modules.evolution.models import Skill
 from app.modules.evolution.service import create_skill
@@ -272,6 +273,34 @@ def _local_scored(
     result = installer.search_items(db, ctx, query="", item_type="skill", limit=50)
     scored = [(_score(item, keywords), item) for item in (result.get("items") or [])]
     return [(score, item) for score, item in scored if score > 0]
+
+
+def select_relevant_skill_codes(
+    db: Session, *, ctx: YardContext, text: str, limit: int = 3
+) -> list[dict[str, str]]:
+    """在本小院**当前可用**的技能里按关键词挑几条（只查本地库，不联网、不装新技能）。
+
+    返回的 code 就是绑定编码契约（``skill:<id>``），可直接交给
+    ``declarative.skills_prompt_for`` 生成不可信包裹的 SOP 指令块。
+    """
+    keywords = _keywords(text)
+    if not keywords:
+        return []
+    entries = list_bindable_extensions(db, ctx.yard_id).get("skills") or []
+    scored: list[tuple[float, dict[str, Any]]] = []
+    for entry in entries:
+        haystack = f"{entry.get('name') or ''} {entry.get('summary') or ''}".lower()
+        score = float(sum(len(kw) for kw in keywords if kw in haystack))
+        if score > 0:
+            scored.append((score, entry))
+    scored.sort(key=lambda pair: (-pair[0], str(pair[1].get("name") or "")))
+    return [
+        {
+            "code": str(entry.get("code") or ""),
+            "name": str(entry.get("name") or entry.get("code") or ""),
+        }
+        for _, entry in scored[:limit]
+    ]
 
 
 def _find_matches(

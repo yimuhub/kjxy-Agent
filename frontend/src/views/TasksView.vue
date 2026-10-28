@@ -181,10 +181,11 @@
     </el-card>
 
     <!-- 任务详情抽屉 -->
-    <el-drawer
+    <el-dialog
       v-model="drawerVisible"
       title="任务详情"
-      size="520px"
+      width="520px"
+      align-center
       @close="closeDetailStream"
     >
       <AsyncState
@@ -259,7 +260,7 @@
           :image-size="60"
         />
       </AsyncState>
-    </el-drawer>
+    </el-dialog>
     <!-- 审批确认对话框 -->
     <el-dialog
       v-model="approvalDialogVisible"
@@ -585,6 +586,11 @@
     overflow: auto;
     white-space: pre-wrap;
     word-break: break-all;
+  }
+  /* 详情弹窗内进度事件随 SSE 实时追加：限高滚动，避免长列表顶高整个弹窗 */
+  .el-timeline {
+    max-height: 240px;
+    overflow-y: auto;
   }
   .approval-card {
     margin-bottom: 16px;

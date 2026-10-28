@@ -53,7 +53,12 @@
           </AsyncState>
         </el-card>
 
-        <el-drawer v-model="drawerVisible" :title="detail?.policy_name" size="50%">
+        <el-dialog
+          v-model="drawerVisible"
+          :title="detail?.policy_name"
+          width="72%"
+          align-center
+        >
           <div v-if="detail">
             <el-descriptions :column="1" border size="small" class="mb">
               <el-descriptions-item label="发布机构">{{ detail.publish_department || '-' }}</el-descriptions-item>
@@ -78,7 +83,7 @@
             <h4>材料要求</h4>
             <pre class="json">{{ pretty(detail.material_requirements_json) }}</pre>
           </div>
-        </el-drawer>
+        </el-dialog>
       </el-tab-pane>
 
       <!-- ============ Tab2：政策采集 ============ -->

@@ -53,6 +53,22 @@ class Settings(BaseSettings):
     llm_timeout_seconds: int = 60
     llm_max_tokens: int = 2048
 
+    # 对话内方案合成（v3.14）：输出上限必须显式给，否则供应商默认 max_tokens 会把
+    # 一份完整方案截成一段话；知识库证据够多时不再联网，省搜索配额也省时延。
+    plan_max_tokens: int = Field(
+        default=6000, ge=512, le=32000, description="方案成稿单次生成的输出 Token 上限"
+    )
+    plan_timeout_seconds: int = Field(
+        default=180,
+        ge=30,
+        le=600,
+        description="方案成稿单次生成超时（整份方案产出远超全局 60 秒默认值）",
+    )
+    plan_kb_min_hits: int = Field(
+        default=3, ge=1, le=20, description="知识库命中达到该条数即视为证据充足，跳过联网检索"
+    )
+    plan_repair_passes: int = Field(default=1, ge=0, le=2, description="缺失章节自动补写的最大轮数")
+
     # 多模态（v3.11）：均走当前生效供应商的 OpenAI 兼容端点。
     # 供应商模型不支持对应能力时返回明确错误，绝不伪造转写/识别结果。
     asr_model: str = Field(

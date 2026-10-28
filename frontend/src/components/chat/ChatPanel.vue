@@ -102,12 +102,18 @@
               :steps="row.m.steps"
               collapsible
             />
-            <!-- 纯文本 pre-wrap，不引 markdown 库 -->
+            <!-- 纯文本 pre-wrap；方案正文是 Markdown 成稿，用无脚本安全渲染器分节显示 -->
             <div
               class="bubble"
               :class="row.m.role"
             >
-              {{ row.m.content }}
+              <SafeMarkdown
+                v-if="isPlanMessage(row.m)"
+                :content="row.m.content"
+              />
+              <template v-else>
+                {{ row.m.content }}
+              </template>
             </div>
             <!-- 引用来源（v3.7）：知识库片段与网页链接可点开溯源 -->
             <details
@@ -120,6 +126,11 @@
                   v-for="(c, i) in row.m.citations"
                   :key="i"
                 >
+                  <!-- 编号与正文里的 [K1]/[W1] 对应，方案与问答都能顺着查到出处 -->
+                  <span
+                    v-if="c.reference"
+                    class="citation-ref"
+                  >{{ c.reference }}</span>
                   <a
                     v-if="safeHttpUrl(c.url)"
                     :href="safeHttpUrl(c.url)"
@@ -134,7 +145,7 @@
                 </li>
               </ul>
             </details>
-            <!-- 结构化载荷：技能卡片 / 插件卡片 / 能力草稿 / 能力市场卡片 -->
+            <!-- 结构化载荷：技能卡片 / 插件卡片 / 方案卡片 / 能力草稿 / 能力市场卡片 -->
             <SkillCard
               v-if="row.m.role === 'assistant' && row.m.payload?.type === 'skill_card'"
               :card="row.m.payload as ChatSkillCard"
@@ -147,6 +158,49 @@
               :store="store"
               :message-id="row.m.id"
             />
+            <PlanCard
+              v-else-if="row.m.role === 'assistant' && row.m.payload?.type === 'plan'"
+              :card="row.m.payload as ChatPlanCard"
+              :exporting="planExportingId === row.m.id"
+              @export="exportPlan(row.m)"
+              @escalate="openEscalate(row.m)"
+            />
+            <!-- 高风险操作待批准：给出审批单号与去批准入口，不含糊地说「已经做了」 -->
+            <div
+              v-else-if="row.m.role === 'assistant' && row.m.payload?.type === 'approval'"
+              class="msg-approval"
+              role="status"
+            >
+              <div class="apv-head">
+                <el-icon><Lock /></el-icon>
+                <span>{{
+                  (row.m.payload as ChatApprovalCard).title || '高风险操作待批准'
+                }}</span>
+              </div>
+              <p
+                v-if="(row.m.payload as ChatApprovalCard).hint"
+                class="apv-hint"
+              >
+                {{ (row.m.payload as ChatApprovalCard).hint }}
+              </p>
+              <ul class="apv-list">
+                <li
+                  v-for="item in (row.m.payload as ChatApprovalCard).items || []"
+                  :key="item.approval_id"
+                >
+                  <span class="apv-tool">{{ item.tool_code }}</span>
+                  <span class="apv-id">审批单 {{ item.approval_id.slice(0, 8) }}</span>
+                </li>
+              </ul>
+              <button
+                class="apv-go"
+                type="button"
+                title="前往任务中心的待审批列表处理"
+                @click="goApprovals"
+              >
+                去批准
+              </button>
+            </div>
             <ChatCard
               v-else-if="row.m.role === 'assistant' && row.m.payload"
               :card="row.m.payload as ChatStandardCard"
@@ -154,6 +208,33 @@
               @preview="openDocPreview"
               @download="downloadDoc"
             />
+            <!--
+              本轮既产出了别的卡片、又拦下了高风险调用：审批项附在原卡片下面，
+              而不是把方案/文档卡顶掉——两张信息用户都需要，且审批单号必须可点。
+            -->
+            <div
+              v-if="pendingApprovals(row.m).length"
+              class="msg-approval is-strip"
+              role="status"
+            >
+              <ul class="apv-list">
+                <li
+                  v-for="item in pendingApprovals(row.m)"
+                  :key="item.approval_id"
+                >
+                  <span class="apv-tool">{{ item.tool_code }}</span>
+                  <span class="apv-id">审批单 {{ item.approval_id.slice(0, 8) }}</span>
+                </li>
+              </ul>
+              <button
+                class="apv-go"
+                type="button"
+                title="前往任务中心的待审批列表处理"
+                @click="goApprovals"
+              >
+                去批准
+              </button>
+            </div>
             <!-- 一键复制：提问与回答都可复制，优先 Clipboard API，失败回退 execCommand -->
             <div
               v-if="row.m.content"
@@ -199,7 +280,37 @@
                         : '有问题'
                   }}</span>
                 </button>
+                <!-- 分支：从这条回答拉出一个全新对话（原对话不受影响） -->
+                <button
+                  v-if="store.activeId"
+                  class="msg-act"
+                  type="button"
+                  :disabled="forkBusy === row.m.id"
+                  title="以这条回答为止另开一个分支对话，继续往别的方向问"
+                  :aria-label="forkBusy === row.m.id ? '分支创建中' : '从这条回答分支'"
+                  @click="onFork(row.m)"
+                >
+                  <el-icon>
+                    <Loading
+                      v-if="forkBusy === row.m.id"
+                      class="is-spin"
+                    />
+                    <Share v-else />
+                  </el-icon>
+                  <span>{{ forkBusy === row.m.id ? '分支中' : '分支' }}</span>
+                </button>
               </template>
+              <!-- 引用：把这段原文贴进输入框，接着问它 -->
+              <button
+                class="msg-act"
+                type="button"
+                title="引用这段内容继续提问"
+                :aria-label="`引用这条${row.m.role === 'user' ? '提问' : '回答'}继续提问`"
+                @click="onQuote(row.m)"
+              >
+                <el-icon><ChatLineSquare /></el-icon>
+                <span>引用</span>
+              </button>
             </div>
             <!-- 纠错输入：提交后进入「专家审核」，通过后合入知识库，不再只是聊天里抱怨一句 -->
             <div
@@ -463,6 +574,18 @@
       >
         <template #reference>
           <div class="input-inner">
+            <!--
+              输入框行左端：本对话的高风险操作权限（每次询问 / 会话内自动放行 / 完全访问）。
+              知识问答只读知识库、不调用工具，所以不在该模式下出现。
+            -->
+            <ChatApprovalPicker
+              v-if="!qaMode"
+              :model-value="approvalMode"
+              :can-escalate="canEscalateApproval"
+              :has-session="!!store.activeId"
+              :disabled="store.sending || approvalBusy"
+              @update:model-value="onApprovalMode"
+            />
             <!-- 输入框左侧：上传附件（照片/文档） -->
             <button
               class="attach-btn"
@@ -589,27 +712,72 @@
         </el-button>
       </template>
     </el-dialog>
+    <!-- 转会诊（v3.14）：同一问题交给班组接力，多成员+检索融合的结果在班组页查看 -->
+    <el-dialog
+      v-model="escalateOpen"
+      title="转班组会诊"
+      width="min(520px, 92vw)"
+    >
+      <p class="escalate-question">
+        {{ escalateQuestion }}
+      </p>
+      <el-select
+        v-model="escalateTeamId"
+        placeholder="选择班组"
+      >
+        <el-option
+          v-for="t in escalateTeams"
+          :key="t.id"
+          :label="t.name"
+          :value="t.id"
+        />
+      </el-select>
+      <p
+        v-if="!escalateTeams.length"
+        class="escalate-empty"
+      >
+        本小院还没有启用的班组，可先到「班组」页创建一个再转。
+      </p>
+      <template #footer>
+        <el-button @click="escalateOpen = false">
+          取消
+        </el-button>
+        <el-button
+          type="primary"
+          :disabled="!escalateTeamId"
+          :loading="escalateBusy"
+          @click="confirmEscalate"
+        >
+          提交会诊
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
   import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+  import { useRouter } from 'vue-router'
   import { ElInput, ElMessage } from 'element-plus'
   import {
+    ChatLineSquare,
     Close,
     CopyDocument,
     Document,
     EditPen,
     Goods,
     Loading,
+    Lock,
     Microphone,
     Paperclip,
     Picture,
     Promotion,
+    Share,
     VideoPause,
     View,
     Warning,
   } from '@element-plus/icons-vue'
+  import ChatApprovalPicker from '@/components/chat/ChatApprovalPicker.vue'
   import ChatCard from '@/components/chat/ChatCard.vue'
   import ChatMemberBar from '@/components/chat/ChatMemberBar.vue'
   import ChatMentionLayer from '@/components/chat/ChatMentionLayer.vue'
@@ -617,14 +785,27 @@
   import ChatSteps from '@/components/chat/ChatSteps.vue'
   import { safeHttpUrl } from '@/components/teams/presentation'
   import PluginCard from '@/components/chat/PluginCard.vue'
+  import PlanCard from '@/components/chat/PlanCard.vue'
+  import SafeMarkdown from '@/components/teams/SafeMarkdown.vue'
   import SkillCard from '@/components/chat/SkillCard.vue'
-  import { chatApi, mentionDisplayName, normalizeRoutedTone } from '@/api/chat'
-  import { feedbackApi } from '@/api/modules'
+  import {
+    APPROVAL_MODE_META,
+    chatApi,
+    mentionDisplayName,
+    normalizeRoutedTone,
+    planDocModel,
+  } from '@/api/chat'
+  import { feedbackApi, teamApi } from '@/api/modules'
+  import { useAuthStore } from '@/stores/auth'
   import type {
+    ChatApprovalCard,
+    ChatApprovalItem,
+    ChatApprovalMode,
     ChatAttachment,
     ChatDocumentCard,
     ChatGroupPolicy,
     ChatMessage,
+    ChatPlanCard,
     ChatPluginCard,
     ChatRoutedBy,
     ChatSkillCard,
@@ -632,6 +813,7 @@
     MentionCandidate,
     RoutedTone,
   } from '@/api/chat'
+  import type { TeamDefinition } from '@/api/modules'
   import type { MemberRoundRow } from '@/stores/chat'
   import type { ChatStoreInstance } from '@/stores/chat'
 
@@ -646,6 +828,11 @@
     manual: { label: '手动指定', type: 'info', tip: '用户手动指定的执行对象' },
     local: { label: '对话直办', type: 'info', tip: '由对话直接处理，未走助手路由' },
     qa: { label: '知识问答', type: 'primary', tip: '只依据知识库资料回答，附引用来源' },
+    plan: {
+      label: '多源方案',
+      type: 'success',
+      tip: '合并知识库、联网公开资料、技能与模型知识合成完整方案',
+    },
     error: { label: '执行失败', type: 'danger', tip: '执行遇到问题，可换个说法再问' },
   }
 
@@ -718,6 +905,10 @@
   }>()
 
   const draft = ref('')
+  /** 角色用于决定「自动放行 / 完全访问」是否可选；最终裁决在服务端 */
+  const auth = useAuthStore()
+  /** 待批准卡片跳任务中心审批列表 */
+  const router = useRouter()
   /** 知识问答模式的检索条数（1–20，默认 5；只在问答模式生效） */
   const qaTopK = ref(5)
   /** 刚复制过的消息 id（按钮短暂显示「已复制」） */
@@ -730,6 +921,10 @@
   const fbDraft = ref<Record<string, string>>({})
   const fbOpenId = ref('')
   const fbBusy = ref('')
+  /** 分支进行中的消息 id（同一时刻只让点一个，避免连点建出多个分支会话） */
+  const forkBusy = ref('')
+  /** 授权模式提交中：请求在途时禁用选择器，防止连续点成与显示不一致的状态 */
+  const approvalBusy = ref(false)
   const streamRef = ref<HTMLElement | null>(null)
   const inputRef = ref<InstanceType<typeof ElInput> | null>(null)
   const fileRef = ref<HTMLInputElement | null>(null)
@@ -849,6 +1044,98 @@
     window.setTimeout(() => {
       if (copiedId.value === m.id) copiedId.value = ''
     }, 1500)
+  }
+
+  /**
+   * 引用这段原文进输入框：带来源标记，用户接着写自己的问题。
+   * 按行加 `> ` 前缀——正文按纯文本入库，Markdown 渲染时正是标准引用块。
+   * 输入框 maxlength=2000，超长时保住引用块、截掉尾部草稿，不做静默丢弃。
+   */
+  const QUOTE_CAP = 600
+  const DRAFT_CAP = 2000
+
+  function onQuote(m: ChatMessage) {
+    const raw = (m.content ?? '').trim()
+    if (!raw) return
+    const clipped = raw.length > QUOTE_CAP ? `${raw.slice(0, QUOTE_CAP)}…` : raw
+    const body = clipped
+      .split('\n')
+      .map(line => (line ? `> ${line}` : '>'))
+      .join('\n')
+    const who =
+      m.role === 'user'
+        ? '我自己的上一句'
+        : `这条回答${m.routed_label ? `（${m.routed_label}）` : ''}`
+    const block = `引用${who}：\n${body}\n\n`
+    const tail = draft.value.trim()
+    const merged = tail ? `${tail}\n\n${block}` : block
+    draft.value = merged.length > DRAFT_CAP ? merged.slice(0, DRAFT_CAP) : merged
+    void nextTick(() => {
+      const el = inputRef.value?.ref as HTMLTextAreaElement | undefined
+      el?.focus()
+      const end = el?.value.length ?? 0
+      el?.setSelectionRange(end, end)
+    })
+  }
+
+  /** 分支：把「到这条回答为止」的历史复制成一个全新会话并立刻切过去 */
+  async function onFork(m: ChatMessage) {
+    if (forkBusy.value) return
+    forkBusy.value = m.id
+    try {
+      const branch = await props.store.forkFromMessage(m.id)
+      if (branch) {
+        ElMessage.success(`已分支为「${branch.title || '新对话'}」，原对话不受影响`)
+        void nextTick(() => scrollToBottom())
+      }
+    } catch {
+      ElMessage.error('分支创建失败，请稍后重试')
+    } finally {
+      forkBusy.value = ''
+    }
+  }
+
+  /** 本对话当前生效的授权模式：只认服务端回包，被降级时显示的也是降级后的值 */
+  const approvalMode = computed<ChatApprovalMode>(
+    () => props.store.activeSession?.approval_mode ?? 'ask',
+  )
+
+  /** 与后端 APPROVAL_ESCALATION_ROLES 同口径：能批准工具的人才有权免批准 */
+  const canEscalateApproval = computed(() => auth.isYardAdmin() || auth.roles.includes('expert'))
+
+  async function onApprovalMode(mode: ChatApprovalMode) {
+    if (approvalBusy.value) return
+    approvalBusy.value = true
+    try {
+      const next = await props.store.setApprovalMode(mode)
+      const effective = (next?.approval_mode ?? mode) as ChatApprovalMode
+      if (effective !== mode) {
+        ElMessage.warning('当前角色开不了这一档，已回到「每次询问」')
+      } else {
+        ElMessage.success(`本对话的操作权限已设为「${APPROVAL_MODE_META[effective].label}」`)
+      }
+    } catch {
+      ElMessage.error('权限设置失败，请稍后重试')
+    } finally {
+      approvalBusy.value = false
+    }
+  }
+
+  /**
+   * 本轮被风险闸拦下的调用（附在别的卡片上的那份）。
+   *
+   * 单独成卡的审批（payload.type=approval）不走这里，避免同一条审批渲染两遍。
+   */
+  function pendingApprovals(m: ChatMessage): ChatApprovalItem[] {
+    if (m.role !== 'assistant') return []
+    const payload = m.payload as { type?: string; approvals?: ChatApprovalItem[] } | null
+    if (!payload || payload.type === 'approval') return []
+    return payload.approvals ?? []
+  }
+
+  /** 审批单在任务中心的「待审批的高风险操作」里处理 */
+  function goApprovals() {
+    router.push('/tasks')
   }
 
   /**
@@ -1088,9 +1375,84 @@
     }
   }
 
+  /** ---- 方案（v3.14）：正文按 Markdown 渲染，卡片负责导出与会诊 ---- */
+  function isPlanMessage(m: ChatMessage): boolean {
+    return m.role === 'assistant' && m.payload?.type === 'plan'
+  }
+
+  /** 方案对应的原始需求：往上找最近一条用户消息（转会诊要带着它跑班组） */
+  function questionOf(m: ChatMessage): string {
+    const rows = props.store.messages
+    const index = rows.findIndex(row => row.id === m.id)
+    for (let i = index - 1; i >= 0; i -= 1) {
+      if (rows[i].role === 'user' && rows[i].content.trim()) return rows[i].content.trim()
+    }
+    return (m.payload?.type === 'plan' && m.payload.title) || ''
+  }
+
+  const planExportingId = ref('')
+
+  /** 导出：分节正文 → DocModel → 既有文档端点（docx），拿到卡片后直接下载 */
+  async function exportPlan(m: ChatMessage) {
+    const card = m.payload
+    const sessionId = props.store.activeId
+    if (card?.type !== 'plan') return
+    if (!sessionId) {
+      ElMessage.warning('会话还没保存，先发一条消息再导出')
+      return
+    }
+    if (planExportingId.value) return
+    planExportingId.value = m.id
+    try {
+      const doc = await chatApi.createDocument(
+        sessionId,
+        'docx',
+        planDocModel(card, questionOf(m) || '方案', m.citations || []),
+      )
+      await downloadDoc(doc)
+    } catch {
+      ElMessage.error('导出失败，请稍后重试')
+    } finally {
+      planExportingId.value = ''
+    }
+  }
+
+  const escalateOpen = ref(false)
+  const escalateBusy = ref(false)
+  const escalateQuestion = ref('')
+  const escalateTeamId = ref('')
+  const escalateTeams = ref<TeamDefinition[]>([])
+
+  async function openEscalate(m: ChatMessage) {
+    escalateQuestion.value = questionOf(m) || m.content.slice(0, 500)
+    escalateTeamId.value = ''
+    escalateOpen.value = true
+    if (escalateTeams.value.length) return
+    try {
+      escalateTeams.value = (await teamApi.list()).filter(t => t.enabled)
+    } catch {
+      escalateTeams.value = []
+    }
+  }
+
+  /** 转会诊：同一问题交给班组接力（多成员+检索融合），结果在班组页查看 */
+  async function confirmEscalate() {
+    const team = escalateTeams.value.find(t => t.id === escalateTeamId.value)
+    if (!team || escalateBusy.value) return
+    escalateBusy.value = true
+    try {
+      const run = await teamApi.run(team.id, escalateQuestion.value, 'md')
+      escalateOpen.value = false
+      ElMessage.success(`已提交「${team.name}」会诊，可在班组页查看运行 ${run.id.slice(0, 8)}`)
+    } catch {
+      ElMessage.error('提交会诊失败，请稍后重试')
+    } finally {
+      escalateBusy.value = false
+    }
+  }
+
   /** 卡片发布成功：把新状态回写到消息载荷，刷新后仍然一致 */
-  function onCardPublished(messageId: string, status: string) {
-    const msg = props.store.messages.find(m => m.id === messageId)
+  function onCardPublished(messageId: string, status: string) {    const msg = props.store.messages.find(m => m.id === messageId)
     if (msg?.payload && msg.payload.type === 'capability') {
       msg.payload.status = status
     }
@@ -1272,6 +1634,14 @@
     text-decoration: underline;
     text-underline-offset: 2px;
   }
+  .citation-ref {
+    margin-right: 6px;
+    padding: 0 4px;
+    border-radius: 3px;
+    background: var(--ds-glass, rgba(255, 255, 255, 0.06));
+    color: var(--ds-text-2);
+    font-variant-numeric: tabular-nums;
+  }
   .citation-quote {
     display: block;
     margin-top: 2px;
@@ -1315,7 +1685,8 @@
     margin: 4px 4px 0;
   }
   .msg-copy,
-  .msg-fb {
+  .msg-fb,
+  .msg-act {
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -1335,13 +1706,16 @@
   .msg-copy:hover,
   .msg-copy:focus-visible,
   .msg-fb:hover,
-  .msg-fb:focus-visible {
+  .msg-fb:focus-visible,
+  .msg-act:hover,
+  .msg-act:focus-visible {
     color: var(--ds-text-1);
     background: var(--ds-glass-strong);
     border-color: var(--ds-border);
   }
   .msg-copy:active,
-  .msg-fb:active {
+  .msg-fb:active,
+  .msg-act:active {
     color: var(--ds-accent-text);
   }
   /* 已反馈：让「说过一次」在会话内可见，避免重复提交 */
@@ -1352,9 +1726,73 @@
     background: var(--ds-glass-strong);
   }
   .msg-copy:disabled,
-  .msg-fb:disabled {
+  .msg-fb:disabled,
+  .msg-act:disabled {
     cursor: default;
     opacity: 0.6;
+  }
+
+  /* 高风险操作待批准：把「被拦下了、拦在哪张单上、去哪儿批」说清楚 */
+  .msg-approval {
+    margin: 8px 4px 0;
+    padding: 10px 12px;
+    border: 1px solid color-mix(in srgb, var(--ds-warning) 45%, transparent);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--ds-warning) 8%, transparent);
+  }
+  /* 附在其他卡片下面的紧凑审批条：一行放得下，不再占一整块卡片的高度 */
+  .msg-approval.is-strip {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 6px 4px 0;
+    padding: 6px 10px;
+  }
+  .msg-approval.is-strip .apv-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+  }
+  .apv-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--ds-warning);
+  }
+  .apv-hint {
+    margin: 6px 0 0;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--ds-text-2);
+  }
+  .apv-list {
+    margin: 6px 0 0;
+    padding-left: 18px;
+    font-size: 12px;
+    color: var(--ds-text-2);
+  }
+  .apv-id {
+    margin-left: 6px;
+    color: var(--ds-text-3);
+    font-variant-numeric: tabular-nums;
+  }
+  .apv-go {
+    margin-top: 8px;
+    padding: 3px 12px;
+    font-size: 12px;
+    color: var(--ds-warning);
+    background: transparent;
+    border: 1px solid color-mix(in srgb, var(--ds-warning) 55%, transparent);
+    border-radius: var(--ds-radius-pill);
+    cursor: pointer;
+  }
+  .apv-go:hover,
+  .apv-go:focus-visible {
+    background: color-mix(in srgb, var(--ds-warning) 16%, transparent);
   }
 
   /* 纠错输入区：紧贴被纠正的那条回答，写清去向是专家审核 */
@@ -1895,6 +2333,24 @@
     display: block;
     background: #0b0e14;
   }
+  .escalate-question {
+    margin: 0 0 12px;
+    padding: 8px 10px;
+    border-radius: var(--ds-radius-sm, 6px);
+    background: var(--ds-glass, rgba(255, 255, 255, 0.05));
+    color: var(--ds-text-2);
+    font-size: 13px;
+    line-height: 1.6;
+    max-height: 140px;
+    overflow: auto;
+    white-space: pre-wrap;
+  }
+  .escalate-empty {
+    margin: 10px 0 0;
+    color: var(--ds-text-3);
+    font-size: 12px;
+  }
+
   :deep(.doc-preview-dialog .el-dialog__body) {
     padding: 10px 14px;
   }

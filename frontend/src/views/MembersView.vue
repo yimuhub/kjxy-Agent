@@ -540,10 +540,11 @@
     </el-dialog>
 
     <!-- 编辑成员 -->
-    <el-drawer
+    <el-dialog
       v-model="editDrawer"
       :title="`编辑成员：${editTarget?.display_name || editTarget?.username || ''}`"
-      size="460px"
+      width="460px"
+      align-center
       @closed="editTarget = null"
     >
       <el-form
@@ -630,7 +631,7 @@
           保存
         </el-button>
       </template>
-    </el-drawer>
+    </el-dialog>
 
     <!-- 批量导入（保留用户名 + 角色模式） -->
     <el-dialog

@@ -66,6 +66,8 @@ class ToolApproval(Base, TimestampMixin):
     )  # pending|approved|rejected|cancelled
     requested_by: Mapped[str] = mapped_column(String(36), nullable=False)
     task_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    #: 发起该审批的对话会话（0043）：授权模式 auto 只在同一会话内复用已批准单
+    chat_session_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     decided_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

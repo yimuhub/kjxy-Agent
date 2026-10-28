@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -29,10 +30,13 @@ from app.modules.chat import attachments as attachments_service
 from app.modules.chat import capability as capability_service
 from app.modules.chat import intent as intent_service
 from app.modules.chat.models import (
+    APPROVAL_ASK,
+    APPROVAL_ESCALATION_ROLES,
     MSG_FAILED,
     MSG_OK,
     ROLE_ASSISTANT,
     ROLE_USER,
+    VALID_APPROVAL_MODES,
     ChatAttachment,
     ChatMessage,
     ChatParticipant,
@@ -44,6 +48,8 @@ log = get_logger(__name__)
 
 TITLE_CAP = 60
 CONTENT_CAP = 8000
+# 助手侧单独放宽：一份完整方案（八章 + 分步细则）常超 8000 字，按输入上限切它会静默丢章节
+ASSISTANT_CONTENT_CAP = 20000
 ROUTED_LOCAL = "local"
 
 
@@ -80,6 +86,10 @@ def _session_token_summary(db: Session, session_id: str, yard_id: str) -> dict[s
         if isinstance(tu, dict):
             in_tok += int(tu.get("input_tokens") or 0)
             out_tok += int(tu.get("output_tokens") or 0)
+        elif tu is not None:
+            # 存坏了的计量（非 dict 也非空）：与批量统计同口径按 0 计——按字数估会把
+            # 一条已有计量记录算成两份，列表和详情就会出现两个总数。
+            continue
         elif m.role == ROLE_ASSISTANT and m.content:
             out_tok += estimate_token_count(m.content)
         elif m.role == ROLE_USER and m.content:
@@ -92,12 +102,127 @@ def _session_token_summary(db: Session, session_id: str, yard_id: str) -> dict[s
     }
 
 
-def session_out(db: Session, session: ChatSession) -> dict[str, Any]:
-    tok_meta = _session_token_summary(db, session.id, session.yard_id)
+def _chunks(items: list[str], size: int = 500) -> list[list[str]]:
+    """IN 子句分批。
+
+    会话列表不分页，几百上千条时把 id 一次性塞进 IN，SQLite 的绑定变量上限
+    （老版本 999）会直接让查询报错——分批比指望数据库宽松更可靠。
+    """
+    return [items[i : i + size] for i in range(0, len(items), size)]
+
+
+def _bulk_message_stats(
+    db: Session, session_ids: list[str], yard_id: str
+) -> dict[str, dict[str, int]]:
+    """整页会话的消息数与 Token 统计，一条查询搞定（列表原本每行各跑一遍）。
+
+    只取 (session_id, token_usage_json) 两列，正文不进这次查询；
+    早期消息没带 token_usage_json 时，仅对**缺计量的那部分**回读正文按字数估，
+    与 ``_session_token_summary`` 单条口径一致。
+    """
+    stats = {
+        sid: {"message_count": 0, "input_tokens": 0, "output_tokens": 0} for sid in session_ids
+    }
+    if not session_ids:
+        return stats
+    missing: set[str] = set()
+    for group in _chunks(session_ids):
+        rows = db.execute(
+            select(ChatMessage.session_id, ChatMessage.token_usage_json).where(
+                ChatMessage.session_id.in_(group), ChatMessage.yard_id == yard_id
+            )
+        ).all()
+        for sid, tu in rows:
+            bucket = stats.get(sid)
+            if bucket is None:
+                continue
+            bucket["message_count"] += 1
+            if isinstance(tu, dict):
+                bucket["input_tokens"] += int(tu.get("input_tokens") or 0)
+                bucket["output_tokens"] += int(tu.get("output_tokens") or 0)
+            elif tu is None:
+                missing.add(sid)
+    if missing:
+        for group in _chunks(sorted(missing)):
+            legacy = db.execute(
+                select(ChatMessage.session_id, ChatMessage.role, ChatMessage.content).where(
+                    ChatMessage.session_id.in_(group),
+                    ChatMessage.yard_id == yard_id,
+                    ChatMessage.token_usage_json.is_(None),
+                )
+            ).all()
+            for sid, role, content in legacy:
+                if not content:
+                    continue
+                bucket = stats[sid]
+                if role == ROLE_ASSISTANT:
+                    bucket["output_tokens"] += estimate_token_count(content)
+                elif role == ROLE_USER:
+                    bucket["input_tokens"] += estimate_token_count(content)
+    for bucket in stats.values():
+        bucket["total_tokens"] = bucket["input_tokens"] + bucket["output_tokens"]
+    return stats
+
+
+def sessions_out_bulk(db: Session, rows: list[ChatSession]) -> list[dict[str, Any]]:
+    """会话列表的批量序列化：统计/群聊人数/助手名各一条查询。
+
+    几百条会话时逐行查询要发近千条 SQL，点一下「置顶」都要等回读，慢到不能用；
+    这里压成四条，序列化形状仍复用 ``session_out``，避免列表与详情两份字段漂移。
+    """
+    if not rows:
+        return []
+    ids = [r.id for r in rows]
+    yard_id = rows[0].yard_id
+    stats = _bulk_message_stats(db, ids, yard_id)
+    counts: dict[str, int] = {}
+    for group in _chunks(ids):
+        for sid, num in db.execute(
+            select(ChatParticipant.session_id, func.count())
+            .where(ChatParticipant.session_id.in_(group))
+            .group_by(ChatParticipant.session_id)
+        ).all():
+            counts[str(sid)] = int(num or 0)
+    codes = {r.target_code for r in rows if r.target == "agent" and r.target_code}
+    names: dict[str, str] = {}
+    for group in _chunks(sorted(codes)):
+        names.update(
+            {
+                str(code): str(name)
+                for code, name in db.execute(
+                    select(YardAgent.agent_code, YardAgent.name).where(
+                        YardAgent.yard_id == yard_id, YardAgent.agent_code.in_(group)
+                    )
+                ).all()
+            }
+        )
+    return [
+        session_out(
+            db,
+            r,
+            stats=stats.get(r.id),
+            participant_count=counts.get(r.id, 0),
+            target_name=names.get(r.target_code or "") or r.target_code,
+        )
+        for r in rows
+    ]
+
+
+def session_out(
+    db: Session,
+    session: ChatSession,
+    *,
+    stats: dict[str, int] | None = None,
+    participant_count: int | None = None,
+    target_name: str | None = None,
+) -> dict[str, Any]:
+    """会话序列化。批量列表可传入预统计值跳过逐行查询（三条路径同一份字段）。"""
+    tok_meta = (
+        stats if stats is not None else _session_token_summary(db, session.id, session.yard_id)
+    )
     target = getattr(session, "target", None) or "auto"
     target_code = getattr(session, "target_code", None)
-    target_name: str | None = None
-    if target == "agent" and target_code:
+    if target_name is None and target == "agent" and target_code:
         # 会话列表的「智能体」标识：按 agent_code 解析展示名，改名前的老会话也能显示
         target_name = (
             db.scalar(
@@ -108,14 +233,15 @@ def session_out(db: Session, session: ChatSession) -> dict[str, Any]:
             )
             or target_code
         )
-    participant_count = int(
-        db.scalar(
-            select(func.count())
-            .select_from(ChatParticipant)
-            .where(ChatParticipant.session_id == session.id)
+    if participant_count is None:
+        participant_count = int(
+            db.scalar(
+                select(func.count())
+                .select_from(ChatParticipant)
+                .where(ChatParticipant.session_id == session.id)
+            )
+            or 0
         )
-        or 0
-    )
     return {
         "id": session.id,
         "title": session.title,
@@ -130,6 +256,15 @@ def session_out(db: Session, session: ChatSession) -> dict[str, Any]:
         "target_code": target_code,
         "target_name": target_name,
         "participant_count": participant_count,
+        # ---- 0043 会话列表管理与授权模式 ----
+        "pinned": session.pinned_at is not None,
+        "pinned_at": session.pinned_at.isoformat() if session.pinned_at else None,
+        "archived": session.archived_at is not None,
+        "archived_at": session.archived_at.isoformat() if session.archived_at else None,
+        "unread": bool(session.unread),
+        "approval_mode": session.approval_mode or APPROVAL_ASK,
+        "parent_session_id": session.parent_session_id,
+        "parent_message_id": session.parent_message_id,
     }
 
 
@@ -282,16 +417,31 @@ def create_session(
     return session
 
 
-def list_sessions(db: Session, *, yard_id: str, created_by: str) -> list[dict[str, Any]]:
-    """本人会话列表（最近更新在前）+ 各自消息数与累计 Token。"""
+def list_sessions(
+    db: Session, *, yard_id: str, created_by: str, archived: bool = False
+) -> list[dict[str, Any]]:
+    """本人会话列表：置顶恒在最前（按置顶时间倒序），其余最近更新在前。
+
+    ``archived=False`` 只给进行中，``True`` 只给已归档——前端顶部「进行中/已归档」
+    切换用的就是这一个参数，不做混合返回。
+    """
+    cond = ChatSession.archived_at.is_not(None) if archived else ChatSession.archived_at.is_(None)
     rows = list(
         db.scalars(
             select(ChatSession)
-            .where(ChatSession.yard_id == yard_id, ChatSession.created_by == created_by)
-            .order_by(ChatSession.updated_at.desc())
+            .where(
+                ChatSession.yard_id == yard_id,
+                ChatSession.created_by == created_by,
+                cond,
+            )
+            .order_by(
+                ChatSession.pinned_at.is_(None).asc(),
+                ChatSession.pinned_at.desc(),
+                ChatSession.updated_at.desc(),
+            )
         )
     )
-    return [session_out(db, r) for r in rows]
+    return sessions_out_bulk(db, rows)
 
 
 def rename_session(
@@ -317,7 +467,308 @@ def rename_session(
     return session
 
 
-def delete_session(db: Session, *, yard_id: str, created_by: str, session_id: str) -> None:
+def update_session_flags(
+    db: Session,
+    *,
+    yard_id: str,
+    created_by: str,
+    session_id: str,
+    title: str | None = None,
+    pinned: bool | None = None,
+    archived: bool | None = None,
+    unread: bool | None = None,
+    approval_mode: str | None = None,
+    roles: tuple[str, ...] | list[str] = (),
+    request_id: str = "",
+) -> ChatSession:
+    """会话标记位局部更新（PATCH 语义：只改显式传入的字段）。
+
+    授权模式是权限动作：``auto``/``full`` 只有能批准工具的人（小院管理员/负责人/
+    专家/平台管理员）能开，其余角色请求这两个值时静默降级为 ``ask`` 并留痕，
+    不因为一个前端误传就把高风险工具免批准。
+    """
+    session = get_session(db, yard_id=yard_id, created_by=created_by, session_id=session_id)
+    changed: dict[str, Any] = {}
+
+    if title is not None:
+        clean = title.strip()
+        if not clean:
+            raise AppError("INVALID_REQUEST", "会话标题不能为空。", http_status=400)
+        session.title = clean[:200]
+        changed["title"] = session.title
+
+    if pinned is not None:
+        session.pinned_at = _utcnow() if pinned else None
+        changed["pinned"] = bool(pinned)
+
+    if archived is not None:
+        session.archived_at = _utcnow() if archived else None
+        changed["archived"] = bool(archived)
+
+    if unread is not None:
+        session.unread = bool(unread)
+        changed["unread"] = bool(unread)
+
+    if approval_mode is not None:
+        if approval_mode not in VALID_APPROVAL_MODES:
+            raise AppError(
+                "INVALID_REQUEST",
+                f"非法的授权模式：{approval_mode}。",
+                http_status=400,
+                details={"allowed": list(VALID_APPROVAL_MODES)},
+            )
+        requested = approval_mode
+        if requested != APPROVAL_ASK and not set(roles) & set(APPROVAL_ESCALATION_ROLES):
+            requested = APPROVAL_ASK
+            changed["approval_mode_downgraded"] = {"from": approval_mode, "to": APPROVAL_ASK}
+        session.approval_mode = requested
+        changed["approval_mode"] = requested
+
+    if changed:
+        session.updated_at = _utcnow()
+        log_audit(
+            db,
+            yard_id=yard_id,
+            actor_id=created_by,
+            action="chat_session_flags_updated",
+            resource_type="chat_session",
+            resource_id=session.id,
+            result="success",
+            request_id=request_id,
+            metadata=changed,
+        )
+    return session
+
+
+#: 批量动作 → (标记位, 是否删除)；删除单独走 delete_session 以复用附件级联清理
+BATCH_ACTIONS = ("pin", "unpin", "archive", "unarchive", "read", "unread", "delete")
+
+
+def batch_sessions(
+    db: Session,
+    *,
+    yard_id: str,
+    created_by: str,
+    session_ids: list[str],
+    action: str,
+    request_id: str = "",
+    file_sink: list[str] | None = None,
+) -> dict[str, Any]:
+    """批量操作：一次请求处理多个会话，越权/不存在的 id 直接跳过（不泄露存在性）。
+
+    ``action=delete`` 时被删会话的附件存储键进了 ``file_sink`` 就交给调用方，
+    必须等 ``db.commit()`` 成功之后再删文件。
+    """
+    if action not in BATCH_ACTIONS:
+        raise AppError(
+            "INVALID_REQUEST",
+            f"不支持的批量动作：{action}。",
+            http_status=400,
+            details={"allowed": list(BATCH_ACTIONS)},
+        )
+    ids = [sid for sid in dict.fromkeys(session_ids) if sid]
+    if not ids:
+        raise AppError("INVALID_REQUEST", "请至少选择一个会话。", http_status=400)
+    if len(ids) > 200:
+        raise AppError("INVALID_REQUEST", "单次批量操作最多 200 个会话。", http_status=400)
+
+    rows = list(
+        db.scalars(
+            select(ChatSession).where(
+                ChatSession.yard_id == yard_id,
+                ChatSession.created_by == created_by,
+                ChatSession.id.in_(ids),
+            )
+        )
+    )
+    found = {r.id for r in rows}
+    affected: list[str] = []
+    deleted = 0
+    for session in rows:
+        if action == "delete":
+            delete_session(
+                db,
+                yard_id=yard_id,
+                created_by=created_by,
+                session_id=session.id,
+                audit=False,
+                file_sink=file_sink,
+            )
+            deleted += 1
+            affected.append(session.id)
+            continue
+        if action == "pin":
+            session.pinned_at = _utcnow()
+        elif action == "unpin":
+            session.pinned_at = None
+        elif action == "archive":
+            session.archived_at = _utcnow()
+        elif action == "unarchive":
+            session.archived_at = None
+        elif action == "read":
+            session.unread = False
+        else:  # unread
+            session.unread = True
+        session.updated_at = _utcnow()
+        affected.append(session.id)
+
+    log_audit(
+        db,
+        yard_id=yard_id,
+        actor_id=created_by,
+        action="chat_session_batch",
+        resource_type="chat_session",
+        resource_id="",
+        result="success",
+        request_id=request_id,
+        metadata={"action": action, "count": len(affected), "skipped": len(ids) - len(found)},
+    )
+    return {
+        "action": action,
+        "affected": affected,
+        "deleted": deleted,
+        "missing": len(ids) - len(found),
+    }
+
+
+def fork_session(
+    db: Session,
+    *,
+    yard_id: str,
+    created_by: str,
+    session_id: str,
+    message_id: str,
+    request_id: str = "",
+) -> ChatSession:
+    """分支：把「到这条回答为止」的历史复制进一个全新会话。
+
+    口径（产品定稿）：
+    1. 复制该回答及其之前的全部消息（含卡片/步骤/引用/Token 存证），原会话不动；
+    2. 新会话标题为「原会话标题 · 分支」，并记 ``parent_session_id``/``parent_message_id``；
+    3. 附件只复制被复制消息引用到的行，文件本体与原件共用（见
+       ``attachments.clone_attachments_for_branch``），删分支不会弄坏原会话附件；
+    4. 群聊名单与授权模式一并继承——分支是同一场景的另一条思路，不该改协作对象。
+    """
+    source = get_session(db, yard_id=yard_id, created_by=created_by, session_id=session_id)
+    anchor = db.scalar(
+        select(ChatMessage).where(
+            ChatMessage.id == message_id,
+            ChatMessage.session_id == session_id,
+            ChatMessage.yard_id == yard_id,
+        )
+    )
+    if anchor is None:
+        raise AppError("CHAT_MESSAGE_NOT_FOUND", "消息不存在或不属于该会话。", http_status=404)
+
+    history = list(
+        db.scalars(
+            select(ChatMessage)
+            .where(
+                ChatMessage.session_id == session_id,
+                ChatMessage.yard_id == yard_id,
+                ChatMessage.seq <= anchor.seq,
+            )
+            .order_by(ChatMessage.seq.asc())
+        )
+    )
+    referenced = {_attachment_ref_id(a) for m in history for a in (m.attachments_json or [])}
+    referenced.discard("")
+
+    branch = ChatSession(
+        yard_id=yard_id,
+        created_by=created_by,
+        title=f"{source.title or '新会话'} · 分支"[:200],
+        target=source.target or "auto",
+        target_code=source.target_code,
+        approval_mode=source.approval_mode or APPROVAL_ASK,
+        parent_session_id=source.id,
+        parent_message_id=anchor.id,
+    )
+    db.add(branch)
+    db.flush()
+
+    id_map = attachments_service.clone_attachments_for_branch(
+        db,
+        yard_id=yard_id,
+        created_by=created_by,
+        source_session_id=source.id,
+        target_session_id=branch.id,
+        attachment_ids=referenced,
+    )
+    for m in history:
+        db.add(
+            ChatMessage(
+                session_id=branch.id,
+                yard_id=yard_id,
+                seq=m.seq,
+                role=m.role,
+                content=m.content,
+                status=m.status,
+                routed_by=m.routed_by,
+                choice_json=m.choice_json,
+                reason=m.reason,
+                error_code=m.error_code,
+                payload_json=m.payload_json,
+                steps_json=m.steps_json,
+                attachments_json=[
+                    _remap_attachment_ref(a, id_map) for a in (m.attachments_json or [])
+                ]
+                or None,
+                token_usage_json=m.token_usage_json,
+                citations_json=m.citations_json,
+            )
+        )
+
+    for p in db.scalars(
+        select(ChatParticipant)
+        .where(ChatParticipant.session_id == source.id, ChatParticipant.yard_id == yard_id)
+        .order_by(ChatParticipant.position.asc())
+    ):
+        db.add(
+            ChatParticipant(
+                session_id=branch.id,
+                yard_id=yard_id,
+                created_by=created_by,
+                agent_id=p.agent_id,
+                agent_code=p.agent_code,
+                agent_name=p.agent_name,
+                position=p.position,
+            )
+        )
+
+    db.flush()
+    log_audit(
+        db,
+        yard_id=yard_id,
+        actor_id=created_by,
+        action="chat_session_forked",
+        resource_type="chat_session",
+        resource_id=branch.id,
+        result="success",
+        request_id=request_id,
+        metadata={
+            "parent_session_id": source.id,
+            "parent_message_id": anchor.id,
+            "message_count": len(history),
+        },
+    )
+    return branch
+
+
+def delete_session(
+    db: Session,
+    *,
+    yard_id: str,
+    created_by: str,
+    session_id: str,
+    audit: bool = True,
+    file_sink: list[str] | None = None,
+) -> None:
+    """删除会话及其消息/成员/附件行。
+
+    ``file_sink`` 非空时，附件的**物理文件键只登记不删**，由调用方在 commit 之后统一
+    清理——事务回滚不能把文件一起带走（见 attachments.delete_session_attachments）。
+    """
     session = get_session(db, yard_id=yard_id, created_by=created_by, session_id=session_id)
     db.execute(
         delete(ChatMessage).where(
@@ -325,20 +776,26 @@ def delete_session(db: Session, *, yard_id: str, created_by: str, session_id: st
         )
     )
     attachments_service.delete_session_attachments(
-        db, yard_id=yard_id, created_by=created_by, session_id=session.id
-    )
-    db.delete(session)
-    log_audit(
         db,
         yard_id=yard_id,
-        actor_id=created_by,
-        action="chat_session_deleted",
-        resource_type="chat_session",
-        resource_id=session_id,
-        result="success",
-        request_id="",
-        metadata=None,
+        created_by=created_by,
+        session_id=session.id,
+        file_sink=file_sink,
     )
+    db.execute(delete(ChatParticipant).where(ChatParticipant.session_id == session.id))
+    db.delete(session)
+    if audit:
+        log_audit(
+            db,
+            yard_id=yard_id,
+            actor_id=created_by,
+            action="chat_session_deleted",
+            resource_type="chat_session",
+            resource_id=session_id,
+            result="success",
+            request_id="",
+            metadata=None,
+        )
 
 
 def list_messages(
@@ -441,6 +898,21 @@ def _attachment_ref(att: ChatAttachment) -> dict[str, Any]:
     }
 
 
+def _attachment_ref_id(ref: Any) -> str:
+    """从消息的附件引用里取附件 id（历史行既可能是 dict 也可能是裸 id）。"""
+    if isinstance(ref, dict):
+        return str(ref.get("id") or "")
+    return str(ref or "")
+
+
+def _remap_attachment_ref(ref: Any, id_map: dict[str, str]) -> Any:
+    """分支复制时把附件引用指向分支自己那份行；查不到的原样保留。"""
+    if not isinstance(ref, dict):
+        return id_map.get(str(ref), ref)
+    rid = str(ref.get("id") or "")
+    return {**ref, "id": id_map[rid]} if rid in id_map else ref
+
+
 def persist_user_message(
     db: Session,
     *,
@@ -503,7 +975,7 @@ def persist_assistant_message(
         yard_id=ctx.yard_id,
         seq=next_seq(db, session.id),
         role=ROLE_ASSISTANT,
-        content=content[:CONTENT_CAP],
+        content=content[:ASSISTANT_CONTENT_CAP],
         status=status,
         routed_by=routed_by[:10] or None,
         choice_json=choice or None,
@@ -527,6 +999,7 @@ def _persist_failure(
     code: str,
     message: str,
     steps: list[dict[str, Any]] | None = None,
+    payload: dict[str, Any] | None = None,
 ) -> None:
     failed = ChatMessage(
         session_id=session.id,
@@ -537,6 +1010,7 @@ def _persist_failure(
         status=MSG_FAILED,
         error_code=code[:50],
         steps_json=steps or None,
+        payload_json=payload,
     )
     db.add(failed)
     session.updated_at = _utcnow()
@@ -828,6 +1302,22 @@ async def execute_turn(
                 STEP_DONE,
             )
 
+    # ---- 方案链路：多源取证合成完整方案（v3.14）----
+    if intent.kind == intent_service.INTENT_PLAN and not target_code:
+        from app.modules.chat import plan as plan_service
+
+        if on_step:
+            on_step(PHASE_ROUTING, "按方案链路合成完整方案", STEP_RUNNING)
+        outcome = await plan_service.build_plan(
+            db,
+            ctx=ctx,
+            session_id=session_id,
+            question=content,
+            context=context,
+            on_step=on_step,
+        )
+        return {**outcome, "citations": _normalize_citations(outcome.get("citations"))}
+
     if target_code:
         if on_step:
             on_step(PHASE_ROUTING, f"按 @ 指定定向执行「{target_code}」", STEP_RUNNING)
@@ -866,6 +1356,37 @@ async def execute_turn(
     }
 
 
+def scoped_ctx(ctx: YardContext, session: ChatSession) -> YardContext:
+    """把「本会话的授权模式 + 会话 id」带进本轮执行上下文。
+
+    工具风险闸（``tools/registry``）据此在 ask/auto/full 之间分流；不带会话 id 时
+    一律退回 ask——任务、机器人、脚本等非对话入口的行为逐字不变。
+    """
+    return replace(
+        ctx,
+        approval_mode=session.approval_mode or APPROVAL_ASK,
+        session_id=session.id,
+        approval_requests=[],
+    )
+
+
+def approval_card(requests: list[dict[str, Any]]) -> dict[str, Any]:
+    """被风险闸拦下的调用 → 对话里的「去批准」卡片（前端只渲染，不自行拼 id）。"""
+    return {
+        "type": "approval",
+        "title": "高风险操作待批准",
+        "hint": "本轮有工具需人工批准后才会执行；批准后可重新提问。",
+        "items": [
+            {
+                "tool_code": str(r.get("tool_code") or ""),
+                "approval_id": str(r.get("approval_id") or ""),
+            }
+            for r in requests
+            if r.get("approval_id")
+        ],
+    }
+
+
 async def run_and_persist(
     db: Session,
     *,
@@ -877,6 +1398,7 @@ async def run_and_persist(
     recorder: StepRecorder | None = None,
     target_code: str | None = None,
 ) -> dict[str, Any]:
+    ctx = scoped_ctx(ctx, session)
     steps = recorder or StepRecorder()
 
     def _cb(phase: str, detail: str, status: str) -> None:
@@ -896,7 +1418,18 @@ async def run_and_persist(
         )
     except AppError as e:
         steps.fail(PHASE_GENERATING, e.message)
-        _persist_failure(db, session, ctx, code=e.code, message=e.message, steps=steps.steps)
+        blocked = (e.details or {}).get("approval_id") if e.code == "TOOL_RISK_BLOCKED" else None
+        _persist_failure(
+            db,
+            session,
+            ctx,
+            code=e.code,
+            message=e.message,
+            steps=steps.steps,
+            payload=approval_card(ctx.approval_requests)
+            if blocked or ctx.approval_requests
+            else None,
+        )
         raise
     except Exception as e:  # noqa: BLE001
         log.warning("chat send unexpected error: %s", e)
@@ -907,6 +1440,24 @@ async def run_and_persist(
         raise
 
     steps.finish()
+    payload = outcome["payload"]
+    if ctx.approval_requests:
+        # 模型可能已把「需要审批」写进回答，但卡片给出可点的审批单号，
+        # 用户不必自己去找审批页；已有其他卡片时不覆盖，只补进步骤痕迹。
+        if payload is None:
+            payload = approval_card(ctx.approval_requests)
+        else:
+            # 本轮同时产出了别的卡片（方案/文档/技能…）：不能为了塞审批卡把它顶掉，
+            # 但被拦下的调用也必须可点——把同一份 items 附在原卡片上。
+            payload = {
+                **payload,
+                "approvals": approval_card(ctx.approval_requests)["items"],
+            }
+            steps.emit(
+                PHASE_GENERATING,
+                f"本轮有 {len(ctx.approval_requests)} 个高风险调用待批准",
+                STEP_DONE,
+            )
     assistant_msg = persist_assistant_message(
         db,
         ctx=ctx,
@@ -915,7 +1466,7 @@ async def run_and_persist(
         routed_by=outcome["routed_by"],
         choice=outcome["choice"],
         reason=outcome["reason"],
-        payload=outcome["payload"],
+        payload=payload,
         steps=steps.steps or None,
         citations=outcome.get("citations"),
         token_usage=outcome.get("token_usage"),
@@ -926,7 +1477,7 @@ async def run_and_persist(
         "routed_by": outcome["routed_by"],
         "choice": outcome["choice"],
         "reason": outcome["reason"],
-        "payload": outcome["payload"],
+        "payload": payload,
         "steps": steps.steps,
         "citations": outcome.get("citations") or [],
         "token_usage": outcome.get("token_usage"),
@@ -998,12 +1549,16 @@ async def send_message(
 
 
 __all__ = [
+    "BATCH_ACTIONS",
     "CONTENT_CAP",
     "ROUTED_LOCAL",
+    "approval_card",
+    "batch_sessions",
     "create_session",
     "delete_session",
     "derive_title",
     "execute_turn",
+    "fork_session",
     "get_session",
     "list_messages",
     "list_sessions",
@@ -1015,6 +1570,9 @@ __all__ = [
     "rename_session",
     "resolve_attachments",
     "run_and_persist",
+    "scoped_ctx",
     "send_message",
     "session_out",
+    "sessions_out_bulk",
+    "update_session_flags",
 ]

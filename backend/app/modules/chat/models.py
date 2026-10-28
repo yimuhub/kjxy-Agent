@@ -1,6 +1,12 @@
-"""对话模式 ORM 模型（0017 建表，0021 附件/卡片，0025 群聊成员，0027 Token，0029 生成文档）。"""
+"""对话模式 ORM 模型。
 
-from sqlalchemy import JSON, Boolean, Index, Integer, String, Text, UniqueConstraint
+建表与扩展：0017 会话/消息、0021 附件与卡片、0025 群聊成员、0027 Token、
+0029 生成文档、0043 会话管理（置顶/归档/未读）与本会话授权模式。
+"""
+
+from datetime import datetime
+
+from sqlalchemy import JSON, Boolean, DateTime, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin
@@ -36,6 +42,18 @@ POLICY_NAMED = "named"
 POLICY_AUTO = "auto"
 VALID_GROUP_POLICIES = (POLICY_ALL, POLICY_NAMED, POLICY_AUTO)
 
+# 本会话的工具授权模式（0043；前后端稳定契约，只追加不改含义）：
+# - ask  ：默认，与历史行为一致——高风险工具挂审批单，人工批准后才执行
+# - auto ：同一工具+同一参数指纹在本会话内已被人工批准过，则自动放行（首次仍询问）
+# - full ：本会话高风险工具直接执行、不再产生审批单（仅小院/平台管理员可开，全程留痕）
+APPROVAL_ASK = "ask"
+APPROVAL_AUTO = "auto"
+APPROVAL_FULL = "full"
+VALID_APPROVAL_MODES = (APPROVAL_ASK, APPROVAL_AUTO, APPROVAL_FULL)
+
+# 能开 auto/full 的角色（与工具审批人同一口径：能批准的人才能替自己免批准）
+APPROVAL_ESCALATION_ROLES = ("yard_admin", "yard_owner", "expert", "platform_admin")
+
 
 class ChatSession(Base, TimestampMixin):
     __tablename__ = "chat_sessions"
@@ -49,6 +67,18 @@ class ChatSession(Base, TimestampMixin):
     # 群聊不占取值——按 chat_participants 是否有行实时判定
     target: Mapped[str] = mapped_column(String(10), nullable=False, default="auto")
     target_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # ---- 会话列表管理（0043）----
+    # 置顶时间：非空即置顶，列表里恒排在最前（按置顶时间倒序）
+    pinned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # 归档时间：非空即已归档，默认列表隐藏，切「已归档」筛选才看得到
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # 未读标记：用户手动「标记未读」，打开会话即清除（会话是私有的，不引入已读回执表）
+    unread: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # 本会话的工具授权模式（见 VALID_APPROVAL_MODES）
+    approval_mode: Mapped[str] = mapped_column(String(12), nullable=False, default=APPROVAL_ASK)
+    # 分支来源：从哪个会话的哪条回答拉出来的（原会话不受影响）
+    parent_session_id: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
+    parent_message_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
 
 class ChatMessage(Base, TimestampMixin):

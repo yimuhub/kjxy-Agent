@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { Locator, Page } from '@playwright/test'
-import { login } from './helpers'
+import { login, sessionTotal } from './helpers'
 
 /**
  * ChatPanel 多实例隔离验证（配合 /chat 顶部「双面板（测试）」脚手架开关）。
@@ -111,7 +111,8 @@ test.describe('对话面板多实例隔离', () => {
     const mainRows = await main.locator('.msg-row').count()
     expect(mainRows).toBeGreaterThanOrEqual(2)
     const mainTitle = (await page.locator('.t-title').innerText()).trim()
-    const mainSessionCount = await page.locator('.session-item').count()
+    // 列表窗口化后 DOM 行数封顶，条目数改读容器上的模型总数
+    const mainSessionCount = await sessionTotal(page)
 
     // 主对话留一段草稿：若两实例共享 store，主面板会被弹出实例的 sending 拖进禁用态
     await typeDraft(main, '主对话不该被弹出实例打断的草稿')
@@ -130,7 +131,7 @@ test.describe('对话面板多实例隔离', () => {
     await expect(main.locator('textarea')).toHaveValue('主对话不该被弹出实例打断的草稿')
     // 会话归属不串：顶部标题仍是主对话的会话，侧栏条目数不变
     await expect(page.locator('.t-title')).toHaveText(mainTitle)
-    await expect(page.locator('.session-item')).toHaveCount(mainSessionCount)
+    await expect.poll(() => sessionTotal(page)).toBe(mainSessionCount)
     // 弹出实例自己建了会话，但只写进它自己的 store
     await expect(page.locator('[data-harness-session]')).not.toHaveText('未开始会话')
 

@@ -56,6 +56,9 @@ class LLMRequest(BaseModel):
     model: str | None = None
     max_tokens: int | None = Field(default=None, gt=0)
     temperature: float | None = Field(default=None, ge=0, le=2)
+    # 单次调用的超时秒数：长产出（如对话内整份方案）会被全局 LLM_TIMEOUT_SECONDS 截成超时，
+    # 由调用方按任务显式放宽；缺省沿用供应商/全局配置。
+    timeout_seconds: int | None = Field(default=None, gt=0, le=900)
     # OpenAI function-calling 工具定义（{"type":"function","function":{...}} 列表）；
     # None/空 = 不启用工具。不支持工具的 provider 必须忽略此字段（零回归）。
     tools: list[dict[str, Any]] | None = None

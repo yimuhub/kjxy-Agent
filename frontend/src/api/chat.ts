@@ -45,6 +45,66 @@ import type { ApiResponse } from '@/types/api'
 /** 会话执行对象：auto 走总控三级路由；agent/team 直跑指定对象 */
 export type ChatTarget = 'auto' | 'agent' | 'team'
 
+/**
+ * 本会话的高风险工具授权模式（后端 0043，前后端同一契约）：
+ * - ask ：每次都要人工批准（默认，与历史行为一致）
+ * - auto：本会话内批准过的同一调用不再反复问（首次仍问）
+ * - full：高风险工具直接执行、不产生审批单（仅小院/平台管理员可开，全程留痕）
+ */
+export type ChatApprovalMode = 'ask' | 'auto' | 'full'
+
+/** 三点菜单 / 批量条共用的会话标记位局部更新（只传要改的字段） */
+export interface SessionPatch {
+  title?: string
+  pinned?: boolean
+  archived?: boolean
+  unread?: boolean
+  approval_mode?: ChatApprovalMode
+}
+
+/** 批量动作（与后端 BATCH_ACTIONS 同口径） */
+export type SessionBatchAction =
+  | 'pin'
+  | 'unpin'
+  | 'archive'
+  | 'unarchive'
+  | 'read'
+  | 'unread'
+  | 'delete'
+
+/** 批量操作响应：受影响的自己的会话 id；missing=他人/不存在的条数（不点名，防枚举） */
+export interface SessionBatchResult {
+  action: SessionBatchAction
+  affected: string[]
+  deleted: number
+  missing: number
+}
+
+/** 授权模式选择器的展示字典（后端只下发事实，文案与色调在这里单点定义） */
+export const APPROVAL_MODE_META: Record<
+  ChatApprovalMode,
+  { label: string; short: string; hint: string; adminsOnly: boolean }
+> = {
+  ask: {
+    label: '每次询问',
+    short: '询问',
+    hint: '高风险操作（对外发送、写生产数据等）每次都先挂审批单，人工批准后才执行。',
+    adminsOnly: false,
+  },
+  auto: {
+    label: '会话内自动放行',
+    short: '自动',
+    hint: '同一操作在本会话里批准过一次，后续同样参数不再重复问；首次仍会询问。',
+    adminsOnly: true,
+  },
+  full: {
+    label: '完全访问',
+    short: '完全',
+    hint: '本会话的高风险工具直接执行、不再产生审批单。仅小院/平台管理员可开，全程留痕。',
+    adminsOnly: true,
+  },
+}
+
 /** 路由来源（诚实标记口径）：规则命中 / 智能分类 / 频率兜底 / 手动指定 / 对话直办 / 执行失败 */
 export type ChatRoutedBy =
   | 'rules'
@@ -53,6 +113,7 @@ export type ChatRoutedBy =
   | 'manual'
   | 'local'
   | 'qa'
+  | 'plan'
   | 'error'
 
 /**
@@ -170,12 +231,28 @@ export interface ChatSession {
   target_name?: string | null
   /** 群聊成员数（>0 即群聊；与 target 取值正交） */
   participant_count?: number
+  /** 建会话的时间：左侧列表按它显示「哪一年几月几日几点几分」创建的（不是最后一条消息时间） */
+  created_at: string
   updated_at: string
   last_excerpt?: string | null
   message_count?: number
   input_tokens?: number
   output_tokens?: number
   total_tokens?: number
+  /** ---- 0043 会话列表管理（后端下发事实，前端不自行猜）---- */
+  /** 置顶：列表里恒排在最前 */
+  pinned?: boolean
+  pinned_at?: string | null
+  /** 归档：默认列表不显示，切「已归档」才看得到 */
+  archived?: boolean
+  archived_at?: string | null
+  /** 手动「标记未读」；打开会话即清除 */
+  unread?: boolean
+  /** 本会话的高风险工具授权模式（后端会按角色静默降级，取回来的就是生效值） */
+  approval_mode?: ChatApprovalMode
+  /** 分支来源：从哪个会话的哪条回答拉出来的（原会话不受影响） */
+  parent_session_id?: string | null
+  parent_message_id?: string | null
 }
 
 /** 会话列表响应体：{items}，新→旧 */
@@ -297,6 +374,39 @@ export interface ChatDocumentCard {
   actions: ChatCardAction[]
 }
 
+/** 方案分节（后端按二级标题切好；正文为 Markdown） */
+export interface ChatPlanSection {
+  heading: string
+  body: string
+}
+
+/** 方案取证统计（与后端 payload.evidence 同形） */
+export interface ChatPlanEvidence {
+  knowledge?: number
+  web?: number
+  skills?: string[]
+  /** 未联网的原因：knowledge_enough（知识库够了）/ disabled（本次不联网）/ 空 = 已联网 */
+  web_skipped?: string
+}
+
+/**
+ * 方案卡片（v3.14 对话内多源合成）：方案正文就是消息 content（Markdown），
+ * 卡片只负责「完整还是残缺、依据来自哪、下一步做什么」，不重复渲染正文。
+ */
+export interface ChatPlanCard {
+  type: 'plan'
+  title?: string
+  sections?: ChatPlanSection[]
+  required_sections?: string[]
+  missing_sections?: string[]
+  complete?: boolean
+  truncated?: boolean
+  repair_passes?: number
+  needs_expert_review?: boolean
+  evidence?: ChatPlanEvidence
+  warnings?: string[]
+}
+
 /** 技能卡片里的候选（与 /market/agent/request 的 matches 同形） */
 export interface ChatSkillCardMatch {
   item_key: string
@@ -366,6 +476,28 @@ export interface ChatPluginCard {
   note?: string
 }
 
+/**
+ * 高风险工具待批准卡片（后端 0043）：本轮被权限闸拦下的调用，
+ * 给出审批单号与「去批准」入口，而不是让用户自己去审批页翻。
+ */
+/**
+ * 一条被风险闸拦下、等人工批准的调用。
+ *
+ * 服务端可能把它放在 approval 卡的 items 里，也可能附在别的卡片 payload 的
+ * approvals 字段上（本轮既产出了方案/文档卡又拦下了工具时，卡片不该被顶掉）。
+ */
+export interface ChatApprovalItem {
+  tool_code: string
+  approval_id: string
+}
+
+export interface ChatApprovalCard {
+  type: 'approval'
+  title?: string
+  hint?: string
+  items: ChatApprovalItem[]
+}
+
 /** 结构化载荷（助手消息的 payload 字段） */
 export type ChatCard =
   | ChatCapabilityCard
@@ -373,9 +505,17 @@ export type ChatCard =
   | ChatDocumentCard
   | ChatSkillCard
   | ChatPluginCard
+  | ChatPlanCard
+  | ChatApprovalCard
 
-/** 非技能/插件卡片：通用卡片组件（ChatCard）接收的形状，技能与插件卡片各自单独渲染 */
-export type ChatStandardCard = Exclude<ChatCard, ChatSkillCard | ChatPluginCard>
+/**
+ * 通用卡片组件（ChatCard.vue）接收的形状：技能/插件/方案卡片各自单独渲染，
+ * 其中方案卡片必须排除在外——通用卡片按 card.type 取标题，未知类型会渲染成「能力市场」。
+ */
+export type ChatStandardCard = Exclude<
+  ChatCard,
+  ChatSkillCard | ChatPluginCard | ChatPlanCard | ChatApprovalCard
+>
 
 /** 回答引用的知识/网页来源（v3.7 可信引用） */
 export interface ChatCitation {
@@ -473,6 +613,110 @@ export function mentionDisplayName(c?: MentionCandidate | null): string {
   return c?.display_name || c?.name || c?.code || c?.id || ''
 }
 
+/** DocModel 单块（与后端 docs/model.py 的最小块集同形） */
+export interface DocModelBlock {
+  type: 'heading' | 'paragraph' | 'bullets' | 'numbered' | 'table' | 'code' | 'pagebreak'
+  level?: number
+  text?: string
+  items?: string[]
+}
+
+/** 后端 DocModel 上限：超块数时截断并提示，避免整份导出被 400 拒掉 */
+const DOC_MAX_BLOCKS = 300
+
+const MD_HEAVY = /^#{1,6}\s*/
+const MD_BULLET = /^[-*+]\s+(.+)$/
+const MD_ORDERED = /^\d+[.)]\s+(.+)$/
+const MD_INLINE = /\*\*?|`/g
+
+/** 去掉行内 Markdown 标记：导出的 Word/PDF 里不该出现裸的 ** 与 ` */
+function planPlainText(line: string): string {
+  return line
+    .replace(MD_INLINE, '')
+    .replace(/\[([^\]]*)\]\(([^)\s]*)\)/g, (_m, text: string, url: string) =>
+      text && /^https?:/i.test(url) ? `${text}（${url}）` : text,
+    )
+    .trim()
+}
+
+/**
+ * 方案卡片 → DocModel（v3.14 导出）：复用既有文档端点，不新增接口。
+ * 分节标题成 heading，列表行归并成 bullets/numbered，其余按段落；
+ * 末尾追加「依据来源」把引用编号与出处写进文档，导出的文件也能溯源。
+ */
+export function planDocModel(
+  card: ChatPlanCard,
+  fallbackTitle: string,
+  citations: ChatCitation[] = [],
+): { title: string; blocks: DocModelBlock[] } {
+  const title = ((card.title || fallbackTitle).trim() || '方案').slice(0, 100)
+  const blocks: DocModelBlock[] = [{ type: 'heading', level: 1, text: title }]
+  const push = (block: DocModelBlock) => {
+    if (blocks.length < DOC_MAX_BLOCKS) blocks.push(block)
+  }
+  for (const section of card.sections || []) {
+    const heading = planPlainText((section.heading || '').replace(MD_HEAVY, ''))
+    if (heading) push({ type: 'heading', level: 2, text: heading.slice(0, 200) })
+    let bullets: string[] = []
+    let numbered: string[] = []
+    const flushLists = () => {
+      if (bullets.length) push({ type: 'bullets', items: bullets })
+      if (numbered.length) push({ type: 'numbered', items: numbered })
+      bullets = []
+      numbered = []
+    }
+    for (const rawLine of (section.body || '').split('\n')) {
+      const line = rawLine.trim()
+      if (!line) {
+        flushLists()
+        continue
+      }
+      const heavy = line.match(MD_HEAVY)
+      if (heavy) {
+        flushLists()
+        const text = planPlainText(line.replace(MD_HEAVY, ''))
+        if (text) push({ type: 'heading', level: Math.min(3, heavy[0].length), text })
+        continue
+      }
+      const bullet = line.match(MD_BULLET)
+      if (bullet) {
+        const text = planPlainText(bullet[1])
+        if (text) {
+          if (numbered.length) flushLists()
+          bullets.push(text)
+        }
+        continue
+      }
+      const ordered = line.match(MD_ORDERED)
+      if (ordered) {
+        const text = planPlainText(ordered[1])
+        if (text) {
+          if (bullets.length) flushLists()
+          numbered.push(text)
+        }
+        continue
+      }
+      flushLists()
+      const text = planPlainText(line)
+      if (text) push({ type: 'paragraph', text })
+    }
+    flushLists()
+  }
+  const sources = citations
+    .map(c => {
+      const label = c.reference ? `[${c.reference}]` : ''
+      const name = c.title || c.source || c.url || ''
+      const where = c.url && c.url !== name ? `（${c.url}）` : ''
+      return planPlainText(`${label} ${name}${where}`.trim())
+    })
+    .filter(Boolean)
+  if (sources.length) {
+    push({ type: 'heading', level: 2, text: '依据来源' })
+    push({ type: 'bullets', items: sources.slice(0, 200) })
+  }
+  return { title, blocks }
+}
+
 /** 解包成功信封 {data, request_id} -> data */
 function unwrap<T>(promise: Promise<AxiosResponse<ApiResponse<T>>>): Promise<T> {
   return promise.then(res => res.data.data)
@@ -509,9 +753,11 @@ export function buildSendBody(
 const silentCfg: AxiosRequestConfig & { skipErrorToast?: boolean } = { skipErrorToast: true }
 
 export const chatApi = {
-  /** 当前用户自己的会话列表（新→旧） */
-  listSessions(): Promise<ChatSessionList> {
-    return unwrap(api.get<ApiResponse<ChatSessionList>>('/chat/sessions'))
+  /** 会话列表：默认「进行中」（置顶恒在最前）；archived=true 给「已归档」 */
+  listSessions(archived = false): Promise<ChatSessionList> {
+    return unwrap(
+      api.get<ApiResponse<ChatSessionList>>('/chat/sessions', { params: { archived } })
+    )
   },
   createSession(payload: CreateSessionPayload = {}): Promise<ChatSession> {
     return unwrap(api.post<ApiResponse<ChatSession>>('/chat/sessions', payload))
@@ -519,6 +765,25 @@ export const chatApi = {
   /** 改会话标题（标题由首条用户消息前 20 字自动生成，可再改） */
   renameSession(id: string, title: string): Promise<ChatSession> {
     return unwrap(api.patch<ApiResponse<ChatSession>>(`/chat/sessions/${id}`, { title }))
+  },
+  /** 三点菜单：局部更新标记位（置顶/归档/未读/授权模式/标题），只传要改的字段 */
+  updateSession(id: string, patch: SessionPatch): Promise<ChatSession> {
+    return unwrap(api.patch<ApiResponse<ChatSession>>(`/chat/sessions/${id}`, patch))
+  },
+  /** 批量操作自己的会话；他人或不存在的 id 由服务端静默跳过并计入 missing */
+  batchSessions(sessionIds: string[], action: SessionBatchAction): Promise<SessionBatchResult> {
+    return unwrap(
+      api.post<ApiResponse<SessionBatchResult>>('/chat/sessions/batch', {
+        session_ids: sessionIds,
+        action,
+      })
+    )
+  },
+  /** 分支：把「到这条回答为止」的历史复制成新会话，原会话不受影响 */
+  forkSession(id: string, messageId: string): Promise<ChatSession> {
+    return unwrap(
+      api.post<ApiResponse<ChatSession>>(`/chat/sessions/${id}/fork`, { message_id: messageId })
+    )
   },
   deleteSession(id: string): Promise<void> {
     return api.delete<ApiResponse<null>>(`/chat/sessions/${id}`).then(() => undefined)

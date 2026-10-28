@@ -1,7 +1,7 @@
 import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import { ElMessage } from 'element-plus'
 import type { ApiError } from '@/types/api'
-import { friendlyErrorMessage } from '@/utils/status'
+import { classifyResponseError, friendlyErrorMessage } from '@/utils/status'
 import { getMockAdapter, isMockEnabled } from './mock'
 
 export const TOKEN_KEY = 'ky_token'
@@ -37,11 +37,9 @@ api.interceptors.request.use(config => {
 })
 
 export function extractErrorMessage(err: unknown): { code: string; message: string } {
-  if (err instanceof AxiosError && err.response?.data) {
-    const body = err.response.data as ApiError
-    if (body?.error?.message) {
-      return { code: body.error.code ?? `HTTP_${err.response.status}`, message: body.error.message }
-    }
+  if (err instanceof AxiosError) {
+    const { code, message } = classifyResponseError(err.response?.status, err.response?.data)
+    if (code !== 'NETWORK_ERROR') return { code, message }
   }
   if (err instanceof Error) {
     return { code: 'NETWORK_ERROR', message: err.message || '网络请求失败' }

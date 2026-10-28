@@ -23,7 +23,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy.orm import Session
 
 from app.core.deps import YardContext, get_db_session, get_yard_context
@@ -67,18 +67,59 @@ class KnowledgeAskRequest(BaseModel):
 
 
 class SessionUpdateRequest(BaseModel):
-    """改会话标题（非空）。"""
+    """改会话：三点菜单的局部更新（PATCH 语义——只改显式传入的字段，未传保持原值）。
+
+    ``approval_mode`` 是权限动作：非管理员请求 ``auto``/``full`` 时服务端静默降级为
+    ``ask``（服务层留痕），前端不需要自己判断角色。
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    title: str = Field(min_length=1, max_length=200)
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    pinned: bool | None = None
+    archived: bool | None = None
+    unread: bool | None = None
+    approval_mode: Literal["ask", "auto", "full"] | None = None
 
     @field_validator("title")
     @classmethod
-    def _title_not_blank(cls, v: str) -> str:
+    def _title_not_blank(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
         if not v.strip():
             raise ValueError("title 不能为空白")
         return v.strip()
+
+    @model_validator(mode="after")
+    def _at_least_one(self) -> SessionUpdateRequest:
+        if not self.model_fields_set:
+            raise ValueError("至少提供一个要修改的字段")
+        return self
+
+
+class SessionBatchRequest(BaseModel):
+    """批量操作会话（多选后一次处理）。越权/不存在的 id 静默跳过，只回计数。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    session_ids: list[str] = Field(min_length=1, max_length=200)
+    action: Literal["pin", "unpin", "archive", "unarchive", "read", "unread", "delete"]
+
+    @field_validator("session_ids")
+    @classmethod
+    def _ids_not_blank(cls, v: list[str]) -> list[str]:
+        cleaned = [s.strip() for s in v if s and s.strip()]
+        if not cleaned:
+            raise ValueError("session_ids 不能全为空")
+        return cleaned
+
+
+class SessionForkRequest(BaseModel):
+    """分支：从这条回答及其之前的历史拉出一个全新会话。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    message_id: str = Field(min_length=1, max_length=36)
 
 
 class DocumentCreateRequest(BaseModel):
@@ -163,12 +204,49 @@ def list_sessions(
     request: Request,
     ctx: YardContext = Depends(get_yard_context),
     db: Session = Depends(get_db_session),
+    archived: bool = Query(default=False),
 ):
-    """本人会话列表（最近更新在前，含消息数）。契约 §10：{items:[...]}。"""
+    """本人会话列表（置顶恒在最前，其余最近更新在前，含消息数）。
+
+    ``archived=false`` 给「进行中」、``true`` 给「已归档」——列表顶部筛选用这一个参数，
+    两种视图互斥，服务端不分页（与历史契约一致）。契约 §10：{items:[...]}。
+    """
     return ok(
-        {"items": service.list_sessions(db, yard_id=ctx.yard_id, created_by=ctx.user_id)},
+        {
+            "items": service.list_sessions(
+                db, yard_id=ctx.yard_id, created_by=ctx.user_id, archived=archived
+            )
+        },
         request,
     )
+
+
+@router.post("/batch", status_code=200)
+def batch_sessions(
+    payload: SessionBatchRequest,
+    request: Request,
+    ctx: YardContext = Depends(get_yard_context),
+    db: Session = Depends(get_db_session),
+):
+    """批量置顶/取消置顶、归档/取消归档、标记已读未读、删除。
+
+    只处理调用者本人的会话：不存在或越权的 id 静默跳过（不泄露他人会话是否存在），
+    响应回「真正受影响的 id 列表 + 跳过数」，前端据此局部刷新。
+    """
+    removed_files: list[str] = []
+    result = service.batch_sessions(
+        db,
+        yard_id=ctx.yard_id,
+        created_by=ctx.user_id,
+        session_ids=payload.session_ids,
+        action=payload.action,
+        request_id=ctx.request_id,
+        file_sink=removed_files,
+    )
+    db.commit()
+    # 批量删除同样把文件留到 commit 之后再清
+    attachments_service.remove_attachment_files(removed_files)
+    return ok(result, request)
 
 
 @router.get("/{session_id}")
@@ -186,23 +264,58 @@ def get_session(
 
 
 @router.patch("/{session_id}")
-def rename_session(
+def update_session(
     session_id: str,
     payload: SessionUpdateRequest,
     request: Request,
     ctx: YardContext = Depends(get_yard_context),
     db: Session = Depends(get_db_session),
 ):
-    """改会话标题。"""
-    session = service.rename_session(
+    """改会话（三点菜单）：标题、置顶、归档、未读、本会话授权模式。
+
+    未传的字段保持原值；``approval_mode`` 传 ``auto``/``full`` 而当前角色无权时
+    静默降级为 ``ask``（响应体里就是降级后的真实值，响应不撒谎）。
+    """
+    session = service.update_session_flags(
         db,
         yard_id=ctx.yard_id,
         created_by=ctx.user_id,
         session_id=session_id,
         title=payload.title,
+        pinned=payload.pinned,
+        archived=payload.archived,
+        unread=payload.unread,
+        approval_mode=payload.approval_mode,
+        roles=list(ctx.roles),
+        request_id=ctx.request_id,
     )
     db.commit()
     return ok(service.session_out(db, session), request)
+
+
+@router.post("/{session_id}/fork", status_code=201)
+def fork_session(
+    session_id: str,
+    payload: SessionForkRequest,
+    request: Request,
+    ctx: YardContext = Depends(get_yard_context),
+    db: Session = Depends(get_db_session),
+):
+    """分支：把「到这条回答为止」的历史复制成一个新的全新会话。
+
+    原会话完全不受影响；新会话标题「原名 · 分支」，记 parent_session_id /
+    parent_message_id，附件行共用同一份文件（删分支不会弄坏原会话附件）。
+    """
+    branch = service.fork_session(
+        db,
+        yard_id=ctx.yard_id,
+        created_by=ctx.user_id,
+        session_id=session_id,
+        message_id=payload.message_id,
+        request_id=ctx.request_id,
+    )
+    db.commit()
+    return ok(service.session_out(db, branch), request)
 
 
 @router.delete("/{session_id}")
@@ -213,8 +326,17 @@ def delete_session(
     db: Session = Depends(get_db_session),
 ):
     """删会话（连带删除全部消息与附件）。"""
-    service.delete_session(db, yard_id=ctx.yard_id, created_by=ctx.user_id, session_id=session_id)
+    removed_files: list[str] = []
+    service.delete_session(
+        db,
+        yard_id=ctx.yard_id,
+        created_by=ctx.user_id,
+        session_id=session_id,
+        file_sink=removed_files,
+    )
     db.commit()
+    # 文件在 commit 之后才动：事务若失败，行还在库里，附件不能先没
+    attachments_service.remove_attachment_files(removed_files)
     return ok({"deleted": True}, request)
 
 

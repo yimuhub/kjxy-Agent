@@ -619,10 +619,11 @@
     </el-dialog>
 
     <!-- 周期抽屉 -->
-    <el-drawer
+    <el-dialog
       v-model="cycleDrawer"
       :title="`种植周期 · ${cyclePlot?.name ?? ''}`"
-      size="460px"
+      width="460px"
+      align-center
     >
       <el-empty
         v-if="!cycles.length"
@@ -712,7 +713,7 @@
           保存周期
         </el-button>
       </el-form>
-    </el-drawer>
+    </el-dialog>
   </div>
 </template>
 
@@ -732,6 +733,7 @@
   } from '@/api/modules'
   import { useAuthStore } from '@/stores/auth'
   import SafeMarkdown from '@/components/teams/SafeMarkdown.vue'
+  import { formatDateTime as formatTime } from '@/utils/format'
 
   const KIND_OPTIONS = [
     { value: 'sowing', label: '播种/移栽' },
@@ -1076,11 +1078,6 @@
   const sharesLoading = ref(false)
   const shares = ref<ShareLink[]>([])
   const createdShare = ref<CreatedShareLink | null>(null)
-
-  function formatTime(value?: string | null): string {
-    if (!value) return '—'
-    return value.replace('T', ' ').slice(0, 16)
-  }
 
   function shareUrl(path: string): string {
     return `${window.location.origin}${path}`

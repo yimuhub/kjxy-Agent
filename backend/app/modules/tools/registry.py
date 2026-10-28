@@ -18,6 +18,12 @@ from app.core.deps import YardContext
 from app.core.errors import AppError
 from app.core.logging import get_logger
 from app.modules.audit.service import log_audit
+from app.modules.chat.models import (
+    APPROVAL_ASK,
+    APPROVAL_AUTO,
+    APPROVAL_ESCALATION_ROLES,
+    APPROVAL_FULL,
+)
 from app.modules.tools.models import ToolDefinition
 from app.modules.yards.authz import has_permission
 
@@ -59,19 +65,49 @@ def _format_schema_errors(exc: jsonschema.ValidationError) -> list[dict]:
 
 def _is_approved(
     ctx: YardContext, params: dict, db: Session | None = None, tool_code: str = ""
-) -> bool:
-    """高风险工具是否已获审批。
+) -> tuple[bool, str]:
+    """高风险工具是否放行，返回 ``(放行?, 放行依据)``。
 
-    只认服务端标记（``ctx.approved``）与数据库中的已批准审批单；
-    请求参数里的 ``approved`` 由调用方控制，不得作为放行依据。
+    三档授权模式（会话级，``chat_sessions.approval_mode``，缺省 ``ask``）：
+
+    - ``ask`` ：现状——只认已批准的人工审批单，拦下即建单；
+    - ``auto``：同一工具+同一参数指纹在**本会话内**已被人工批准过则复用放行
+      （含突破 ``tool_approval_max_uses`` 的会话内复用）；从未批准过仍拦下建单；
+    - ``full``：本会话高风险工具直接执行、不再建审批单；
+      仅小院/平台管理员生效（普通成员即使在会话里选了也按 ``ask`` 走），且每次直接
+      执行都单独留痕 ``tool_risk_auto_approved``。
+
+    请求参数里的 ``approved`` 由调用方控制，绝不作为放行依据；
+    服务端标记 ``ctx.approved`` 与数据库审批单仍是唯一入口。
     """
     if getattr(ctx, "approved", False) is True:
-        return True
-    if db is not None and tool_code and ctx.yard_id:
-        from app.modules.tools.approvals import has_approved_approval
+        return True, "server_flag"
+    if db is None or not tool_code or not ctx.yard_id:
+        return False, ""
+    from app.modules.tools.approvals import has_approved_approval, session_approved_this_call
 
-        return has_approved_approval(db, yard_id=ctx.yard_id, tool_code=tool_code, params=params)
-    return False
+    mode = getattr(ctx, "approval_mode", APPROVAL_ASK) or APPROVAL_ASK
+    if mode == APPROVAL_FULL and set(ctx.roles or []) & set(APPROVAL_ESCALATION_ROLES):
+        return True, "session_full_access"
+    if mode == APPROVAL_AUTO and ctx.session_id:
+        if session_approved_this_call(
+            db,
+            yard_id=ctx.yard_id,
+            tool_code=tool_code,
+            params=params,
+            chat_session_id=ctx.session_id,
+        ):
+            return True, "session_auto_reuse"
+    if has_approved_approval(
+        db,
+        yard_id=ctx.yard_id,
+        tool_code=tool_code,
+        params=params,
+        # 会话归属必须一起看：A 会话批准的单不能被 B 会话或任务借用
+        caller_session_id=ctx.session_id or "",
+    ):
+        return True, "approval_ticket"
+    return False, ""
 
 
 class ToolRegistry:
@@ -200,41 +236,105 @@ class ToolRegistry:
             )
             raise AppError("TOOL_FORBIDDEN", "当前角色无权调用该工具。", http_status=403)
 
-        # ③ 高风险拦截：external_side_effect 必须先获人工审批。
-        # 未获批时自动创建（去重）pending 审批单，调用方凭 approval_id 走审批流。
-        if tool.risk_level == "external_side_effect" and not _is_approved(ctx, params, db, code):
-            from app.modules.tools.approvals import get_or_create_pending_approval
+        # ③ 高风险拦截：external_side_effect 按本会话授权模式（ask/auto/full）判定。
+        # ask=未获批即建（去重）pending 审批单，调用方凭 approval_id 走审批流；
+        # auto/full 的放行留痕写在④之后（log_bypass），带工具的真实结局。
+        risk_via = ""
+        if tool.risk_level == "external_side_effect":
+            allowed, risk_via = _is_approved(ctx, params, db, code)
+            if not allowed:
+                from app.modules.tools.approvals import get_or_create_pending_approval
 
-            approval = get_or_create_pending_approval(
-                db,
-                yard_id=ctx.yard_id,
-                tool_code=code,
-                params=params,
-                requested_by=ctx.user_id,
-                request_id=request_id,
-            )
+                approval = get_or_create_pending_approval(
+                    db,
+                    yard_id=ctx.yard_id,
+                    tool_code=code,
+                    params=params,
+                    requested_by=ctx.user_id,
+                    request_id=request_id,
+                    chat_session_id=getattr(ctx, "session_id", "") or None,
+                )
+                self._audit(
+                    db,
+                    ctx,
+                    code,
+                    request_id,
+                    result="denied",
+                    latency_ms=0,
+                    extra={
+                        "stage": "risk_approval",
+                        "param_keys": param_keys,
+                        "risk_level": tool.risk_level,
+                        "approval_id": approval.id,
+                        "approval_mode": getattr(ctx, "approval_mode", APPROVAL_ASK),
+                    },
+                )
+                # 记入本轮上下文：对话链路据此在回答里给出「去批准」入口
+                pending_requests = getattr(ctx, "approval_requests", None)
+                if isinstance(pending_requests, list):
+                    pending_requests.append(
+                        {"tool_code": code, "approval_id": approval.id, "reason": approval.reason}
+                    )
+                raise AppError(
+                    "TOOL_RISK_BLOCKED",
+                    "高风险工具需人工审批通过后方可调用。",
+                    http_status=403,
+                    details={
+                        "approval_id": approval.id,
+                        "tool_code": code,
+                        "approval_mode": getattr(ctx, "approval_mode", APPROVAL_ASK),
+                    },
+                )
+
+        # ④ 执行（含超时）
+        bypass_logged = False
+
+        def log_bypass(ok: bool, latency_ms: int) -> None:
+            """免批准放行的留痕（auto/full）。
+
+            刻意写在**执行之后**：闸门放行不等于工具跑成功，先写 success 会把一次
+            跑挂了的全自动调用记成「成功旁路」，事后审计就看不出真实后果了。
+            full 档不产生审批单，这两条留痕是该调用唯一的书面证据，必须带真实结局。
+            """
+            nonlocal bypass_logged
+            if not risk_via or bypass_logged:
+                return
+            bypass_logged = True
+            outcome = "success" if ok else "failure"
             self._audit(
                 db,
                 ctx,
                 code,
                 request_id,
-                result="denied",
-                latency_ms=0,
+                result=outcome,
+                latency_ms=latency_ms,
                 extra={
-                    "stage": "risk_approval",
-                    "param_keys": param_keys,
+                    "stage": "risk_gate",
                     "risk_level": tool.risk_level,
-                    "approval_id": approval.id,
+                    "bypass": risk_via,
+                    "approval_mode": getattr(ctx, "approval_mode", APPROVAL_ASK),
+                    "session_id": getattr(ctx, "session_id", ""),
+                    "param_keys": param_keys,
                 },
             )
-            raise AppError(
-                "TOOL_RISK_BLOCKED",
-                "高风险工具需人工审批通过后方可调用。",
-                http_status=403,
-                details={"approval_id": approval.id, "tool_code": code},
+            log_audit(
+                db,
+                yard_id=ctx.yard_id,
+                actor_id=ctx.user_id,
+                action="tool_risk_auto_approved",
+                resource_type="tool",
+                resource_id=code,
+                result=outcome,
+                request_id=request_id,
+                metadata={
+                    "via": risk_via,
+                    "approval_mode": getattr(ctx, "approval_mode", APPROVAL_ASK),
+                    "session_id": getattr(ctx, "session_id", ""),
+                    "param_keys": param_keys,
+                    "executed_ok": ok,
+                },
             )
 
-        # ④ 执行（含超时）
         if tool.func is None:
             self._audit(
                 db,
@@ -245,6 +345,7 @@ class ToolRegistry:
                 latency_ms=0,
                 extra={"stage": "no_implementation", "param_keys": param_keys},
             )
+            log_bypass(False, 0)
             raise AppError(
                 "INTERNAL_ERROR",
                 "工具实现尚未注册，无法执行。",
@@ -269,6 +370,7 @@ class ToolRegistry:
                 latency_ms=_ms(started),
                 extra={"stage": "executing", "param_keys": param_keys},
             )
+            log_bypass(False, _ms(started))
             raise AppError(
                 "TOOL_TIMEOUT",
                 f"工具执行超时（{tool.timeout_seconds} 秒）。",
@@ -285,6 +387,7 @@ class ToolRegistry:
                 latency_ms=_ms(started),
                 extra={"stage": "executing", "param_keys": param_keys},
             )
+            log_bypass(False, _ms(started))
             raise
         except Exception as e:
             self._audit(
@@ -296,9 +399,13 @@ class ToolRegistry:
                 latency_ms=_ms(started),
                 extra={"stage": "executing", "param_keys": param_keys},
             )
+            log_bypass(False, _ms(started))
             raise AppError(
                 "INTERNAL_ERROR", "工具执行出现内部错误。", http_status=500, details={"code": code}
             ) from e
+
+        # 工具确实跑完了：此时才落免批准放行的留痕，结局写的就是真实结果
+        log_bypass(True, _ms(started))
 
         if not isinstance(result, dict):
             self._audit(

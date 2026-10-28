@@ -4,7 +4,7 @@
 绝不信任前端提交的 user_id / role / yard_id。
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from app.core.errors import AppError
 from app.core.security import decode_token, resolve_yard_id
@@ -30,6 +30,14 @@ class YardContext:
     user_id: str
     roles: list[str]
     request_id: str
+    #: 本轮工具授权模式（chat_sessions.approval_mode 的当轮快照）：ask|auto|full。
+    #: 缺省 ask——非对话入口（任务/机器人/脚本）一律沿用「高风险必须人工审批」。
+    approval_mode: str = "ask"
+    #: 发起本轮的会话 id：auto 模式据此只在**同一会话内**复用人工批准。
+    session_id: str = ""
+    #: 本轮被风险闸拦下、已建审批单的调用（{tool_code, approval_id}）。
+    #: 对话链路据此在回答里给出「去批准」入口；其他入口不读它，无副作用。
+    approval_requests: list[dict] = field(default_factory=list)
 
 
 def get_db_session(db: Session = Depends(get_db)) -> Session:

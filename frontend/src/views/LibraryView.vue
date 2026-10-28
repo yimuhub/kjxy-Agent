@@ -361,11 +361,12 @@
       </AsyncState>
     </template>
 
-    <el-drawer
+    <el-dialog
       v-model="drawerOpen"
       :title="previewTitle"
-      size="min(520px, 92vw)"
+      width="min(520px, 92vw)"
       destroy-on-close
+      align-center
     >
       <AsyncState
         :state="previewState"
@@ -468,7 +469,7 @@
           </el-button>
         </div>
       </template>
-    </el-drawer>
+    </el-dialog>
   </div>
 </template>
 

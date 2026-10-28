@@ -31,6 +31,12 @@
           <span class="logo-name">阗策</span>
           <span class="logo-sub">科技小院</span>
         </div>
+        <!-- 每次升级都要看得见版本：右侧标出，取的是 package.json 那一份，不另抄 -->
+        <span
+          v-show="showLogoWord"
+          class="logo-ver"
+          :title="`当前版本 ${appVersion}`"
+        >{{ appVersion }}</span>
       </div>
       <nav
         id="main-nav"
@@ -361,6 +367,9 @@
   import { llmTraceApi } from '@/api/modules'
   import GlobalOverview from '@/views/GlobalOverview.vue'
   import MenuDiyEditor from '@/components/layout/MenuDiyEditor.vue'
+  // 版本号只有 package.json 这一份事实来源：九处版本面已由 scripts/check_versions.py 对齐，
+  // 这里再抄一个字符串就迟早会对不上（具名导入，打包时只带出 version 一个字段）。
+  import { version as appVersionRaw } from '../../package.json'
 
   interface MenuMatch {
     group: DiyMenuGroup
@@ -557,6 +566,9 @@
   const menuCollapse = computed(() => collapsed.value && !isMobile.value)
   const isMini = computed(() => menuCollapse.value)
   const showLogoWord = computed(() => !isMini.value)
+
+  /** 侧栏右上角显示的版本，随每次升级自动跟着 package.json 走 */
+  const appVersion = `v${appVersionRaw}`
   const asideWidth = computed(() =>
     isMobile.value ? '232px' : collapsed.value ? '64px' : '232px',
   )
@@ -742,6 +754,21 @@
     font-size: 11px;
     letter-spacing: 0.14em;
     color: var(--ds-text-3);
+  }
+  /* 版本号贴在侧栏右上角：小胶囊，不跟品牌名抢视觉 */
+  .logo-ver {
+    margin-left: auto;
+    align-self: flex-start;
+    margin-top: 6px;
+    padding: 1px 6px;
+    border: 1px solid var(--ds-border);
+    border-radius: var(--ds-radius-pill);
+    font-size: 10.5px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+    color: var(--ds-text-3);
+    background: var(--ds-field);
+    white-space: nowrap;
   }
 
   .nav {

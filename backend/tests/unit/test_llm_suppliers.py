@@ -504,3 +504,41 @@ def test_router_set_active_and_enable_disable(client, admin_headers):
     assert r.status_code == 200
     r = client.get("/api/v1/llm/providers", headers=admin_headers)
     assert r.json()["data"] == []
+
+
+@pytest.mark.asyncio
+async def test_provider_honours_per_request_timeout(monkeypatch):
+    """长产出（整份方案）按请求放宽超时；不带该字段时仍用供应商/全局默认值。"""
+    from app.modules.llm.providers_openai import OpenAICompatibleProvider
+    from app.modules.llm.schemas import ChatMessage as _Msg
+    from app.modules.llm.schemas import LLMRequest as _Req
+
+    seen: list[object] = []
+
+    class _RecordingClient:
+        def __init__(self, *a, **kw):
+            seen.append(kw.get("timeout"))
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, json=None, headers=None):
+            return _FakeResp(
+                200,
+                {
+                    "choices": [{"message": {"content": "hi"}, "finish_reason": "stop"}],
+                    "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+                    "model": "m",
+                },
+            )
+
+    monkeypatch.setattr(httpx, "AsyncClient", _RecordingClient)
+    provider = OpenAICompatibleProvider(base_url="https://x", api_key="k", model="m")
+    provider.timeout = 60
+
+    await provider.complete(_Req(messages=[_Msg(role="user", content="写")]))
+    await provider.complete(_Req(messages=[_Msg(role="user", content="写")], timeout_seconds=180))
+    assert seen == [60, 180]

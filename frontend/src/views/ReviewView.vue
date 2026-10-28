@@ -517,6 +517,7 @@
   } from '@/components/library/libraryMeta'
   import { classifyError, friendlyErrorMessage, type ViewState } from '@/utils/status'
   import type { Candidate, ReviewAction, Skill, SkillReviewAction } from '@/types/api'
+  import { formatDateTime as formatTime } from '@/utils/format'
 
   /** 后端 SkillOut 把业务字段放在 definition 内，且没有 name/code 顶层列。 */
   type SkillRow = Skill & {
@@ -640,12 +641,6 @@
     const definition = definitionText(row)
     const risk = row.risk_level || definition.risk_level
     return typeof risk === 'string' ? risk : ''
-  }
-
-  function formatTime(t?: string): string {
-    if (!t) return '—'
-    const d = new Date(t)
-    return isNaN(d.getTime()) ? t : d.toLocaleString('zh-CN')
   }
 
   async function loadCandidates() {

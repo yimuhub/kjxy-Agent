@@ -268,6 +268,7 @@
     type WorkOrder,
   } from '@/api/modules'
   import { useAuthStore } from '@/stores/auth'
+  import { parseApiTime } from '@/utils/format'
 
   interface FallbackBodyProps {
     state: 'loading' | 'ok' | 'error'
@@ -444,9 +445,8 @@
   }
 
   function timeText(value?: string | null): string {
-    if (!value) return ''
-    const ts = new Date(value).getTime()
-    if (Number.isNaN(ts)) return ''
+    const ts = parseApiTime(value)?.getTime()
+    if (ts === undefined) return ''
     const diff = Date.now() - ts
     if (diff < 60_000) return '刚刚'
     if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`
@@ -463,7 +463,7 @@
         tone: 'tone-order',
         title: o.title,
         to: '/work-orders',
-        ts: new Date(o.updated_at).getTime(),
+        ts: parseApiTime(o.updated_at)?.getTime() ?? 0,
         timeText: timeText(o.updated_at),
       })
     }
@@ -474,7 +474,7 @@
         tone: 'tone-diagnosis',
         title: `${d.crop} · ${d.status === 'expert_review' ? '待专家复核' : '待跟进'}`,
         to: '/diagnosis',
-        ts: new Date(d.created_at).getTime(),
+        ts: parseApiTime(d.created_at)?.getTime() ?? 0,
         timeText: timeText(d.created_at),
       })
     }
@@ -485,7 +485,7 @@
         tone: 'tone-record',
         title: `${r.plot_name || '地块'} · ${r.kind_label}${r.title ? `：${r.title}` : ''}`,
         to: '/farm',
-        ts: new Date(r.created_at).getTime(),
+        ts: parseApiTime(r.created_at)?.getTime() ?? 0,
         timeText: timeText(r.created_at),
       })
     }

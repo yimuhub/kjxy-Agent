@@ -10,6 +10,9 @@
   "助手/智能体"等 agent 名词仍走 create，不抢占既有能力链路；
 - doc 类意图命中"产出动词 + 文档名词"（Word/Excel/PPT/PDF/Markdown/报告/方案…），
   走文档生成；疑问词同样降级，能力名词优先级更高（"生成一个助手"仍是造能力）；
+- plan 类意图命中"方案名词（方案/规划/技术路线…）"且**没有**点名文件格式或文件动作
+  （v3.14：「写一份防治方案」要的是当场看得见的完整方案，不是附件里的一句话；
+  「写一份方案，用 Word」这类仍按 doc 链路产出文件）；
 - 未命中一律是提问 → 走既有问答链路（**零回归**）。
 
 纯规则实现：不调模型、不写库、无外部依赖，判定结果可复现。
@@ -123,6 +126,37 @@ DOC_VERBS: tuple[str, ...] = (
     "列出",
 )
 
+#: 方案类名词：要的是一份可直接执行的完整方案，而不是把内容塞进文件（v3.14）
+PLAN_NOUNS: tuple[str, ...] = (
+    "方案",
+    "规划",
+    "技术路线",
+    "实施计划",
+    "工作计划",
+    "防治计划",
+    "栽培计划",
+)
+
+#: 显式点名文件格式或文件动作时仍走文档链路（"写一份防治方案，用 Word"）
+FILE_HINTS: tuple[str, ...] = (
+    "word",
+    "docx",
+    "excel",
+    "xlsx",
+    "表格",
+    "ppt",
+    "幻灯片",
+    "演示文稿",
+    "pdf",
+    "markdown",
+    "md文件",
+    "文档",
+    "文件",
+    "导出",
+    "下载",
+    "打印",
+)
+
 #: 疑问词（命中即降级为提问）
 QUESTION_WORDS: tuple[str, ...] = (
     "吗",
@@ -146,6 +180,7 @@ INTENT_CREATE = "create"
 INTENT_INSTALL = "install"
 INTENT_SKILL = "skill"
 INTENT_DOC = "doc"
+INTENT_PLAN = "plan"
 INTENT_PLUGIN = "plugin"
 
 _CODE_SAFE = re.compile(r"[^a-z0-9_]+")
@@ -161,7 +196,14 @@ class Intent:
 
     @property
     def is_action(self) -> bool:
-        return self.kind in (INTENT_CREATE, INTENT_INSTALL, INTENT_SKILL, INTENT_DOC, INTENT_PLUGIN)
+        return self.kind in (
+            INTENT_CREATE,
+            INTENT_INSTALL,
+            INTENT_SKILL,
+            INTENT_DOC,
+            INTENT_PLAN,
+            INTENT_PLUGIN,
+        )
 
 
 def _has(text: str, words: tuple[str, ...]) -> bool:
@@ -195,6 +237,13 @@ def detect(text: str) -> Intent:
             target = "team" if "班组" in lowered else "agent"
             return Intent(INTENT_CREATE, target, "命中创建动词与能力名词，按生成能力处理")
         return Intent(INTENT_QA, "agent", "仅命中能力名词，按提问处理")
+    # 方案链路：要一份可执行的完整方案（显式点名文件格式/文件动作时仍按文档产出）
+    if (
+        _has(lowered, PLAN_NOUNS)
+        and not _has(lowered, FILE_HINTS)
+        and not _has(raw, QUESTION_WORDS)
+    ):
+        return Intent(INTENT_PLAN, "plan", "命中方案名词，按多源合成完整方案处理")
     # 文档链路：产出动词 + 文档名词；疑问句仍按提问（"这份报告怎么改"）
     if _has(lowered, DOC_NOUNS) and _has(raw, DOC_VERBS) and not _has(raw, QUESTION_WORDS):
         return Intent(INTENT_DOC, "document", "命中产出动词与文档名词，按生成文档处理")
@@ -207,14 +256,17 @@ __all__ = [
     "CREATE_VERBS",
     "DOC_NOUNS",
     "DOC_VERBS",
+    "FILE_HINTS",
     "INSTALL_VERBS",
     "INTENT_CREATE",
     "INTENT_DOC",
     "INTENT_INSTALL",
+    "INTENT_PLAN",
     "INTENT_PLUGIN",
     "INTENT_QA",
     "INTENT_SKILL",
     "Intent",
+    "PLAN_NOUNS",
     "PLUGIN_NOUNS",
     "QUESTION_WORDS",
     "REQUEST_PREFIXES",

@@ -56,7 +56,8 @@ test.describe('问答并入对话', () => {
   })
 
   test('知识问答模式在对话内可用：只依据知识库、可调解检索条数', async ({ page }) => {
-    test.setTimeout(120_000)
+    // 真实模型单轮问答可超过一分半（与 chat.spec 同口径放宽），90 秒会把慢答案判成没答案
+    test.setTimeout(240_000)
     const errors: string[] = []
     page.on('console', msg => {
       if (msg.type() === 'error') errors.push(msg.text())
@@ -76,7 +77,7 @@ test.describe('问答并入对话', () => {
     await page.getByRole('textbox', { name: '对话输入' }).press('Enter')
 
     const answer = page.locator('.msg-row.assistant .bubble.assistant:not(.typing):not(.live-steps)')
-    await expect(answer).toBeVisible({ timeout: 90_000 })
+    await expect(answer).toBeVisible({ timeout: 180_000 })
     // 一问一答：乐观消息与后端消息不得重复出现在流里
     await expect(page.locator('.msg-row.user')).toHaveCount(1)
     // 问答回答一定标注来源，路由徽章显示「知识问答」

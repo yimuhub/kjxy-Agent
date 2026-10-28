@@ -200,3 +200,41 @@ def test_skill_noun_wins_over_plugin_noun():
 )
 def test_skill_negative_controls(text, expected):
     assert intent.detect(text).kind == expected
+
+
+def test_plan_request_is_plan():
+    """「写一份…方案」要的是当场可见的完整方案，不再进文档链路（v3.14）。"""
+    got = intent.detect("写一份小麦赤霉病的防治方案")
+    assert got.kind == intent.INTENT_PLAN
+    assert got.target == "plan"
+    assert got.is_action is True
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "制定明年基地扩建规划",
+        "给出水稻水分管理的技术路线",
+        "写一份秋收实施计划",
+    ],
+)
+def test_plan_nouns_route_to_plan(text):
+    assert intent.detect(text).kind == intent.INTENT_PLAN
+
+
+def test_plan_with_format_hint_stays_document():
+    """显式点名文件格式时仍按文档产出（方案名词让位给格式词）。"""
+    assert intent.detect("写一份防治方案，用 Word 格式").kind == intent.INTENT_DOC
+    assert intent.detect("把这份方案导出成文件").kind == intent.INTENT_DOC
+
+
+def test_plan_question_downgrades_to_qa():
+    assert intent.detect("防治方案怎么写").kind == intent.INTENT_QA
+
+
+def test_capability_noun_wins_over_plan_noun():
+    assert intent.detect("我需要一个病虫害防治方案助手").kind == intent.INTENT_CREATE
+
+
+def test_unrelated_request_is_not_plan():
+    assert intent.detect("地里今天需要做什么").kind == intent.INTENT_QA

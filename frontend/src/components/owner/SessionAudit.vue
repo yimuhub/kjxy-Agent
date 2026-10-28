@@ -190,10 +190,11 @@
       </template>
     </el-dialog>
 
-    <el-drawer
+    <el-dialog
       v-model="drawer"
       :title="`会话正文：${activeSession?.title || '未命名会话'}`"
-      size="580px"
+      width="580px"
+      align-center
     >
       <el-alert
         type="warning"
@@ -238,7 +239,7 @@
         v-else
         description="该会话暂无消息"
       />
-    </el-drawer>
+    </el-dialog>
   </el-card>
 </template>
 
@@ -436,6 +437,9 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
+    /* 会话正文长列表：限高滚动，避免弹窗被消息数顶高 */
+    max-height: min(62vh, 640px);
+    overflow-y: auto;
   }
   .message-item {
     padding: 10px 12px;

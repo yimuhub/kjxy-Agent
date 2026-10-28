@@ -10,6 +10,7 @@ import {
   normalizeMemberStatus,
 } from '@/api/chat'
 import type {
+  ChatApprovalMode,
   ChatAttachment,
   ChatCard,
   ChatGroupPolicy,
@@ -25,10 +26,13 @@ import type {
   MentionCandidate,
   MemberEventStatus,
   SendMessageExtras,
+  SessionBatchAction,
+  SessionPatch,
 } from '@/api/chat'
 import { extractErrorMessage } from '@/api/client'
 import { skillApi, skillApiErrorText, skillLabApi } from '@/api/v3'
 import { friendlyErrorMessage } from '@/utils/status'
+import { apiTimeMs } from '@/utils/format'
 import { openSseStream, type SseHandle } from '@/utils/sse'
 
 /** 后端未生成标题时的界面占位 */
@@ -106,6 +110,15 @@ function buildChatStore(scope: string) {
     /** 实例标识（暴露给视图，便于断言两份状态确实不是同一个 store） */
     const instanceScope = ref(scope)
     const sessions = ref<ChatSession[]>([])
+    /** 列表顶部筛选：进行中 / 已归档（两个视图互斥，服务端按 archived 参数分给） */
+    const sessionFilter = ref<'active' | 'archived'>('active')
+    /** 批量模式：开启后每行出现勾选框，底部出现批量条 */
+    const batchMode = ref(false)
+    /**
+     * 勾选集合用 Set 而不是数组：列表有几百行时，每行都要问一次「我选中没有」，
+     * 数组的 includes 会把一次点击放大成 O(行数 × 已选数) 的字符串比较。
+     */
+    const batchIds = ref<Set<string>>(new Set())
     const activeId = ref('')
     const messages = ref<ChatMessage[]>([])
     const sessionsLoading = ref(false)
@@ -143,6 +156,27 @@ function buildChatStore(scope: string) {
     let roundSeq = 0
 
     /**
+     * 乐观消息的本地 id 序号：用 `Date.now()` 做 id 在同一毫秒内发两条（脚本连发、
+     * 用户连点）会撞出重复的 v-for key，Vue 遇到重复 key 的补丁行为不保证，表现为
+     * 气泡错位/丢内容。改成实例内自增，天然唯一。
+     */
+    let localMsgSeq = 0
+
+    /**
+     * 正在新建的会话（点了「新对话」到服务端回包这段窗口）。
+     * 建会话要一个来回，窗口里用户就可能按下回车发消息；发消息前先 await 它，
+     * 否则消息会落到上一个会话——用户看着像「刚开的对话没接上消息」。
+     */
+    let creatingSession: Promise<ChatSession | undefined> | null = null
+
+    /**
+     * 会话焦点令牌：新建会话、切换会话都会自增。
+     * 只有令牌最新的那次操作允许把焦点落到会话上——两次「新建」并发时后点的赢，
+     * 建会话在途时用户已经切走别的会话，也不被抢回来。
+     */
+    let focusToken = 0
+
+    /**
      * 技能卡片（一句话技能）的实例级操作状态：按消息 id 隔离。
      * 必须挂在各自的 store 实例上——同一页面可能并存多个 ChatPanel（主对话 / 弹出面板），
      * 全局单例会让两个面板的「安装中 / 提交中」互相串台。
@@ -156,6 +190,44 @@ function buildChatStore(scope: string) {
     const pluginCardOps = ref<Record<string, PluginCardOpState>>({})
 
     const activeSession = computed(() => sessions.value.find(s => s.id === activeId.value) ?? null)
+
+    /**
+     * 列表真正渲染的那份：按当前筛选过滤，再排成「置顶恒在最前（置顶时间倒序），
+     * 其余最近更新在前」。
+     *
+     * 这条排序规则与服务端 ``list_sessions`` 的 order_by 一一对应（pinned_at 非空在前、
+     * pinned_at 倒序、updated_at 倒序），在这里本地做而不是每次改标记位都回读整张列表：
+     * 会话多时一次回读要为每行统计 Token，点一下「置顶」就卡半秒不值当。
+     * E2E 用例 chat-session-ops 会真的检查置顶后落到第一行，规则漂移会立刻失败。
+     */
+    const visibleSessions = computed(() => {
+      const wantArchived = sessionFilter.value === 'archived'
+      /*
+       * 每行只取一次排序键。以前比较器里现算 `parseApiTime`，排序会把解析放大成
+       * O(N log N) 次 Date 构造；再叠加「任何一行改动就整表重算」，几百行时点一下
+       * 置顶就要卡一下。
+       */
+      const keyed: { row: ChatSession; pin: number; upd: number }[] = []
+      for (const s of sessions.value) {
+        if (!!s.archived !== wantArchived) continue
+        keyed.push({
+          row: s,
+          pin: s.pinned ? apiTimeMs(s.pinned_at) : 0,
+          upd: apiTimeMs(s.updated_at),
+        })
+      }
+      keyed.sort((a, b) => b.pin - a.pin || b.upd - a.upd)
+      return keyed.map(e => e.row)
+    })
+
+    /** 批量勾选数（模板里用 .size 会让每次渲染都重算，这里给一个稳定派生值） */
+    const batchCount = computed(() => batchIds.value.size)
+
+    /** 某会话是否被勾选：Set 查询，行内每次渲染只问自己那一个 */
+    function isBatchPicked(id: string): boolean {
+      return batchIds.value.has(id)
+    }
+
     const activeTitle = computed(() => activeSession.value?.title || UNTITLED)
 
     /** 群聊态：有固定成员才谈策略；空成员表 = 原单聊，发送体里不出现 policy */
@@ -224,13 +296,17 @@ function buildChatStore(scope: string) {
      * 竞态守卫：请求发出之后本地可能又新建了会话（点「新对话」、空态直接发消息），
      * 这份会话自然不会出现在这次响应里。此时不能把它当成「已失效」切走——否则用户
      * 正在聊的会话会被静默换成一条旧会话，流式回来的回答也因 sid !== activeId 被丢弃。
+     *
+     * 但这条守卫不能救「服务端故意不给」的会话：刚被归档/取消归档的那条，本地状态
+     * 已经带 archived 标记，服务端这次没有它正是对的——再塞回列表就出现「归档了还在
+     * 进行中显示」。只有既没归档、又确实还没被服务端收录的刚建会话才保留。
      */
     async function fetchSessions() {
       sessionsLoading.value = true
       try {
-        const res = await chatApi.listSessions()
+        const res = await chatApi.listSessions(sessionFilter.value === 'archived')
         const list = res.items ?? []
-        const pending = sessions.value.find(s => s.id === activeId.value) ?? null
+        const pending = sessions.value.find(s => s.id === activeId.value && !s.archived) ?? null
         // 服务端列表新→旧；本地刚建、服务端还没回的会话留在最前面
         sessions.value = pending && !list.some(s => s.id === pending.id) ? [pending, ...list] : list
         if (!sessions.value.some(s => s.id === activeId.value)) {
@@ -263,6 +339,8 @@ function buildChatStore(scope: string) {
 
     async function selectSession(id: string) {
       if (id === activeId.value) return
+      // 用户已经改主意了：在途的建会话回来后不该抢走焦点
+      focusToken += 1
       activeId.value = id
       messages.value = []
       attachments.value = []
@@ -270,22 +348,41 @@ function buildChatStore(scope: string) {
       resetRoundView()
       await loadMessages()
       await loadParticipants()
+      await clearUnread(id)
     }
 
     /**
      * 新建空会话并选中（标题留空，首条消息发送后自动生成）。
      * payload 供弹出对话框这类「锁定执行对象」的实例传 target/target_code。
+     *
+     * 建会话要一个来回，这段窗口里用户就可能按下回车发消息：creatingSession 把窗口
+     * 的承诺挂出来，发消息前先 await 它，消息才落进刚开的会话而不是上一个。
      */
-    async function newSession(payload: CreateSessionPayload = {}) {
-      if (sending.value) return
-      const session = await chatApi.createSession(payload)
-      sessions.value.unshift(session)
-      activeId.value = session.id
-      messages.value = []
-      attachments.value = []
-      streamError.value = ''
-      resetRoundView()
-      participants.value = []
+    async function newSession(payload: CreateSessionPayload = {}): Promise<ChatSession | undefined> {
+      if (sending.value) return undefined
+      const token = ++focusToken
+      const task = (async () => {
+        const session = await chatApi.createSession(payload)
+        sessions.value.unshift(session)
+        // 等待期间用户已经切到别的会话：不抢焦点，也不清空他正在看的消息
+        if (token === focusToken) {
+          activeId.value = session.id
+          messages.value = []
+          attachments.value = []
+          streamError.value = ''
+          resetRoundView()
+          participants.value = []
+        }
+        return session
+      })()
+      // 给并发调用者一个永不 reject 的副本：建会话失败由 newSession 的调用方各自处理
+      const pending = task.then(s => s, () => undefined)
+      creatingSession = pending
+      try {
+        return await task
+      } finally {
+        if (creatingSession === pending) creatingSession = null
+      }
     }
 
     async function renameSession(id: string, title: string) {
@@ -297,6 +394,7 @@ function buildChatStore(scope: string) {
     async function removeSession(id: string) {
       await chatApi.deleteSession(id)
       sessions.value = sessions.value.filter(s => s.id !== id)
+      batchIds.value.delete(id)
       if (activeId.value === id) {
         activeId.value = sessions.value[0]?.id ?? ''
         messages.value = []
@@ -304,6 +402,158 @@ function buildChatStore(scope: string) {
         resetRoundView()
         if (activeId.value) await loadMessages()
       }
+    }
+
+    /* ---------------- 会话列表管理（三点菜单 / 批量 / 分支，0043）---------------- */
+
+    /**
+     * 用服务端回包就地替换该行——排序、置顶、授权模式都以服务端为准，
+     * 前端不自己猜（避免「显示 full 但实际被降级为 ask」的假状态）。
+     */
+    function mergeSessionRow(next: ChatSession) {
+      const i = sessions.value.findIndex(s => s.id === next.id)
+      if (i >= 0) sessions.value.splice(i, 1, next)
+    }
+
+    /** 切换进行中 / 已归档；正在聊的会话被切走时只清列表选择，不删任何东西 */
+    async function setSessionFilter(next: 'active' | 'archived') {
+      if (sessionFilter.value === next) return
+      const prev = sessionFilter.value
+      sessionFilter.value = next
+      exitBatchMode()
+      try {
+        await fetchSessions()
+      } catch (err) {
+        /*
+         * 拉取失败退回原来的视图并如实抛出：停在「筛选已经切到已归档、列表却还是
+         * 进行中那批」的中间态最骗人——用户会以为自己的归档对话丢了。
+         */
+        sessionFilter.value = prev
+        await fetchSessions().catch(() => undefined)
+        throw err
+      }
+    }
+
+    /**
+     * 局部更新一个会话的标记位（置顶/归档/未读/授权模式/标题）。
+     *
+     * 只把服务端回包的那一行就地替换：排序与「归档就从这个视图消失」都交给
+     * ``visibleSessions`` 这个视图模型本地完成，不为此回读整张列表——会话多时
+     * 一次回读要为每行统计 Token，点一下「置顶」卡半秒不值当。
+     *
+     * 置顶/归档/未读/标题这四项服务端不会拒绝也不会降级，先落到本地行、请求在
+     * 后台走，界面立刻动；失败就整体还原，绝不留下一个没发生过的状态。
+     * ``approval_mode`` 特意不参与抢跑——它可能被服务端按角色降级，显示的必须是回包里的生效值。
+     */
+    async function patchSession(id: string, patch: SessionPatch) {
+      const row = sessions.value.find(s => s.id === id) ?? null
+      const optimistic: Partial<ChatSession> = {}
+      if (patch.title !== undefined) optimistic.title = patch.title
+      if (patch.pinned !== undefined) optimistic.pinned = patch.pinned
+      if (patch.archived !== undefined) optimistic.archived = patch.archived
+      if (patch.unread !== undefined) optimistic.unread = patch.unread
+      const snapshot = row && Object.keys(optimistic).length ? { ...row } : null
+      if (row && snapshot) Object.assign(row, optimistic)
+      try {
+        const next = await chatApi.updateSession(id, patch)
+        if (next) mergeSessionRow(next)
+        return next
+      } catch (err) {
+        if (row && snapshot) Object.assign(row, snapshot)
+        throw err
+      }
+    }
+
+    /** 打开会话即清除未读（会话私有，不引入已读回执表；失败不打扰用户） */
+    async function clearUnread(id: string) {
+      const row = sessions.value.find(s => s.id === id)
+      if (!row?.unread) return
+      try {
+        await patchSession(id, { unread: false })
+      } catch {
+        /* 未读标记没清掉不影响使用，下次进列表自然纠正 */
+      }
+    }
+
+    function toggleBatchPick(id: string) {
+      const picked = batchIds.value
+      if (picked.has(id)) picked.delete(id)
+      else picked.add(id)
+    }
+
+    /** 全选/清空：整体换一个 Set，比逐个 add 少触发几百次依赖更新 */
+    function setBatchPicks(ids: string[]) {
+      batchIds.value = new Set(ids)
+    }
+
+    function exitBatchMode() {
+      batchMode.value = false
+      batchIds.value = new Set()
+    }
+
+    /** 批量动作：本地先落效果，再回读列表（服务端会重新按置顶/更新时间排序） */
+    async function runBatch(action: SessionBatchAction) {
+      const ids = [...batchIds.value]
+      if (!ids.length) return null
+      const res = await chatApi.batchSessions(ids, action)
+      const affected = res?.affected ?? []
+      // 先把标记位落到本地行，再回读列表：否则「归档当前会话」这一条会被
+      // fetchSessions 的刚建会话守卫原样塞回来（服务端已经不给了，本地却说没归档）。
+      // 索引一次建好：批量 200 条各自做一次整表 find 就是几万次比较。
+      const byId = new Map(sessions.value.map(s => [s.id, s]))
+      const flag = (write: (s: ChatSession) => void) => {
+        for (const id of affected) {
+          const row = byId.get(id)
+          if (row) write(row)
+        }
+      }
+      if (action === 'archive') flag(s => (s.archived = true))
+      if (action === 'unarchive') flag(s => (s.archived = false))
+      if (action === 'pin') flag(s => (s.pinned = true))
+      if (action === 'unpin') flag(s => (s.pinned = false))
+      if (action === 'read') flag(s => (s.unread = false))
+      if (action === 'unread') flag(s => (s.unread = true))
+      if (action === 'delete' && affected.length) {
+        // 删掉的行当场消失，不等回读：否则要点两次才看得出少了
+        const gone = new Set(affected)
+        sessions.value = sessions.value.filter(s => !gone.has(s.id))
+        if (gone.has(activeId.value)) {
+          activeId.value = ''
+          messages.value = []
+          attachments.value = []
+        }
+      }
+      exitBatchMode()
+      await fetchSessions()
+      if (!activeId.value && sessions.value.length) {
+        await selectSession(sessions.value[0].id)
+      }
+      return res
+    }
+
+    /**
+     * 分支：从这条回答拉出一个全新会话并立刻切过去。
+     * 原会话不受影响；服务端负责复制历史、附件与群聊名单。
+     */
+    async function forkFromMessage(messageId: string): Promise<ChatSession | null> {
+      if (!activeId.value || !messageId) return null
+      const branch = await chatApi.forkSession(activeId.value, messageId)
+      if (!branch) return null
+      if (sessionFilter.value === 'active') sessions.value.unshift(branch)
+      activeId.value = branch.id
+      messages.value = []
+      attachments.value = []
+      streamError.value = ''
+      resetRoundView()
+      await loadMessages()
+      await loadParticipants()
+      return branch
+    }
+
+    /** 设置本会话的高风险工具授权模式（服务端按角色校验，返回的是生效值） */
+    async function setApprovalMode(mode: ChatApprovalMode) {
+      if (!activeId.value) return null
+      return patchSession(activeId.value, { approval_mode: mode })
     }
 
     /* ---------------- @ 点名 ---------------- */
@@ -477,6 +727,7 @@ function buildChatStore(scope: string) {
     /** 上传附件到当前会话（无会话则先建）；成功后进入待发列表 */
     async function uploadAttachment(file: File): Promise<boolean> {
       if (sending.value) return false
+      if (creatingSession) await creatingSession
       if (!activeId.value) {
         try {
           await newSession()
@@ -526,6 +777,10 @@ function buildChatStore(scope: string) {
     async function sendQa(content: string, topK = 5): Promise<boolean> {
       const question = content.trim()
       if (!question || sending.value) return false
+      if (creatingSession) {
+        const created = await creatingSession
+        if (!created) return false
+      }
       if (!activeId.value) {
         try {
           await newSession()
@@ -659,6 +914,13 @@ function buildChatStore(scope: string) {
     async function send(content: string): Promise<boolean> {
       const draft = content.trim()
       if (!draft || sending.value) return false
+      // 点「新对话」到会话建好之间有个窗口：这段时间发出的消息必须等会话建好再发，
+      // 否则会落到上一个会话——用户看着像「刚开的对话没接上消息」
+      if (creatingSession) {
+        const created = await creatingSession
+        // 建会话失败：消息没有归属，宁可这次不发（草稿留在输入框），也不丢进旧会话
+        if (!created) return false
+      }
       // 无会话先创建一个（失败已由拦截器 toast），保证「空态直接说要办的事」可用
       if (!activeId.value) {
         try {
@@ -678,7 +940,7 @@ function buildChatStore(scope: string) {
       streamError.value = ''
       resetRoundView()
       const local: ChatMessage = {
-        id: `local-${Date.now()}`,
+        id: `local-${++localMsgSeq}`,
         role: 'user',
         content: draft,
         created_at: new Date().toISOString(),
@@ -899,6 +1161,12 @@ function buildChatStore(scope: string) {
     return {
       scope: instanceScope,
       sessions,
+      visibleSessions,
+      sessionFilter,
+      batchMode,
+      batchCount,
+      isBatchPicked,
+      setBatchPicks,
       activeId,
       messages,
       sessionsLoading,
@@ -928,6 +1196,15 @@ function buildChatStore(scope: string) {
       newSession,
       renameSession,
       removeSession,
+      /* 会话列表管理（0043）：筛选 / 三点菜单 / 批量 / 分支 / 授权模式 */
+      setSessionFilter,
+      patchSession,
+      clearUnread,
+      toggleBatchPick,
+      exitBatchMode,
+      runBatch,
+      forkFromMessage,
+      setApprovalMode,
       uploadAttachment,
       recognizeAttachment,
       removeAttachment,

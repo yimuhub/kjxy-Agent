@@ -488,7 +488,22 @@ a {
   font-variant-numeric: tabular-nums;
 }
 
-/* ============ 对话框 / 抽屉 ============ */
+/* ============ 对话框 ============ */
+/*
+ * 全站弹窗统一「从屏幕中央弹出」。
+ * 这里等价于给每一个 el-dialog 都加 align-center，但不必改动几十处组件属性，
+ * 也不会出现漏网的那个：遮罩层改成 flex 容器、面板 margin:auto —— auto 外边距
+ * 吸收剩余空间即水平+垂直居中；内容比视口高时 auto 归零，面板退回顶部对齐并
+ * 随遮罩滚动，不会把顶部顶出屏幕。
+ */
+.el-overlay-dialog {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+.el-overlay-dialog > .el-dialog {
+  margin: auto;
+}
 .el-dialog {
   background: rgba(23, 28, 42, 0.94);
   backdrop-filter: blur(24px) saturate(1.2);
@@ -521,20 +536,6 @@ a {
 }
 .el-dialog__footer .el-button + .el-button {
   margin-left: 8px;
-}
-.el-drawer {
-  background: rgba(23, 28, 42, 0.96);
-  backdrop-filter: blur(20px) saturate(1.2);
-  -webkit-backdrop-filter: blur(20px) saturate(1.2);
-  border-left: 1px solid var(--ds-border);
-}
-.el-drawer__header {
-  margin-bottom: 16px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid var(--ds-border);
-  color: var(--ds-text-1);
-  font-size: 15px;
-  font-weight: 600;
 }
 .el-message-box {
   background: var(--ds-bg-2);
@@ -786,9 +787,6 @@ a {
   font-variant-numeric: tabular-nums;
 }
 .el-result__title p {
-  color: var(--ds-text-1);
-}
-.el-drawer__body {
   color: var(--ds-text-1);
 }
 .el-popconfirm__main {

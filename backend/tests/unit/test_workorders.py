@@ -1,6 +1,6 @@
 """告警→工单→回执（v3.10）：自动转单、指派、状态机、回执、逾期升级。"""
 
-from datetime import date, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from app.core.errors import AppError
@@ -155,7 +155,10 @@ def test_receipt_closes_with_resolution_and_event(db_session, world):
 
 
 def test_escalate_and_overdue_scan(db_session, world):
-    yesterday = date.today() - timedelta(days=1)
+    # 业务日按 UTC 划分（工单到期日、报表时间窗都走 UTC 边界），不能用本地日历日：
+    # 东八区本地 00:00–08:00 期间本地日期比 UTC 快一天，用 date.today() 会让这条用例
+    # 每天有 8 小时恒定失败。取 UTC 昨日，UTC/本地两种口径下都稳定判为逾期。
+    yesterday = datetime.now(UTC).date() - timedelta(days=1)
     order = workorder_service.create_work_order(
         db_session,
         world["yard"].id,

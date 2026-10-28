@@ -549,6 +549,12 @@ async def run_group_turn(
     turn_id = _new_turn_id()
     emit: Callable[[str, dict[str, Any]], None] = on_event or (lambda _k, _d: None)
 
+    # 群聊同样吃会话的授权模式：每位成员共用本轮 ctx 快照（ask/auto/full）
+    session = service.get_session(
+        db, yard_id=ctx.yard_id, created_by=ctx.user_id, session_id=session_id
+    )
+    ctx = service.scoped_ctx(ctx, session)
+
     members = (
         participants
         if participants is not None

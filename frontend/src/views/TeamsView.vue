@@ -349,11 +349,12 @@
     </el-dialog>
 
     <!-- 运行抽屉：成员横向步骤条 + 成员卡（可下钻内部步骤）+ 答案 -->
-    <el-drawer
+    <el-dialog
       v-model="drawerVisible"
       :title="`运行详情：${currentRun?.team_name || '历史班组'}`"
-      size="min(780px, 100vw)"
+      width="min(880px, 94vw)"
       append-to-body
+      align-center
       @close="onDrawerClosed"
     >
       <div class="dr-toolbar">
@@ -596,7 +597,7 @@
         :rows="6"
         animated
       />
-    </el-drawer>
+    </el-dialog>
   </div>
 </template>
 <script setup lang="ts">
@@ -1042,6 +1043,11 @@ onUnmounted(() => {
 }
 
 /* ---------- 运行抽屉 ---------- */
+/* 弹窗内容区（SSE 实时输出 + 成员长列表）：限高滚动，保持输出在框内、不顶高整屏 */
+.drawer-body {
+  max-height: min(62vh, 640px);
+  overflow-y: auto;
+}
 .dr-toolbar {
   display: flex;
   flex-wrap: wrap;

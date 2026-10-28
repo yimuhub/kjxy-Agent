@@ -52,19 +52,24 @@ def get_or_create_pending_approval(
     task_id: str | None = None,
     reason: str | None = None,
     request_id: str = "req_unknown",
+    chat_session_id: str | None = None,
 ) -> ToolApproval:
-    """获取或创建 pending 审批单；幂等（同小院+工具+参数哈希复用未关闭单）。"""
+    """获取或创建 pending 审批单；幂等（同小院+工具+参数哈希复用未关闭单）。
+
+    带 ``chat_session_id`` 时会话维度参与去重：会话 A 的单不复用给会话 B——
+    授权模式 auto 的「本会话内已批准过」判定必须落在自己会话的单上。
+    """
     phash = params_hash(params)
+    filters = [
+        ToolApproval.yard_id == yard_id,
+        ToolApproval.tool_code == tool_code,
+        ToolApproval.params_hash == phash,
+        ToolApproval.status == APPROVAL_PENDING,
+    ]
+    if chat_session_id:
+        filters.append(ToolApproval.chat_session_id == chat_session_id)
     existing = (
-        db.query(ToolApproval)
-        .filter(
-            ToolApproval.yard_id == yard_id,
-            ToolApproval.tool_code == tool_code,
-            ToolApproval.params_hash == phash,
-            ToolApproval.status == APPROVAL_PENDING,
-        )
-        .order_by(ToolApproval.created_at.desc())
-        .first()
+        db.query(ToolApproval).filter(*filters).order_by(ToolApproval.created_at.desc()).first()
     )
     if existing is not None:
         # 补关联任务（首次为直接调用、后续走任务时）
@@ -81,6 +86,7 @@ def get_or_create_pending_approval(
         status=APPROVAL_PENDING,
         requested_by=requested_by,
         task_id=task_id,
+        chat_session_id=chat_session_id,
         reason=reason,
     )
     db.add(approval)
@@ -94,7 +100,11 @@ def get_or_create_pending_approval(
         resource_id=approval.id,
         result="success",
         request_id=request_id,
-        metadata={"tool_code": tool_code, "task_id": task_id},
+        metadata={
+            "tool_code": tool_code,
+            "task_id": task_id,
+            "chat_session_id": chat_session_id,
+        },
     )
     log.info("tool approval created: %s %s", tool_code, approval.id)
     return approval
@@ -133,12 +143,28 @@ def list_approvals(
 
 
 def has_approved_approval(
-    db: Session, *, yard_id: str, tool_code: str, params: dict | None
+    db: Session,
+    *,
+    yard_id: str,
+    tool_code: str,
+    params: dict | None,
+    chat_session_id: str | None = None,
+    caller_session_id: str | None = None,
 ) -> bool:
     """是否存在针对同一调用的、仍有效的已批准单（批准后重试放行用）。
 
     有效性 = status=approved 且未过期（expires_at 为空视为永久）。
     命中即放行并累加 used_count；超过 tool_approval_max_uses 上限后不再放行。
+
+    ``chat_session_id`` 非空时把范围收窄到该会话——授权模式 auto 的口径是
+    「**同一会话内**人工批准过才自动放行」，不能借隔壁会话批准过的同一调用。
+
+    ``caller_session_id``（与上一个参数二选一使用）表示**调用方当前所在的会话**，
+    用于堵住一条真实的旁路：审批单从 0043 起带会话归属，若这里的兜底查询不看归属，
+    在 A 会话里批准的一单就会被 B 会话、任务、脚本原样借用——等于把「按会话批准」
+    悄悄放宽成「按小院批准一次，处处可用」。规则是：
+    有归属的单只在其所属会话内生效；无归属的单（0043 之前的历史行、任务侧建的单）
+    仍是全院通用，保持既有契约不变。传空串表示调用方不在任何对话里。
     """
     ttl_hours = settings.tool_approval_ttl_hours
     max_uses = settings.tool_approval_max_uses
@@ -150,6 +176,19 @@ def has_approved_approval(
         ToolApproval.params_hash == params_hash(params),
         ToolApproval.status == APPROVAL_APPROVED,
     ]
+    if chat_session_id:
+        filters.append(ToolApproval.chat_session_id == chat_session_id)
+    elif caller_session_id is not None:
+        if caller_session_id:
+            filters.append(
+                or_(
+                    ToolApproval.chat_session_id.is_(None),
+                    ToolApproval.chat_session_id == caller_session_id,
+                )
+            )
+        else:
+            # 调用方不在任何对话里：只认没有会话归属的单，不借任何会话批准过的批准
+            filters.append(ToolApproval.chat_session_id.is_(None))
     if ttl_hours and ttl_hours > 0:
         # 未设 expires_at 的历史行视为仍在有效期内（向后兼容）
         filters.append(or_(ToolApproval.expires_at.is_(None), ToolApproval.expires_at > now))
@@ -185,6 +224,42 @@ def has_approved_approval(
     if not updated:
         return False
     db.refresh(approval)
+    return True
+
+
+def session_approved_this_call(
+    db: Session, *, yard_id: str, tool_code: str, params: dict | None, chat_session_id: str
+) -> bool:
+    """本会话内是否已有人工批准过同一调用（授权模式 auto 的复用判定）。
+
+    与 ``has_approved_approval`` 的两点差别，正是 auto 与现状的分界：
+    1. 只认 ``chat_session_id`` 相同的单——别的会话批准过不算；
+    2. 不受 ``tool_approval_max_uses`` 次数上限约束——"本会话批准过一次即不再问"
+       就是该档的语义；但**有效期仍然生效**，过期单不会复活。
+    每次命中都累加 used_count，让用量与审计仍能看到这单被复用了多少次。
+    """
+    ttl_hours = settings.tool_approval_ttl_hours
+    now = _utcnow()
+    filters = [
+        ToolApproval.yard_id == yard_id,
+        ToolApproval.tool_code == tool_code,
+        ToolApproval.params_hash == params_hash(params),
+        ToolApproval.status == APPROVAL_APPROVED,
+        ToolApproval.chat_session_id == chat_session_id,
+    ]
+    if ttl_hours and ttl_hours > 0:
+        filters.append(or_(ToolApproval.expires_at.is_(None), ToolApproval.expires_at > now))
+    approval = (
+        db.query(ToolApproval)
+        .filter(*filters)
+        .order_by(ToolApproval.decided_at.desc().nullslast())
+        .first()
+    )
+    if approval is None:
+        return False
+    db.query(ToolApproval).filter(ToolApproval.id == approval.id).update(
+        {"used_count": ToolApproval.used_count + 1}, synchronize_session=False
+    )
     return True
 
 

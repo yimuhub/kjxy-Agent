@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.13.0
+  version: 3.16.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -7000,21 +7000,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/chat/sessions:
-    get:
-      tags:
-      - v1
-      - chat
-      summary: List Sessions
-      description: 本人会话列表（最近更新在前，含消息数）。契约 §10：{items:[...]}。
-      operationId: list_sessions_api_v1_chat_sessions_get
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-      security:
-      - HTTPBearer: []
     post:
       tags:
       - v1
@@ -7022,11 +7007,78 @@ paths:
       summary: Create Session
       description: 创建会话（可空标题）。
       operationId: create_session_api_v1_chat_sessions_post
+      security:
+      - HTTPBearer: []
       requestBody:
+        required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/SessionCreateRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - v1
+      - chat
+      summary: List Sessions
+      description: '本人会话列表（置顶恒在最前，其余最近更新在前，含消息数）。
+
+
+        ``archived=false`` 给「进行中」、``true`` 给「已归档」——列表顶部筛选用这一个参数，
+
+        两种视图互斥，服务端不分页（与历史契约一致）。契约 §10：{items:[...]}。'
+      operationId: list_sessions_api_v1_chat_sessions_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: archived
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Archived
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/chat/sessions/batch:
+    post:
+      tags:
+      - v1
+      - chat
+      summary: Batch Sessions
+      description: '批量置顶/取消置顶、归档/取消归档、标记已读未读、删除。
+
+
+        只处理调用者本人的会话：不存在或越权的 id 静默跳过（不泄露他人会话是否存在），
+
+        响应回「真正受影响的 id 列表 + 跳过数」，前端据此局部刷新。'
+      operationId: batch_sessions_api_v1_chat_sessions_batch_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionBatchRequest'
         required: true
       responses:
         '200':
@@ -7075,9 +7127,14 @@ paths:
       tags:
       - v1
       - chat
-      summary: Rename Session
-      description: 改会话标题。
-      operationId: rename_session_api_v1_chat_sessions__session_id__patch
+      summary: Update Session
+      description: '改会话（三点菜单）：标题、置顶、归档、未读、本会话授权模式。
+
+
+        未传的字段保持原值；``approval_mode`` 传 ``auto``/``full`` 而当前角色无权时
+
+        静默降级为 ``ask``（响应体里就是降级后的真实值，响应不撒谎）。'
+      operationId: update_session_api_v1_chat_sessions__session_id__patch
       security:
       - HTTPBearer: []
       parameters:
@@ -7123,6 +7180,46 @@ paths:
           title: Session Id
       responses:
         '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/chat/sessions/{session_id}/fork:
+    post:
+      tags:
+      - v1
+      - chat
+      summary: Fork Session
+      description: '分支：把「到这条回答为止」的历史复制成一个新的全新会话。
+
+
+        原会话完全不受影响；新会话标题「原名 · 分支」，记 parent_session_id /
+
+        parent_message_id，附件行共用同一份文件（删分支不会弄坏原会话附件）。'
+      operationId: fork_session_api_v1_chat_sessions__session_id__fork_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionForkRequest'
+      responses:
+        '201':
           description: Successful Response
           content:
             application/json:
@@ -10381,6 +10478,33 @@ components:
           default: 3
       type: object
       title: SearchTestRequest
+    SessionBatchRequest:
+      properties:
+        session_ids:
+          items:
+            type: string
+          type: array
+          maxItems: 200
+          minItems: 1
+          title: Session Ids
+        action:
+          type: string
+          enum:
+          - pin
+          - unpin
+          - archive
+          - unarchive
+          - read
+          - unread
+          - delete
+          title: Action
+      additionalProperties: false
+      type: object
+      required:
+      - session_ids
+      - action
+      title: SessionBatchRequest
+      description: 批量操作会话（多选后一次处理）。越权/不存在的 id 静默跳过，只回计数。
     SessionCreateRequest:
       properties:
         title:
@@ -10412,19 +10536,61 @@ components:
         target/target_code 标记会话的固定执行对象（@ 点名弹窗/「使用」弹窗建会话时带），
 
         会话列表据此区分「普通对话 / 某个智能体 / 群聊」。'
-    SessionUpdateRequest:
+    SessionForkRequest:
       properties:
-        title:
+        message_id:
           type: string
-          maxLength: 200
+          maxLength: 36
           minLength: 1
-          title: Title
+          title: Message Id
       additionalProperties: false
       type: object
       required:
-      - title
+      - message_id
+      title: SessionForkRequest
+      description: 分支：从这条回答及其之前的历史拉出一个全新会话。
+    SessionUpdateRequest:
+      properties:
+        title:
+          anyOf:
+          - type: string
+            maxLength: 200
+            minLength: 1
+          - type: 'null'
+          title: Title
+        pinned:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Pinned
+        archived:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Archived
+        unread:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Unread
+        approval_mode:
+          anyOf:
+          - type: string
+            enum:
+            - ask
+            - auto
+            - full
+          - type: 'null'
+          title: Approval Mode
+      additionalProperties: false
+      type: object
       title: SessionUpdateRequest
-      description: 改会话标题（非空）。
+      description: '改会话：三点菜单的局部更新（PATCH 语义——只改显式传入的字段，未传保持原值）。
+
+
+        ``approval_mode`` 是权限动作：非管理员请求 ``auto``/``full`` 时服务端静默降级为
+
+        ``ask``（服务层留痕），前端不需要自己判断角色。'
     SetActiveBody:
       properties:
         supplier_id:

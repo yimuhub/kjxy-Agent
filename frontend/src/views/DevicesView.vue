@@ -128,8 +128,13 @@
       </template>
     </el-dialog>
 
-    <!-- 数据抽屉 -->
-    <el-drawer v-model="dataVisible" :title="`数据：${dataDevice?.name || ''}`" size="52%">
+    <!-- 数据弹窗 -->
+    <el-dialog
+      v-model="dataVisible"
+      :title="`数据：${dataDevice?.name || ''}`"
+      width="72%"
+      align-center
+    >
       <el-select v-model="dataMetric" class="mb" @change="loadReadings">
         <el-option v-for="mt in dataMetricOptions" :key="mt.code" :label="`${mt.name}(${mt.code})`" :value="mt.code" />
       </el-select>
@@ -156,7 +161,7 @@
         <el-table-column label="时间" width="160"><template #default="{ row }">{{ formatTime(row.collected_at) }}</template></el-table-column>
         <el-table-column label="值"><template #default="{ row }">{{ row.value ?? row.text }} {{ row.unit || '' }}</template></el-table-column>
       </el-table>
-    </el-drawer>
+    </el-dialog>
     <!-- 告警规则与告警记录 -->
     <div class="bar mt">
       <h3 class="sec-title">告警规则</h3>

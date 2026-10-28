@@ -13,7 +13,12 @@ import pytest
 from app.core.deps import YardContext
 from app.core.errors import AppError
 from app.modules.chat import attachments
-from app.modules.chat.models import ATT_DOCUMENT, ATT_IMAGE, ATT_READY
+from app.modules.chat.models import (
+    ATT_DOCUMENT,
+    ATT_IMAGE,
+    ATT_READY,
+    ChatAttachment,
+)
 from fastapi import UploadFile
 
 PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
@@ -183,3 +188,101 @@ def test_context_respects_total_cap(db_session):
     ctx = attachments.build_attachment_context([att])
     assert len(ctx) < len(big) + 500
     assert "已截断" in ctx
+
+
+# ---------------------------------------------------------------------------
+# 级联删除与文件时机（v3.15 分支共用同一份文件）
+# ---------------------------------------------------------------------------
+
+
+class _RecorderBackend:
+    """记账用的存储后端：只记录被要求删除的键，不碰真实文件。"""
+
+    def __init__(self, sink: list[str]) -> None:
+        self._sink = sink
+
+    def delete(self, key: str) -> None:
+        self._sink.append(key)
+
+
+def _record_backend(monkeypatch, removed: list[str]) -> None:
+    monkeypatch.setattr(
+        attachments,
+        "LocalStorageBackend",
+        lambda: _RecorderBackend(removed),
+        raising=False,
+    )
+
+
+def test_file_sink_defers_physical_delete_until_commit(db_session, monkeypatch):
+    """file_sink 只登记待删键：文件必须等调用方 commit 之后再清。
+
+    在事务里就地 unlink 的话，后续任何一步回滚都会留下「附件行还在、文件已没了」
+    的永久损坏——批量删 200 个会话时这个窗口足够宽。
+    """
+    att = _upload(db_session, "leaf.png", PNG_BYTES)
+    removed: list[str] = []
+    _record_backend(monkeypatch, removed)
+
+    sink: list[str] = []
+    attachments.delete_session_attachments(
+        db_session,
+        yard_id="t1",
+        created_by="u1",
+        session_id="sess-1",
+        file_sink=sink,
+    )
+    db_session.flush()
+
+    assert sink == [att.storage_key], "无人引用的存储键要如实登记"
+    assert removed == [], "但磁盘一动不动"
+
+    attachments.remove_attachment_files(sink)
+    assert removed == [att.storage_key]
+
+
+def test_shared_storage_key_survives_one_session_delete(db_session, monkeypatch):
+    """分支共用同一份文件：删掉其中一个会话，不能把另一个会话还在引用的文件带走。"""
+    att = _upload(db_session, "leaf.png", PNG_BYTES)
+    twin = ChatAttachment(
+        yard_id=att.yard_id,
+        created_by=att.created_by,
+        session_id="sess-2",
+        filename=att.filename,
+        storage_key=att.storage_key,
+        mime=att.mime,
+        size_bytes=att.size_bytes,
+        kind=att.kind,
+        status=att.status,
+    )
+    db_session.add(twin)
+    db_session.flush()
+
+    removed: list[str] = []
+    _record_backend(monkeypatch, removed)
+
+    sink: list[str] = []
+    attachments.delete_session_attachments(
+        db_session,
+        yard_id="t1",
+        created_by="u1",
+        session_id="sess-1",
+        file_sink=sink,
+    )
+    db_session.flush()
+    assert sink == []
+    attachments.remove_attachment_files(sink)
+    assert removed == []
+
+
+def test_delete_without_sink_still_removes_file(db_session, monkeypatch):
+    """不传 file_sink 保持原行为（独立调用方仍就地删除），零回归。"""
+    att = _upload(db_session, "leaf.png", PNG_BYTES)
+    removed: list[str] = []
+    _record_backend(monkeypatch, removed)
+
+    attachments.delete_session_attachments(
+        db_session, yard_id="t1", created_by="u1", session_id="sess-1"
+    )
+    db_session.flush()
+    assert removed == [att.storage_key]

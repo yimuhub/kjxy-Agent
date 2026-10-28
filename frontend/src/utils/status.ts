@@ -65,10 +65,57 @@ export const ERROR_CODE_MESSAGES: Record<string, string> = {
   QUOTA_EXCEEDED: '用量额度已用尽，请联系管理员调整',
   POLICY_DUPLICATE: '该政策已采集，无需重复录入',
   LLM_UNAVAILABLE: '模型服务暂时不可用，请稍后重试',
+  METHOD_NOT_ALLOWED: '当前后端版本不支持该操作，请重启后端服务后再试',
+  // 没有统一错误信封时按 HTTP 状态兜底：把「后端没这个接口」和「断网」区分开
+  HTTP_400: '提交的内容不符合要求，请检查后重试',
+  HTTP_401: '登录状态已失效，请重新登录',
+  HTTP_403: '当前账号无权执行该操作',
+  HTTP_404: '接口不存在或内容已被删除；若是新功能，请重启后端服务后再试',
+  HTTP_405: '当前后端版本不支持该操作，请重启后端服务后再试',
+  HTTP_409: '操作冲突，请刷新后重试',
+  HTTP_422: '提交的内容不符合要求，请检查后重试',
+  HTTP_429: '操作过于频繁，请稍后再试',
+  HTTP_500: '服务暂时不可用，请稍后重试',
+  HTTP_502: '服务暂时不可用，请稍后重试',
+  HTTP_503: '服务暂时不可用，请稍后重试',
+  HTTP_504: '服务响应超时，请稍后重试',
 }
 
 /** 未收录错误码时的统一兜底文案（不暴露后端英文细节） */
 export const GENERIC_ERROR_MESSAGE = '操作失败，请稍后重试；若反复失败请联系管理员'
+
+interface ErrorBody {
+  error?: { code?: string; message?: string }
+  detail?: string
+}
+
+/**
+ * 从 HTTP 响应里归类错误：
+ * - 统一信封 {"error": {...}} -> 用后端错误码；
+ * - FastAPI 默认体 {"detail": "..."} -> 用 HTTP 状态码兜底；
+ * - 有响应但没有错误体（后端版本旧、路由不存在）-> 按 HTTP 状态码兜底，
+ *   绝不能报「网络连接失败」——那会把「后端没这个接口」说成「你断网了」；
+ * - 没有响应（真的断网）-> NETWORK_ERROR。
+ */
+export function classifyResponseError(
+  status: number | undefined,
+  body: unknown,
+): { code: string; message: string } {
+  const parsed = body as ErrorBody | undefined
+  if (parsed && typeof parsed === 'object') {
+    if (parsed.error?.message) {
+      return {
+        code: parsed.error.code ?? `HTTP_${status}`,
+        message: parsed.error.message,
+      }
+    }
+    if (typeof parsed.detail === 'string' && parsed.detail) {
+      return { code: `HTTP_${status}`, message: parsed.detail }
+    }
+  }
+  if (status) return { code: `HTTP_${status}`, message: '' }
+  return { code: 'NETWORK_ERROR', message: '' }
+}
 
 /**
  * 生成面向用户的中文错误提示：
@@ -77,8 +124,11 @@ export const GENERIC_ERROR_MESSAGE = '操作失败，请稍后重试；若反复
  * 3. 其余（纯英文/空）-> 通用兜底文案。
  */
 export function friendlyErrorMessage(code: string, message?: string): string {
+  const hasChinese = !!message && /[\u4e00-\u9fff]/.test(message)
+  // HTTP_xxx 是「后端没给统一错误码」时的兜底，此时后端自带的中文说明更具体（如「工单已存在」），优先用它
+  if (code.startsWith('HTTP_') && hasChinese) return message as string
   const mapped = ERROR_CODE_MESSAGES[code]
   if (mapped) return mapped
-  if (message && /[\u4e00-\u9fff]/.test(message)) return message
+  if (hasChinese) return message as string
   return GENERIC_ERROR_MESSAGE
 }

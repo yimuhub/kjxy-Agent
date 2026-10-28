@@ -339,8 +339,13 @@ onMounted(() => {
       </template>
     </el-dialog>
 
-    <!-- 会话审批抽屉 -->
-    <el-drawer v-model="drawerVisible" title="会话审批与消息账本" size="620px">
+    <!-- 会话审批 -->
+    <el-dialog
+      v-model="drawerVisible"
+      title="会话审批与消息账本"
+      width="620px"
+      align-center
+    >
       <el-table :data="convs" @row-click="viewMsgs">
         <el-table-column prop="display_name" label="会话" min-width="130">
           <template #default="{ row }">{{ row.display_name || row.platform }}</template>
@@ -376,7 +381,7 @@ onMounted(() => {
           </el-table-column>
         </el-table>
       </template>
-    </el-drawer>
+    </el-dialog>
   </div>
 </template>
 

@@ -267,11 +267,12 @@
       </AsyncState>
     </el-card>
 
-    <!-- MarkItDown 结构化分块预览抽屉 -->
-    <el-drawer
+    <!-- MarkItDown 结构化分块预览 -->
+    <el-dialog
       v-model="chunkDrawerVisible"
       :title="`Markdown 结构化分块预览：${activeDoc?.title || activeDoc?.filename || ''}`"
-      size="680px"
+      width="680px"
+      align-center
     >
       <div
         v-loading="chunksLoading"
@@ -311,7 +312,7 @@
           <pre class="chunk-content">{{ ch.content }}</pre>
         </div>
       </div>
-    </el-drawer>
+    </el-dialog>
   </div>
 </template>
 
@@ -528,6 +529,8 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
+    max-height: min(62vh, 640px);
+    overflow-y: auto;
   }
   .chunk-summary {
     display: flex;

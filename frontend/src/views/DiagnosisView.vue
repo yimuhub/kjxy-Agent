@@ -378,10 +378,11 @@
     </el-dialog>
 
     <!-- 详情 -->
-    <el-drawer
+    <el-dialog
       v-model="detailDrawer"
       :title="detail ? `${detail.crop}诊断 · ${STATUS_LABEL[detail.status]}` : '诊断详情'"
-      size="640px"
+      width="640px"
+      align-center
     >
       <template v-if="detail">
         <div class="detail-meta">
@@ -635,7 +636,7 @@
           </el-form>
         </section>
       </template>
-    </el-drawer>
+    </el-dialog>
 
     <!-- 药剂编辑 -->
     <el-dialog
@@ -767,6 +768,7 @@
     type PesticideProduct,
   } from '@/api/modules'
   import { useAuthStore } from '@/stores/auth'
+  import { formatDateTime as formatTime } from '@/utils/format'
 
   const STATUS_OPTIONS = [
     { value: 'open', label: '待跟进' },
@@ -841,11 +843,6 @@
   const harvestProduct = ref<PesticideProduct | null>(null)
   const appliedOn = ref('')
   const harvestResult = ref<{ earliest_harvest_on: string; note: string } | null>(null)
-
-  function formatTime(value?: string | null): string {
-    if (!value) return '—'
-    return value.replace('T', ' ').slice(0, 16)
-  }
 
   async function loadDiagnoses(nextPage = page.value) {
     page.value = nextPage

@@ -109,15 +109,17 @@ class OpenAICompatibleProvider:
             payload["tools"] = request.tools
 
         started = time.perf_counter()
+        # 长产出可以按请求放宽超时；缺省沿用供应商/全局配置
+        timeout = request.timeout_seconds or self.timeout
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 resp = await client.post(
                     f"{self.base_url}/chat/completions",
                     json=payload,
                     headers={"Authorization": f"Bearer {self.api_key}"},
                 )
         except httpx.TimeoutException as e:
-            raise _llm_error("timeout", f"模型请求超时（{self.timeout} 秒），请稍后重试。") from e
+            raise _llm_error("timeout", f"模型请求超时（{timeout} 秒），请稍后重试。") from e
         except httpx.ConnectError as e:
             raise _llm_error("connection", "无法连接模型服务，请检查网络与服务地址。") from e
         except httpx.HTTPError as e:
