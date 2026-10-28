@@ -11,7 +11,7 @@ GET 响应中的 period 为当前自然月标注；运营侧另有 90%/100% 告�
 
 from datetime import UTC, datetime
 
-from sqlalchemy import Integer, String, UniqueConstraint
+from sqlalchemy import Integer, String, UniqueConstraint, select, update
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from app.core.errors import AppError
@@ -57,25 +57,40 @@ def ensure_quota(db: Session, yard_id: str) -> YardQuota:
 
 
 def check_and_consume(db: Session, yard_id: str, kind: str, amount: int = 1) -> None:
+    """原子扣减：判断与累加在同一条 UPDATE 内完成，并发请求不会超卖或丢计数。
+
+    旧实现是「读-判断-写回」，两个并发请求都读到 used=N 时各自写 N+1，
+    实际只记一次；改成条件 UPDATE 后由数据库保证串行语义。
+    """
     fields = _QUOTA_FIELDS.get(kind)
     if fields is None:
         raise AppError("INVALID_REQUEST", f"未知配额类型：{kind}。", http_status=400)
     if amount < 1:
         raise AppError("INVALID_REQUEST", "配额扣减数量必须为正整数。", http_status=400)
-    quota = ensure_quota(db, yard_id)
+    ensure_quota(db, yard_id)
     used_attr, limit_attr = fields
-    used = getattr(quota, used_attr)
-    limit = getattr(quota, limit_attr)
-    if used + amount > limit:
+    used_col = getattr(YardQuota, used_attr)
+    limit_col = getattr(YardQuota, limit_attr)
+    result = db.execute(
+        update(YardQuota)
+        .where(
+            YardQuota.yard_id == yard_id,
+            used_col + amount <= limit_col,
+        )
+        .values({used_attr: used_col + amount})
+        .execution_options(synchronize_session=False)
+    )
+    # 读取扣减后的真实用量：直接查列，避免命中身份映射里的旧值。
+    used, limit = db.execute(select(used_col, limit_col).where(YardQuota.yard_id == yard_id)).one()
+    if not getattr(result, "rowcount", 0):
         raise AppError(
             "QUOTA_EXCEEDED",
             f"{kind} 配额已用尽（已用 {used}/{limit}）。",
             http_status=429,
             details={"kind": kind, "used": used, "limit": limit},
         )
-    setattr(quota, used_attr, used + amount)
     db.commit()
-    _alert_thresholds(yard_id, kind, used + amount, limit)
+    _alert_thresholds(yard_id, kind, int(used), int(limit))
 
 
 def _alert_thresholds(yard_id: str, kind: str, new_used: int, limit: int) -> None:

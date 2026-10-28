@@ -29,6 +29,19 @@ services:
       timeout: 5s
       retries: 5
 
+  migrate:
+    build:
+      context: .
+      dockerfile: deploy/docker/api.Dockerfile
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql+psycopg://app_user:${POSTGRES_PASSWORD:-change-me}@postgres:5432/techyard
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+
   api:
     build:
       context: .
@@ -40,6 +53,8 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND: redis://redis:6379/2
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -66,6 +81,8 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND: redis://redis:6379/2
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -90,6 +107,8 @@ services:
       DATABASE_URL: postgresql+psycopg://app_user:${POSTGRES_PASSWORD:-change-me}@postgres:5432/techyard
       CELERY_BROKER_URL: redis://redis:6379/1
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     command: celery -A app.workers.celery_app:celery_app beat --loglevel=info

@@ -82,8 +82,9 @@ export const authApi = {
   refresh(refresh_token: string): Promise<{ access_token: string; refresh_token: string }> {
     return unwrap(api.post('/auth/refresh', { refresh_token }))
   },
-  logout(): Promise<unknown> {
-    return unwrap(api.post('/auth/logout'))
+  logout(refresh_token?: string): Promise<unknown> {
+    // 带上刷新令牌后服务端会精确吊销该会话
+    return unwrap(api.post('/auth/logout', refresh_token ? { refresh_token } : {}))
   },
   me(): Promise<MeResponse> {
     return unwrap(api.get<ApiResponse<MeResponse>>('/auth/me'))

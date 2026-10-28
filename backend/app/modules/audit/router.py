@@ -6,12 +6,10 @@ GET /audit/logs：需 audit:read 权限；分页；按小院过滤；
 
 from fastapi import APIRouter, Depends, Query
 
-from app.core.deps import CurrentUser, get_current_user, get_db_session
-from app.core.errors import AppError
+from app.core.deps import CurrentUser, get_db_session, require_permission
 from app.core.pagination import pagination_params
 from app.core.responses import paged
 from app.modules.audit.models import AuditLog
-from app.modules.evolution.service import has_permission
 
 router = APIRouter(prefix="/audit", tags=["audit"])
 
@@ -22,11 +20,9 @@ def get_audit_logs(
     resource_type: str | None = Query(default=None, description="按资源类型过滤"),
     request_id: str | None = Query(default=None, description="按请求 ID 过滤"),
     page_page: tuple[int, int] = Depends(pagination_params),
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(require_permission("audit:read")),
     db=Depends(get_db_session),
 ):
-    if not has_permission(user.roles, "audit:read"):
-        raise AppError("FORBIDDEN", "无审计日志查看权限。", http_status=403)
     page, page_size = page_page
     q = db.query(AuditLog)
     if user.yard_id:

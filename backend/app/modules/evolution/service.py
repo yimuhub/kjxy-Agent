@@ -29,29 +29,16 @@ def _utcnow() -> datetime:
 
 
 # ---------------------------------------------------------------- 权限
-_PERMISSION_ROLES: dict[str, set[str]] = {
-    "review:approve": {"expert", "yard_admin", "yard_owner", "platform_admin"},
-    "audit:read": {"yard_admin", "yard_owner", "platform_admin", "auditor"},
-}
+def can_see_all_private_skills(db: Session, ctx: YardContext) -> bool:
+    """谁能看到他人的私有技能：负责人、管理员、平台管理员，或被授予 skills:publish_any 者。"""
+    if set(ctx.roles or []) & {"yard_owner", "yard_admin", "platform_admin"}:
+        return True
+    return "skills:publish_any" in db_permissions(db, ctx)
 
 
-def has_permission(roles: list[str] | None, permission: str) -> bool:
-    """最小权限映射（P0）。roles 为空/未命中 → 无权限。"""
-    allowed = _PERMISSION_ROLES.get(permission, set())
-    return bool(set(roles or []) & allowed)
-
-
-def can_see_all_private_skills(ctx: YardContext) -> bool:
-    """谁能看到他人的私有技能：负责人、管理员与平台管理员（专家需被单独授权）。
-
-    ``skills:publish_any`` 的逐人授权由 yards 权限服务判定，这里只做静态角色兜底，
-    避免 evolution 模块反向依赖 yards 的 DB 查询。
-    """
-    return bool(set(ctx.roles or []) & {"yard_owner", "yard_admin", "platform_admin"})
-
-
-def _require_review_permission(ctx: YardContext) -> None:
-    if not has_permission(ctx.roles, "review:approve"):
+def _require_review_permission(db: Session, ctx: YardContext) -> None:
+    """审核权限按 DB 角色覆盖 + 逐人授权判定，自定义角色也能获得 review:approve。"""
+    if "review:approve" not in db_permissions(db, ctx):
         raise AppError("FORBIDDEN", "仅专家或小院管理员可审核。", http_status=403)
 
 
@@ -205,7 +192,7 @@ def review_candidate(
     note: str | None,
     request_id: str = "",
 ) -> KnowledgeCandidate:
-    _require_review_permission(ctx)
+    _require_review_permission(db, ctx)
     if action not in ("approve", "reject"):
         raise AppError(
             "INVALID_REVIEW_ACTION", "审核动作只能为 approve 或 reject。", http_status=409
@@ -346,7 +333,7 @@ def batch_review(
     error_message}]}``；failed 只表示审核动作本身失败（如已审核/不存在），
     单条入库失败（ingest_ok=false）仍按审核成功计入 approved。
     """
-    _require_review_permission(ctx)
+    _require_review_permission(db, ctx)
     if action not in ("approve", "reject"):
         raise AppError(
             "INVALID_REVIEW_ACTION", "审核动作只能为 approve 或 reject。", http_status=409
@@ -907,7 +894,7 @@ def _check_published_version_unique(db: Session, ctx: YardContext, skill: Skill)
 
 def rollback_skill(db: Session, ctx: YardContext, skill_id: str, request_id: str = "") -> Skill:
     """回滚：当前 published→deprecated；最近一个历史版本重新置 published。"""
-    _require_review_permission(ctx)
+    _require_review_permission(db, ctx)
     skill = _get_skill(db, ctx, skill_id)
     if skill.status != "published":
         raise AppError(
@@ -985,7 +972,7 @@ def list_skills(
         q = q.filter(Skill.yard_id == ctx.yard_id)
 
     # 私有技能只对创建者与管理者（负责人/管理员/平台）可见，其余角色仅见非私有
-    if scope != "mine" and not can_see_all_private_skills(ctx):
+    if scope != "mine" and not can_see_all_private_skills(db, ctx):
         q = q.filter(or_(Skill.visibility != "private", Skill.owner_user_id == ctx.user_id))
     if status:
         q = q.filter(Skill.status == status)

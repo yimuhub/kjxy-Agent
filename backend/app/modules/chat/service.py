@@ -133,6 +133,62 @@ def session_out(db: Session, session: ChatSession) -> dict[str, Any]:
     }
 
 
+_CITATION_KEYS = (
+    "document_id",
+    "chunk_id",
+    "title",
+    "source",
+    "page_number",
+    "quote",
+    "score",
+    "trust_level",
+    "url",
+    "snippet",
+    "reference",
+    "kind",
+)
+_CITATION_LIMIT = 20
+
+
+def _normalize_citations(items: Any) -> list[dict[str, Any]]:
+    """只保留可展示的引用字段，限制条数与长度，避免把任意模型输出塞进消息。"""
+    if not isinstance(items, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for item in items[:_CITATION_LIMIT]:
+        if not isinstance(item, dict):
+            continue
+        row = {k: item.get(k) for k in _CITATION_KEYS if item.get(k) not in (None, "")}
+        if not row.get("quote") and row.get("snippet"):
+            row["quote"] = row["snippet"]
+        if not row.get("source") and row.get("url"):
+            row["source"] = row["url"]
+        for key in ("title", "source", "quote", "snippet", "url", "reference"):
+            if row.get(key) is not None:
+                row[key] = str(row[key])[:600]
+        if row:
+            out.append(row)
+    return out
+
+
+def citations_from_result(result: dict[str, Any]) -> list[dict[str, Any]]:
+    """从单聊/班组执行结果提取引用：助手用 raw.citations，班组用 research 快照。"""
+    raw = result.get("raw")
+    if isinstance(raw, dict):
+        found = _normalize_citations(raw.get("citations"))
+        if found:
+            return found
+    research = result.get("research")
+    if not isinstance(research, dict):
+        return []
+    merged: list[dict[str, Any]] = []
+    for kind in ("knowledge", "web"):
+        for item in research.get(kind) or []:
+            if isinstance(item, dict):
+                merged.append({**item, "kind": kind})
+    return _normalize_citations(merged)
+
+
 def message_out(msg: ChatMessage) -> dict[str, Any]:
     routed = msg.routed_by or ""
     tu = getattr(msg, "token_usage_json", None)
@@ -167,6 +223,7 @@ def message_out(msg: ChatMessage) -> dict[str, Any]:
         "error_code": msg.error_code,
         "payload": msg.payload_json,
         "steps": msg.steps_json,
+        "citations": msg.citations_json or [],
         "attachments": msg.attachments_json,
         "token_usage": tu,
         "created_at": msg.created_at.isoformat() if msg.created_at else "",
@@ -428,6 +485,7 @@ def persist_assistant_message(
     steps: list[dict[str, Any]] | None = None,
     status: str = MSG_OK,
     error_code: str = "",
+    citations: list[dict[str, Any]] | None = None,
     token_usage: dict[str, Any] | None = None,
 ) -> ChatMessage:
     """助手消息落库（路由存证 + 过程步骤 + 结构化载荷 + Token 统计）。"""
@@ -453,6 +511,7 @@ def persist_assistant_message(
         error_code=error_code[:50] or None,
         payload_json=payload,
         steps_json=steps or None,
+        citations_json=citations or None,
         token_usage_json=token_usage,
     )
     db.add(msg)
@@ -802,6 +861,7 @@ async def execute_turn(
         "choice": choice,
         "reason": str(data.get("reason") or ""),
         "payload": None,
+        "citations": citations_from_result(result),
         "token_usage": token_usage,
     }
 
@@ -857,6 +917,7 @@ async def run_and_persist(
         reason=outcome["reason"],
         payload=outcome["payload"],
         steps=steps.steps or None,
+        citations=outcome.get("citations"),
         token_usage=outcome.get("token_usage"),
     )
     return {
@@ -867,6 +928,7 @@ async def run_and_persist(
         "reason": outcome["reason"],
         "payload": outcome["payload"],
         "steps": steps.steps,
+        "citations": outcome.get("citations") or [],
         "token_usage": outcome.get("token_usage"),
     }
 

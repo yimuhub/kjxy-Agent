@@ -52,22 +52,27 @@ def _is_development() -> bool:
     return settings.app_env.strip().lower() == "development"
 
 
+def _admin_username() -> str:
+    """允许服务器安装使用非弱口令用户名（默认 admin，供开发使用）。"""
+    return os.environ.get("SEED_PLATFORM_ADMIN_USERNAME", "").strip() or "admin"
+
+
 def _random_password() -> str:
     """随机演示密码：仅在开发随机模式下使用，明文只打印一次。"""
     return secrets.token_urlsafe(12)
 
 
 def _ensure_demo_owner(db) -> None:
-    """演示小院：admin 必须是负责人。
+    """演示小院：平台管理员必须是负责人。
 
     历史库由 0030 回填时，多院环境会选中最早的 yard_admin 当负责人；
-    演示环境统一纠正为 admin，并把其他 yard_owner 回退为管理员。
+    演示环境统一纠正为平台管理员，并把其他 yard_owner 回退为管理员。
     """
     from app.modules.auth.repository import get_by_username
     from app.modules.yards.models import Yard, YardMembership
     from app.modules.yards.repository import add_membership, get_membership
 
-    admin = get_by_username(db, "admin")
+    admin = get_by_username(db, _admin_username())
     yard = db.scalar(select(Yard).where(Yard.name == DEMO_YARD_NAME))
     if admin is None or yard is None:
         return
@@ -103,7 +108,8 @@ def seed(random_passwords: bool = False) -> None:
 
     db = SessionLocal()
     try:
-        if get_by_username(db, "admin") is not None:
+        admin_username = _admin_username()
+        if get_by_username(db, admin_username) is not None:
             _ensure_demo_owner(db)
             log.info("seed 数据已存在，已校正演示小院负责人")
             return
@@ -120,10 +126,13 @@ def seed(random_passwords: bool = False) -> None:
 
         users = {}
         passwords: dict[str, str] = {}
+        login_names: dict[str, str] = {}
         for username, password, display_name, role in SEED_USERS:
+            actual = admin_username if username == "admin" else username
+            login_names[username] = actual
             plain = _random_password() if random_passwords else password
             passwords[username] = plain
-            user = create_user(db, username=username, password=plain, display_name=display_name)
+            user = create_user(db, username=actual, password=plain, display_name=display_name)
             users[username] = user
             if role:
                 add_membership(db, yard_id=yard.id, user_id=user.id, role=role)
@@ -177,10 +186,12 @@ def seed(random_passwords: bool = False) -> None:
             # 随机口令只在此处明文打印一次，日志/数据库均不留副本；请立刻保存
             print("SEED_RANDOM_PASSWORDS=YES：以下密码仅打印一次，请立即保存：")
             for username, plain in passwords.items():
-                print(f"{username} {plain}")
+                print(f"{login_names[username]} {plain}")
         else:
             log.info(
-                "演示账号： admin/admin123 yard_admin/yard123 expert/expert123 operator/operator123"  # noqa: E501
+                "演示账号： %s/%s yard_admin/yard123 expert/expert123 operator/operator123",
+                login_names["admin"],
+                passwords["admin"],
             )
     finally:
         db.close()

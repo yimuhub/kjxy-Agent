@@ -55,7 +55,9 @@ def create_access_token(
     return jwt.encode(payload, settings.app_secret_key, algorithm=ALGORITHM)
 
 
-def create_refresh_token(*, user_id: str, yard_id: str | None, token_version: int = 0) -> str:
+def create_refresh_token(
+    *, user_id: str, yard_id: str | None, token_version: int = 0, jti: str | None = None
+) -> str:
     payload = {
         "sub": user_id,
         "yard_id": yard_id,
@@ -64,6 +66,8 @@ def create_refresh_token(*, user_id: str, yard_id: str | None, token_version: in
         "exp": _now() + timedelta(days=settings.refresh_token_expire_days),
         "iat": _now(),
     }
+    if jti:
+        payload["jti"] = jti
     return jwt.encode(payload, settings.app_secret_key, algorithm=ALGORITHM)
 
 

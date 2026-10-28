@@ -78,6 +78,8 @@ class ChatMessage(Base, TimestampMixin):
     attachments_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
     # ---- 0027：单条消息 Token 消耗统计（input/output/total/model/latency_ms）----
     token_usage_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # ---- 0037：本轮回答引用的知识/网页来源（可点开溯源）----
+    citations_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
 
 class ChatAttachment(Base, TimestampMixin):

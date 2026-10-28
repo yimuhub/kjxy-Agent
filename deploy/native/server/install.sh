@@ -71,6 +71,9 @@ echo "==> 前端产物：$PREFIX/frontend/dist"
 # ---------- 5. env（已存在则不覆盖；新生成随机 SECRET） ----------
 if [ -f "$PREFIX/backend/.env" ]; then
   echo "==> backend/.env 已存在，跳过"
+  echo "[提示] 请确认 APP_ENV=production，且未使用演示账号口令。"
+  ADMIN_USER="$(grep -E '^PLATFORM_ADMIN_USERNAMES=' "$PREFIX/backend/.env" | head -1 | cut -d= -f2 | cut -d, -f1)"
+  ADMIN_USER="${ADMIN_USER:-admin}"
 else
   cp "$PREFIX/backend/.env.example" "$PREFIX/backend/.env"
   if command -v openssl >/dev/null 2>&1; then
@@ -78,15 +81,37 @@ else
   else
     SECRET="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
   fi
+  ADMIN_USER="owner_$(python3 -c 'import secrets; print(secrets.token_hex(3))')"
   sed -i "s|^APP_SECRET_KEY=.*|APP_SECRET_KEY=$SECRET|" "$PREFIX/backend/.env"
-  echo "==> 已生成 backend/.env（APP_SECRET_KEY 为随机值）"
+  # 服务器版默认生产环境：禁用开发默认值、禁止固定口令演示账号
+  sed -i "s|^APP_ENV=.*|APP_ENV=production|" "$PREFIX/backend/.env"
+  sed -i "s|^PLATFORM_ADMIN_USERNAMES=.*|PLATFORM_ADMIN_USERNAMES=$ADMIN_USER|" "$PREFIX/backend/.env"
+  # 服务器单机版使用 SQLite：显式允许（启动仍告警），避免生产安全校验拒绝启动
+  sed -i "s|^#ALLOW_SQLITE_IN_PRODUCTION=.*|ALLOW_SQLITE_IN_PRODUCTION=true|" "$PREFIX/backend/.env"
+  grep -q '^ALLOW_SQLITE_IN_PRODUCTION=' "$PREFIX/backend/.env" || \
+    echo 'ALLOW_SQLITE_IN_PRODUCTION=true' >> "$PREFIX/backend/.env"
+  echo "==> 已生成 backend/.env（APP_ENV=production，管理员用户名 $ADMIN_USER，密钥随机）"
 fi
 
-# ---------- 6. 迁移 + 演示数据 ----------
+# ---------- 6. 迁移 + 初始化账号（随机口令，仅打印一次） ----------
 echo "==> 数据库迁移 ..."
 (cd "$PREFIX/backend" && ../.venv/bin/alembic upgrade head)
-echo "==> 灌演示数据 ..."
-(cd "$PREFIX/backend" && ../.venv/bin/python -m app.db.seed)
+
+CRED_FILE="$PREFIX/backend/.initial-credentials"
+if [ -f "$CRED_FILE" ]; then
+  echo "==> 初始账号文件已存在，跳过初始化：$CRED_FILE"
+else
+  echo "==> 初始化账号（随机口令，仅写入 $CRED_FILE，请立即妥善保存）..."
+  (cd "$PREFIX/backend" && \
+    SEED_ALLOW_PRODUCTION=YES SEED_RANDOM_PASSWORDS=YES SEED_PLATFORM_ADMIN_USERNAME="$ADMIN_USER" \
+    ../.venv/bin/python -m app.db.seed) | tee "$CRED_FILE"
+  chmod 600 "$CRED_FILE"
+  echo "==> 初始账号已写入：$CRED_FILE"
+fi
+
+if grep -q '^LLM_PROVIDER=fake' "$PREFIX/backend/.env" 2>/dev/null; then
+  echo "[警告] 当前 LLM_PROVIDER=fake：模型回答为离线模板，请在 backend/.env 配置真实模型供应商后重启服务。"
+fi
 
 # ---------- 7. 运行用户 ----------
 if [ "$(id -u)" -eq 0 ]; then
@@ -131,5 +156,6 @@ echo "================================================================"
 echo " 安装完成！"
 echo "  API 服务：127.0.0.1:8000（systemd 托管，开机自启）"
 echo "  前端 dist：$PREFIX/frontend/dist（用 nginx 托管，见 README）"
-echo "  演示账号：admin / admin123"
+echo "  初始账号：$CRED_FILE（随机口令，仅首次安装生成）"
+echo "  下一步：配置 backend/.env 的真实模型/搜索供应商，然后 systemctl restart techyard-api"
 echo "================================================================"

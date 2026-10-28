@@ -196,7 +196,7 @@ def set_rollout(
     request_id: str = "",
 ) -> SkillRollout:
     """在 published 技能上设置/更新灰度。skill_id 指向的 published 版本为稳定版。"""
-    _require_review_permission(ctx)
+    _require_review_permission(db, ctx)
     stable = _get_skill(db, ctx, skill_id)
     if stable.status != "published":
         raise AppError(
@@ -244,7 +244,7 @@ def promote_rollout(
     db: Session, ctx: YardContext, skill_id: str, request_id: str = ""
 ) -> SkillRollout:
     """灰度全量：rollout_version 成为唯一 published，旧稳定版 deprecated，灰度标记 completed。"""
-    _require_review_permission(ctx)
+    _require_review_permission(db, ctx)
     skill = _get_skill(db, ctx, skill_id)
     rollout = _get_rollout_for_code(db, ctx.yard_id, skill.skill_code)
     if rollout is None:
@@ -277,7 +277,7 @@ def halt_rollout(
     db: Session, ctx: YardContext, skill_id: str, request_id: str = ""
 ) -> SkillRollout:
     """暂停灰度回滚到稳定版：状态置 paused，流量解析全部回到 stable_version。"""
-    _require_review_permission(ctx)
+    _require_review_permission(db, ctx)
     skill = _get_skill(db, ctx, skill_id)
     rollout = _get_rollout_for_code(db, ctx.yard_id, skill.skill_code)
     if rollout is None:

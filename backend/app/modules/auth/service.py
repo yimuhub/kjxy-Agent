@@ -7,7 +7,8 @@
 生产环境必须通过环境变量/安全流程重置这些默认口令。
 """
 
-from datetime import UTC, datetime
+import uuid
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -24,7 +25,7 @@ from app.core.security import (
 )
 from app.modules.audit.service import log_audit
 from app.modules.auth import repository as repo
-from app.modules.auth.models import User
+from app.modules.auth.models import RefreshSession, User
 from app.modules.auth.schemas import (
     ChangePasswordResponseData,
     LoginResponseData,
@@ -51,6 +52,34 @@ _weak_bootstrap_warned: set[str] = set()
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+def _issue_refresh_session(
+    db: Session, *, user_id: str, yard_id: str | None, token_version: int
+) -> str:
+    """签发带 jti 的刷新令牌并登记会话；顺手清理已过期行（其 JWT 也已失效）。"""
+    now = _utcnow()
+    jti = uuid.uuid4().hex
+    db.add(
+        RefreshSession(
+            jti=jti,
+            user_id=user_id,
+            yard_id=yard_id,
+            expires_at=now + timedelta(days=settings.refresh_token_expire_days),
+        )
+    )
+    db.query(RefreshSession).filter(RefreshSession.expires_at < now).delete(
+        synchronize_session=False
+    )
+    return create_refresh_token(
+        user_id=user_id, yard_id=yard_id, token_version=token_version, jti=jti
+    )
+
+
+def _revoke_user_sessions(db: Session, user_id: str) -> None:
+    db.query(RefreshSession).filter(
+        RefreshSession.user_id == user_id, RefreshSession.revoked_at.is_(None)
+    ).update({RefreshSession.revoked_at: _utcnow()}, synchronize_session=False)
 
 
 def _bootstrap_platform_admin(
@@ -208,6 +237,9 @@ def login(
     roles = _bootstrap_platform_admin(db, user, roles, request_id=request_id)
 
     user.last_login_at = _utcnow()
+    refresh_token = _issue_refresh_session(
+        db, user_id=user.id, yard_id=chosen_yard_id, token_version=user.token_version
+    )
     log_audit(
         db,
         yard_id=chosen_yard_id,
@@ -228,9 +260,7 @@ def login(
             roles=roles,
             token_version=user.token_version,
         ),
-        refresh_token=create_refresh_token(
-            user_id=user.id, yard_id=chosen_yard_id, token_version=user.token_version
-        ),
+        refresh_token=refresh_token,
         user=_user_out(user),
         roles=roles,
         yards=yards,
@@ -249,6 +279,20 @@ def refresh(db: Session, refresh_token: str, *, request_id: str) -> RefreshRespo
     if "ver" in payload and int(payload.get("ver") or 0) != int(user.token_version or 0):
         raise AppError("UNAUTHORIZED", "登录状态已失效，请重新登录。", http_status=401)
 
+    # 刷新令牌轮换：旧 jti 必须在会话表中且未吊销；缺失 jti 的存量令牌
+    # （v3.7 前签发）放行一次，换取带 jti 的新令牌后进入轮换。
+    jti = payload.get("jti")
+    session: RefreshSession | None = None
+    if jti:
+        session = db.query(RefreshSession).filter(RefreshSession.jti == str(jti)).first()
+        if session is None or session.user_id != user.id:
+            raise AppError("UNAUTHORIZED", "登录状态已失效，请重新登录。", http_status=401)
+        if session.revoked_at is not None:
+            # 已轮换/已登出的令牌被再次使用：按泄露处理，吊销该用户全部会话。
+            _revoke_user_sessions(db, user.id)
+            db.commit()
+            raise AppError("UNAUTHORIZED", "登录状态已失效，请重新登录。", http_status=401)
+
     # 旧令牌（重命名前签发）只带 tenant_id：此处漏回退会静默得到 roles=[]（降权）。
     yard_id: str | None = resolve_yard_id(payload)
     roles: list[str] = []
@@ -259,6 +303,11 @@ def refresh(db: Session, refresh_token: str, *, request_id: str) -> RefreshRespo
         roles = [membership.role]
     roles = _bootstrap_platform_admin(db, user, roles, request_id=request_id)
 
+    if session is not None:
+        session.revoked_at = _utcnow()
+    new_refresh_token = _issue_refresh_session(
+        db, user_id=user.id, yard_id=yard_id, token_version=user.token_version
+    )
     log_audit(
         db,
         yard_id=yard_id,
@@ -274,7 +323,8 @@ def refresh(db: Session, refresh_token: str, *, request_id: str) -> RefreshRespo
     return RefreshResponseData(
         access_token=create_access_token(
             user_id=user.id, yard_id=yard_id, roles=roles, token_version=user.token_version
-        )
+        ),
+        refresh_token=new_refresh_token,
     )
 
 
@@ -286,8 +336,29 @@ def get_me(db: Session, user_id: str, roles: list[str]) -> MeResponseData:
     return MeResponseData(user=_user_out(user), roles=roles, yards=_yard_briefs(db, user.id))
 
 
-def logout(db: Session, user_id: str, *, request_id: str) -> None:
-    """P0 无状态实现：服务端不维护令牌黑名单，仅记录审计。"""
+def logout(db: Session, user_id: str, *, refresh_token: str | None = None, request_id: str) -> None:
+    """登出即吊销当前刷新会话（v3.7）。
+
+    客户端带上 refresh_token 时精确吊销该会话；未带时仅记审计（兼容旧客户端，
+    访问令牌仍按自身 exp 过期）。令牌解析失败不阻断登出。
+    """
+    revoked = 0
+    if refresh_token:
+        try:
+            payload = decode_token(refresh_token, expected_type="refresh")
+        except AppError:
+            payload = None
+        jti = payload.get("jti") if payload else None
+        if payload and payload.get("sub") == user_id and jti:
+            revoked = (
+                db.query(RefreshSession)
+                .filter(
+                    RefreshSession.jti == str(jti),
+                    RefreshSession.user_id == user_id,
+                    RefreshSession.revoked_at.is_(None),
+                )
+                .update({RefreshSession.revoked_at: _utcnow()}, synchronize_session=False)
+            )
     log_audit(
         db,
         yard_id=None,
@@ -297,6 +368,7 @@ def logout(db: Session, user_id: str, *, request_id: str) -> None:
         resource_id=user_id,
         result="success",
         request_id=request_id,
+        metadata={"refresh_session_revoked": True} if revoked else None,
     )
     db.commit()
 
@@ -383,6 +455,8 @@ def change_password(
     user.password_updated_at = _utcnow()
     user.must_change_password = False
     user.token_version = int(user.token_version or 0) + 1
+    # 改密后旧刷新会话全部作废（token_version 已让旧 JWT 失效，这里清掉服务端会话）
+    _revoke_user_sessions(db, user.id)
 
     # 用当前小院/角色重新签发（角色可能已变化；成员关系失效则清空上下文）
     roles: list[str] = []
@@ -393,6 +467,9 @@ def change_password(
         else:
             yard_id = None
     roles = _bootstrap_platform_admin(db, user, roles, request_id=request_id)
+    refresh_token = _issue_refresh_session(
+        db, user_id=user.id, yard_id=yard_id, token_version=user.token_version
+    )
 
     log_audit(
         db,
@@ -409,8 +486,6 @@ def change_password(
         access_token=create_access_token(
             user_id=user.id, yard_id=yard_id, roles=roles, token_version=user.token_version
         ),
-        refresh_token=create_refresh_token(
-            user_id=user.id, yard_id=yard_id, token_version=user.token_version
-        ),
+        refresh_token=refresh_token,
         must_change_password=False,
     )

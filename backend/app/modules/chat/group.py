@@ -474,6 +474,7 @@ async def _execute_one_member(
                 "choice": choice,
                 "reason": str(data.get("reason") or "")[:200],
                 "steps": steps.steps,
+                "citations": service.citations_from_result(result),
                 "token_usage": tu,
             }
         except TimeoutError:
@@ -625,6 +626,7 @@ async def run_group_turn(
                 reason=res["reason"],
                 steps=res.get("steps") or None,
                 status=MSG_OK,
+                citations=res.get("citations"),
                 token_usage=res.get("token_usage"),
             )
             db.flush()

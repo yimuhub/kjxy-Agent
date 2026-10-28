@@ -92,12 +92,31 @@ def require_roles(*allowed: str):
 
 
 def require_permission(permission: str):
-    """要求当前用户拥有指定权限点；平台管理员按全权限处理。"""
+    """要求当前用户拥有指定权限点。
 
-    def checker(user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
-        from app.modules.yards.permissions import has_permission
+    有小院上下文时按 DB 实际成员角色判定（角色覆盖 + 逐人授权立即生效），
+    无小院上下文（平台级接口）回退 JWT 角色。
+    """
 
-        if not has_permission(user.roles, permission):
+    def checker(
+        user: CurrentUser = Depends(get_current_user),
+        db: Session = Depends(get_db_session),
+    ) -> CurrentUser:
+        if user.yard_id:
+            from app.modules.yards.authz import has_permission as yard_has_permission
+
+            allowed = yard_has_permission(
+                db,
+                yard_id=user.yard_id,
+                user_id=user.user_id,
+                jwt_roles=user.roles,
+                permission=permission,
+            )
+        else:
+            from app.modules.yards.permissions import has_permission as static_has_permission
+
+            allowed = static_has_permission(user.roles, permission)
+        if not allowed:
             raise AppError(
                 "FORBIDDEN",
                 f"缺少 {permission} 权限，无法执行该操作。",

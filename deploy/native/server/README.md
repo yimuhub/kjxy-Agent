@@ -13,7 +13,13 @@ bash deploy/native/server/install.sh /data/techyard
 ```
 
 脚本会：拷贝代码 → 建 venv（生产依赖）→ 构建前端 dist →
-生成随机 `APP_SECRET_KEY` → 建表 → 灌演示数据 → 注册并启动 systemd 服务。
+生成随机 `APP_SECRET_KEY`、写入 `APP_ENV=production` → 迁移数据库 →
+初始化随机口令账号（写入 `backend/.initial-credentials`，仅首次生成）→
+注册并启动 systemd 服务。
+
+安装完成后请立即保存 `backend/.initial-credentials`（600 权限），
+并在 `backend/.env` 配置真实模型/搜索供应商后重启服务；脚本检测到
+`LLM_PROVIDER=fake` 会明确告警。
 
 ## 服务管理
 
@@ -41,6 +47,17 @@ server {
 
     location / {
         try_files $uri $uri/ /index.html;   # SPA 路由回退
+    }
+
+    # SSE 长连接（聊天/班组）：关闭缓冲并放宽读超时
+    location ~ ^/api/v1/(chat/sessions/[^/]+/messages/(group/)?stream|team-runs/[^/]+/stream)$ {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
     }
 
     location /api/ {

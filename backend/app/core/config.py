@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     database_url: str = Field(
         default="sqlite:///./dev.db", description="生产使用 postgresql+psycopg"
     )
+    # 服务器版（免 Docker）默认 SQLite；生产必须显式开启，启动时仍会告警。
+    allow_sqlite_in_production: bool = Field(
+        default=False, description="生产环境允许 SQLite（仅服务器单机版显式开启）"
+    )
     redis_url: str = Field(default="redis://localhost:6379/0")
     celery_broker_url: str = Field(default="redis://localhost:6379/1")
     celery_result_backend: str = Field(default="redis://localhost:6379/2")
@@ -52,6 +56,12 @@ class Settings(BaseSettings):
     embedding_provider: str = Field(default="mock", description="mock|openai_compatible")
     embedding_model: str = ""
     embedding_dim: int = 1536
+    embedding_batch_size: int = Field(
+        default=64,
+        ge=1,
+        le=512,
+        description="单次向量化请求的文本条数上限：大文档按批切分，避免超出供应商请求体限制",
+    )
 
     chunk_size: int = 800
     chunk_overlap: int = 100
@@ -303,8 +313,24 @@ class Settings(BaseSettings):
                 warnings.append(
                     "SELF-SERVICE 注册在生产环境保持开放，建议试运行期设置 SIGNUP_ENABLED=false"
                 )
+            if self.llm_provider == "fake":
+                warnings.append("LLM_PROVIDER=fake：模型回答来自内置 mock，生产环境应接入真实模型")
+            if self.embedding_provider != "openai_compatible":
+                warnings.append(
+                    "EMBEDDING_PROVIDER 仍为 mock：向量检索不具备真实语义能力，"
+                    "生产环境应配置 OpenAI 兼容向量模型"
+                )
             if self.database_url.startswith("sqlite"):
-                errors.append("生产环境禁止使用 SQLite，必须配置 PostgreSQL")
+                if self.allow_sqlite_in_production:
+                    warnings.append(
+                        "生产环境使用 SQLite（ALLOW_SQLITE_IN_PRODUCTION=true）：仅适合单机小规模，"
+                        "并发升高前请迁移到 PostgreSQL"
+                    )
+                else:
+                    errors.append(
+                        "生产环境禁止使用 SQLite，必须配置 PostgreSQL；"
+                        "仅服务器单机版可显式设置 ALLOW_SQLITE_IN_PRODUCTION=true"
+                    )
         else:
             if self.app_secret_key == DEFAULT_APP_SECRET_KEY:
                 warnings.append("APP_SECRET_KEY 使用默认占位值（仅限开发/测试环境）")

@@ -19,7 +19,7 @@ from app.core.errors import AppError
 from app.core.logging import get_logger
 from app.modules.audit.service import log_audit
 from app.modules.tools.models import ToolDefinition
-from app.modules.yards.permissions import has_permission
+from app.modules.yards.authz import has_permission
 
 log = get_logger(__name__)
 
@@ -174,8 +174,17 @@ class ToolRegistry:
                 details={"code": code, "fields": _format_schema_errors(e)},
             ) from e
 
-        # ② 权限检查：需同时拥有工具要求的所有权限点
-        if not all(has_permission(ctx.roles, perm) for perm in tool.required_permissions):
+        # ② 权限检查：需同时拥有工具要求的所有权限点（DB 角色覆盖 + 逐人授权）
+        if not all(
+            has_permission(
+                db,
+                yard_id=ctx.yard_id,
+                user_id=ctx.user_id,
+                jwt_roles=ctx.roles,
+                permission=perm,
+            )
+            for perm in tool.required_permissions
+        ):
             self._audit(
                 db,
                 ctx,

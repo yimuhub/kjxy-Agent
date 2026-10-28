@@ -14,7 +14,6 @@ from app.core.pagination import pagination_params
 from app.core.responses import ok, paged
 from app.modules.yards import authz, member_service, registration_service, service
 from app.modules.yards import invitations as invitation_service
-from app.modules.yards.permissions import has_permission
 from app.modules.yards.schemas import (
     BatchAddMembersRequest,
     BatchAddMembersResult,
@@ -34,10 +33,19 @@ router = APIRouter()
 
 
 def require_permission(permission: str):
-    """基于权限点的守卫；platform_admin 因拥有全部权限自然通过。"""
+    """基于权限点的守卫：DB 角色覆盖 + 个人授权优先，JWT 角色兜底。"""
 
-    def checker(ctx: YardContext = Depends(get_yard_context)) -> YardContext:
-        if not has_permission(ctx.roles, permission):
+    def checker(
+        ctx: YardContext = Depends(get_yard_context),
+        db: Session = Depends(get_db_session),
+    ) -> YardContext:
+        if not authz.has_permission(
+            db,
+            yard_id=ctx.yard_id,
+            user_id=ctx.user_id,
+            jwt_roles=ctx.roles,
+            permission=permission,
+        ):
             raise AppError("FORBIDDEN", "权限不足。", http_status=403)
         return ctx
 

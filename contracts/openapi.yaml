@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 1.0.0
+  version: 3.7.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -100,12 +100,26 @@ paths:
       - v1
       summary: Logout
       operationId: logout_api_v1_auth_logout_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - $ref: '#/components/schemas/LogoutRequest'
+              - type: 'null'
+              title: Payload
       responses:
         '200':
           description: Successful Response
           content:
             application/json:
               schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
       security:
       - HTTPBearer: []
   /api/v1/auth/me:
@@ -7586,6 +7600,17 @@ components:
       - username
       - password
       title: LoginRequest
+    LogoutRequest:
+      properties:
+        refresh_token:
+          anyOf:
+          - type: string
+            minLength: 1
+          - type: 'null'
+          title: Refresh Token
+      type: object
+      title: LogoutRequest
+      description: 登出可选携带 refresh_token：带上即精确吊销该刷新会话。
     McpServerCreate:
       properties:
         name:

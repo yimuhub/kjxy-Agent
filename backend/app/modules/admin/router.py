@@ -15,15 +15,28 @@ from app.modules.admin import doctor
 from app.modules.knowledge.models import KnowledgeDocument
 from app.modules.llm.models import LLMCall
 from app.modules.tasks.models import Task
+from app.modules.yards.authz import has_permission as yard_has_permission
 from app.modules.yards.models import Yard, YardMembership
 from app.modules.yards.permissions import has_permission
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
-def _scope(user: CurrentUser):
+def _has_admin_stats(db: Session, user: CurrentUser) -> bool:
+    if user.yard_id:
+        return yard_has_permission(
+            db,
+            yard_id=user.yard_id,
+            user_id=user.user_id,
+            jwt_roles=user.roles,
+            permission="admin:stats",
+        )
+    return has_permission(user.roles, "admin:stats")
+
+
+def _scope(db: Session, user: CurrentUser):
     """返回 (yard_filter, 管理员可见范围说明)。"""
-    if not has_permission(user.roles, "admin:stats"):
+    if not _has_admin_stats(db, user):
         raise AppError("FORBIDDEN", "权限不足。", http_status=403)
     # 平台管理员且无小院上下文 → 全局
     if "platform_admin" in user.roles and not user.yard_id:
@@ -42,7 +55,7 @@ def admin_yard_list(
 
     ADR-0002 收敛方案：只给"管理小院"入口，不含任何小院业务正文。
     """
-    if not has_permission(user.roles, "admin:stats"):
+    if not _has_admin_stats(db, user):
         raise AppError("FORBIDDEN", "权限不足。", http_status=403)
     if "platform_admin" not in user.roles:
         # 小院管理员看自己的小院用 /yard/current，这里只服务平台全局视图
@@ -78,7 +91,7 @@ def admin_stats(
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db_session),
 ):
-    yard_id = _scope(user)
+    yard_id = _scope(db, user)
 
     def scoped(query, model):
         if yard_id:

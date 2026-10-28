@@ -29,6 +29,7 @@ from app.modules.chat.models import (
 from app.modules.chat.service import message_out, session_out
 from app.modules.evolution.models import KnowledgeCandidate, Skill
 from app.modules.knowledge.chunking import estimate_token_count
+from app.modules.llm.models import LLMCall
 from app.modules.plugins.models import PluginManifest
 from app.modules.yards.models import YardMembership
 
@@ -215,6 +216,26 @@ def overview(db: Session, yard_id: str) -> dict[str, Any]:
     )
     pending_total = candidates_pending + skills_pending + plugins_pending
 
+    # 可信度与成本（v3.7）：引用覆盖率 + 7 日模型成功/成本，供负责人判断
+    # “回答是否有依据、钱花在哪”。引用数量取 citations_json（历史消息为 null）。
+    assistant_week = [m for m in week_messages if m.role == ROLE_ASSISTANT and m.content]
+    cited_week = sum(
+        1 for m in assistant_week if isinstance(m.citations_json, list) and m.citations_json
+    )
+    failed_week = sum(1 for m in week_messages if m.status == MSG_FAILED)
+    llm_rows = db.execute(
+        select(
+            LLMCall.status,
+            func.count(),
+            func.coalesce(func.sum(LLMCall.estimated_cost), 0.0),
+        )
+        .where(LLMCall.yard_id == yard_id, LLMCall.created_at >= week_start)
+        .group_by(LLMCall.status)
+    ).all()
+    llm_calls_7d = sum(int(row[1]) for row in llm_rows)
+    llm_ok_7d = sum(int(row[1]) for row in llm_rows if row[0] == "success")
+    llm_cost_7d = round(sum(float(row[2]) for row in llm_rows), 4)
+
     return {
         "yard_id": yard_id,
         "generated_at": _utcnow().isoformat(),
@@ -230,6 +251,20 @@ def overview(db: Session, yard_id: str) -> dict[str, Any]:
         "tokens_7d_input": in_week,
         "tokens_7d_output": out_week,
         "failed_messages_today": failed_today,
+        "trust": {
+            "assistant_messages_7d": len(assistant_week),
+            "cited_messages_7d": cited_week,
+            # 没有回答样本时返回 None，避免把“无数据”误读成 0% 覆盖
+            "citation_coverage_7d": (
+                round(cited_week / len(assistant_week), 4) if assistant_week else None
+            ),
+            "failed_messages_7d": failed_week,
+            "llm_calls_7d": llm_calls_7d,
+            "llm_success_rate_7d": (
+                round(llm_ok_7d / llm_calls_7d, 4) if llm_calls_7d else None
+            ),
+            "llm_cost_7d": llm_cost_7d,
+        },
         "pending_reviews": {
             "total": pending_total,
             "knowledge_candidates": candidates_pending,

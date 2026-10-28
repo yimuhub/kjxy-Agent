@@ -96,6 +96,27 @@ class OpenAICompatibleEmbedding:
         return self._dim or settings.embedding_dim
 
     def embed(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        batch_size = max(1, int(settings.embedding_batch_size))
+        vectors: list[list[float]] = []
+        for start in range(0, len(texts), batch_size):
+            vectors.extend(self._embed_batch(texts[start : start + batch_size]))
+        if len(vectors) != len(texts):
+            # 条数不一致会让 chunk 与向量错位入库，必须整批失败而不是静默截断。
+            raise AppError(
+                "LLM_ERROR",
+                f"向量模型返回数量与请求不一致（请求 {len(texts)} 条，返回 {len(vectors)} 条）。",
+                http_status=502,
+            )
+        dims = {len(vec) for vec in vectors}
+        if len(dims) > 1:
+            raise AppError("LLM_ERROR", "向量模型返回的维度不一致。", http_status=502)
+        if vectors:
+            self._dim = len(vectors[0])
+        return vectors
+
+    def _embed_batch(self, texts: list[str]) -> list[list[float]]:
         try:
             resp = httpx.post(
                 f"{self.base_url}/embeddings",
@@ -110,10 +131,7 @@ class OpenAICompatibleEmbedding:
         except Exception as e:
             log.warning("embedding request failed: %s", e)
             raise AppError("LLM_ERROR", "向量模型调用失败，请稍后重试。", http_status=502) from e
-        vectors = [item["embedding"] for item in sorted(data, key=lambda d: d["index"])]
-        if vectors:
-            self._dim = len(vectors[0])
-        return vectors
+        return [item["embedding"] for item in sorted(data, key=lambda d: d["index"])]
 
 
 def get_embedding_provider() -> EmbeddingProvider:

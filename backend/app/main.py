@@ -94,7 +94,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="科技小院多智能体平台", version="1.0.0", lifespan=lifespan)
+    app = FastAPI(title="科技小院多智能体平台", version="3.7.0", lifespan=lifespan)
     app.add_middleware(RequestIDMiddleware)
     app.add_exception_handler(AppError, app_error_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)
@@ -111,6 +111,7 @@ def create_app() -> FastAPI:
         checks = {"database": _check_db()}
         if not settings.tasks_inline_mode:
             checks["redis"] = _check_redis()
+        checks["schema"] = _check_schema()
         ready = all(checks.values())
         # 未就绪时返回 503，供编排器/探针判断
         return JSONResponse(
@@ -147,6 +148,12 @@ def _check_db() -> bool:
         return True
     except Exception:
         return False
+
+
+def _check_schema() -> bool:
+    from app.db.health import schema_ready
+
+    return schema_ready()
 
 
 def _check_redis() -> bool:

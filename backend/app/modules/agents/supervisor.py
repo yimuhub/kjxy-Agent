@@ -272,6 +272,7 @@ async def execute_choice(
             "run_id": run.id,
             "status": run.status,
             "answer": run.answer or "",
+            "research": run_detail.get("research"),
             "token_usage": run_detail.get("token_usage"),
         }
     decl = declarative.get_published_by_code(

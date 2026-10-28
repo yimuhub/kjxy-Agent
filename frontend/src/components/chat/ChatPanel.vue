@@ -109,6 +109,31 @@
             >
               {{ row.m.content }}
             </div>
+            <!-- 引用来源（v3.7）：知识库片段与网页链接可点开溯源 -->
+            <details
+              v-if="row.m.role === 'assistant' && row.m.citations?.length"
+              class="msg-citations"
+            >
+              <summary>依据来源（{{ row.m.citations.length }}）</summary>
+              <ul>
+                <li
+                  v-for="(c, i) in row.m.citations"
+                  :key="i"
+                >
+                  <a
+                    v-if="safeHttpUrl(c.url)"
+                    :href="safeHttpUrl(c.url)"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >{{ c.title || c.url }}</a>
+                  <span v-else>{{ c.title || c.source || '知识库片段' }}</span>
+                  <span
+                    v-if="c.quote"
+                    class="citation-quote"
+                  >{{ c.quote }}</span>
+                </li>
+              </ul>
+            </details>
             <!-- 结构化载荷：技能卡片 / 插件卡片 / 能力草稿 / 能力市场卡片 -->
             <SkillCard
               v-if="row.m.role === 'assistant' && row.m.payload?.type === 'skill_card'"
@@ -432,6 +457,7 @@
   import ChatMentionLayer from '@/components/chat/ChatMentionLayer.vue'
   import ChatPolicyPicker from '@/components/chat/ChatPolicyPicker.vue'
   import ChatSteps from '@/components/chat/ChatSteps.vue'
+  import { safeHttpUrl } from '@/components/teams/presentation'
   import PluginCard from '@/components/chat/PluginCard.vue'
   import SkillCard from '@/components/chat/SkillCard.vue'
   import { chatApi, mentionDisplayName, normalizeRoutedTone } from '@/api/chat'
@@ -845,6 +871,36 @@
     background: var(--ds-glass);
     border: 1px solid var(--ds-border);
     color: var(--ds-text-1);
+  }
+
+  /* 引用来源：默认折叠，展开后可点开原文 */
+  .msg-citations {
+    margin: 6px 4px 0;
+    font-size: 12px;
+    color: var(--ds-text-2);
+  }
+  .msg-citations summary {
+    cursor: pointer;
+    color: var(--ds-text-3);
+    user-select: none;
+  }
+  .msg-citations ul {
+    margin: 6px 0 0;
+    padding-left: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .msg-citations a {
+    color: var(--ds-accent-2, #7dd3fc);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .citation-quote {
+    display: block;
+    margin-top: 2px;
+    color: var(--ds-text-3);
+    line-height: 1.5;
   }
 
   .msg-badge {

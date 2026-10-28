@@ -4,7 +4,7 @@
 # 必须在仓库 Settings → Secrets and variables → Actions 配置：
 #   TAURI_SIGNING_PRIVATE_KEY          = updater 私钥文件完整内容
 #                                        （本机路径：Documents/Hermes/kjxy-work/tauri_updater_private_key，绝不提交进仓库）
-#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD = 开发固定密码 kjxy-dev-key（正式对外发版前必须换密钥与密码）
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD = 与私钥匹配的口令（只存 Secrets，不写入仓库）
 #   GITHUB_TOKEN 用工作流自带 token（下方 permissions 已给 contents: write，用于建 Release）
 name: Release
 
@@ -17,7 +17,18 @@ permissions:
   contents: write
 
 jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify tag matches every version surface
+        run: python scripts/check_versions.py --tag "${GITHUB_REF_NAME}"
+
   release:
+    needs: verify
     strategy:
       fail-fast: false
       matrix:
@@ -99,6 +110,6 @@ jobs:
           # 与推送的标签同名：Release 即更新通道，latest.json 放该 Release 供 updater 拉取
           tagName: ${{ github.ref_name }}
           releaseName: 科技小院 ${{ github.ref_name }}
-          releaseBody: 自动构建：macOS(aarch64) / Windows(NSIS) / Linux(AppImage+deb)，含自动升级更新包与签名。
+          releaseBody: 自动构建：macOS(aarch64) / Windows(NSIS) / Linux(deb)，含自动升级更新包与签名。
           releaseDraft: false
           prerelease: false

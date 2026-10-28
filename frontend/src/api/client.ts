@@ -81,10 +81,12 @@ function refreshAccessToken(): Promise<string | null> {
   refreshPromise = axios
     .post(`${baseURL}/auth/refresh`, { refresh_token: refreshToken })
     .then(res => {
-      const token = (res.data as { data?: { access_token?: string } })?.data?.access_token
-      if (!token) return null
-      localStorage.setItem(TOKEN_KEY, token)
-      return token
+      const data = (res.data as { data?: { access_token?: string; refresh_token?: string } })?.data
+      if (!data?.access_token) return null
+      localStorage.setItem(TOKEN_KEY, data.access_token)
+      // 刷新令牌轮换：服务端每次刷新都会作废旧令牌，必须同步保存新令牌
+      if (data.refresh_token) localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh_token)
+      return data.access_token
     })
     .catch(() => null)
     .finally(() => {

@@ -1,7 +1,7 @@
 {
   "name": "techyard-desktop",
   "private": true,
-  "version": "3.6.0",
+  "version": "3.7.0",
   "type": "module",
   "description": "科技小院桌面壳（Tauri 2）：拉起本地引擎 sidecar，指向本地引擎托管的前端",
   "scripts": {

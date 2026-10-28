@@ -19,6 +19,7 @@ from app.modules.auth.schemas import (
     ChangePasswordResponseData,
     LoginRequest,
     LoginResponseData,
+    LogoutRequest,
     MeResponseData,
     ProfileUpdateRequest,
     RefreshRequest,
@@ -123,10 +124,16 @@ def refresh_token(req: RefreshRequest, request: Request, db=Depends(get_db_sessi
 @router.post("/auth/logout")
 def logout(
     request: Request,
+    payload: LogoutRequest | None = None,
     user: CurrentUser = Depends(get_current_user),
     db=Depends(get_db_session),
 ):
-    service.logout(db, user.user_id, request_id=_request_id(request))
+    service.logout(
+        db,
+        user.user_id,
+        refresh_token=payload.refresh_token if payload else None,
+        request_id=_request_id(request),
+    )
     return ok({"ok": True}, request)
 
 

@@ -12,7 +12,7 @@ from app.core.responses import ok
 from app.modules.audit.service import log_audit
 from app.modules.yards import quota
 from app.modules.yards import repository as yard_repo
-from app.modules.yards.permissions import has_permission
+from app.modules.yards.authz import has_permission
 from app.modules.yards.schemas import QuotaAdminPatchRequest
 
 router = APIRouter()
@@ -37,7 +37,13 @@ def admin_patch_quota(
     db=Depends(get_db_session),
 ):
     """运营调整小院配额限额（ge=0）；每次调整写审计，返回调整后的配额状态。"""
-    if not has_permission(user.roles, "admin:stats"):
+    if not has_permission(
+        db,
+        yard_id=yard_id,
+        user_id=user.user_id,
+        jwt_roles=user.roles,
+        permission="admin:stats",
+    ):
         raise AppError("FORBIDDEN", "权限不足。", http_status=403)
     if yard_repo.get_yard(db, yard_id) is None:
         raise AppError("YARD_NOT_FOUND", "小院不存在或无权访问。", http_status=404)

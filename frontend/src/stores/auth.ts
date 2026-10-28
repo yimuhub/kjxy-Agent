@@ -106,8 +106,9 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function logout() {
+    const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY) ?? undefined
     try {
-      await authApi.logout()
+      await authApi.logout(refreshToken)
     } catch {
       // 后端注销失败也不阻塞本地退出
     }

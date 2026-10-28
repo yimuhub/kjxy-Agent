@@ -54,7 +54,15 @@ class RefreshRequest(BaseModel):
 
 class RefreshResponseData(BaseModel):
     access_token: str
+    # 轮换后的新刷新令牌；旧令牌在本次刷新后立即作废
+    refresh_token: str
     token_type: str = "bearer"
+
+
+class LogoutRequest(BaseModel):
+    """登出可选携带 refresh_token：带上即精确吊销该刷新会话。"""
+
+    refresh_token: str | None = Field(default=None, min_length=1)
 
 
 class MeResponseData(BaseModel):

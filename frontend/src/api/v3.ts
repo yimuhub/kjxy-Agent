@@ -960,6 +960,16 @@ export interface OwnerOverview {
   tokens_7d_input?: number
   tokens_7d_output?: number
   failed_messages_today: number
+  /** v3.7 可信度与成本：引用覆盖率、7 日模型成功率和估算成本 */
+  trust?: {
+    assistant_messages_7d: number
+    cited_messages_7d: number
+    citation_coverage_7d: number | null
+    failed_messages_7d: number
+    llm_calls_7d: number
+    llm_success_rate_7d: number | null
+    llm_cost_7d: number
+  } | null
   pending_reviews: {
     total: number
     knowledge_candidates: number

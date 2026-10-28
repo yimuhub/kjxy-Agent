@@ -12,6 +12,7 @@ from app.modules.chat.models import ChatMessage, ChatSession
 from app.modules.evolution.models import KnowledgeCandidate, Skill
 from app.modules.insights import service as insights
 from app.modules.knowledge.chunking import estimate_token_count
+from app.modules.llm.models import LLMCall
 from app.modules.plugins.models import PluginManifest
 from app.modules.yards.models import Yard
 from app.modules.yards.repository import add_membership, create_yard
@@ -67,6 +68,7 @@ def _message(
     status="ok",
     usage=None,
     choice=None,
+    citations=None,
     created_at=None,
 ) -> ChatMessage:
     message = ChatMessage(
@@ -78,6 +80,7 @@ def _message(
         status=status,
         token_usage_json=usage,
         choice_json=choice,
+        citations_json=citations,
     )
     if created_at is not None:
         message.created_at = created_at
@@ -134,6 +137,7 @@ def seeded(db_session):
         content="建议滴灌 2 小时",
         usage={"input_tokens": 0, "output_tokens": 20, "total_tokens": 20},
         choice={"kind": "agent", "id": "a1", "code": "irrig", "name": "灌溉顾问"},
+        citations=[{"title": "水稻分蘖期管理", "quote": "保持浅水层"}],
         created_at=now,
     )
     failed = _message(
@@ -157,6 +161,29 @@ def seeded(db_session):
         created_at=now - timedelta(days=10),
     )
 
+    db_session.add_all(
+        [
+            LLMCall(
+                yard_id=yard.id,
+                provider="fake",
+                model="fake-1",
+                input_tokens=10,
+                output_tokens=20,
+                estimated_cost=0.25,
+                status="success",
+                request_id="req-ok",
+                prompt_sha="a" * 64,
+            ),
+            LLMCall(
+                yard_id=yard.id,
+                provider="fake",
+                model="fake-1",
+                status="error",
+                request_id="req-err",
+                prompt_sha="b" * 64,
+            ),
+        ]
+    )
     db_session.add(
         YardAgent(
             yard_id=yard.id,
@@ -239,6 +266,15 @@ def test_overview_counts_and_token_fallback(db_session, seeded):
         "plugins": 1,
     }
     assert data["network"] is None
+    assert data["trust"] == {
+        "assistant_messages_7d": 2,
+        "cited_messages_7d": 1,
+        "citation_coverage_7d": 0.5,
+        "failed_messages_7d": 1,
+        "llm_calls_7d": 2,
+        "llm_success_rate_7d": 0.5,
+        "llm_cost_7d": 0.25,
+    }
 
 
 def test_member_usage_aggregates_tokens_and_agents(db_session, seeded):

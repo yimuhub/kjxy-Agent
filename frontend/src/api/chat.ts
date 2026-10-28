@@ -370,6 +370,22 @@ export type ChatCard =
 /** 非技能/插件卡片：通用卡片组件（ChatCard）接收的形状，技能与插件卡片各自单独渲染 */
 export type ChatStandardCard = Exclude<ChatCard, ChatSkillCard | ChatPluginCard>
 
+/** 回答引用的知识/网页来源（v3.7 可信引用） */
+export interface ChatCitation {
+  document_id?: string
+  chunk_id?: string
+  title?: string
+  source?: string
+  page_number?: number | null
+  quote?: string
+  score?: number
+  trust_level?: string
+  url?: string
+  snippet?: string
+  reference?: string
+  kind?: 'knowledge' | 'web' | string
+}
+
 /** 消息对象；choice/routed_by/reason 仅助手消息携带 */
 export interface ChatMessage {
   id: string
@@ -388,6 +404,7 @@ export interface ChatMessage {
   payload?: ChatCard | null
   steps?: ChatStep[] | null
   attachments?: ChatAttachmentRef[] | null
+  citations?: ChatCitation[] | null
   token_usage?: ChatTokenUsage | null
   created_at?: string
 }

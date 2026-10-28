@@ -4,10 +4,12 @@
 
 ```bash
 cp .env.example .env     # 填写 APP_SECRET_KEY、数据库密码、模型配置
-make up                  # docker compose up --build -d
-make migrate             # alembic upgrade head
+make up                  # docker compose up --build -d（自动执行 migrate 服务）
 make seed-dev            # 演示数据（仅开发环境）
 ```
+
+> `migrate` 服务会在 API/Worker/Scheduler 启动前执行 `alembic upgrade head`；
+> `make migrate` 仍保留，用于手动补迁移（幂等）。
 
 等价基础命令：
 
@@ -23,8 +25,9 @@ docker compose down
 
 ## 健康检查
 
-- API：`GET /health/live`（存活）、`GET /health/ready`（数据库+Redis 就绪）、
+- API：`GET /health/live`（存活）、`GET /health/ready`（数据库+Redis+schema 就绪）、
   `GET /health/worker`（Worker 心跳新鲜度，整改后新增）、`GET /metrics`（Prometheus 文本）。
+  生产环境下 `ready` 会校验 Alembic 版本是否为 head，旧 schema 直接 503。
 - Worker：compose 内置 healthcheck（`celery inspect ping`）；`/health/worker` 的 age_seconds
   超过 180s 视为 stale。周期任务（超时回收/心跳/月度重置）由 scheduler 服务承担，
   生产 compose 默认启用；开发 compose 需 `COMPOSE_PROFILES=scheduler` 或 `COMPOSE_PROFILES=scheduler make up`。
@@ -65,6 +68,9 @@ COMPOSE="docker compose -f compose.yaml -f compose.production.yaml" ./deploy/scr
 
 ## 生产注意
 
-- 使用 `compose.production.yaml` 覆盖：固定镜像标签（禁 latest）、资源限制、不挂载源码。
+- 服务器版（免 Docker）安装脚本默认 `APP_ENV=production`，初始账号为随机口令并写入
+  `backend/.initial-credentials`（600 权限）；请立即保存并删除该文件，不再使用演示口令。
+- 使用 `compose.production.yaml` 覆盖：固定镜像标签（禁 latest）、资源限制、不挂载源码；
+  `migrate` 服务使用同一 `API_IMAGE`。
 - 数据库与 Redis 不暴露公网端口；Redis 设密码。
 - 首次发布前完成至少一次恢复演练并记录 RTO。

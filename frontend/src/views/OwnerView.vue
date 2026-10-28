@@ -465,6 +465,27 @@
           ? `知识 ${pending.knowledge_candidates} · 技能 ${pending.skills} · 插件 ${pending.plugins}`
           : '—',
       },
+      {
+        label: '回答引用覆盖率',
+        value:
+          data?.trust?.citation_coverage_7d != null
+            ? `${Math.round(data.trust.citation_coverage_7d * 100)}%`
+            : '—',
+        hint: data?.trust
+          ? `近 7 日 ${data.trust.cited_messages_7d}/${data.trust.assistant_messages_7d} 条回答带依据`
+          : '暂无回答样本',
+      },
+      {
+        label: '7 日模型成本',
+        value: data?.trust ? data.trust.llm_cost_7d.toFixed(2) : '—',
+        hint: data?.trust
+          ? `调用 ${data.trust.llm_calls_7d} 次${
+              data.trust.llm_success_rate_7d != null
+                ? ` · 成功率 ${Math.round(data.trust.llm_success_rate_7d * 100)}%`
+                : ''
+            }`
+          : '—',
+      },
     ]
   })
 

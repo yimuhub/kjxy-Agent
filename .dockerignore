@@ -15,5 +15,3 @@ backend/data/
 .DS_Store
 frontend/dist/
 docs/
-contracts/
-plugins/

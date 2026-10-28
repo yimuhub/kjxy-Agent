@@ -28,10 +28,12 @@ from sqlalchemy.pool import StaticPool
 # 必须在 import app（会实例化 Settings）之前设置
 # ---------------------------------------------------------------------------
 _TEST_STORAGE_DIR = Path(tempfile.mkdtemp(prefix="techyard-test-files-"))
+_TEST_DB_PATH = Path(tempfile.mkdtemp(prefix="techyard-test-db-")) / "test.db"
 
 os.environ["APP_SECRET_KEY"] = "test-secret-key-min-32-chars-for-unit-tests"
 os.environ["LLM_PROVIDER"] = "fake"
 os.environ["EMBEDDING_PROVIDER"] = "mock"
+os.environ.setdefault("DATABASE_URL", f"sqlite:///{_TEST_DB_PATH}")
 os.environ["POLICY_MODULE_ENABLED"] = "true"
 os.environ["CELERY_BROKER_URL"] = "memory://"
 os.environ["CELERY_RESULT_BACKEND"] = "cache+memory://"
@@ -49,7 +51,13 @@ if not os.environ.get("SUPPLIER_KEY_SECRET"):
 
 from app.core.deps import get_db_session  # noqa: E402
 from app.db.base import Base  # noqa: E402
+from app.db.session import engine as _global_engine  # noqa: E402
 from app.main import create_app  # noqa: E402
+
+# 本地默认把应用级 SessionLocal 指向临时 SQLite，避免测试写入 backend/dev.db；
+# CI 显式提供 PostgreSQL 时沿用 CI 库（alembic 已建表）。
+if _global_engine.url.get_backend_name() == "sqlite":
+    Base.metadata.create_all(_global_engine)
 
 
 @pytest.fixture()
