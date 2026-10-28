@@ -137,6 +137,21 @@ v3.1 行为变化：`/search/status` 新增 `internet` 字段；搜索设置 `pr
 | POST | /yards/current/owner/transfer | owner:transfer | 负责人转让 |
 | GET | /yards/current/owner/audit | audit:read | 近期审计 |
 
+## 技能签名与评测（v3.17）
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | /skills/signing-key | 登录 | 技能签名公钥（Ed25519）与 key_id，用于离线校验 |
+| GET | /skills/{id}/attestation | 登录 | 定义摘要、签名、验签结论（ok/unsigned/definition_mismatch/bad_signature/key_mismatch）与最近一份评测报告 |
+| GET | /skills/{id}/eval-runs | 登录 | 该版本评测历史（摘要字段，不含报告全文） |
+| GET | /skills/{id}/eval-runs/{run_id} | 登录 | 单次评测报告全文（静态检查项、数据集通过率、逐用例结论） |
+
+口径：
+
+- 发布路径统一出报告：审核 `approve`、负责人 `promote`、市场安装内置技能都会先跑静态质量检查；技能定义里配置了 `evaluation.test_set_id` 时再跑数据集评测。静态有致命项（空定义、提示词过长、步骤超限、工具步骤未声明）返回 `SKILL_EVAL_BLOCKED`（409），数据集未达通过率返回 `EVAL_GATE_BLOCKED`（409）。
+- 报告写入 `eval_runs.report_json`，附 `report_sha256` 与 `dataset_sha256`；`kind` 区分 `gate|static|install|promote`。
+- 通过后对 `skill_code + version + definition_sha256` 做 Ed25519 签名；回滚与灰度发布前验签，定义被改动返回 `SKILL_ATTESTATION_INVALID`（409）。3.17 之前的存量已发布版本没有签名，接口如实返回 `unsigned`，回滚/灰度时补签。
+
 ## 任务状态机
 
 `queued → running → succeeded | failed | cancelled | awaiting_review → succeeded | failed | cancelled`

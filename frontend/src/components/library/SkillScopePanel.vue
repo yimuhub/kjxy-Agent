@@ -69,6 +69,24 @@
               >
                 {{ skillRiskMeta(skill).label }}
               </el-tag>
+              <el-tag
+                v-if="skill.signed_at"
+                size="small"
+                type="success"
+                effect="plain"
+                :title="`定义摘要 ${digestShort(skill.definition_sha256)}；签名算法 ${skill.signature_alg || '—'}`"
+              >
+                已签名
+              </el-tag>
+              <el-tag
+                v-else-if="skill.status === 'published'"
+                size="small"
+                type="info"
+                effect="plain"
+                title="该版本发布时未生成签名（3.17 之前的存量版本）"
+              >
+                未签名
+              </el-tag>
             </div>
           </header>
 
@@ -246,6 +264,10 @@
 
   function isDraft(skill: Skill): boolean {
     return skill.status === 'draft' || skill.status === 'testing'
+  }
+
+  function digestShort(digest?: string | null): string {
+    return digest ? `${digest.slice(0, 12)}…` : '—'
   }
 
   async function load(nextPage = page.value) {

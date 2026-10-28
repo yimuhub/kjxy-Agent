@@ -236,9 +236,16 @@
               </el-table-column>
               <el-table-column
                 label="操作"
-                width="300"
+                width="360"
               >
                 <template #default="{ row }">
+                  <el-button
+                    link
+                    type="info"
+                    @click="openSkillEval(row as Skill)"
+                  >
+                    报告
+                  </el-button>
                   <el-button
                     v-if="row.status === 'draft'"
                     link
@@ -491,6 +498,11 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <SkillEvalDialog
+      v-model="skillEvalDialog"
+      :skill="skillEvalTarget"
+    />
   </div>
 </template>
 
@@ -518,6 +530,7 @@
   import { classifyError, friendlyErrorMessage, type ViewState } from '@/utils/status'
   import type { Candidate, ReviewAction, Skill, SkillReviewAction } from '@/types/api'
   import { formatDateTime as formatTime } from '@/utils/format'
+  import SkillEvalDialog from '@/components/library/SkillEvalDialog.vue'
 
   /** 后端 SkillOut 把业务字段放在 definition 内，且没有 name/code 顶层列。 */
   type SkillRow = Skill & {
@@ -555,6 +568,8 @@
   const skillRejectDialog = ref(false)
   const skillRejectNote = ref('')
   const skillRejectTarget = ref<Skill | null>(null)
+  const skillEvalDialog = ref(false)
+  const skillEvalTarget = ref<Skill | null>(null)
 
   const skillUploading = ref(false)
   const pluginUploading = ref(false)
@@ -830,6 +845,11 @@
     skillRejectTarget.value = s
     skillRejectNote.value = ''
     skillRejectDialog.value = true
+  }
+
+  function openSkillEval(s: Skill) {
+    skillEvalTarget.value = s
+    skillEvalDialog.value = true
   }
 
   async function confirmRejectSkill() {

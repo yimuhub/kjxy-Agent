@@ -180,9 +180,13 @@ def test_gate_skip_gate_allows_publish(db_session):
         s = service.review_skill(db_session, _expert_ctx(), s.id, "approve", None)
     m.assert_not_called()
     assert s.status == "published"
-    # 不跑评估集就不插 eval_runs
-    assert _runs(db_session) == []
-    # 但审计日志记一笔
+    # v3.17：跳过数据集仍要留下静态质量报告，不允许「无报告上架」
+    runs = _runs(db_session)
+    assert len(runs) == 1
+    assert runs[0].kind == "static"
+    assert runs[0].report_json["mode"] == "static+dataset_skipped"
+    assert runs[0].report_sha256
+    # 审计日志记一笔
     audit = (
         db_session.query(AuditLog)
         .filter(AuditLog.action == "skill.eval_gate_skipped", AuditLog.resource_id == s.id)
@@ -195,13 +199,18 @@ def test_gate_skip_gate_allows_publish(db_session):
 
 
 def test_no_evaluation_config_skips_gate(db_session):
-    # 存量 Skill 未声明 evaluation → 门禁不触发，原有流程不受影响
+    # 存量 Skill 未声明 evaluation → 不跑数据集评测；v3.17 起仍生成静态质量报告
     s = _make_pending_review(db_session, evaluation=None)
     with patch(_PATCH_TARGET) as m:
         s = service.review_skill(db_session, _expert_ctx(), s.id, "approve", None)
     m.assert_not_called()
     assert s.status == "published"
-    assert _runs(db_session) == []
+    runs = _runs(db_session)
+    assert len(runs) == 1
+    assert runs[0].kind == "static"
+    assert runs[0].test_set_id == "static_precheck"
+    assert runs[0].pass_rate == 1.0
+    assert runs[0].report_json["mode"] == "static"
 
 
 def test_list_eval_runs_scoped_by_skill(db_session):

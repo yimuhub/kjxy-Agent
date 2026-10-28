@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     # 供应商 API Key 加密主密钥（Fernet key）；建议生产显式配置
     supplier_key_secret: str = ""
+    # 技能签名私钥种子（base64url 编码的 32 字节，Ed25519）；留空则由 app_secret_key
+    # 域分离派生。显式配置可独立于登录密钥轮换；更换后旧签名会如实判为无效。
+    skill_signing_seed: str = ""
     llm_model: str = ""
     llm_timeout_seconds: int = 60
     llm_max_tokens: int = 2048

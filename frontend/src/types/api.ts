@@ -344,6 +344,12 @@ export interface Skill {
   reviewed_by?: string | null
   reviewed_at?: string | null
   review_note?: string | null
+  /** v3.17：定义摘要与签名（发布/推广时写入；没有签名=未认证） */
+  definition_sha256?: string | null
+  signature_alg?: string | null
+  key_id?: string | null
+  signed_by?: string | null
+  signed_at?: string | null
   created_at?: string
   updated_at?: string
 }

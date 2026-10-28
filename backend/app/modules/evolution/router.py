@@ -10,10 +10,12 @@ from app.core.deps import YardContext, get_db_session, get_yard_context
 from app.core.errors import AppError
 from app.core.pagination import pagination_params
 from app.core.responses import ok, paged
+from app.modules.evolution import attestation as attestation_service
 from app.modules.evolution import precheck as precheck_service
 from app.modules.evolution import rollout as rollout_service
 from app.modules.evolution import service
 from app.modules.evolution import suggest as suggest_service
+from app.modules.evolution.models import EvalRun
 from app.modules.evolution.schemas import (
     CandidateBatchFailure,
     CandidateBatchReview,
@@ -291,6 +293,68 @@ def promote_skill(
         db.rollback()
         raise
     return ok(SkillOut.model_validate(skill).model_dump(mode="json", by_alias=True), request)
+
+
+@router.get("/skills/signing-key")
+def get_skill_signing_key(
+    request: Request,
+    ctx: YardContext = Depends(get_yard_context),
+):
+    """技能签名公钥（Ed25519）：用于离线校验已发布技能的完整性。"""
+    return ok(attestation_service.signing_key_info(), request)
+
+
+@router.get("/skills/{skill_id}/attestation")
+def get_skill_attestation(
+    skill_id: str,
+    request: Request,
+    ctx: YardContext = Depends(get_yard_context),
+    db=Depends(get_db_session),
+):
+    """技能摘要/签名/验签结论与最近一份评测报告。"""
+    return ok(service.attestation_view(db, ctx, skill_id), request)
+
+
+@router.get("/skills/{skill_id}/eval-runs/{run_id}")
+def get_skill_eval_run(
+    skill_id: str,
+    run_id: str,
+    request: Request,
+    ctx: YardContext = Depends(get_yard_context),
+    db=Depends(get_db_session),
+):
+    """单次评测报告全文（含检查项与逐用例结论）。"""
+    skill = service.get_skill(db, ctx, skill_id)
+    run = (
+        db.query(EvalRun)
+        .filter(
+            EvalRun.id == run_id,
+            EvalRun.yard_id == ctx.yard_id,
+            EvalRun.skill_code == skill.skill_code,
+            EvalRun.skill_version == skill.version,
+        )
+        .first()
+    )
+    if run is None:
+        raise AppError("EVAL_RUN_NOT_FOUND", "评测记录不存在或不属于该技能版本。", http_status=404)
+    return ok(
+        {
+            "id": run.id,
+            "skill_code": run.skill_code,
+            "skill_version": run.skill_version,
+            "kind": run.kind,
+            "test_set_id": run.test_set_id,
+            "pass_rate": run.pass_rate,
+            "passed": run.passed,
+            "failed": run.failed,
+            "total": run.total,
+            "report_sha256": run.report_sha256,
+            "dataset_sha256": run.dataset_sha256,
+            "created_at": run.created_at,
+            "report": run.report_json,
+        },
+        request,
+    )
 
 
 @router.get("/skills/{skill_id}/eval-runs")

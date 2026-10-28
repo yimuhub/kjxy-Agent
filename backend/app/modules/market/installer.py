@@ -19,7 +19,7 @@ from app.core.errors import AppError
 from app.core.logging import get_logger
 from app.modules.audit.service import log_audit
 from app.modules.evolution.models import Skill
-from app.modules.evolution.service import create_skill
+from app.modules.evolution.service import attest_published_skill, create_skill
 from app.modules.market.agri_skills import builtin_items, seed_builtin
 from app.modules.market.github_source import preview_skill_from_repo, search_github_skills
 from app.modules.market.importer import unique_plugin_id, unique_skill_code
@@ -375,6 +375,8 @@ def _install_skill(db: Session, ctx: YardContext, item: MarketItem) -> dict[str,
     skill.status = "published" if publish else "pending_review"
     if publish:
         skill.approved_by = ctx.user_id
+        # 上架即有报告 + 签名：静态问题会直接拦下安装，不留下「已发布但无报告」的行
+        attest_published_skill(db, ctx, skill, kind="install", request_id=ctx.request_id)
     db.flush()
     return {
         "installed_as": code,

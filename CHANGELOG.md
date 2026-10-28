@@ -2,6 +2,40 @@
 
 本项目遵循《工程开发规范 V3.0》；版本号遵循语义化版本。
 
+## [3.17.0] - 2026-10-29
+
+技能上架前必须有可复现的评测报告，发布后定义可验签：报告回答「它凭什么能上架」，签名回答「上架后有没有被改过」。
+
+### 上架前评测报告（后端）
+
+- 迁移 `0045_skill_attestation`：`evolution_skills` 增加 `definition_sha256 / signature_alg / signature / signed_by / signed_at / key_id`；`eval_runs` 增加 `kind / report_json / report_sha256 / dataset_sha256`，可完整 downgrade。
+- 新增 `evolution/prepublish.py`：静态质量检查零 LLM、可复现，覆盖空定义、身份、提示词长度、步骤数量、工具步骤是否在 `allowed_tools` 声明、高风险是否要求审核、要求引用是否配来源、技能模板评例数量、外部来源许可证。致命项（error）阻止上架，提示项（warning）只扣分。
+- 技能定义里配置了 `evaluation.test_set_id` 时，继续复用现有 `run_eval_set` 跑数据集评测；这次把静态结论与数据集结论合并成**一份**报告，连同 `report_sha256` 与 `dataset_sha256` 一起写进 `eval_runs.report_json`——每次审核/推广/安装各留一份，不覆盖历史。
+- 三个发布入口统一出报告：审核 `approve`、负责人 `promote`、市场安装内置/已核验技能。静态致命项返回 `SKILL_EVAL_BLOCKED`，数据集未达通过率仍返回既有的 `EVAL_GATE_BLOCKED`。
+- `evaluation.skip_gate=true` 只跳过数据集评测，不再跳过静态检查；报告里明确标注 `static+dataset_skipped`，不允许「无报告上架」。
+
+### 定义签名与验签（后端）
+
+- 新增 `evolution/attestation.py`：规范 JSON（键排序、紧凑分隔、不转义中文）→ SHA-256 摘要；签名对象是 `skill:v1 / code / version / 摘要` 四段文本，算法 Ed25519。
+- 私钥优先取 `SKILL_SIGNING_SEED`（base64url 的 32 字节种子），未配置时由 `APP_SECRET_KEY` 做域分离派生；`key_id` 取公钥 SHA-256 前 16 位，密钥轮换后能说明是哪把钥匙签的。
+- 发布通过后自动签名；回滚与灰度发布前验签：定义与签名时不一致返回 `SKILL_ATTESTATION_INVALID`（409），3.17 之前的存量已发布版本如实返回「未签名」并在回滚/灰度时补签，不冒充当年已签。
+- 新增端点：`GET /skills/signing-key`（公钥）、`GET /skills/{id}/attestation`（摘要/签名/验签结论/最近报告）、`GET /skills/{id}/eval-runs/{run_id}`（报告全文）；评测历史列表只带摘要，不把 22 条用例全文塞进列表响应。
+
+### 前端
+
+- 技能卡片增加「已签名 / 未签名」徽标，悬停显示摘要短码与签名算法；未签名的已发布版本明确标注「3.17 之前的存量版本」。
+- 审核页每行增加「报告」入口，弹窗展示验签结论（有效/未签名/定义已被改动/密钥已轮换/签名无效）、定义摘要、签名时间、静态得分、致命/提示项、检查项明细、数据集通过率与失败用例。
+
+### 门禁
+
+- 后端 ruff check/format（438 个文件）、mypy（294 个源文件）全绿；全量测试 **1464 passed**。
+- 前端 eslint **0 error**、vue-tsc 全绿、单测 **34 passed**、`vite build` 通过；版本面 9 处一致（`scripts/check_versions.py` 校验 3.17.0）。
+- 契约重新生成：OpenAPI **225 路径**，相对 3.16 只增 `/skills/signing-key`、`/skills/{skill_id}/attestation`、`/skills/{skill_id}/eval-runs/{run_id}` 三条，无路径删除。
+- 迁移 `0045` 在临时 SQLite 上实测 upgrade → downgrade → upgrade 三连通过。
+- 全量 E2E **43 passed**（5.3 分钟）：跑在隔离的 8011 后端 + 5174 前端（数据库副本已升到 0045），避免复用开发中未重启的旧进程；跑完已清理临时配置与数据库副本。
+- 新增用例：`tests/unit/test_skill_attestation.py`（14 条：摘要稳定性、签名往返、定义篡改/签名篡改/密钥轮换识别、未签名如实上报、发布留报告并签名、空定义与未声明工具步骤拦截、负责人推广、回滚拒绝被篡改目标、存量未签名补签）；`tests/integration/test_skill_attestation_api.py`（4 条：公钥稳定性、验签与报告端点、篡改标记、跨版本评测记录 404）。
+- 同步修正两条既有用例的预期（未配置数据集/`skip_gate` 现在也会落静态报告），并放宽「缺名称」为提示项——未命名的存量定义仍可由技能编码兜底展示，不应因此阻止发布。
+
 ## [3.16.0] - 2026-10-28
 
 对话页批量交互重做、全站弹窗统一从屏幕中央弹出、错误提示不再误报「网络连接失败」，侧边栏补上版本号。

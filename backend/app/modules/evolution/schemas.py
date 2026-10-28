@@ -124,6 +124,12 @@ class SkillOut(BaseModel):
     reviewed_by: str | None = None
     reviewed_at: datetime | None = None
     review_note: str | None = None
+    # v3.17：定义摘要与签名（签名正文只在 /skills/{id}/attestation 返回）
+    definition_sha256: str | None = None
+    signature_alg: str | None = None
+    key_id: str | None = None
+    signed_by: str | None = None
+    signed_at: datetime | None = None
 
 
 class SkillReview(BaseModel):
@@ -157,6 +163,10 @@ class EvalRunOut(BaseModel):
     total: int
     created_by: str | None
     created_at: datetime
+    # v3.17：报告类型与摘要（完整报告按需从 /skills/{id}/eval-runs/{run_id} 取）
+    kind: str = "gate"
+    report_sha256: str | None = None
+    dataset_sha256: str | None = None
 
 
 RolloutStrategy = Literal["yard_allowlist", "percentage"]

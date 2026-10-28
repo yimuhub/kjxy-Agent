@@ -79,6 +79,15 @@ class Skill(Base, TimestampMixin):
     reviewed_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # v3.17：定义摘要与签名。摘要在写入时计算；签名在发布/推广时产生，
+    # 用于回答「这份已上架的技能，内容有没有在上架后被改过」。
+    definition_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    signature_alg: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    signature: Mapped[str | None] = mapped_column(Text, nullable=True)
+    signed_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    signed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: 签名密钥指纹：轮换密钥后可定位是哪把钥匙签的
+    key_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
 class SkillRollout(Base, TimestampMixin):
@@ -123,3 +132,11 @@ class EvalRun(Base, TimestampMixin):
     failed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # v3.17：上架前评测报告。kind=gate（数据集门禁）|static（静态质量检查）|install（市场安装）
+    kind: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="gate", server_default="gate"
+    )
+    #: 完整报告（检查项、通过率、失败用例），可复现；不含参考正文
+    report_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    report_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    dataset_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)

@@ -31,6 +31,13 @@
 
 工具 `risk_level=external_side_effect` 未获审批一律拦截（`TOOL_RISK_BLOCKED`）。
 
+## 技能供应链
+
+- 技能上架前跑静态质量检查（空定义、提示词超长、步骤超限、工具步骤未声明直接拦截）与可选数据集评测，报告落 `eval_runs`。
+- 发布/推广/市场安装后对定义做 Ed25519 签名（`skill_code + version + definition_sha256`）；回滚与灰度前验签，定义被改动返回 `SKILL_ATTESTATION_INVALID`。
+- 签名私钥优先取 `SKILL_SIGNING_SEED`，未配置时由 `APP_SECRET_KEY` 域分离派生；公钥经 `GET /skills/signing-key` 公布，`key_id` 便于轮换后定位。
+- 签名只证明「签名后未被改动」，不证明内容正确；3.17 之前的存量版本没有签名，接口如实返回 `unsigned`，不冒充已验证。
+
 ## 模型风险
 
 - 模型输出经 Schema + 业务规则校验；不把模型文本当权限决策/法律结论/农业事实。

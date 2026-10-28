@@ -16,8 +16,9 @@ from sqlalchemy.orm import Session
 from app.core.deps import YardContext
 from app.core.errors import AppError
 from app.core.logging import get_logger
-from app.eval.runner import EvalReport, run_eval_set
+from app.eval.runner import run_eval_set
 from app.modules.audit.service import log_audit
+from app.modules.evolution import attestation, prepublish
 from app.modules.evolution.models import EvalRun, Feedback, KnowledgeCandidate, Skill
 from app.modules.yards.authz import effective_permissions, get_active_membership, is_owner
 
@@ -455,6 +456,7 @@ def create_skill(
         visibility=visibility,
         owner_user_id=owner_user_id,
         origin=origin,
+        definition_sha256=attestation.definition_digest(definition),
     )
     db.add(skill)
     try:
@@ -577,14 +579,29 @@ def _run_eval_gate(
     evaluation: dict,
     answer_fn: Callable[[str, str], dict] | None = None,
     request_id: str = "",
-) -> EvalReport | None:
-    """执行评测门禁，返回评估报告（skip_gate 时返回 None）。
+) -> dict[str, Any] | None:
+    """执行上架前评测（静态检查 + 可选数据集），返回完整报告。
 
-    每次实际跑完评估集都向 eval_runs 插一条；未达通过率抛 EVAL_GATE_BLOCKED（409）。
+    每次实际跑完都向 eval_runs 插一条（含报告 JSON）；静态检查有致命项或
+    数据集未达通过率都会抛 EVAL_GATE_BLOCKED（409）。
     """
     request_id = request_id or ctx.request_id
+    static = prepublish.static_report(skill)
 
     if evaluation.get("skip_gate"):
+        skip_report = prepublish.merge_dataset(
+            static,
+            {},
+            dataset_skipped=True,
+        )
+        run = prepublish.persist_run(
+            db,
+            ctx,
+            skill,
+            skip_report,
+            kind="static",
+            test_set_id=prepublish.STATIC_TEST_SET_ID,
+        )
         log_audit(
             db,
             yard_id=ctx.yard_id,
@@ -598,14 +615,28 @@ def _run_eval_gate(
                 "skill_code": skill.skill_code,
                 "version": skill.version,
                 "reason": "evaluation.skip_gate=true（测试/演示跳过）",
+                "eval_run_id": run.id,
             },
         )
+        issues = prepublish.blocking_issues(skip_report)
+        if issues:
+            raise AppError(
+                "SKILL_EVAL_BLOCKED",
+                "技能定义未通过静态质量检查，禁止发布（skip_gate 只跳过数据集评测）。",
+                http_status=409,
+                details={
+                    "skill_code": skill.skill_code,
+                    "version": skill.version,
+                    "issues": issues,
+                    "eval_run_id": run.id,
+                },
+            )
         log.warning(
             "eval gate skipped for skill %s %s (skip_gate=true)",
             skill.skill_code,
             skill.version,
         )
-        return None
+        return skip_report
 
     test_set_id = evaluation.get("test_set_id")
     if not test_set_id or not isinstance(test_set_id, str):
@@ -637,7 +668,7 @@ def _run_eval_gate(
     )
 
     try:
-        report = run_eval_set(test_set_id, fn)
+        eval_report = run_eval_set(test_set_id, fn)
     except (FileNotFoundError, ValueError) as e:
         raise AppError(
             "EVAL_GATE_BLOCKED",
@@ -651,20 +682,16 @@ def _run_eval_gate(
             },
         ) from e
 
-    # 结果留痕：每次门禁跑完插一条
-    run = EvalRun(
-        yard_id=ctx.yard_id,
-        skill_code=skill.skill_code,
-        skill_version=skill.version,
-        test_set_id=report.test_set_id,
-        pass_rate=report.pass_rate,
-        passed=report.passed,
-        failed=report.failed,
-        total=report.total,
-        created_by=ctx.user_id,
+    dataset = prepublish.summarize_dataset(eval_report, test_set_id, minimum_pass_rate=minimum)
+    full_report = prepublish.merge_dataset(static, dataset)
+    run = prepublish.persist_run(
+        db,
+        ctx,
+        skill,
+        full_report,
+        kind="gate",
+        test_set_id=eval_report.test_set_id,
     )
-    db.add(run)
-    db.flush()
 
     log_audit(
         db,
@@ -678,35 +705,145 @@ def _run_eval_gate(
         metadata={
             "skill_code": skill.skill_code,
             "version": skill.version,
-            "test_set_id": report.test_set_id,
-            "pass_rate": round(report.pass_rate, 4),
-            "passed": report.passed,
-            "failed": report.failed,
-            "total": report.total,
+            "test_set_id": eval_report.test_set_id,
+            "pass_rate": round(eval_report.pass_rate, 4),
+            "passed": eval_report.passed,
+            "failed": eval_report.failed,
+            "total": eval_report.total,
+            "eval_run_id": run.id,
+            "static_score": full_report["score"],
         },
     )
 
-    if report.pass_rate < minimum:
-        failed_case_ids = [cr.case_id for cr in report.case_results if not cr.passed]
+    issues = prepublish.blocking_issues(full_report)
+    if issues:
+        failed_case_ids = [cr.case_id for cr in eval_report.case_results if not cr.passed]
         raise AppError(
             "EVAL_GATE_BLOCKED",
-            f"评测门禁未通过：通过率 {report.pass_rate:.1%} "
-            f"低于最低要求 {minimum:.1%}，禁止发布。",
+            f"上架前评测未通过：通过率 {eval_report.pass_rate:.1%}，"
+            f"最低要求 {minimum:.1%}，禁止发布。",
             http_status=409,
             details={
                 "skill_code": skill.skill_code,
                 "version": skill.version,
-                "test_set_id": report.test_set_id,
-                "pass_rate": round(report.pass_rate, 4),
+                "test_set_id": eval_report.test_set_id,
+                "pass_rate": round(eval_report.pass_rate, 4),
                 "minimum_pass_rate": minimum,
-                "passed": report.passed,
-                "failed": report.failed,
-                "total": report.total,
+                "passed": eval_report.passed,
+                "failed": eval_report.failed,
+                "total": eval_report.total,
                 "failed_case_ids": failed_case_ids,
+                "issues": issues,
                 "eval_run_id": run.id,
+                "report_sha256": run.report_sha256,
+            },
+        )
+    return full_report
+
+
+def _run_static_gate(
+    db: Session,
+    ctx: YardContext,
+    skill: Skill,
+    *,
+    request_id: str = "",
+    kind: str = "static",
+) -> dict[str, Any]:
+    """只跑静态检查（未配置数据集评测的技能）：留报告，致命项阻止上架。"""
+    report = prepublish.static_report(skill)
+    run = prepublish.persist_run(
+        db,
+        ctx,
+        skill,
+        report,
+        kind=kind,
+        test_set_id=prepublish.STATIC_TEST_SET_ID,
+    )
+    log_audit(
+        db,
+        yard_id=ctx.yard_id,
+        actor_id=ctx.user_id,
+        action="skill.eval_static_run",
+        resource_type="skill",
+        resource_id=skill.id,
+        result="success",
+        request_id=request_id or ctx.request_id,
+        metadata={
+            "skill_code": skill.skill_code,
+            "version": skill.version,
+            "score": report["score"],
+            "errors": report["errors"],
+            "warnings": report["warnings"],
+            "eval_run_id": run.id,
+            "kind": kind,
+        },
+    )
+    issues = prepublish.blocking_issues(report)
+    if issues:
+        raise AppError(
+            "SKILL_EVAL_BLOCKED",
+            "技能定义未通过静态质量检查，禁止发布。",
+            http_status=409,
+            details={
+                "skill_code": skill.skill_code,
+                "version": skill.version,
+                "issues": issues,
+                "eval_run_id": run.id,
+                "report_sha256": run.report_sha256,
             },
         )
     return report
+
+
+def _run_prepublish_gate(
+    db: Session,
+    ctx: YardContext,
+    skill: Skill,
+    *,
+    answer_fn: Callable[[str, str], dict] | None = None,
+    request_id: str = "",
+    static_kind: str = "static",
+) -> dict[str, Any]:
+    """上架前评测总入口：配置了数据集就跑数据集 + 静态，否则只跑静态。"""
+    evaluation = _eval_gate_config(skill)
+    if evaluation is not None:
+        report = _run_eval_gate(
+            db, ctx, skill, evaluation, answer_fn=answer_fn, request_id=request_id
+        )
+        return report or {}
+    return _run_static_gate(db, ctx, skill, request_id=request_id, kind=static_kind)
+
+
+def _attest_skill(
+    db: Session,
+    ctx: YardContext,
+    skill: Skill,
+    *,
+    request_id: str = "",
+    reason: str = "publish",
+) -> dict[str, Any]:
+    """对已发布版本签名并留痕；重复调用只会覆盖为同一份签名。"""
+    info = attestation.apply_signature(skill, ctx.user_id)
+    db.flush()
+    log_audit(
+        db,
+        yard_id=ctx.yard_id,
+        actor_id=ctx.user_id,
+        action="skill.attested",
+        resource_type="skill",
+        resource_id=skill.id,
+        result="success",
+        request_id=request_id or ctx.request_id,
+        metadata={
+            "skill_code": skill.skill_code,
+            "version": skill.version,
+            "reason": reason,
+            "definition_sha256": info["definition_sha256"],
+            "key_id": info["key_id"],
+            "algorithm": info["signature_alg"],
+        },
+    )
+    return info
 
 
 def review_skill(
@@ -742,11 +879,7 @@ def review_skill(
         _submit_public(db, ctx, skill)
     elif action == "approve":
         _check_published_version_unique(db, ctx, skill)
-        gate_evaluation = _eval_gate_config(skill)
-        if gate_evaluation is not None:
-            _run_eval_gate(
-                db, ctx, skill, gate_evaluation, answer_fn=answer_fn, request_id=request_id
-            )
+        report = _run_prepublish_gate(db, ctx, skill, answer_fn=answer_fn, request_id=request_id)
         _transition(skill, "published")
         skill.approved_by = ctx.user_id
         if skill.visibility == "private":
@@ -755,6 +888,7 @@ def review_skill(
             skill.reviewed_by = ctx.user_id
             skill.reviewed_at = _utcnow()
             skill.review_note = note
+        _attest_skill(db, ctx, skill, request_id=request_id, reason="review_approve")
     elif action == "reject":
         # pending_review→draft（驳回返工）；公共库提交被拒时保持 private
         _transition(skill, "draft")
@@ -769,6 +903,14 @@ def review_skill(
     if action in ("approve", "reject", "submit_public"):
         # 审核结论同时留痕可见性变化（approve 私有→小院时 metadata 里已是 yard）
         metadata["visibility"] = skill.visibility
+    if action == "approve":
+        metadata["definition_sha256"] = skill.definition_sha256
+        metadata["signature_key_id"] = skill.key_id
+        metadata["eval_report"] = {
+            "mode": report.get("mode"),
+            "score": report.get("score"),
+            "pass": report.get("pass"),
+        }
     log_audit(
         db,
         yard_id=ctx.yard_id,
@@ -827,11 +969,14 @@ def promote_skill(db: Session, ctx: YardContext, skill_id: str, request_id: str 
     if skill.status != "published":
         # 跳过重复发布：同小院同 code+version 已有 published 行时拒绝，避免版本歧义
         _check_published_version_unique(db, ctx, skill)
+        # 上架前评测：与正常审核同一把尺子，负责人推广不豁免
+        _run_prepublish_gate(db, ctx, skill, request_id=request_id, static_kind="promote")
     original_owner = skill.owner_user_id
     skill.visibility = "yard"
     skill.status = "published"
     skill.reviewed_by = ctx.user_id
     skill.reviewed_at = _utcnow()
+    _attest_skill(db, ctx, skill, request_id=request_id, reason="promote")
     db.flush()
     log_audit(
         db,
@@ -915,6 +1060,34 @@ def rollback_skill(db: Session, ctx: YardContext, skill_id: str, request_id: str
     if previous is None:
         raise AppError("SKILL_NOT_FOUND", "没有可回滚的历史版本。", http_status=404)
 
+    # 回滚目标必须是未被改动的历史版本：签名无效说明定义与签名时不一致，拒绝恢复。
+    # 3.17 之前发布的存量版本没有签名，如实按 legacy 处理并补签，不冒充当年已签。
+    verification = attestation.verify_skill(previous)
+    if verification["reason"] not in ("ok", "unsigned"):
+        raise AppError(
+            "SKILL_ATTESTATION_INVALID",
+            f"回滚目标 {previous.version} 的签名无法验证（{verification['reason']}），拒绝恢复。",
+            http_status=409,
+            details={
+                "skill_code": skill.skill_code,
+                "target_version": previous.version,
+                "verification": verification,
+            },
+        )
+    if verification["reason"] == "unsigned":
+        log_audit(
+            db,
+            yard_id=ctx.yard_id,
+            actor_id=ctx.user_id,
+            action="skill.attestation_legacy_unsigned",
+            resource_type="skill",
+            resource_id=previous.id,
+            result="success",
+            request_id=request_id or ctx.request_id,
+            metadata={"skill_code": previous.skill_code, "version": previous.version},
+        )
+        _attest_skill(db, ctx, previous, request_id=request_id, reason="rollback_backfill")
+
     _transition(skill, "deprecated")
     if previous.status != "published":
         _transition(previous, "published")
@@ -935,6 +1108,76 @@ def rollback_skill(db: Session, ctx: YardContext, skill_id: str, request_id: str
         },
     )
     return skill
+
+
+def get_skill(db: Session, ctx: YardContext, skill_id: str) -> Skill:
+    """按小院边界取单个 Skill（供路由等外部调用方使用的公开入口）。"""
+    return _get_skill(db, ctx, skill_id)
+
+
+def attest_published_skill(
+    db: Session,
+    ctx: YardContext,
+    skill: Skill,
+    *,
+    kind: str = "install",
+    request_id: str = "",
+) -> dict[str, Any]:
+    """市场安装等旁路发布：先跑静态评测留报告，再签名。
+
+    内置技能没有数据集评测，但同样必须有静态报告——「上架即有报告」不因入口不同而豁免。
+    """
+    report = _run_static_gate(db, ctx, skill, request_id=request_id, kind=kind)
+    _attest_skill(db, ctx, skill, request_id=request_id, reason=kind)
+    return report
+
+
+def attestation_view(db: Session, ctx: YardContext, skill_id: str) -> dict[str, Any]:
+    """某版本技能的 attested 视图：摘要、签名、验签结论与最近一份评测报告。"""
+    skill = _get_skill(db, ctx, skill_id)
+    verification = attestation.verify_skill(skill)
+    latest = (
+        db.query(EvalRun)
+        .filter(
+            EvalRun.yard_id == ctx.yard_id,
+            EvalRun.skill_code == skill.skill_code,
+            EvalRun.skill_version == skill.version,
+        )
+        .order_by(EvalRun.created_at.desc())
+        .first()
+    )
+    report = latest.report_json if latest is not None else None
+    return {
+        "skill_id": skill.id,
+        "skill_code": skill.skill_code,
+        "version": skill.version,
+        "status": skill.status,
+        "visibility": skill.visibility,
+        "definition_sha256": skill.definition_sha256,
+        "signature": skill.signature,
+        "signature_alg": skill.signature_alg,
+        "key_id": skill.key_id,
+        "signed_by": skill.signed_by,
+        "signed_at": skill.signed_at,
+        "verification": verification,
+        "latest_eval_run": (
+            {
+                "id": latest.id,
+                "kind": latest.kind,
+                "test_set_id": latest.test_set_id,
+                "pass_rate": latest.pass_rate,
+                "passed": latest.passed,
+                "failed": latest.failed,
+                "total": latest.total,
+                "report_sha256": latest.report_sha256,
+                "dataset_sha256": latest.dataset_sha256,
+                "created_at": latest.created_at,
+                "report": report,
+            }
+            if latest is not None
+            else None
+        ),
+    }
 
 
 def list_skills(

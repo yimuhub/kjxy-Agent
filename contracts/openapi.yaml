@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.16.0
+  version: 3.17.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -3293,6 +3293,86 @@ paths:
         schema:
           type: string
           title: Skill Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/skills/signing-key:
+    get:
+      tags:
+      - v1
+      - evolution
+      summary: Get Skill Signing Key
+      description: 技能签名公钥（Ed25519）：用于离线校验已发布技能的完整性。
+      operationId: get_skill_signing_key_api_v1_skills_signing_key_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/skills/{skill_id}/attestation:
+    get:
+      tags:
+      - v1
+      - evolution
+      summary: Get Skill Attestation
+      description: 技能摘要/签名/验签结论与最近一份评测报告。
+      operationId: get_skill_attestation_api_v1_skills__skill_id__attestation_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: skill_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Skill Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/skills/{skill_id}/eval-runs/{run_id}:
+    get:
+      tags:
+      - v1
+      - evolution
+      summary: Get Skill Eval Run
+      description: 单次评测报告全文（含检查项与逐用例结论）。
+      operationId: get_skill_eval_run_api_v1_skills__skill_id__eval_runs__run_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: skill_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Skill Id
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Run Id
       responses:
         '200':
           description: Successful Response

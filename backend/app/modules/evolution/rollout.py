@@ -20,8 +20,10 @@ from sqlalchemy.orm import Session
 from app.core.deps import YardContext
 from app.core.errors import AppError
 from app.modules.audit.service import log_audit
+from app.modules.evolution import attestation
 from app.modules.evolution.models import Skill, SkillRollout
 from app.modules.evolution.service import (
+    _attest_skill,
     _get_skill,
     _require_review_permission,
     _transition,
@@ -204,7 +206,17 @@ def set_rollout(
         )
     if rollout_version == stable.version:
         raise AppError("INVALID_ROLLOUT_VERSION", "灰度版本不能与稳定版本相同。", http_status=400)
-    _get_published_skill(db, ctx.yard_id, stable.skill_code, rollout_version)
+    target = _get_published_skill(db, ctx.yard_id, stable.skill_code, rollout_version)
+    verification = attestation.verify_skill(target)
+    if verification["reason"] not in ("ok", "unsigned"):
+        raise AppError(
+            "SKILL_ATTESTATION_INVALID",
+            f"灰度版本 {rollout_version} 的签名无法验证（{verification['reason']}），拒绝灰度。",
+            http_status=409,
+            details={"verification": verification},
+        )
+    if verification["reason"] == "unsigned":
+        _attest_skill(db, ctx, target, request_id=request_id, reason="rollout_backfill")
     pct, allowlist = _validate_strategy(strategy, percentage, yard_ids)
 
     rollout = _get_rollout_for_code(db, ctx.yard_id, stable.skill_code)
@@ -265,6 +277,18 @@ def promote_rollout(
             f"稳定版 {rollout.skill_code}@{rollout.stable_version} 已不存在。",
             http_status=404,
         )
+    target = _get_published_skill(db, ctx.yard_id, rollout.skill_code, rollout.rollout_version)
+    verification = attestation.verify_skill(target)
+    if verification["reason"] not in ("ok", "unsigned"):
+        raise AppError(
+            "SKILL_ATTESTATION_INVALID",
+            f"灰度版本 {rollout.rollout_version} 的签名无法验证（{verification['reason']}），"
+            "拒绝全量。",
+            http_status=409,
+            details={"verification": verification},
+        )
+    if verification["reason"] == "unsigned":
+        _attest_skill(db, ctx, target, request_id=request_id, reason="rollout_backfill")
     if stable.status == "published":
         _transition(stable, "deprecated")
     rollout.status = "completed"

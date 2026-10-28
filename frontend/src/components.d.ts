@@ -102,6 +102,7 @@ declare module 'vue' {
     SettingsSelfImprove: typeof import('./components/settings/SettingsSelfImprove.vue')['default']
     SettingsSkillLab: typeof import('./components/settings/SettingsSkillLab.vue')['default']
     SkillCard: typeof import('./components/chat/SkillCard.vue')['default']
+    SkillEvalDialog: typeof import('./components/library/SkillEvalDialog.vue')['default']
     SkillScopePanel: typeof import('./components/library/SkillScopePanel.vue')['default']
     SkillWizard: typeof import('./components/library/SkillWizard.vue')['default']
     TeamRunResult: typeof import('./components/teams/TeamRunResult.vue')['default']

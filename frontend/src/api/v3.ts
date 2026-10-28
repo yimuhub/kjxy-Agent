@@ -656,6 +656,115 @@ export const selfImproveApi = {
   },
 }
 
+/** 上架前评测报告（v3.17） */
+export interface SkillEvalCheck {
+  code: string
+  severity: 'error' | 'warning'
+  passed: boolean
+  detail: string
+}
+
+export interface SkillEvalCase {
+  case_id: string
+  category: string
+  passed: boolean
+  reason: string
+  latency_ms?: number
+  citations_count?: number
+}
+
+export interface SkillEvalDataset {
+  test_set_id: string
+  version?: string
+  dataset_sha256?: string | null
+  pass_rate: number
+  minimum_pass_rate: number
+  gate_passed: boolean
+  passed: number
+  failed: number
+  total: number
+  failed_case_ids?: string[]
+  category_pass_rates?: Record<string, number>
+  metrics?: Record<string, number | string | null>
+  cases?: SkillEvalCase[]
+}
+
+export interface SkillEvalReport {
+  report_version: number
+  kind: string
+  generated_at: string
+  skill_code: string
+  version: string
+  definition_sha256: string
+  mode: 'static' | 'static+dataset' | 'static+dataset_skipped'
+  pass: boolean
+  score: number
+  errors: number
+  warnings: number
+  checks: SkillEvalCheck[]
+  dataset?: SkillEvalDataset | null
+  notes?: string[]
+}
+
+export interface SkillEvalRunBrief {
+  id: string
+  kind: string
+  test_set_id: string
+  pass_rate: number
+  passed: number
+  failed: number
+  total: number
+  report_sha256?: string | null
+  dataset_sha256?: string | null
+  created_at: string
+  report?: SkillEvalReport | null
+}
+
+export interface SkillAttestation {
+  skill_id: string
+  skill_code: string
+  version: string
+  status: string
+  visibility: string
+  definition_sha256?: string | null
+  signature?: string | null
+  signature_alg?: string | null
+  key_id?: string | null
+  signed_by?: string | null
+  signed_at?: string | null
+  verification: {
+    valid: boolean
+    signed: boolean
+    reason: 'ok' | 'unsigned' | 'definition_mismatch' | 'bad_signature' | 'key_mismatch'
+    digest: string
+    expected_digest?: string | null
+  }
+  latest_eval_run?: SkillEvalRunBrief | null
+}
+
+export interface SkillSigningKeyInfo {
+  alg: string
+  key_id: string
+  public_key: string
+  note?: string
+}
+
+export interface SkillEvalRunDetail {
+  id: string
+  skill_code: string
+  skill_version: string
+  kind: string
+  test_set_id: string
+  pass_rate: number
+  passed: number
+  failed: number
+  total: number
+  report_sha256?: string | null
+  dataset_sha256?: string | null
+  created_at: string
+  report?: SkillEvalReport | null
+}
+
 /**
  * 技能接口（v3.2 唯一入口）。
  * 与 modules.ts 的旧 skillApi 合并：list 支持 scope/分页，review 支持 submit_public，新增 promote。
@@ -699,6 +808,27 @@ export const skillApi = {
   /** 负责人把私有技能转为小院公共（需 skills:publish_any；后端未就绪时 404） */
   promote(id: string, config: AxiosRequestConfig & { skipErrorToast?: boolean } = {}): Promise<Skill> {
     return unwrap(api.post<ApiResponse<Skill>>(`/skills/${id}/promote`, {}, config))
+  },
+  /** 摘要/签名/验签结论与最近一份评测报告（v3.17） */
+  attestation(
+    id: string,
+    config: AxiosRequestConfig & { skipErrorToast?: boolean } = {},
+  ): Promise<SkillAttestation> {
+    return unwrap(api.get<ApiResponse<SkillAttestation>>(`/skills/${id}/attestation`, config))
+  },
+  /** 单次评测报告全文（v3.17） */
+  evalRun(
+    id: string,
+    runId: string,
+    config: AxiosRequestConfig & { skipErrorToast?: boolean } = {},
+  ): Promise<SkillEvalRunDetail> {
+    return unwrap(
+      api.get<ApiResponse<SkillEvalRunDetail>>(`/skills/${id}/eval-runs/${runId}`, config),
+    )
+  },
+  /** 签名公钥（Ed25519），用于离线校验（v3.17） */
+  signingKey(config: AxiosRequestConfig & { skipErrorToast?: boolean } = {}): Promise<SkillSigningKeyInfo> {
+    return unwrap(api.get<ApiResponse<SkillSigningKeyInfo>>('/skills/signing-key', config))
   },
 }
 
