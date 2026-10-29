@@ -247,8 +247,13 @@ export const knowledgeApi = {
     return unwrap(api.get(`/knowledge/documents/${document_id}`))
   },
   /** 查看文档的 MarkItDown 结构化切块与 Token 估算明细 */
-  chunks(document_id: string): Promise<ListResult<KnowledgeChunkPreview>> {
-    return unwrapList(api.get(`/knowledge/documents/${document_id}/chunks`))
+  chunks(document_id: string): Promise<KnowledgeChunkPreview[]> {
+    // 后端返回 {document_id, chunks, total_tokens}，不是分页列表；按数组解包
+    return unwrap(
+      api.get<ApiResponse<{ chunks: KnowledgeChunkPreview[]; total_tokens: number }>>(
+        `/knowledge/documents/${document_id}/chunks`,
+      ),
+    ).then(res => res.chunks)
   },
   remove(document_id: string): Promise<void> {
     return api.delete(`/knowledge/documents/${document_id}`).then(() => undefined)

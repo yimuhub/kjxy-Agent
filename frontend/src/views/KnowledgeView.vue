@@ -288,8 +288,17 @@
           <span>解析引擎：<b>MarkItDown + 标题树/表格感知切分</b></span>
         </div>
 
+        <el-alert
+          v-if="chunksError"
+          type="error"
+          show-icon
+          :closable="false"
+          :title="chunksError"
+          class="chunk-error"
+        />
+
         <el-empty
-          v-if="!chunksLoading && !chunkItems.length"
+          v-if="!chunksLoading && !chunksError && !chunkItems.length"
           description="该文档暂无分块记录"
         />
 
@@ -357,6 +366,7 @@
   const activeDoc = ref<KnowledgeDocument | null>(null)
   const chunkItems = ref<KnowledgeChunkPreview[]>([])
   const chunksLoading = ref(false)
+  const chunksError = ref('')
 
   const totalPreviewTokens = computed(() =>
     chunkItems.value.reduce((sum, c) => sum + (c.token_count ?? 0), 0),
@@ -369,13 +379,15 @@
 
   async function openChunksDrawer(doc: KnowledgeDocument) {
     activeDoc.value = doc
+    chunkItems.value = []
+    chunksError.value = ''
     chunkDrawerVisible.value = true
     chunksLoading.value = true
     try {
-      const res = await knowledgeApi.chunks(doc.id)
-      chunkItems.value = res.items
-    } catch {
-      chunkItems.value = []
+      chunkItems.value = await knowledgeApi.chunks(doc.id)
+    } catch (e) {
+      const { code, message } = extractErrorMessage(e)
+      chunksError.value = friendlyErrorMessage(code, message)
     } finally {
       chunksLoading.value = false
     }
@@ -543,6 +555,9 @@
     border: 1px solid var(--ds-border);
     font-size: 12.5px;
     color: var(--ds-text-2);
+  }
+  .chunk-error {
+    margin: 0;
   }
   .chunk-card {
     border: 1px solid var(--ds-border);

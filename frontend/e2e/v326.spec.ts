@@ -297,8 +297,19 @@ test.describe('增长与服务技能包（v3.26）', () => {
 
     await login(page, 'admin', 'admin123')
     await page.goto('/knowledge')
-    await expect(page.getByText('示范小院产品与产销档案（演示资料）')).toBeVisible({
-      timeout: 20_000,
-    })
+    const docRow = page
+      .locator('.el-table tbody tr')
+      .filter({ hasText: '示范小院产品与产销档案（演示资料）' })
+      .first()
+    await expect(docRow).toBeVisible({ timeout: 20_000 })
+
+    // Markdown 分块预览：响应是 {chunks:[...]} 而不是分页列表，必须真的渲染出内容
+    await docRow.getByRole('button', { name: '预览 Markdown 分块' }).click()
+    const dialog = page.getByRole('dialog').filter({ hasText: 'Markdown 结构化分块预览' })
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByText(/共 1 个语义分块/)).toBeVisible({ timeout: 20_000 })
+    await expect(dialog.locator('.chunk-card').first()).toContainText('赣南脐橙')
+    await expect(dialog.locator('.chunk-error')).toHaveCount(0)
+    await expect(dialog.locator('.el-loading-mask')).toHaveCount(0)
   })
 })
