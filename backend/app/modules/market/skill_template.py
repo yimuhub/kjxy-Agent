@@ -130,6 +130,13 @@ class SkillSpec(_StrictModel):
         "machinery",
         "market",
         "other",
+        # v3.26 起：内置农业技能与增长/服务域技能使用的分类
+        "agriculture",
+        "marketing",
+        "event",
+        "content",
+        "service",
+        "aftersales",
     ]
     summary: str = Field(min_length=1, max_length=300)
     when_to_use: str = Field(min_length=1, max_length=500)

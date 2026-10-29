@@ -37,20 +37,285 @@ def _definition(
     steps: list[str],
     upstream: str,
     tags: list[str],
+    extras: dict[str, Any],
 ) -> dict[str, Any]:
+    source_url = _source_url(upstream)
     return {
+        # ---- 既有字段：注入链路与自生长按字符串 steps 读取，
+        # 本批保持不变，避免 str(dict) 混进提示词 ----
         "name": name,
         "description": description,
         "prompt": prompt,
         "steps": steps,
-        "source_url": _source_url(upstream),
+        "source_url": source_url,
         "license": LICENSE,
         "attribution": ATTRIBUTION,
-        # 扩展字段：便于前端展示分类与溯源，不参与执行
         "category": "agriculture",
         "upstream_skill": f"{SOURCE_REPO}/skills/{upstream}",
         "tags": tags,
+        # ---- v3.26 补齐的 SkillSpec 契约字段：技能详情可展示
+        # 「要填什么、依据从哪来、有没有被测过」，护栏与输出格式可被评测闸读取 ----
+        "code": code,
+        "version": "1.0.0",
+        "summary": description,
+        "when_to_use": extras["when_to_use"],
+        "inputs": extras["inputs"],
+        "allowed_tools": extras.get("allowed_tools", ["knowledge.search"]),
+        "knowledge_scopes": ["yard"],
+        "eval_cases": extras["eval_cases"],
+        "guardrails": {"risk_level": "low", "max_steps": 5, "require_citation": True},
+        "output_format": "markdown",
+        "sources": [{"title": f"{SOURCE_REPO} · {upstream}", "url": source_url}],
     }
+
+
+#: 12 项内置农技技能补齐的契约字段：输入表、适用时机、评测用例、允许工具。
+#: 用例口径：第一条走正常路径，第二条走「信息不足/越界」路径，确认技能不编造。
+_SPEC_EXTRAS: dict[str, dict[str, Any]] = {
+    "agri_soil_health": {
+        "when_to_use": "有土壤检测结果，或长势异常怀疑酸化、板结、盐渍化时使用。",
+        "inputs": [
+            {"key": "plot", "label": "地块", "required": True, "type": "string"},
+            {
+                "key": "soil_test",
+                "label": "土壤检测结果（pH/有机质/氮磷钾）",
+                "required": False,
+                "type": "text",
+            },
+        ],
+        "eval_cases": [
+            {
+                "input": "这块地 pH 5.2、有机质 0.9%，种水稻",
+                "expect": "指出酸化与有机质偏低，给出石灰用量区间与轮作/有机肥建议，并提示复测时点",
+            },
+            {
+                "input": "没有检测报告，怎么判断土壤好坏",
+                "expect": "给出取样送检流程与田间观察替代判断法，不编造具体数值",
+            },
+        ],
+    },
+    "agri_irrigation": {
+        "when_to_use": "需要决定灌水时机与水量（含水肥一体化、旱涝应对）时使用。",
+        "inputs": [
+            {"key": "crop", "label": "作物", "required": True, "type": "string"},
+            {"key": "stage", "label": "生育期", "required": True, "type": "string"},
+            {
+                "key": "soil_moisture",
+                "label": "土壤墒情或近期降雨",
+                "required": False,
+                "type": "text",
+            },
+        ],
+        "allowed_tools": ["knowledge.search", "sensor.query"],
+        "eval_cases": [
+            {
+                "input": "水稻抽穗期缺水，要不要马上灌",
+                "expect": "指出抽穗期是水分敏感期，给出灌水深度与频次建议，并提醒避免深水淹穗",
+            },
+            {
+                "input": "明天大雨，今天还灌吗",
+                "expect": "明确降雨前不灌并给排涝与雨后检查建议",
+            },
+        ],
+    },
+    "agri_pest_diagnosis": {
+        "when_to_use": "发现叶片斑点、虫口、萎蔫等异常，需要先做鉴别再决定是否用药时使用。",
+        "inputs": [
+            {"key": "crop", "label": "作物", "required": True, "type": "string"},
+            {"key": "symptom", "label": "症状描述", "required": True, "type": "text"},
+            {
+                "key": "photo_desc",
+                "label": "照片说明（叶面/叶背/根茎）",
+                "required": False,
+                "type": "text",
+            },
+        ],
+        "eval_cases": [
+            {
+                "input": "脐橙叶片有褐色斑点，边缘发黄",
+                "expect": "列出 2–3 种可能病害与鉴别要点，建议取样送检确认，不直接下结论",
+            },
+            {
+                "input": "能不能直接按上次的药打",
+                "expect": "强调先确诊再用药，并提示轮换用药与安全间隔",
+            },
+        ],
+    },
+    "agri_pesticide_safety": {
+        "when_to_use": "确认农药登记作物、混配禁忌、安全间隔期与个人防护时使用。",
+        "inputs": [
+            {"key": "pesticide", "label": "农药名称", "required": True, "type": "string"},
+            {"key": "crop", "label": "作物", "required": True, "type": "string"},
+            {"key": "target", "label": "防治对象", "required": False, "type": "string"},
+        ],
+        "eval_cases": [
+            {
+                "input": "多菌灵能不能用在草莓上",
+                "expect": "提示核对登记作物与标签，给出安全间隔期需以标签为准的明确口径",
+            },
+            {
+                "input": "打药后多久能采",
+                "expect": "按标签安全间隔说明，不编造具体天数，并提示记录用药台账",
+            },
+        ],
+    },
+    "agri_harvest_storage": {
+        "when_to_use": "判断采收成熟度、采后分级与保鲜储运条件时使用。",
+        "inputs": [
+            {"key": "crop", "label": "作物/品种", "required": True, "type": "string"},
+            {
+                "key": "harvest_stage",
+                "label": "当前成熟度或采收时间",
+                "required": False,
+                "type": "string",
+            },
+            {
+                "key": "storage_condition",
+                "label": "储运条件（温度/湿度/包装）",
+                "required": False,
+                "type": "text",
+            },
+        ],
+        "eval_cases": [
+            {
+                "input": "脐橙什么时候采最合适",
+                "expect": "给出糖酸比/着色/硬度等成熟度判断指标与分批采收建议",
+            },
+            {
+                "input": "常温能放多久",
+                "expect": "给温度湿度条件与相应保鲜期区间，并说明条件差异导致的变化",
+            },
+        ],
+    },
+    "agri_machinery": {
+        "when_to_use": "农机启动困难、异常噪声、保养周期与安全操作时使用。",
+        "inputs": [
+            {"key": "machine", "label": "机具类型", "required": True, "type": "string"},
+            {"key": "symptom", "label": "故障现象", "required": False, "type": "text"},
+        ],
+        "eval_cases": [
+            {
+                "input": "拖拉机启动困难，打火没反应",
+                "expect": "按油路/电路/气路给排查顺序，并提示停机安全事项",
+            },
+            {
+                "input": "多久保养一次",
+                "expect": "按工作小时给保养项目表，说明以说明书为准",
+            },
+        ],
+    },
+    "agri_field_log": {
+        "when_to_use": "需要把农事操作记成结构化台账（用药、施肥、灌溉、采收）时使用。",
+        "inputs": [
+            {"key": "plot", "label": "地块", "required": True, "type": "string"},
+            {"key": "action", "label": "操作内容", "required": True, "type": "text"},
+            {"key": "date", "label": "作业日期", "required": False, "type": "string"},
+        ],
+        "allowed_tools": ["knowledge.search", "sensor.query"],
+        "eval_cases": [
+            {
+                "input": "今天给 3 号地打了多菌灵 800 倍液",
+                "expect": "生成含地块/日期/药剂/浓度/操作人的结构化记录字段，缺项标为待补",
+            },
+            {
+                "input": "补记上周的施肥",
+                "expect": "允许补记并提示补记时间与关联地块，要求标注补记",
+            },
+        ],
+    },
+    "agri_farm_calendar": {
+        "when_to_use": "制定或调整全年/分月农事计划、错过窗口后的补救时使用。",
+        "inputs": [
+            {"key": "crop", "label": "作物", "required": True, "type": "string"},
+            {"key": "region", "label": "区域", "required": False, "type": "string"},
+            {"key": "stage", "label": "当前生育期", "required": False, "type": "string"},
+        ],
+        "eval_cases": [
+            {
+                "input": "帮我排水稻全年农事",
+                "expect": "按月份给关键农事与观察要点，标注可调整区间",
+            },
+            {
+                "input": "错过打药窗口了怎么办",
+                "expect": "按风险给补救处置顺序与替代措施，不承诺挽回全部损失",
+            },
+        ],
+    },
+    "agri_market_price": {
+        "when_to_use": "卖果前询价、判断出手节奏与议价依据时使用。",
+        "inputs": [
+            {"key": "product", "label": "产品", "required": True, "type": "string"},
+            {"key": "region", "label": "产地/目标市场", "required": False, "type": "string"},
+            {"key": "date", "label": "询价日期", "required": False, "type": "string"},
+        ],
+        "allowed_tools": ["knowledge.search", "web.search"],
+        "eval_cases": [
+            {
+                "input": "脐橙现在什么价",
+                "expect": "说明需查实时行情或联网检索；无数据时明确不给虚构价格",
+            },
+            {
+                "input": "要不要囤到下个月再卖",
+                "expect": "给出影响价格的条件清单与风险区间，提示以实际行情为准",
+            },
+        ],
+    },
+    "agri_policy_search": {
+        "when_to_use": "查询补贴、项目申报、认证与用地等政策口径时使用。",
+        "inputs": [
+            {"key": "topic", "label": "政策主题", "required": True, "type": "string"},
+            {"key": "region", "label": "所在地区", "required": False, "type": "string"},
+        ],
+        "allowed_tools": ["knowledge.search", "web.search"],
+        "eval_cases": [
+            {
+                "input": "有没有农机购置补贴",
+                "expect": "给检索式与申报要点，并注明以当地农业农村部门最新公告为准",
+            },
+            {
+                "input": "补贴多久能到账",
+                "expect": "不给具体天数，说明由地方流程决定并指向主管部门",
+            },
+        ],
+    },
+    "agri_crop_nutrition": {
+        "when_to_use": "叶片黄化、长势弱、疑似缺素或施肥过量时使用。",
+        "inputs": [
+            {"key": "crop", "label": "作物", "required": True, "type": "string"},
+            {"key": "symptom", "label": "症状（部位与表现）", "required": True, "type": "text"},
+            {"key": "stage", "label": "生育期", "required": False, "type": "string"},
+        ],
+        "eval_cases": [
+            {
+                "input": "叶片发黄，从下部开始",
+                "expect": "区分缺氮/缺铁/渍害的可能，给出鉴别方法与补肥顺序",
+            },
+            {
+                "input": "要不要加钾",
+                "expect": "按生育期与目标产量给施用区间，并提示过量风险",
+            },
+        ],
+    },
+    "agri_climate_risk": {
+        "when_to_use": "遇到霜冻、高温、干旱、渍涝、大风冰雹等气象风险需要防护时使用。",
+        "inputs": [
+            {"key": "plot", "label": "地块/设施", "required": False, "type": "string"},
+            {"key": "crop", "label": "作物", "required": True, "type": "string"},
+            {"key": "window", "label": "关注时间窗", "required": False, "type": "string"},
+        ],
+        "allowed_tools": ["knowledge.search", "sensor.query", "web.search"],
+        "eval_cases": [
+            {
+                "input": "今晚霜冻，大棚草莓怎么防",
+                "expect": "给保温、加温与通风的应急顺序，强调人机安全与温度监测",
+            },
+            {
+                "input": "要不要推迟播种",
+                "expect": "给出判断条件与决策阈值，说明以当地气象预报为准",
+            },
+        ],
+    },
+}
 
 
 _SKILL_SPECS: tuple[dict[str, Any], ...] = (
@@ -307,6 +572,7 @@ def builtin_items() -> list[dict[str, Any]]:
             steps=list(spec["steps"]),
             upstream=spec["upstream"],
             tags=list(spec["tags"]),
+            extras=_SPEC_EXTRAS[str(spec["code"])],
         )
         items.append(
             {
