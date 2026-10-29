@@ -29,6 +29,7 @@ def _startup_wiring() -> None:
     try:
         from app.db.session import SessionLocal
         from app.modules.devices.agent_tool import register_sensor_query_tool
+        from app.modules.growth.compliance import register_compliance_tool, seed_growth_tools
         from app.modules.knowledge.service import register_knowledge_search_tool
         from app.modules.market.skill_tools import register_skill_agent_tools
         from app.modules.search.tools import register_search_tools
@@ -62,6 +63,7 @@ def _startup_wiring() -> None:
         db = SessionLocal()
         try:
             seed_builtin_tools(db)
+            seed_growth_tools(db)
             db.commit()
         except Exception as e:
             db.rollback()
@@ -73,6 +75,7 @@ def _startup_wiring() -> None:
         register_sensor_query_tool()
         register_search_tools()
         register_skill_agent_tools()
+        register_compliance_tool()
     except Exception as e:
         log.warning("startup wiring failed: %s", e)
 
@@ -96,7 +99,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="科技小院多智能体平台", version="3.25.1", lifespan=lifespan)
+    app = FastAPI(title="科技小院多智能体平台", version="3.26.0", lifespan=lifespan)
     app.add_middleware(RequestIDMiddleware)
     app.add_exception_handler(AppError, app_error_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)
