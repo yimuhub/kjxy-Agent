@@ -84,6 +84,10 @@ export interface MeResponse {
   user: User
   roles: string[]
   yards: YardBrief[]
+  /** 当前小院的有效权限（角色默认 ∪ 逐人授权），菜单/路由/按钮据此显隐 */
+  yard_id?: string | null
+  is_owner?: boolean
+  permissions?: string[]
 }
 
 /** 高风险工具审批单 */

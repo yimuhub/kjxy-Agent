@@ -26,7 +26,7 @@
       :closable="false"
       show-icon
       class="role-hint"
-      title="小院负责人拥有全部权限且只读；管理员只能维护自定义角色；带「受保护」标记的权限只能由负责人逐人授权。"
+      title="负责人拥有全部权限；管理员可维护专家/操作员/普通成员与自定义角色，但不能配置受保护权限；负责人修改受保护权限时需二次确认。逐人授权请到「成员管理 → 权限」。"
     />
 
     <AsyncState
@@ -149,6 +149,7 @@
             :groups="groups"
             :labels="labels"
             :disabled="!canEdit"
+            :allow-protected="isOwner"
           />
         </section>
       </div>
@@ -190,6 +191,7 @@
         v-model="createPermissions"
         :groups="groups"
         :labels="labels"
+        :allow-protected="isOwner"
       />
       <template #footer>
         <el-button @click="createDialog = false">
@@ -243,12 +245,14 @@
   const canEdit = computed(() => {
     if (!selectedRole.value) return false
     if (selectedRole.value.is_protected || selectedRole.value.code === 'yard_owner') return false
+    // 后端按「负责人/管理员边界」下发 can_edit，前端不再自行猜测
+    if (typeof selectedRole.value.can_edit === 'boolean') return selectedRole.value.can_edit
     if (props.isOwner) return true
     return !selectedRole.value.is_system
   })
   const readonlyReason = computed(() => {
     if (selectedRole.value?.code === 'yard_owner') return '负责人权限固定为全集，不可修改'
-    return '只有小院负责人可以修改系统角色'
+    return '管理员只能维护专家/操作员/普通成员与自定义角色'
   })
   const canDelete = computed(() => !!selectedRole.value && !selectedRole.value.is_system)
 
@@ -278,6 +282,31 @@
     applyRole(code)
   }
 
+  /** 受保护权限的新增/移除（需负责人二次确认） */
+  function protectedChanges(next: string[], current: string[]): string[] {
+    const before = new Set(current.filter(p => PROTECTED_PERMISSION_SET.has(p)))
+    const after = new Set(next.filter(p => PROTECTED_PERMISSION_SET.has(p)))
+    return [
+      ...Array.from(after).filter(p => !before.has(p)),
+      ...Array.from(before).filter(p => !after.has(p)),
+    ]
+  }
+
+  async function confirmProtected(changes: string[]): Promise<boolean> {
+    if (!changes.length) return true
+    const names = changes.map(p => labels.value[p] ?? PERMISSION_LABELS[p] ?? p).join('、')
+    try {
+      await ElMessageBox.confirm(
+        `本次将变更受保护权限：${names}。这类权限影响成员数据与治理边界，确认保存？`,
+        '保护型权限二次确认',
+        { type: 'warning', confirmButtonText: '确认保存', cancelButtonText: '取消' },
+      )
+      return true
+    } catch {
+      return false
+    }
+  }
+
   async function saveRole(): Promise<void> {
     if (!selectedRole.value) return
     const name = editName.value.trim()
@@ -285,11 +314,15 @@
       ElMessage.warning('角色名称不能为空')
       return
     }
+    const changes = protectedChanges(editPermissions.value, selectedRole.value.permissions)
+    const confirmed = await confirmProtected(changes)
+    if (!confirmed) return
     saving.value = true
     try {
       await governanceApi.updateRole(selectedRole.value.code, {
         name,
-        permissions: editPermissions.value.filter(permission => !PROTECTED_PERMISSION_SET.has(permission)),
+        permissions: editPermissions.value,
+        confirm_protected: changes.length > 0,
       })
       ElMessage.success('角色已保存')
       await loadRoles()
@@ -347,14 +380,17 @@
       ElMessage.warning('请填写角色名称')
       return
     }
+    const changes = createPermissions.value.filter(permission =>
+      PROTECTED_PERMISSION_SET.has(permission),
+    )
+    if (!(await confirmProtected(changes))) return
     creating.value = true
     try {
       const role = await governanceApi.createRole({
         code,
         name,
-        permissions: createPermissions.value.filter(
-          permission => !PROTECTED_PERMISSION_SET.has(permission),
-        ),
+        permissions: createPermissions.value,
+        confirm_protected: changes.length > 0,
       })
       ElMessage.success(`角色「${role.name}」已创建`)
       createDialog.value = false

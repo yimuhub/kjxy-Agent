@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.23.0
+  version: 3.24.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -1495,6 +1495,67 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/yards/current/members/{user_id}/permissions:
+    get:
+      tags:
+      - v1
+      - yard-permissions
+      summary: Get Member Permissions
+      operationId: get_member_permissions_api_v1_yards_current_members__user_id__permissions_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: User Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    put:
+      tags:
+      - v1
+      - yard-permissions
+      summary: Update Member Permissions
+      operationId: update_member_permissions_api_v1_yards_current_members__user_id__permissions_put
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: User Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MemberPermissionsRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/yards/signup:
     post:
       tags:
@@ -1722,6 +1783,47 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/yards/current/menu:
+    get:
+      tags:
+      - v1
+      summary: Get Menu Config
+      operationId: get_menu_config_api_v1_yards_current_menu_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+    put:
+      tags:
+      - v1
+      summary: Update Menu Config
+      operationId: update_menu_config_api_v1_yards_current_menu_put
+      requestBody:
+        content:
+          application/json:
+            schema:
+              additionalProperties: true
+              type: object
+              title: Payload
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
   /api/v1/tasks:
     post:
       tags:
@@ -10199,7 +10301,7 @@ components:
           items:
             type: string
           type: array
-          maxItems: 5
+          maxItems: 43
           title: Grants
       additionalProperties: false
       type: object
@@ -10489,6 +10591,21 @@ components:
       required:
       - username
       title: MemberCreateRequest
+    MemberPermissionsRequest:
+      properties:
+        grants:
+          items:
+            type: string
+          type: array
+          maxItems: 43
+          title: Grants
+        confirm_protected:
+          type: boolean
+          title: Confirm Protected
+          default: false
+      additionalProperties: false
+      type: object
+      title: MemberPermissionsRequest
     MemberUpdateRequest:
       properties:
         display_name:
@@ -11416,6 +11533,10 @@ components:
             type: string
           type: array
           title: Permissions
+        confirm_protected:
+          type: boolean
+          title: Confirm Protected
+          default: false
       type: object
       required:
       - code
@@ -11436,6 +11557,10 @@ components:
             type: array
           - type: 'null'
           title: Permissions
+        confirm_protected:
+          type: boolean
+          title: Confirm Protected
+          default: false
       type: object
       title: RoleUpdateRequest
     RolloutCreate:

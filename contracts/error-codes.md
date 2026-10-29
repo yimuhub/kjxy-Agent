@@ -318,3 +318,11 @@
 | 错误码 | HTTP | 说明 |
 |--------|------|------|
 | `DEVICE_ANALYSIS_INSUFFICIENT_DATA` | 422 | 设备在分析窗口内没有任何读数，无法分析；数据太少（有点但不足）时返回 200 且 `status=insufficient`，不产出结论 |
+
+## 权限与千人千面（v3.24）
+
+| 错误码 | HTTP | 说明 |
+|--------|------|------|
+| `PROTECTED_CONFIRM_REQUIRED` | 400 | 角色权限或逐人授权涉及保护型权限，需负责人携带 `confirm_protected=true` 二次确认 |
+| `ROLE_EDIT_FORBIDDEN` | 403 | 越出角色管理层级（管理员改管理员/负责人角色，或管理员配置保护型权限） |
+| `MENU_PROFILE_INVALID` | 400 | 工作台视图配置非法：模式不在 minimal/standard/full、预设超上限或结构不合法 |

@@ -2,8 +2,40 @@
   <div class="diy-editor">
     <div class="diy-toolbar">
       <div class="diy-tips">
-        <span>支持<strong>鼠标按住拖拽</strong>调整菜单顺序、将任意功能在<strong>一级直达</strong>与<strong>二级折叠夹</strong>之间自由升降级，或隐藏不常用模块。</span>
+        <span>工作台视图：支持<strong>鼠标按住拖拽</strong>调整顺序、在<strong>一级直达</strong>与<strong>二级折叠夹</strong>之间自由升降级；也可一键套用内置视图。</span>
       </div>
+      <div class="diy-actions">
+        <el-button
+          v-for="preset in MENU_PRESETS"
+          :key="preset.id"
+          size="small"
+          :title="preset.description"
+          @click="onApplyPreset(preset.id, preset.name)"
+        >
+          {{ preset.name }}
+        </el-button>
+      </div>
+    </div>
+
+    <div class="diy-mode-row">
+      <span class="diy-mode-label">视图密度</span>
+      <el-radio-group
+        :model-value="menuStore.currentMode"
+        size="small"
+        @change="onChangeMode"
+      >
+        <el-radio-button
+          v-for="(label, mode) in MENU_MODE_LABELS"
+          :key="mode"
+          :value="mode"
+        >
+          {{ label }}
+        </el-radio-button>
+      </el-radio-group>
+      <span class="diy-mode-hint">负责人/管理员可在「系统设置 → 工作台视图」设置各角色默认密度</span>
+    </div>
+
+    <div class="diy-tool-row">
       <div class="diy-actions">
         <el-button
           size="small"
@@ -278,9 +310,9 @@
       <!-- 右栏：未放入菜单栏的隐藏功能池 -->
       <aside class="diy-pool-col">
         <div class="pool-head">
-          <h4>可添加功能池（{{ menuStore.hiddenAtoms.length }}）</h4>
+          <h4>全系统功能池（{{ menuStore.hiddenAtoms.length }}）</h4>
           <p class="pool-sub">
-            下方是被隐藏的功能模块，点击可一键放回左侧菜单栏（一级直达或二级菜单）。
+            展示全系统所有用户组的功能；点击可放回左侧菜单栏。实际是否可见由成员权限决定。
           </p>
         </div>
         <div
@@ -295,6 +327,10 @@
             <div class="pool-info">
               <span class="pool-title">{{ atom.title }}</span>
               <code class="node-path">{{ atom.path }}</code>
+              <span
+                v-if="atom.permission"
+                class="pool-perm"
+              >需要权限：{{ permissionLabel(atom.permission) }}</span>
             </div>
             <div class="pool-btns">
               <el-button
@@ -328,12 +364,31 @@
   import { ref } from 'vue'
   import { ElMessage, ElMessageBox } from 'element-plus'
   import {
+    MENU_MODE_LABELS,
+    MENU_PRESETS,
     useMenuStore,
     type DiyMenuLeaf,
     type DiyMenuNode,
+    type MenuMode,
   } from '@/stores/menu'
+  import { PERMISSION_LABELS } from '@/components/settings/permissions'
 
   const menuStore = useMenuStore()
+
+  function permissionLabel(permission: string): string {
+    return PERMISSION_LABELS[permission] ?? permission
+  }
+
+  function onApplyPreset(id: string, name: string) {
+    menuStore.applyPreset(id)
+    ElMessage.success(`已套用「${name}」`)
+  }
+
+  function onChangeMode(value: string | number | boolean | undefined) {
+    if (value === 'minimal' || value === 'standard' || value === 'full') {
+      menuStore.applyMode(value as MenuMode)
+    }
+  }
 
   interface DragContext {
     kind: 'node' | 'child'
@@ -616,6 +671,26 @@
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
+  }
+  .diy-mode-row,
+  .diy-tool-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+  }
+  .diy-mode-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ds-text-2);
+  }
+  .diy-mode-hint {
+    font-size: 12px;
+    color: var(--ds-text-3);
+  }
+  .pool-perm {
+    font-size: 11px;
+    color: var(--ds-text-3);
   }
   .diy-grid {
     display: grid;

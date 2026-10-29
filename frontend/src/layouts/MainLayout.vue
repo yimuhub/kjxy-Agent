@@ -23,7 +23,9 @@
         class="logo"
         :class="{ 'logo--mini': isMini }"
       >
-        <div class="logo-block">阗</div>
+        <div class="logo-block">
+          阗
+        </div>
         <div
           v-show="showLogoWord"
           class="logo-word"
@@ -127,7 +129,7 @@
         </el-menu>
       </nav>
 
-      <!-- 侧栏底部：DIY 菜单快捷开关与工作台弹窗入口 -->
+      <!-- 侧栏底部：视图调序与工作台视图配置入口 -->
       <div
         v-if="!isMini"
         class="aside-footer"
@@ -148,7 +150,7 @@
           class="diy-foot-btn"
           @click="diyDialogVisible = true"
         >
-          DIY 菜单配置
+          工作台视图
         </el-button>
       </div>
     </el-aside>
@@ -181,8 +183,12 @@
           class="crumb"
         >
           <el-breadcrumb-item>{{ auth.yard?.name ?? '未开通小院' }}</el-breadcrumb-item>
-          <el-breadcrumb-item v-if="crumb.group">{{ crumb.group }}</el-breadcrumb-item>
-          <el-breadcrumb-item v-if="crumb.parent">{{ crumb.parent }}</el-breadcrumb-item>
+          <el-breadcrumb-item v-if="crumb.group">
+            {{ crumb.group }}
+          </el-breadcrumb-item>
+          <el-breadcrumb-item v-if="crumb.parent">
+            {{ crumb.parent }}
+          </el-breadcrumb-item>
           <el-breadcrumb-item>{{ crumb.current }}</el-breadcrumb-item>
         </el-breadcrumb>
         <div class="spacer" />
@@ -250,7 +256,7 @@
                 :icon="Operation"
                 @click="diyDialogVisible = true"
               >
-                自定义左侧菜单 (DIY)
+                工作台视图
               </el-dropdown-item>
               <el-dropdown-item
                 :icon="SwitchButton"
@@ -282,7 +288,9 @@
                 <p v-if="isPlatformAdmin">
                   平台管理员账号未绑定小院，业务页面需要小院上下文。
                 </p>
-                <p v-else>当前账号还没有开通小院，请联系管理员为你开通。</p>
+                <p v-else>
+                  当前账号还没有开通小院，请联系管理员为你开通。
+                </p>
               </template>
               <el-button
                 v-if="isPlatformAdmin"
@@ -300,7 +308,10 @@
               </el-button>
             </el-empty>
           </div>
-          <router-view v-else v-slot="{ Component }">
+          <router-view
+            v-else
+            v-slot="{ Component }"
+          >
             <transition
               name="ds-fade"
               mode="out-in"
@@ -312,10 +323,10 @@
       </el-main>
     </el-container>
 
-    <!-- 全员可用的左侧导航菜单自由 DIY 拖拽配置弹窗 -->
+    <!-- 工作台视图：全员可自由拖拽编排左侧导航 -->
     <el-dialog
       v-model="diyDialogVisible"
-      title="自定义左侧菜单栏 (自由拖拽 DIY)"
+      title="工作台视图（自由拖拽编排）"
       width="920px"
       top="6vh"
       append-to-body
@@ -482,11 +493,13 @@
     }
   }
 
-  /** 递归过滤：无权限的叶子与空掉的父节点都不渲染 */
+  /** 递归过滤：角色不符或缺少权限点的叶子、以及空掉的父节点都不渲染 */
   function filterNode(node: DiyMenuNode): DiyMenuNode | null {
-    if (!auth.hasAnyRole(node.roles)) return null
+    if (!auth.hasAnyRole(node.roles) || !auth.hasPermission(node.permission)) return null
     if (!node.children?.length) return node.path ? node : null
-    const children = node.children.filter(c => auth.hasAnyRole(c.roles))
+    const children = node.children.filter(
+      child => auth.hasAnyRole(child.roles) && auth.hasPermission(child.permission),
+    )
     return children.length ? { ...node, children } : null
   }
 
@@ -622,7 +635,6 @@
 
   onMounted(async () => {
     syncViewport()
-    menuStore.loadFromStorage()
     nextTick(openActiveSubmenu)
     if (!auth.user || !auth.meLoaded || auth.roles.length === 0) {
       try {
@@ -638,7 +650,8 @@
         /* 无权限时顶栏显示占位即可 */
       }
     }
-    menuStore.loadFromStorage()
+    // 等权限与角色就绪后再加载工作台视图，避免先渲染出无权限入口
+    await menuStore.loadFromServer()
     void refreshTokenOverview()
     nextTick(openActiveSubmenu)
   })

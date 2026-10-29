@@ -2,7 +2,8 @@
 
 权限点只增不改；角色默认值可以被小院覆盖（``yard_roles``），但保护规则由代码硬约束：
 - 小院负责人始终拥有全部权限，不能被削弱、不能被移除/停用，只能转让；
-- 只有负责人能管理管理员、转让负责人、修改保护型设置；
+- 只有负责人能管理管理员、转让负责人、修改保护型权限；
+- 保护型权限的增减（角色或逐人授权）必须由负责人二次确认；
 - 管理员对敏感数据（会话正文/用量明细/财务）默认不可见，需负责人逐人授权。
 """
 
@@ -45,6 +46,18 @@ ALL_PERMISSIONS: frozenset[str] = frozenset(
         "audit:read",
         "admin:stats",
         "tools:execute",
+        "tools:manage",
+        "llm:manage",
+        "mcp:manage",
+        "menu:manage",
+        "demo:manage",
+        "chat:use",
+        "agents:manage",
+        "devices:read",
+        "devices:write",
+        "policies:read",
+        "policies:write",
+        "evolution:manage",
         "owner:transfer",
         "members:manage_admins",
     }
@@ -63,17 +76,61 @@ PROTECTED_PERMISSIONS: frozenset[str] = frozenset(
     }
 )
 
-#: 负责人可以逐人授予管理员的敏感权限
-GRANTABLE_PERMISSIONS: frozenset[str] = frozenset(
-    {
-        "insights:sensitive",
-        "finance:read",
-        "audit:read",
-        "skills:publish_any",
-        # v3.4：自我总结提升设置涉及成员数据归纳，负责人可逐人下放给管理员
-        "settings:manage_protected",
-    }
-)
+#: 负责人可以逐人授予的权限：除「转让负责人 / 管理管理员」外的全部权限（v3.24 扩展）。
+#: 管理管理员涉及层级越权，只能通过负责人转让/调整角色产生，不能逐人下放。
+GRANTABLE_PERMISSIONS: frozenset[str] = ALL_PERMISSIONS - {
+    "owner:transfer",
+    "members:manage_admins",
+}
+
+#: 权限点中文名（前端「角色与权限」矩阵直接使用，不再各自维护一份）
+PERMISSION_LABELS: dict[str, str] = {
+    "knowledge:read": "查看知识库",
+    "knowledge:write": "维护知识库",
+    "farm:read": "查看农业台账",
+    "farm:write": "维护农业台账",
+    "tasks:create": "发起任务",
+    "tasks:read": "查看任务",
+    "tasks:retry": "重试任务",
+    "tasks:cancel": "取消任务",
+    "feedback:write": "提交反馈",
+    "feedback:read": "查看反馈",
+    "review:approve": "审核内容",
+    "skills:manage": "管理私有技能",
+    "skills:generate": "一句话生成技能",
+    "skills:review": "审核技能",
+    "skills:publish_any": "推广技能为公共",
+    "members:manage": "管理成员",
+    "members:manage_limited": "管理普通成员",
+    "members:reset_password": "重置成员密码",
+    "members:approve": "审核注册",
+    "roles:manage": "管理角色与权限",
+    "settings:manage": "管理系统设置",
+    "settings:manage_protected": "修改保护型设置",
+    "search:manage": "管理联网搜索",
+    "market:install": "安装市场内容",
+    "market:review": "审核市场内容",
+    "insights:read": "查看运营洞察",
+    "insights:sensitive": "查看敏感数据",
+    "finance:read": "查看财务数据",
+    "audit:read": "查看审计日志",
+    "admin:stats": "查看平台统计",
+    "tools:execute": "执行工具",
+    "tools:manage": "管理可用工具",
+    "llm:manage": "管理模型配置",
+    "mcp:manage": "管理 MCP 服务",
+    "menu:manage": "管理工作台视图",
+    "demo:manage": "管理演示数据",
+    "chat:use": "使用智能对话",
+    "agents:manage": "管理智能体与班组",
+    "devices:read": "查看设备",
+    "devices:write": "管理设备",
+    "policies:read": "查看政策",
+    "policies:write": "管理政策",
+    "evolution:manage": "管理自我升级",
+    "owner:transfer": "转让负责人",
+    "members:manage_admins": "管理管理员",
+}
 
 #: 角色默认权限。yard_owner 在判定时始终补齐全集（此处保留可读默认值）。
 _ADMIN_DEFAULTS = ALL_PERMISSIONS - {
@@ -108,6 +165,10 @@ PERMISSIONS: dict[str, frozenset[str]] = {
             "market:review",
             "insights:read",
             "tools:execute",
+            "chat:use",
+            "agents:manage",
+            "devices:read",
+            "policies:read",
         }
     ),
     "operator": frozenset(
@@ -121,6 +182,8 @@ PERMISSIONS: dict[str, frozenset[str]] = {
             "feedback:write",
             "skills:generate",
             "tools:execute",
+            "chat:use",
+            "devices:read",
         }
     ),
     "viewer": frozenset(
@@ -131,6 +194,7 @@ PERMISSIONS: dict[str, frozenset[str]] = {
             "feedback:write",
             "skills:generate",
             "tools:execute",
+            "chat:use",
         }
     ),
     "service_worker": frozenset({"tasks:create", "tasks:read"}),
@@ -171,6 +235,7 @@ PERMISSION_GROUPS: tuple[dict[str, object], ...] = (
             "settings:manage_protected",
             "members:manage_admins",
             "owner:transfer",
+            "demo:manage",
         ],
     },
     {
@@ -184,8 +249,6 @@ PERMISSION_GROUPS: tuple[dict[str, object], ...] = (
         "permissions": [
             "knowledge:read",
             "knowledge:write",
-            "farm:read",
-            "farm:write",
             "feedback:write",
             "feedback:read",
             "review:approve",
@@ -193,6 +256,7 @@ PERMISSION_GROUPS: tuple[dict[str, object], ...] = (
             "skills:generate",
             "skills:review",
             "skills:publish_any",
+            "evolution:manage",
         ],
     },
     {
@@ -203,7 +267,13 @@ PERMISSION_GROUPS: tuple[dict[str, object], ...] = (
     {
         "key": "insights",
         "label": "数据与审计",
-        "permissions": ["insights:read", "insights:sensitive", "finance:read", "audit:read"],
+        "permissions": [
+            "insights:read",
+            "insights:sensitive",
+            "finance:read",
+            "audit:read",
+            "admin:stats",
+        ],
     },
     {
         "key": "runtime",
@@ -214,7 +284,21 @@ PERMISSION_GROUPS: tuple[dict[str, object], ...] = (
             "tasks:retry",
             "tasks:cancel",
             "tools:execute",
+            "tools:manage",
+            "llm:manage",
+            "mcp:manage",
+            "menu:manage",
         ],
+    },
+    {
+        "key": "capability",
+        "label": "对话与智能体",
+        "permissions": ["chat:use", "agents:manage"],
+    },
+    {
+        "key": "devices",
+        "label": "设备与政策",
+        "permissions": ["devices:read", "devices:write", "policies:read", "policies:write"],
     },
 )
 
@@ -238,6 +322,7 @@ __all__ = [
     "GRANTABLE_PERMISSIONS",
     "PERMISSIONS",
     "PERMISSION_GROUPS",
+    "PERMISSION_LABELS",
     "PROTECTED_PERMISSIONS",
     "ROLE_LABELS",
     "default_role_permissions",

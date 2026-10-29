@@ -275,13 +275,19 @@ def test_grants_owner_only_and_grantable_list(api_client, seeded):
 
     listed = api_client.get(f"{BASE}/grants", headers=owner_hdr)
     assert listed.status_code == 200
-    assert listed.json()["data"]["grantable"] == [
+    grantable = set(listed.json()["data"]["grantable"])
+    # v3.24：可逐人授权的范围扩到除「转让负责人/管理管理员」外的全部权限
+    assert {
         "audit:read",
         "finance:read",
         "insights:sensitive",
         "settings:manage_protected",
         "skills:publish_any",
-    ]
+        "llm:manage",
+        "devices:read",
+    } <= grantable
+    assert "owner:transfer" not in grantable
+    assert "members:manage_admins" not in grantable
     assert [item["user_id"] for item in listed.json()["data"]["items"]] == [seeded["admin"].id]
 
     invalid = api_client.put(

@@ -69,6 +69,10 @@ class MeResponseData(BaseModel):
     user: UserOut
     roles: list[str]
     yards: list[YardBrief]
+    # v3.24：当前小院的有效权限（角色默认 ∪ 逐人授权），前端据此收敛菜单/路由/按钮
+    yard_id: str | None = None
+    is_owner: bool = False
+    permissions: list[str] = Field(default_factory=list)
 
 
 class ProfileUpdateRequest(BaseModel):

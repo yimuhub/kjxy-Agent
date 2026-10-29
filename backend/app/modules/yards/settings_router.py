@@ -15,20 +15,29 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import (
     CurrentUser,
+    YardContext,
     get_current_user,
     get_db_session,
+    get_yard_context,
     require_yard_permission,
 )
 from app.core.errors import AppError
 from app.core.responses import ok
 from app.modules.audit.service import log_audit
 from app.modules.yards import roles_service, settings_service
-from app.modules.yards.authz import has_permission, is_owner
+from app.modules.yards.authz import (
+    can_manage_target_role,
+    get_active_membership,
+    has_permission,
+    is_owner,
+)
 from app.modules.yards.models import YardRole
 from app.modules.yards.permissions import (
     ALL_PERMISSIONS,
     ASSIGNABLE_ROLES,
+    GRANTABLE_PERMISSIONS,
     PERMISSION_GROUPS,
+    PERMISSION_LABELS,
     PERMISSIONS,
     PROTECTED_PERMISSIONS,
     ROLE_LABELS,
@@ -47,6 +56,8 @@ SETTINGS_PERMISSIONS: dict[str, str] = {
     "self_improve": "settings:manage_protected",
     "agent_generate": "settings:manage",
     "device_analysis": "settings:manage",
+    # 工作台视图（菜单模式与角色预设）由负责人/管理员统一设置
+    "menu": "menu:manage",
 }
 
 
@@ -81,12 +92,34 @@ def _require(db: Session, user: CurrentUser, permission: str) -> None:
         )
 
 
-def _roles_payload(db: Session, yard_id: str) -> dict[str, Any]:
+def _actor_role(db: Session, user: CurrentUser, yard_id: str) -> str:
+    """当前操作者在本小院的角色码（负责人/平台管理员优先，其次成员关系）。"""
+    if "platform_admin" in user.roles:
+        return "platform_admin"
+    if is_owner(db, yard_id, user.user_id):
+        return "yard_owner"
+    membership = get_active_membership(db, yard_id, user.user_id)
+    if membership is not None:
+        return membership.role
+    return user.roles[0] if user.roles else ""
+
+
+def _roles_payload(db: Session, yard_id: str, actor_role: str) -> dict[str, Any]:
+    roles = roles_service.list_roles(db, yard_id)
+    for role in roles:
+        role["can_edit"] = role["code"] != "yard_owner" and can_manage_target_role(
+            actor_role, role["code"]
+        )
+    custom_codes = [str(role["code"]) for role in roles if not role["is_system"]]
     return {
-        "roles": roles_service.list_roles(db, yard_id),
+        "roles": roles,
         "permission_groups": list(PERMISSION_GROUPS),
+        "permission_labels": PERMISSION_LABELS,
+        "protected_permissions": sorted(PROTECTED_PERMISSIONS),
+        "grantable_permissions": sorted(GRANTABLE_PERMISSIONS),
         "role_labels": ROLE_LABELS,
-        "assignable_roles": list(ASSIGNABLE_ROLES),
+        # 成员可分配角色 = 常规系统角色 + 本小院自定义角色
+        "assignable_roles": [*ASSIGNABLE_ROLES, *custom_codes],
     }
 
 
@@ -98,7 +131,10 @@ def get_settings(
 ):
     yard_id = _yard_id(user)
     data = settings_service.public_view(db, yard_id)
-    return ok({**data, **_roles_payload(db, yard_id)}, request)
+    return ok(
+        {**data, **_roles_payload(db, yard_id, _actor_role(db, user, yard_id))},
+        request,
+    )
 
 
 @router.put("/yards/current/settings/{key}")
@@ -169,10 +205,17 @@ def list_roles(
     user: CurrentUser = Depends(require_yard_permission("roles:manage")),
     db: Session = Depends(get_db_session),
 ):
-    return ok(_roles_payload(db, _yard_id(user)), request)
+    yard_id = _yard_id(user)
+    return ok(_roles_payload(db, yard_id, _actor_role(db, user, yard_id)), request)
 
 
-def _validate_permissions(permissions: list[str], *, actor_is_owner: bool) -> set[str]:
+def _validate_permissions(
+    permissions: list[str],
+    *,
+    actor_is_owner: bool,
+    confirm_protected: bool,
+) -> set[str]:
+    """校验权限集合；保护型权限只允许负责人二次确认后写入角色。"""
     requested = {str(p) for p in permissions}
     unknown = requested - ALL_PERMISSIONS
     if unknown:
@@ -181,9 +224,20 @@ def _validate_permissions(permissions: list[str], *, actor_is_owner: bool) -> se
             f"未知权限点：{', '.join(sorted(unknown))}",
             http_status=400,
         )
-    if not actor_is_owner and requested & PROTECTED_PERMISSIONS:
-        raise AppError("FORBIDDEN", "保护型权限只能由小院负责人配置。", http_status=403)
-    return requested - PROTECTED_PERMISSIONS
+    if requested & PROTECTED_PERMISSIONS:
+        if not actor_is_owner:
+            raise AppError(
+                "ROLE_EDIT_FORBIDDEN",
+                "保护型权限只能由小院负责人配置。",
+                http_status=403,
+            )
+        if not confirm_protected:
+            raise AppError(
+                "PROTECTED_CONFIRM_REQUIRED",
+                "本次变更包含保护型权限，请二次确认后再保存。",
+                http_status=400,
+            )
+    return requested
 
 
 def _update_custom_role(
@@ -204,7 +258,11 @@ def _update_custom_role(
         row.name = clean
     if req.permissions is not None:
         row.permissions_json = sorted(
-            _validate_permissions(req.permissions, actor_is_owner=actor_is_owner)
+            _validate_permissions(
+                req.permissions,
+                actor_is_owner=actor_is_owner,
+                confirm_protected=req.confirm_protected,
+            )
         )
     log_audit(
         db,
@@ -237,6 +295,13 @@ def update_role(
 ):
     yard_id = _yard_id(user)
     owner = _is_owner(db, user)
+    actor = _actor_role(db, user, yard_id)
+    if code == "yard_owner":
+        raise AppError("ROLE_EDIT_FORBIDDEN", "负责人权限固定为全集，不能修改。", http_status=403)
+    if not can_manage_target_role(actor, code):
+        raise AppError(
+            "ROLE_EDIT_FORBIDDEN", "无权修改该角色，请由负责人或管理员操作。", http_status=403
+        )
     row = db.scalar(select(YardRole).where(YardRole.yard_id == yard_id, YardRole.code == code))
     if row is not None and not row.is_system:
         data = _update_custom_role(
@@ -250,16 +315,24 @@ def update_role(
     else:
         if code not in PERMISSIONS:
             raise AppError("ROLE_NOT_FOUND", "角色不存在。", http_status=404)
-        if not owner:
-            raise AppError("FORBIDDEN", "只有小院负责人可以修改系统角色。", http_status=403)
+        permissions = (
+            _validate_permissions(
+                req.permissions,
+                actor_is_owner=owner,
+                confirm_protected=req.confirm_protected,
+            )
+            if req.permissions is not None
+            else None
+        )
         data = roles_service.update_role(
             db,
             yard_id=yard_id,
             code=code,
             name=req.name,
-            permissions=req.permissions,
+            permissions=sorted(permissions) if permissions is not None else None,
             actor_id=user.user_id,
             request_id=_request_id(request),
+            allow_protected=owner and req.confirm_protected,
         )
     db.commit()
     return ok(data, request)
@@ -272,7 +345,11 @@ def create_role(
     user: CurrentUser = Depends(require_yard_permission("roles:manage")),
     db: Session = Depends(get_db_session),
 ):
-    permissions = _validate_permissions(req.permissions, actor_is_owner=_is_owner(db, user))
+    permissions = _validate_permissions(
+        req.permissions,
+        actor_is_owner=_is_owner(db, user),
+        confirm_protected=req.confirm_protected,
+    )
     data = roles_service.create_custom_role(
         db,
         yard_id=_yard_id(user),
@@ -281,6 +358,7 @@ def create_role(
         permissions=sorted(permissions),
         actor_id=user.user_id,
         request_id=_request_id(request),
+        allow_protected=_is_owner(db, user) and req.confirm_protected,
     )
     db.commit()
     return ok(data, request)
@@ -293,12 +371,49 @@ def delete_role(
     user: CurrentUser = Depends(require_yard_permission("roles:manage")),
     db: Session = Depends(get_db_session),
 ):
+    yard_id = _yard_id(user)
+    if not can_manage_target_role(_actor_role(db, user, yard_id), code):
+        raise AppError("ROLE_EDIT_FORBIDDEN", "无权删除该角色。", http_status=403)
     roles_service.delete_custom_role(
         db,
-        yard_id=_yard_id(user),
+        yard_id=yard_id,
         code=code,
         actor_id=user.user_id,
         request_id=_request_id(request),
     )
     db.commit()
     return ok({"code": code, "deleted": True}, request)
+
+
+# ---------------------------------------------------------------------------
+# 工作台视图（菜单模式/角色预设的共享默认值，登录成员都可读取）
+# ---------------------------------------------------------------------------
+
+
+@router.get("/yards/current/menu")
+def get_menu_config(
+    request: Request,
+    ctx: YardContext = Depends(get_yard_context),
+    db: Session = Depends(get_db_session),
+):
+    return ok(settings_service.get_setting(db, ctx.yard_id, "menu"), request)
+
+
+@router.put("/yards/current/menu")
+def update_menu_config(
+    request: Request,
+    payload: dict[str, Any] = Body(...),
+    user: CurrentUser = Depends(require_yard_permission("menu:manage")),
+    db: Session = Depends(get_db_session),
+):
+    yard_id = _yard_id(user)
+    settings_service.update_setting(
+        db,
+        yard_id=yard_id,
+        key="menu",
+        value=payload,
+        actor_id=user.user_id,
+        request_id=_request_id(request),
+    )
+    db.commit()
+    return ok(settings_service.get_setting(db, yard_id, "menu"), request)

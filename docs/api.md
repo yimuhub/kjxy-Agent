@@ -122,8 +122,12 @@ v3.1 行为变化：`/search/status` 新增 `internet` 字段；搜索设置 `pr
 | POST | /yards/current/registrations/{id}/reject | members:approve | 拒绝注册（可带原因） |
 | GET | /yards/current/settings | settings:manage | 注册/安全/搜索设置（密钥脱敏） |
 | PUT | /yards/current/settings/{key} | settings:manage / search:manage | 更新设置项 |
-| GET/POST | /yards/current/roles | roles:manage | 角色列表 / 新建自定义角色 |
-| PUT/DELETE | /yards/current/roles/{code} | roles:manage | 修改 / 删除自定义角色 |
+| GET/POST | /yards/current/roles | roles:manage | 角色列表（含中文名/可编辑标记）/ 新建自定义角色 |
+| PUT/DELETE | /yards/current/roles/{code} | roles:manage | 修改 / 删除角色（保护型权限需负责人二次确认） |
+| GET | /yards/current/menu | 登录（小院成员） | 工作台视图默认配置（默认模式 + 角色默认 + 共享预设） |
+| PUT | /yards/current/menu | menu:manage | 保存工作台视图默认配置 |
+| GET | /yards/current/members/{user_id}/permissions | members:manage | 成员有效权限 = 角色权限 ∪ 逐人授权 |
+| PUT | /yards/current/members/{user_id}/permissions | 负责人 | 逐人授权（新增保护型权限需二次确认） |
 | POST | /auth/register | 公开（限流） | 自助加入小院（approval/open） |
 | PATCH | /auth/me | 登录 | 修改本人资料 |
 | POST | /auth/change-password | 登录 | 修改密码（旧令牌失效） |
@@ -223,7 +227,7 @@ JSON-RPC 方法：
 `GET /api/v1/meta` 返回后端版本与数据库迁移头，前端用它提示「后端版本较旧」：
 
 ```json
-{ "data": { "version": "3.23.0", "migration_head": "0050_device_analyses" } }
+{ "data": { "version": "3.24.0", "migration_head": "0050_device_analyses" } }
 ```
 
 - 升级顺序：`alembic upgrade head` → 重启后端 → `curl /api/v1/meta` 确认。
@@ -319,6 +323,45 @@ JSON-RPC 方法：
 - **critical 自动告警**：阈值越限 20% 以上判 critical，写 `device_alerts`（同 rule+device 30 分钟去重）并推送，可在设备页一键开单；普通越限为 warning。
 - **定时分析**：`yard_jobs` 新增 `device_analysis`（默认每天，可配 12 小时/每周），有启用设备的小院自动建任务；运行记录在 `yard_job_runs`（含每轮设备数、成功/证据不足/失败与失败原因）。
 - **只读红线**：分析只读读数，不写设备控制指令；不做因果断言；用药类建议仍需作物诊断与专家复核。
+
+## 权限与千人千面（v3.24）
+
+### 有效权限下发（唯一事实源）
+
+`GET /auth/me` 除用户/角色/小院外，新增：
+
+```json
+{
+  "data": {
+    "user": {"user_id": "…"},
+    "roles": ["operator"],
+    "yard_id": "…",
+    "is_owner": false,
+    "permissions": ["chat:use", "devices:read", "farm:read", "knowledge:read", "tasks:read"]
+  }
+}
+```
+
+- `permissions` = 数据库角色权限 ∪ 负责人逐人授权；负责人与平台管理员恒为全集。
+- 前端菜单、路由、按钮一律以该集合判定：无权限的功能既不在侧栏出现，直接输入 URL 也会落到「没有访问权限」页。
+
+### 角色与权限矩阵
+
+- 权限点由 33 项扩到 45 项，新增：`chat:use`、`agents:manage`、`devices:read/write`、`policies:read/write`、`evolution:manage`、`tools:manage`、`llm:manage`、`mcp:manage`、`menu:manage`、`demo:manage`。
+- 全部权限点带中文名（`GET /yards/current/settings|roles` 返回 `permission_labels`），矩阵不再出现英文编码。
+- 角色列表每项返回 `can_edit`（后端按层级计算）：负责人可维护除负责人外的所有角色；管理员可维护专家/操作员/普通成员与自定义角色，不能碰管理员角色与保护型权限。
+- 保护型权限（`settings:manage_protected`、`insights:sensitive`、`finance:read`、`skills:publish_any`、`members:manage_admins`、`owner:transfer`）的写入必须由负责人带 `confirm_protected: true`；未确认返回 400 `PROTECTED_CONFIRM_REQUIRED`，管理员尝试配置返回 403 `ROLE_EDIT_FORBIDDEN`。
+
+### 逐人授权
+
+- `GET /yards/current/members/{user_id}/permissions` 返回 `role_permissions / grants / effective_permissions` 与分组、中文名、可授权范围。
+- `PUT` 仅负责人可调，授权是角色之上的增量、不削弱角色；`owner:transfer`、`members:manage_admins` 不可逐人下放；新增保护型权限同样需要 `confirm_protected`。变更写入审计 `member_permissions_updated`（含新增/移除明细）。
+
+### 工作台视图（原「导航菜单 DIY」）
+
+- 设置项 `menu`：`default_mode`、`role_modes`（按角色的默认密度）、`profiles`（共享预设）、`allow_member_customize`；模式为 `minimal | standard | full`。
+- `GET /yards/current/menu` 全员可读（登录后即可取默认视图），`PUT` 需 `menu:manage`（负责人/管理员），非法预设返回 400 `MENU_PROFILE_INVALID`。
+- 优先级：成员本地自定义布局 > 角色默认 > 全局默认；侧栏功能池展示全系统所有用户组的功能，是否真正可见仍由权限裁决。
 
 ## 任务状态机
 

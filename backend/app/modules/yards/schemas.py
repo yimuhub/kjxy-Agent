@@ -106,12 +106,15 @@ class RegistrationRejectRequest(BaseModel):
 class RoleUpdateRequest(BaseModel):
     name: str | None = Field(default=None, max_length=64)
     permissions: list[str] | None = None
+    # 变更含保护型权限时必须由负责人显式二次确认
+    confirm_protected: bool = False
 
 
 class RoleCreateRequest(BaseModel):
     code: str = Field(..., min_length=3, max_length=32)
     name: str = Field(..., min_length=1, max_length=64)
     permissions: list[str] = Field(default_factory=list)
+    confirm_protected: bool = False
 
 
 class AddMemberRequest(BaseModel):

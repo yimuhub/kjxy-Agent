@@ -1,4 +1,29 @@
 import type { AxiosAdapter, AxiosResponse, InternalAxiosRequestConfig } from 'axios'
+import {
+  FALLBACK_PERMISSION_GROUPS,
+  PERMISSION_LABELS,
+  PROTECTED_PERMISSIONS,
+  ROLE_LABELS,
+  permissionsOfRoles,
+} from '@/components/settings/permissions'
+
+/** Mock 模式下可逐人授权的权限点（与后端 GRANTABLE_PERMISSIONS 同口径） */
+const ALL_GRANTABLE = new Set(
+  Object.keys(PERMISSION_LABELS).filter(
+    permission => permission !== 'owner:transfer' && permission !== 'members:manage_admins',
+  ),
+)
+
+function parseBody(data: unknown): unknown {
+  if (typeof data === 'string') {
+    try {
+      return JSON.parse(data)
+    } catch {
+      return {}
+    }
+  }
+  return data ?? {}
+}
 
 // 内置 mock 开关：后端未就绪时在 dev 下演示用。
 // 开启方式：.env.development 或 .env.local 中设置 VITE_USE_MOCK=true。
@@ -136,9 +161,23 @@ const MOCK_TOOLS = [
   { code: 'weather.query', version: '1.0.0', name: '天气查询', description: '查询指定区域未来天气', input_schema: { type: 'object' }, required_permissions: ['tool:weather'], risk_level: 'read_only', side_effect: false, timeout_seconds: 30 },
 ]
 
+const MOCK_MENU_CONFIG = {
+  default_mode: 'standard',
+  role_modes: {
+    yard_owner: 'standard',
+    yard_admin: 'standard',
+    expert: 'standard',
+    operator: 'minimal',
+    viewer: 'minimal',
+  },
+  profiles: [],
+  allow_member_customize: true,
+}
+
+const MOCK_GRANTS: Record<string, string[]> = {}
+
 const MOCK_STATS = {
-  tasks_total: 128,
-  tasks_by_status: { succeeded: 110, failed: 9, running: 3, queued: 2, awaiting_review: 4 },
+  tasks_total: 128,  tasks_by_status: { succeeded: 110, failed: 9, running: 3, queued: 2, awaiting_review: 4 },
   tasks_failed_by_code: { LLM_ERROR: 5, DOCUMENT_PARSE_FAILED: 4 },
   avg_task_duration_seconds: 41.2,
   llm_cost_total: 12.58,
@@ -163,8 +202,51 @@ export function getMockAdapter(): AxiosAdapter {
     if (method === 'post' && url === '/auth/refresh')
       return respond(ok({ access_token: 'mock-access', refresh_token: 'mock-refresh' }))
     if (method === 'post' && url === '/auth/logout') return respond(ok(null))
-    if (method === 'get' && url === '/auth/me')
-      return respond(ok({ user: MOCK_USER, roles: ['yard_admin'], yards: [MOCK_YARD] }))
+    if (method === 'get' && url === '/auth/me') {
+      const role = MOCK_YARD.roles[0] ?? 'viewer'
+      return respond(
+        ok({
+          user: MOCK_USER,
+          roles: MOCK_YARD.roles,
+          yards: [MOCK_YARD],
+          yard_id: MOCK_YARD.yard_id,
+          is_owner: role === 'yard_owner',
+          permissions: [...permissionsOfRoles(MOCK_YARD.roles)],
+        }),
+      )
+    }
+
+    if (method === 'get' && url === '/yards/current/menu') return respond(ok(MOCK_MENU_CONFIG))
+    if (method === 'put' && url === '/yards/current/menu') {
+      const patch = parseBody(config.data) as Record<string, unknown>
+      return respond(ok({ ...MOCK_MENU_CONFIG, ...patch }))
+    }
+    if (url.startsWith('/yards/current/members/') && url.endsWith('/permissions')) {
+      const memberId = url.split('/')[3]
+      const member = MOCK_MEMBERS.find(row => row.user_id === memberId) ?? MOCK_MEMBERS[0]
+      const grants = MOCK_GRANTS[member.user_id] ?? []
+      const rolePermissions = [...permissionsOfRoles([member.role])]
+      const payload = {
+        user_id: member.user_id,
+        username: member.username,
+        display_name: member.display_name,
+        role: member.role,
+        role_name: ROLE_LABELS[member.role] ?? member.role,
+        role_permissions: rolePermissions,
+        grants,
+        effective_permissions: Array.from(new Set([...rolePermissions, ...grants])).sort(),
+        is_owner: member.role === 'yard_owner',
+        permission_groups: FALLBACK_PERMISSION_GROUPS,
+        permission_labels: PERMISSION_LABELS,
+        protected_permissions: PROTECTED_PERMISSIONS,
+        grantable_permissions: Array.from(ALL_GRANTABLE),
+      }
+      if (method === 'put') {
+        const body = parseBody(config.data) as { grants?: string[] }
+        MOCK_GRANTS[member.user_id] = [...(body.grants ?? [])]
+      }
+      return respond(ok(payload))
+    }
 
     if (method === 'get' && url === '/yards/current') return respond(ok(MOCK_YARD))
     if (method === 'get' && url === '/yards/current/members')

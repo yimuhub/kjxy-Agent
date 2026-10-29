@@ -19,7 +19,7 @@
           v-for="p in group.permissions"
           :key="p"
           :value="p"
-          :disabled="disabled || isProtected(p)"
+          :disabled="disabled || (!allowProtected && isProtected(p))"
           class="perm-item"
         >
           <span class="perm-label">{{ labelOf(p) }}</span>
@@ -53,8 +53,10 @@
       modelValue: string[]
       labels?: Record<string, string>
       disabled?: boolean
+      /** 负责人可勾选受保护权限（保存时二次确认） */
+      allowProtected?: boolean
     }>(),
-    { labels: () => ({}), disabled: false },
+    { labels: () => ({}), disabled: false, allowProtected: false },
   )
 
   const emit = defineEmits<{

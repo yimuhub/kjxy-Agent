@@ -188,7 +188,7 @@
               </el-table-column>
               <el-table-column
                 label="操作"
-                width="260"
+                width="310"
                 fixed="right"
               >
                 <template #default="{ row }">
@@ -205,6 +205,27 @@
                         @click="openEdit(row as MemberRow)"
                       >
                         编辑
+                      </el-button>
+                    </span>
+                  </el-tooltip>
+
+                  <el-tooltip
+                    :disabled="canGrant && row.role !== 'yard_owner'"
+                    :content="
+                      row.role === 'yard_owner'
+                        ? '负责人始终拥有全部权限'
+                        : '只有小院负责人可以逐人授权'
+                    "
+                    placement="top"
+                  >
+                    <span>
+                      <el-button
+                        link
+                        type="primary"
+                        :disabled="!canGrant || row.role === 'yard_owner'"
+                        @click="openPermissions(row as MemberRow)"
+                      >
+                        权限
                       </el-button>
                     </span>
                   </el-tooltip>
@@ -834,6 +855,13 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <MemberPermissionDialog
+      v-model="permissionDialog"
+      :user-id="permissionUserId"
+      :can-manage="canGrant"
+      @saved="loadMembers"
+    />
   </div>
 </template>
 
@@ -850,6 +878,7 @@
   } from '@/api/v3'
   import { yardApi } from '@/api/modules'
   import AsyncState from '@/components/AsyncState.vue'
+  import MemberPermissionDialog from '@/components/settings/MemberPermissionDialog.vue'
   import { ROLE_LABELS } from '@/components/settings/permissions'
   import { useAuthStore } from '@/stores/auth'
   import { formatTime } from '@/utils/format'
@@ -869,6 +898,10 @@
   const canManage = computed(() => isOwner.value || isAdmin.value)
   const canApprove = computed(() => canManage.value)
   const canReset = computed(() => canManage.value)
+  /** 逐人授权仅负责人可操作（与后端保持一致） */
+  const canGrant = computed(() => isOwner.value)
+
+  const customRoleOptions = ref<Array<{ value: string; label: string }>>([])
 
   const assignableRoleOptions = computed(() => {
     const all = [
@@ -876,15 +909,41 @@
       { value: 'expert', label: '专家' },
       { value: 'operator', label: '科研操作员' },
       { value: 'viewer', label: '普通成员' },
+      ...customRoleOptions.value,
     ]
     if (isOwner.value) return all
     if (isAdmin.value) return all.filter(option => option.value !== 'yard_admin')
     return all.filter(option => option.value === 'operator' || option.value === 'viewer')
   })
 
+  const customRoleLabels = computed(
+    () => new Map(customRoleOptions.value.map(option => [option.value, option.label])),
+  )
+
   function roleLabel(role?: string): string {
     if (!role) return '—'
-    return ROLE_LABELS[role] ?? role
+    return ROLE_LABELS[role] ?? customRoleLabels.value.get(role) ?? role
+  }
+
+  async function loadCustomRoles(): Promise<void> {
+    if (!canManage.value) return
+    try {
+      const payload = await governanceApi.roles()
+      customRoleOptions.value = payload.roles
+        .filter(role => !role.is_system)
+        .map(role => ({ value: role.code, label: role.name }))
+    } catch {
+      /* 角色列表加载失败不影响成员管理主流程 */
+    }
+  }
+
+  // ---------- 逐人授权 ----------
+  const permissionDialog = ref(false)
+  const permissionUserId = ref('')
+
+  function openPermissions(row: MemberRow): void {
+    permissionUserId.value = row.user_id
+    permissionDialog.value = true
   }
 
   function formatNumber(value?: number | null): string {
@@ -1508,6 +1567,7 @@
 
   onMounted(() => {
     void loadMembers()
+    void loadCustomRoles()
   })
 </script>
 

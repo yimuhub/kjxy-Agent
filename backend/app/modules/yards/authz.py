@@ -36,12 +36,17 @@ def is_owner(db: Session, yard_id: str, user_id: str) -> bool:
 
 
 def role_permissions(db: Session, yard_id: str, role: str) -> frozenset[str]:
-    """角色权限：小院覆盖优先，否则系统默认；未知自定义角色为空。"""
+    """角色权限：小院覆盖优先，否则系统默认；未知自定义角色为空。
+
+    保护型权限可以由负责人二次确认后写进角色配置（v3.24），因此这里只做
+    「必须存在于权限全集」的收敛；谁能改由路由层按负责人/管理员边界裁决。
+    """
     override = db.scalar(select(YardRole).where(YardRole.yard_id == yard_id, YardRole.code == role))
     if override is not None and isinstance(override.permissions_json, list):
         allowed = {str(p) for p in override.permissions_json}
-        # 数据库里的角色配置也不能突破保护权限
-        return frozenset(allowed & (ALL_PERMISSIONS - PROTECTED_PERMISSIONS))
+        return frozenset(allowed & ALL_PERMISSIONS)
+    # 负责人/平台管理员的默认值若被角色配置覆盖也不会削弱保护判定：
+    # effective_permissions 对负责人恒定返回全集
     return default_role_permissions(role)
 
 
@@ -100,13 +105,20 @@ def has_permission(
 
 
 def can_manage_target_role(actor_role: str, target_role: str) -> bool:
-    """角色层级：管理员不能动负责人/管理员；专家只能动普通成员与操作员。"""
+    """角色层级（成员管理与角色配置共用）。
+
+    - 负责人/平台管理员：除负责人本身外都可管理；
+    - 管理员：专家/操作员/普通成员 + 本小院自定义角色（调用方需先确认自定义角色存在）；
+    - 专家：只能动操作员与普通成员，不能改角色权限配置。
+    """
     if target_role == "yard_owner":
         return False
-    if actor_role == "yard_owner":
+    if actor_role in {"yard_owner", "platform_admin"}:
         return True
     if actor_role == "yard_admin":
-        return target_role not in {"yard_admin"}
+        if target_role == "yard_admin":
+            return False
+        return target_role in {"expert", "operator", "viewer"} or target_role not in PERMISSIONS
     if actor_role == "expert":
         return target_role in {"operator", "viewer"}
     return False

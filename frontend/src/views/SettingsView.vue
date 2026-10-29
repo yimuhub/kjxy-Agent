@@ -16,6 +16,13 @@
       </el-tab-pane>
 
       <el-tab-pane
+        label="工作台视图"
+        name="menu"
+      >
+        <SettingsMenuProfiles />
+      </el-tab-pane>
+
+      <el-tab-pane
         label="注册与安全"
         name="registration"
       >
@@ -927,6 +934,7 @@ import { extractErrorMessage } from '@/api/client'
 import AsyncState from '@/components/AsyncState.vue'
 import MenuDiyEditor from '@/components/layout/MenuDiyEditor.vue'
 import SettingsRoles from '@/components/settings/SettingsRoles.vue'
+import SettingsMenuProfiles from '@/components/settings/SettingsMenuProfiles.vue'
 import SettingsRegistration from '@/components/settings/SettingsRegistration.vue'
 import SettingsNetwork from '@/components/settings/SettingsNetwork.vue'
 import SettingsSkillLab from '@/components/settings/SettingsSkillLab.vue'

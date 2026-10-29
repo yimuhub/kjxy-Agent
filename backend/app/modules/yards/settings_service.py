@@ -65,6 +65,19 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "daily_budget_tokens": 100000,
         "window_hours": 24,
     },
+    # 工作台视图：默认模式 + 按角色的默认视图 + 共享预设（成员仍可在本地 DIY）
+    "menu": {
+        "default_mode": "standard",  # minimal | standard | full
+        "role_modes": {
+            "yard_owner": "standard",
+            "yard_admin": "standard",
+            "expert": "standard",
+            "operator": "minimal",
+            "viewer": "minimal",
+        },
+        "profiles": [],
+        "allow_member_customize": True,
+    },
 }
 
 REGISTRATION_MODES = {"closed", "approval", "open"}
@@ -75,6 +88,7 @@ SI_PRESETS = {"daily", "hours12", "hours6", "days3", "weekly", "monthly", "custo
 SI_UNITS = {"hours", "days", "months"}
 SI_SCOPES = {"yard", "per_member"}
 DA_PRESETS = {"hours12", "daily", "weekly"}
+MENU_MODES = {"minimal", "standard", "full"}
 
 
 def _row(db: Session, yard_id: str, key: str) -> YardSettings | None:
@@ -93,6 +107,53 @@ def get_setting(db: Session, yard_id: str, key: str) -> dict[str, Any]:
 
 def get_all(db: Session, yard_id: str) -> dict[str, dict[str, Any]]:
     return {key: get_setting(db, yard_id, key) for key in DEFAULTS}
+
+
+def _validate_menu(merged: dict[str, Any]) -> None:
+    """工作台视图配置：模式枚举 + 预设数量上限 + 结构最小校验。"""
+
+    def bad(message: str) -> AppError:
+        return AppError("MENU_PROFILE_INVALID", message, http_status=400)
+
+    if merged.get("default_mode") not in MENU_MODES:
+        raise bad("默认视图模式不合法。")
+    role_modes = merged.get("role_modes")
+    if not isinstance(role_modes, dict) or any(
+        not isinstance(code, str) or mode not in MENU_MODES for code, mode in role_modes.items()
+    ):
+        raise bad("角色默认视图不合法。")
+    profiles = merged.get("profiles")
+    if not isinstance(profiles, list) or len(profiles) > 20:
+        raise bad("预设视图最多 20 个。")
+    for profile in profiles:
+        if (
+            not isinstance(profile, dict)
+            or not isinstance(profile.get("id"), str)
+            or not profile["id"]
+            or not isinstance(profile.get("name"), str)
+            or not profile["name"].strip()
+            or len(profile["name"]) > 32
+            or profile.get("mode") not in MENU_MODES
+        ):
+            raise bad("预设视图缺少合法的 id/名称/模式。")
+        groups = profile.get("groups", [])
+        if not isinstance(groups, list) or len(groups) > 12:
+            raise bad("预设视图分组最多 12 个。")
+        for group in groups:
+            if not isinstance(group, dict) or not isinstance(group.get("label"), str):
+                raise bad("预设视图分组格式不合法。")
+            items = group.get("items", [])
+            if not isinstance(items, list) or len(items) > 80:
+                raise bad("单个分组最多 80 个菜单项。")
+            if any(
+                not isinstance(item, dict)
+                or not isinstance(item.get("key"), str)
+                or not isinstance(item.get("title"), str)
+                for item in items
+            ):
+                raise bad("菜单项格式不合法。")
+    if not isinstance(merged.get("allow_member_customize"), bool):
+        raise bad("成员自定义开关必须是布尔值。")
 
 
 def _validate(key: str, value: dict[str, Any], merged: dict[str, Any]) -> None:
@@ -194,6 +255,8 @@ def _validate(key: str, value: dict[str, Any], merged: dict[str, Any]) -> None:
             ) from e
         if not 0 <= budget <= 10_000_000 or not 6 <= window <= 168:
             raise AppError("INVALID_REQUEST", "设备分析预算/窗口超出允许范围。", http_status=400)
+    elif key == "menu":
+        _validate_menu(merged)
     else:
         raise AppError("INVALID_REQUEST", f"未知设置项：{key}", http_status=400)
 

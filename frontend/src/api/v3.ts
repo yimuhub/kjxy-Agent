@@ -73,6 +73,8 @@ export interface RoleDef {
   permissions: string[]
   is_system: boolean
   is_protected: boolean
+  /** 当前操作者是否可编辑（后端按负责人/管理员边界计算） */
+  can_edit?: boolean
 }
 
 export interface PermissionGroup {
@@ -86,6 +88,52 @@ export interface RolesPayload {
   permission_groups: PermissionGroup[]
   role_labels: Record<string, string>
   assignable_roles: string[]
+  permission_labels?: Record<string, string>
+  protected_permissions?: string[]
+  grantable_permissions?: string[]
+}
+
+/** 工作台视图（菜单模式/角色预设）共享配置 */
+export type MenuMode = 'minimal' | 'standard' | 'full'
+
+export interface MenuProfile {
+  id: string
+  name: string
+  mode: MenuMode
+  groups: Array<{
+    label: string
+    items: Array<{
+      key: string
+      title: string
+      path?: string
+      iconName?: string
+      permission?: string
+    }>
+  }>
+}
+
+export interface MenuConfig {
+  default_mode: MenuMode
+  role_modes: Record<string, MenuMode>
+  profiles: MenuProfile[]
+  allow_member_customize: boolean
+}
+
+/** 成员级权限总览与逐人授权 */
+export interface MemberPermissionPayload {
+  user_id: string
+  username: string
+  display_name: string
+  role: string
+  role_name: string
+  role_permissions: string[]
+  grants: string[]
+  effective_permissions: string[]
+  is_owner: boolean
+  permission_groups: PermissionGroup[]
+  permission_labels: Record<string, string>
+  protected_permissions: string[]
+  grantable_permissions: string[]
 }
 
 export interface RegistrationRequest {
@@ -165,6 +213,8 @@ export interface YardSettingsBundle {
     daily_budget_tokens: number
     window_hours: number
   }
+  /** v3.24：工作台视图（默认模式 + 按角色默认 + 共享预设） */
+  menu?: MenuConfig
 }
 
 export const governanceApi = {
@@ -198,13 +248,17 @@ export const governanceApi = {
   roles(): Promise<RolesPayload> {
     return unwrap(api.get<ApiResponse<RolesPayload>>('/yards/current/roles'))
   },
-  updateRole(code: string, payload: { name?: string; permissions?: string[] }): Promise<RoleDef> {
+  updateRole(
+    code: string,
+    payload: { name?: string; permissions?: string[]; confirm_protected?: boolean },
+  ): Promise<RoleDef> {
     return unwrap(api.put<ApiResponse<RoleDef>>(`/yards/current/roles/${code}`, payload))
   },
   createRole(payload: {
     code: string
     name: string
     permissions: string[]
+    confirm_protected?: boolean
   }): Promise<RoleDef> {
     return unwrap(api.post<ApiResponse<RoleDef>>('/yards/current/roles', payload))
   },
@@ -222,7 +276,8 @@ export const governanceApi = {
       | 'skill_lab'
       | 'self_improve'
       | 'agent_generate'
-      | 'device_analysis',
+      | 'device_analysis'
+      | 'menu',
     value: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
     return unwrap(
@@ -1513,6 +1568,40 @@ export const a2aApi = {
   },
   task(id: string): Promise<A2aTask> {
     return unwrap(api.get<ApiResponse<A2aTask>>(`/settings/a2a/tasks/${id}`))
+  },
+}
+
+// ---------------------------------------------------------------------------
+// 工作台视图与成员逐人授权（v3.24）
+// ---------------------------------------------------------------------------
+
+export const menuApi = {
+  get(): Promise<MenuConfig> {
+    return unwrap(api.get<ApiResponse<MenuConfig>>('/yards/current/menu'))
+  },
+  update(payload: Partial<MenuConfig>): Promise<MenuConfig> {
+    return unwrap(api.put<ApiResponse<MenuConfig>>('/yards/current/menu', payload))
+  },
+}
+
+export const memberPermissionApi = {
+  get(userId: string): Promise<MemberPermissionPayload> {
+    return unwrap(
+      api.get<ApiResponse<MemberPermissionPayload>>(
+        `/yards/current/members/${userId}/permissions`,
+      ),
+    )
+  },
+  update(
+    userId: string,
+    payload: { grants: string[]; confirm_protected?: boolean },
+  ): Promise<MemberPermissionPayload> {
+    return unwrap(
+      api.put<ApiResponse<MemberPermissionPayload>>(
+        `/yards/current/members/${userId}/permissions`,
+        payload,
+      ),
+    )
   },
 }
 

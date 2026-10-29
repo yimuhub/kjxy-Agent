@@ -2,6 +2,38 @@
 
 本项目遵循《工程开发规范 V3.0》；版本号遵循语义化版本。
 
+## [3.24.0] - 2026-10-29
+
+权限从「看得懂英文编码、进得去没权限的页面」升级为「全中文、逐人可授、入口全局按权限收敛」：负责人改敏感权限要二次确认，管理员能管下级角色但碰不到保护型权限，成员管理里可直接给某个人加权限，菜单按有效权限渲染并可由负责人/管理员设定各角色的默认视图。
+
+### 权限底座（后端）
+
+- 权限点由 33 扩到 45（`chat:use`、`agents:manage`、`devices:read/write`、`policies:read/write`、`evolution:manage`、`tools:manage`、`llm:manage`、`mcp:manage`、`menu:manage`、`demo:manage`），每项配中文名与所属分组；新增 `tests/unit/test_permission_catalog.py` 校验「中文名全覆盖、分组不重不漏、可授权范围正确」。
+- `GRANTABLE_PERMISSIONS` 从 5 项扩到「除 `owner:transfer`、`members:manage_admins` 之外的全部」，逐人授权才真正能覆盖功能开关；层级与转让类保持只能由角色产生。
+- 角色配置边界：管理员可维护专家/操作员/普通成员与自定义角色（含改名与权限），不能改管理员/负责人角色，也不能配置保护型权限；负责人可配置保护型权限但必须携带 `confirm_protected=true`，否则 400 `PROTECTED_CONFIRM_REQUIRED`，越层级 403 `ROLE_EDIT_FORBIDDEN`。
+- `GET /auth/me` 新增 `permissions`（角色权限 ∪ 逐人授权）、`is_owner`、`yard_id`，成为前端千人千面的唯一事实源；角色列表新增 `can_edit`、`permission_labels`、`protected_permissions`、`grantable_permissions`，`assignable_roles` 一并返回本小院自定义角色。
+- 新增逐人授权接口 `GET/PUT /yards/current/members/{user_id}/permissions`（读需 `members:manage`，写仅负责人），返回角色权限/授权/有效权限三栏，变更写审计 `member_permissions_updated`。
+- 新增设置项 `menu`（工作台视图：`default_mode` + `role_modes` + `profiles` + `allow_member_customize`）与 `GET /yards/current/menu`（全员可读）/ `PUT`（需 `menu:manage`），非法配置 400 `MENU_PROFILE_INVALID`。
+
+### 界面（前端）
+
+- 系统设置「角色与权限」：权限矩阵全部中文（优先用后端 `permission_labels`，本地兜底表同步到 45 项），负责人勾选保护型权限时弹「保护型权限二次确认」；只读原因与提示改为按后端 `can_edit` 说明管理员的可维护范围。
+- 成员管理：每行新增「权限」入口，弹窗展示「角色自带 / 逐人授权 / 有效权限」，负责人按分组勾选即可授权（保护型需确认）；角色下拉补上本小院自定义角色。
+- 「导航菜单 DIY」更名「工作台视图」：新增极简/标准/全功能三档密度与 7 套内置视图（标准、高频直达、极简、全功能、专家、成员、管理员），功能池展示全系统所有用户组的功能并标注所需权限；系统设置新增「工作台视图」页签，负责人/管理员可设定全局默认与按角色默认（优先级：成员本地自定义 > 角色默认 > 全局默认）。
+- 千人千面落地：菜单项与路由声明权限点，无权限的入口在侧栏不出现、直接输入 URL 落到「没有访问权限」页；mock 适配同步补 `/auth/me` 权限、工作台视图与逐人授权接口。
+
+### 契约与文档
+
+- OpenAPI 重新生成：**251 路径**（新增 `/yards/current/menu`、`/yards/current/members/{user_id}/permissions`），两次生成一致。
+- `contracts/error-codes.md` 新增 `PROTECTED_CONFIRM_REQUIRED`、`ROLE_EDIT_FORBIDDEN`、`MENU_PROFILE_INVALID`；`docs/api.md` 新增「权限与千人千面（v3.24）」；`docs/plan-v3.24-permissions-model-tools.md` 记录 A 批交付。
+
+### 门禁
+
+- 后端 ruff check/format、mypy 全绿；全量测试 **1580 passed**（新增 10 条：权限目录 4 条、`/auth/me` 有效权限与逐人授权、角色层级与保护型确认、工作台视图配置读写与校验）。
+- 调整 2 条旧断言以匹配新政策：管理员现在可维护专家角色（并新增 403/400 边界断言）、可授权范围扩至全部非层级权限。
+- 前端 eslint **0 error**、vue-tsc 全绿、单测 **38 passed**、`vite build` 通过；版本面 9 处一致（3.24.0）。
+- 新增 `e2e/v324.spec.ts` 4 条：角色与权限全中文 + 保护型二次确认、成员逐人授权、工作台视图默认密度回显、无权限成员看不到入口且直连被拦。
+
 ## [3.23.0] - 2026-10-29
 
 设备读数从「能看见数字」升级为「会分析、给结论」：定时或手动对一台设备的近 24 小时读数做阈值/趋势/异常/卡死/组合风险分析，每条发现都带具体数值与时间；严重的自动进告警与工单；证据不足时明确说「证据不足」，不编造结论。

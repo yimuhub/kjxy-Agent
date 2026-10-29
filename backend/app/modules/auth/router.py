@@ -139,7 +139,7 @@ def logout(
 
 @router.get("/auth/me")
 def me(request: Request, user: CurrentUser = Depends(get_current_user), db=Depends(get_db_session)):
-    data: MeResponseData = service.get_me(db, user.user_id, user.roles)
+    data: MeResponseData = service.get_me(db, user.user_id, user.roles, user.yard_id)
     return ok(data.model_dump(), request)
 
 

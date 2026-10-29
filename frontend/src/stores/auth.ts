@@ -16,6 +16,11 @@ export const useAuthStore = defineStore('auth', () => {
   const yards = ref<YardBrief[]>([])
   /** 当前用户角色码（yard_admin / expert / operator / viewer / platform_admin） */
   const roles = ref<string[]>([])
+  /** 当前小院有效权限（后端 /auth/me 下发，角色默认 ∪ 逐人授权） */
+  const permissions = ref<string[]>([])
+  const isOwner = ref(false)
+  /** 权限是否已从后端加载（加载前不隐藏入口，避免整站闪空） */
+  const permissionsLoaded = ref(false)
   /** /auth/me 是否已加载完成（用于区分"未知"和"确实无小院"） */
   const meLoaded = ref(false)
 
@@ -33,6 +38,9 @@ export const useAuthStore = defineStore('auth', () => {
     yard.value = null
     yards.value = []
     roles.value = []
+    permissions.value = []
+    isOwner.value = false
+    permissionsLoaded.value = false
     meLoaded.value = false
     localStorage.removeItem(TOKEN_KEY)
     localStorage.removeItem(REFRESH_TOKEN_KEY)
@@ -62,6 +70,20 @@ export const useAuthStore = defineStore('auth', () => {
     )
   }
 
+  /**
+   * 权限判定（千人千面唯一入口，菜单/路由/按钮共用）：
+   * - 未加载权限前放行，避免首屏闪空；
+   * - 负责人/平台管理员始终放行；
+   * - 否则要求命中后端下发的有效权限。
+   */
+  function hasPermission(required?: string | string[]): boolean {
+    if (!required || (Array.isArray(required) && required.length === 0)) return true
+    if (!permissionsLoaded.value) return true
+    if (isOwner.value || roles.value.includes('platform_admin')) return true
+    const list = Array.isArray(required) ? required : [required]
+    return list.some(permission => permissions.value.includes(permission))
+  }
+
   async function login(username: string, password: string, yard_id?: string) {
     const res = await authApi.login(username, password, yard_id)
     persist(res.access_token, res.refresh_token)
@@ -72,6 +94,9 @@ export const useAuthStore = defineStore('auth', () => {
     yard.value = brief ? toYard(brief) : null
     // 角色以登录响应为准（含平台管理员 bootstrap），/auth/me 会再次校正
     roles.value = res.roles?.length ? res.roles : brief?.roles ?? []
+    permissions.value = []
+    isOwner.value = false
+    permissionsLoaded.value = false
     meLoaded.value = true
   }
 
@@ -87,6 +112,9 @@ export const useAuthStore = defineStore('auth', () => {
       yards.value.find(t => t.yard_id === preferredYardId) ?? yards.value[0] ?? null
     yard.value = brief ? toYard(brief) : null
     roles.value = res.roles?.length ? res.roles : brief?.roles ?? []
+    permissions.value = []
+    isOwner.value = false
+    permissionsLoaded.value = false
     meLoaded.value = true
   }
 
@@ -97,6 +125,9 @@ export const useAuthStore = defineStore('auth', () => {
     roles.value = me.roles?.length ? me.roles : me.user?.role ? [me.user.role] : []
     const current = yards.value.find(t => t.yard_id === yard.value?.yard_id)
     yard.value = current ? toYard(current) : yards.value[0] ? toYard(yards.value[0]) : null
+    permissions.value = me.permissions ?? []
+    isOwner.value = Boolean(me.is_owner)
+    permissionsLoaded.value = true
     meLoaded.value = true
   }
 
@@ -121,9 +152,13 @@ export const useAuthStore = defineStore('auth', () => {
     yard,
     yards,
     roles,
+    permissions,
+    isOwner,
+    permissionsLoaded,
     meLoaded,
     isLoggedIn,
     hasAnyRole,
+    hasPermission,
     isYardAdmin,
     login,
     adoptLogin,

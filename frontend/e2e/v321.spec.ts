@@ -17,13 +17,26 @@ test.describe('自生长管理（v3.21）', () => {
     await expect(body.getByText('已发布').first()).toBeVisible()
     await expect(body.getByText('published')).toHaveCount(0)
 
-    // 点技能名称/编码打开详情抽屉
-    const cell = page.locator('.skill-cell').first()
-    const name = (await cell.locator('.skill-name').innerText()).split('\n')[0].trim()
-    await cell.click()
+    // 点技能名称/编码打开详情抽屉：列表里既有「执行提示词」型技能，也有计划型技能，
+    // 逐个尝试直到找到带提示词的那一条，避免依赖种子数据的顺序。
     const drawer = page.locator('.el-drawer')
-    await expect(drawer).toBeVisible()
-    await expect(drawer.locator('.detail-name')).toHaveText(name)
+    const cells = page.locator('.skill-cell')
+    const total = await cells.count()
+    let found = false
+    for (let i = 0; i < Math.min(total, 8); i++) {
+      const cell = cells.nth(i)
+      const candidate = (await cell.locator('.skill-name').innerText()).split('\n')[0].trim()
+      await cell.click()
+      await expect(drawer).toBeVisible()
+      await expect(drawer.locator('.detail-name')).toHaveText(candidate)
+      if (await drawer.getByText('执行提示词').isVisible().catch(() => false)) {
+        found = true
+        break
+      }
+      await page.keyboard.press('Escape')
+      await expect(drawer).toBeHidden()
+    }
+    expect(found, '技能列表中应至少有一条带「执行提示词」的技能').toBe(true)
     await expect(drawer.getByText('能做什么')).toBeVisible()
     await expect(drawer.getByText('执行提示词')).toBeVisible()
 

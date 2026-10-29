@@ -39,6 +39,7 @@ from app.modules.tools.approvals_router import router as tool_approvals_router
 from app.modules.tools.router import router as tools_router
 from app.modules.yards.invite_router import router as yard_invite_router
 from app.modules.yards.owner_router import router as yard_owner_router
+from app.modules.yards.permissions_router import router as yard_permissions_router
 from app.modules.yards.quota_router import router as yard_quota_router
 from app.modules.yards.router import router as yards_router
 from app.modules.yards.settings_router import router as yard_settings_router
@@ -52,6 +53,7 @@ router.include_router(a2a_router)  # /a2a/rpc（入站）与 /settings/a2a*（�
 router.include_router(yards_router)
 router.include_router(yard_quota_router)
 router.include_router(yard_owner_router)  # /yards/current/owner（负责人驾驶舱/授权/转让）
+router.include_router(yard_permissions_router)  # 逐人授权：/yards/current/members/{id}/permissions
 router.include_router(yard_signup_router)
 router.include_router(yard_invite_router)
 router.include_router(yard_settings_router)  # /yards/current/settings|roles（系统设置 + 角色权限）

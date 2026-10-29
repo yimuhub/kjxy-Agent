@@ -35,8 +35,10 @@ from app.modules.auth.schemas import (
     UserOut,
     YardBrief,
 )
+from app.modules.yards import authz as yard_authz
 from app.modules.yards import repository as yard_repo
 from app.modules.yards import settings_service as yard_settings
+from app.modules.yards.permissions import ALL_PERMISSIONS, default_role_permissions
 from app.modules.yards.signup import (
     ensure_contact_unique,
     normalize_email,
@@ -376,12 +378,32 @@ def refresh(db: Session, refresh_token: str, *, request_id: str) -> RefreshRespo
     )
 
 
-def get_me(db: Session, user_id: str, roles: list[str]) -> MeResponseData:
-    """当前用户信息 + token 中的角色 + 全部小院归属。"""
+def get_me(
+    db: Session, user_id: str, roles: list[str], yard_id: str | None = None
+) -> MeResponseData:
+    """当前用户信息 + 角色 + 小院归属 + 当前小院有效权限（千人千面唯一事实源）。"""
     user = repo.get_by_id(db, user_id)
     if user is None:
         raise AppError("UNAUTHORIZED", "身份凭证无效。", http_status=401)
-    return MeResponseData(user=_user_out(user), roles=roles, yards=_yard_briefs(db, user.id))
+    if "platform_admin" in roles:
+        permissions = ALL_PERMISSIONS
+        owner = True
+    elif yard_id:
+        permissions = yard_authz.effective_permissions(
+            db, yard_id=yard_id, user_id=user_id, jwt_roles=roles
+        )
+        owner = yard_authz.is_owner(db, yard_id, user_id)
+    else:
+        permissions = frozenset().union(*(default_role_permissions(r) for r in roles))
+        owner = False
+    return MeResponseData(
+        user=_user_out(user),
+        roles=roles,
+        yards=_yard_briefs(db, user.id),
+        yard_id=yard_id,
+        is_owner=owner,
+        permissions=sorted(permissions),
+    )
 
 
 def logout(db: Session, user_id: str, *, refresh_token: str | None = None, request_id: str) -> None:
@@ -473,7 +495,7 @@ def update_profile(
             metadata={"fields": changed},
         )
         db.commit()
-    return get_me(db, user.id, roles)
+    return get_me(db, user.id, roles, yard_id)
 
 
 def change_password(

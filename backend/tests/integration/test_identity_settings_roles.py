@@ -166,12 +166,38 @@ def test_roles_read_and_system_role_write_matrix(client, world):
     viewer_denied = client.get(f"{PREFIX}/yards/current/roles", headers=_hdr(viewer_token))
     assert viewer_denied.status_code == 403
 
+    # v3.24：管理员可以维护专家/操作员/普通成员角色，但不能碰管理员与保护型权限
     admin_system_write = client.put(
         f"{PREFIX}/yards/current/roles/expert",
+        json={"name": "高级专家"},
+        headers=_hdr(admin_token),
+    )
+    assert admin_system_write.status_code == 200, admin_system_write.text
+    assert admin_system_write.json()["data"]["name"] == "高级专家"
+
+    admin_admin_write = client.put(
+        f"{PREFIX}/yards/current/roles/yard_admin",
         json={"name": "越权改名"},
         headers=_hdr(admin_token),
     )
-    assert admin_system_write.status_code == 403
+    assert admin_admin_write.status_code == 403
+    assert admin_admin_write.json()["error"]["code"] == "ROLE_EDIT_FORBIDDEN"
+
+    admin_protected = client.put(
+        f"{PREFIX}/yards/current/roles/expert",
+        json={"permissions": ["knowledge:read", "insights:sensitive"]},
+        headers=_hdr(admin_token),
+    )
+    assert admin_protected.status_code == 403
+    assert admin_protected.json()["error"]["code"] == "ROLE_EDIT_FORBIDDEN"
+
+    owner_protected_no_confirm = client.put(
+        f"{PREFIX}/yards/current/roles/expert",
+        json={"permissions": ["knowledge:read", "insights:sensitive"]},
+        headers=_hdr(owner_token),
+    )
+    assert owner_protected_no_confirm.status_code == 400
+    assert owner_protected_no_confirm.json()["error"]["code"] == "PROTECTED_CONFIRM_REQUIRED"
 
     owner_write = client.put(
         f"{PREFIX}/yards/current/roles/expert",
@@ -180,6 +206,17 @@ def test_roles_read_and_system_role_write_matrix(client, world):
     )
     assert owner_write.status_code == 200, owner_write.text
     assert owner_write.json()["data"]["name"] == "高级专家"
+
+    owner_confirmed = client.put(
+        f"{PREFIX}/yards/current/roles/expert",
+        json={
+            "permissions": ["knowledge:read", "insights:sensitive"],
+            "confirm_protected": True,
+        },
+        headers=_hdr(owner_token),
+    )
+    assert owner_confirmed.status_code == 200, owner_confirmed.text
+    assert "insights:sensitive" in owner_confirmed.json()["data"]["permissions"]
 
     owner_role_write = client.put(
         f"{PREFIX}/yards/current/roles/yard_owner",

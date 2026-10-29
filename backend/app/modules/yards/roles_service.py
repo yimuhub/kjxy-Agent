@@ -72,6 +72,7 @@ def update_role(
     permissions: list[str] | None,
     actor_id: str,
     request_id: str,
+    allow_protected: bool = False,
 ) -> dict[str, Any]:
     if code not in PERMISSIONS:
         raise AppError("ROLE_NOT_FOUND", "角色不存在。", http_status=404)
@@ -102,8 +103,9 @@ def update_role(
                 f"未知权限点：{', '.join(sorted(unknown))}",
                 http_status=400,
             )
-        # 系统管理员角色也不能通过配置获得保护权限
-        requested -= PROTECTED_PERMISSIONS
+        # 保护型权限默认剥离；仅路由层确认「负责人 + 二次确认」后才放行
+        if not allow_protected:
+            requested -= PROTECTED_PERMISSIONS
         row.permissions_json = sorted(requested)
     log_audit(
         db,
@@ -135,6 +137,7 @@ def create_custom_role(
     permissions: list[str],
     actor_id: str,
     request_id: str,
+    allow_protected: bool = False,
 ) -> dict[str, Any]:
     clean = (code or "").strip().lower()
     if not _CODE_RE.match(clean):
@@ -154,7 +157,9 @@ def create_custom_role(
         raise AppError("ROLE_LIMIT", f"自定义角色最多 {_MAX_CUSTOM} 个。", http_status=400)
     if db.scalar(select(YardRole).where(YardRole.yard_id == yard_id, YardRole.code == clean)):
         raise AppError("ROLE_EXISTS", "角色编码已存在。", http_status=409)
-    requested = ({str(p) for p in permissions} & ALL_PERMISSIONS) - PROTECTED_PERMISSIONS
+    requested = {str(p) for p in permissions} & ALL_PERMISSIONS
+    if not allow_protected:
+        requested -= PROTECTED_PERMISSIONS
     row = YardRole(
         yard_id=yard_id,
         code=clean,
