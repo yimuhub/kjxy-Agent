@@ -154,9 +154,11 @@ def signup_yard(
     user = create_user(db, username=username, password=password, email=email, display_name=username)
     yard.owner_user_id = user.id
     repo.add_membership(db, yard_id=yard.id, user_id=user.id, role="yard_owner")
+    from app.modules.growth.skills import ensure_growth_skills
     from app.modules.market.agri_skills import ensure_builtin_skills
 
     ensure_builtin_skills(db, yard_id=yard.id, actor_id=user.id, request_id=f"signup:{client_ip}")
+    ensure_growth_skills(db, yard_id=yard.id, actor_id=user.id, request_id=f"signup:{client_ip}")
     log_audit(
         db,
         yard_id=yard.id,

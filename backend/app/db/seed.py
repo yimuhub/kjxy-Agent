@@ -91,9 +91,11 @@ def _ensure_demo_owner(db) -> None:
     ).all():
         if row.user_id != admin.id:
             row.role = "yard_admin"
+    from app.modules.growth.skills import ensure_growth_skills
     from app.modules.market.agri_skills import ensure_builtin_skills
 
     ensure_builtin_skills(db, yard_id=yard.id, actor_id=admin.id, request_id="seed")
+    ensure_growth_skills(db, yard_id=yard.id, actor_id=admin.id, request_id="seed")
     db.commit()
 
 
@@ -142,9 +144,11 @@ def seed(random_passwords: bool = False) -> None:
         db.flush()
 
         # 内置农业技能：直接出现在「专家审核 → Skill 管理」
+        from app.modules.growth.skills import ensure_growth_skills
         from app.modules.market.agri_skills import ensure_builtin_skills
 
         ensure_builtin_skills(db, yard_id=yard.id, actor_id=users["admin"].id, request_id="seed")
+        ensure_growth_skills(db, yard_id=yard.id, actor_id=users["admin"].id, request_id="seed")
 
         # 演示知识文档（直接写入 ready 状态，免去解析流程）
         from app.modules.knowledge.chunking import split_text

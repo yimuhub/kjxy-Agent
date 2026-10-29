@@ -20,6 +20,8 @@ from app.core.logging import get_logger
 from app.modules.audit.service import log_audit
 from app.modules.evolution.models import Skill
 from app.modules.evolution.service import attest_published_skill, create_skill
+from app.modules.growth.skills import builtin_items as growth_builtin_items
+from app.modules.growth.skills import seed_growth_skills
 from app.modules.market.agri_skills import builtin_items, seed_builtin
 from app.modules.market.github_source import preview_skill_from_repo, search_github_skills
 from app.modules.market.importer import unique_plugin_id, unique_skill_code
@@ -270,7 +272,7 @@ def search_items(
     candidates: dict[str, MarketItem | dict] = {}
     for row in db.query(MarketItem).all():
         candidates[row.item_key] = row
-    for item in builtin_items():
+    for item in [*builtin_items(), *growth_builtin_items()]:
         candidates.setdefault(item["item_key"], item)
 
     skill_codes, plugin_ids = _installed_index(db, ctx.yard_id)
@@ -306,6 +308,7 @@ def get_item(db: Session, item_key: str) -> MarketItem | dict | None:
     # 未落库的内置种子按需补种，保证详情/安装可用
     if item_key.startswith("builtin:"):
         seed_builtin(db)
+        seed_growth_skills(db)
         return db.query(MarketItem).filter(MarketItem.item_key == item_key).first()
     return None
 

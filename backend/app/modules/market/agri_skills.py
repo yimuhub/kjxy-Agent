@@ -6,12 +6,11 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.modules.market.models import MarketItem
+from app.modules.market.builtin_seed import ensure_skills, seed_items
 
 SOURCE_REPO = "farmfriend-labs/agent-skills-farming"
 SOURCE_REPO_URL = f"https://github.com/{SOURCE_REPO}"
@@ -610,28 +609,7 @@ def builtin_item_map() -> dict[str, dict[str, Any]]:
 
 def seed_builtin(db: Session) -> int:
     """幂等 upsert 内置技能；返回本次新增条数（已存在的只刷新内容，不改状态）。"""
-    created = 0
-    for data in builtin_items():
-        row = db.query(MarketItem).filter(MarketItem.item_key == data["item_key"]).first()
-        if row is None:
-            row = MarketItem(**data)
-            db.add(row)
-            created += 1
-            continue
-        # 只刷新内容字段；status 保留安装态，避免种子覆盖用户/安装结果
-        row.name = data["name"]
-        row.version = data["version"]
-        row.description = data["description"]
-        row.source_url = data["source_url"]
-        row.license = data["license"]
-        row.author = data["author"]
-        row.risk_level = data["risk_level"]
-        row.definition_json = data["definition_json"]
-        row.metadata_json = data["metadata_json"]
-        row.verified = True
-        row.verified_at = row.verified_at or datetime.now(UTC)
-    db.flush()
-    return created
+    return seed_items(db, builtin_items())
 
 
 def ensure_builtin_skills(db: Session, *, yard_id: str, actor_id: str, request_id: str = "") -> int:
@@ -639,49 +617,14 @@ def ensure_builtin_skills(db: Session, *, yard_id: str, actor_id: str, request_i
 
     幂等：按 yard + skill_code 判重，已存在（任意版本）则跳过。返回新建数量。
     """
-    from sqlalchemy import select
-
-    from app.modules.audit.service import log_audit
-    from app.modules.evolution.models import Skill
-
-    existing = {
-        str(code)
-        for code in db.scalars(select(Skill.skill_code).where(Skill.yard_id == yard_id)).all()
-    }
-    created = 0
-    for item in builtin_items():
-        code = str(item["code"])
-        if code in existing:
-            continue
-        definition = dict(item["definition_json"] or {})
-        definition["market_item_key"] = item["item_key"]
-        db.add(
-            Skill(
-                yard_id=yard_id,
-                skill_code=code,
-                version=str(item["version"]),
-                definition_json=definition,
-                status="published",
-                created_from="market_builtin",
-                approved_by=actor_id,
-            )
-        )
-        existing.add(code)
-        created += 1
-    if created:
-        db.flush()
-        log_audit(
-            db,
-            yard_id=yard_id,
-            actor_id=actor_id,
-            action="builtin_skills_provisioned",
-            resource_type="skill",
-            resource_id=yard_id,
-            result="success",
-            request_id=request_id or f"provision:{yard_id}",
-            metadata={"count": created, "source": SOURCE_REPO},
-        )
-    return created
+    return ensure_skills(
+        db,
+        builtin_items(),
+        yard_id=yard_id,
+        actor_id=actor_id,
+        request_id=request_id,
+        source_label=SOURCE_REPO,
+    )
 
 
 __all__ = [
