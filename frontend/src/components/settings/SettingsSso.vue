@@ -158,6 +158,7 @@
 
     <el-dialog
       v-model="dialogVisible"
+      append-to-body
       :title="editingId ? '编辑身份提供方' : '新增身份提供方'"
       width="680px"
     >
@@ -301,6 +302,7 @@
 
     <el-dialog
       v-model="testResultVisible"
+      append-to-body
       title="身份源探测结果"
       width="560px"
     >

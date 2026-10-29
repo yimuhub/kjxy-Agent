@@ -55,6 +55,7 @@
 
         <el-dialog
           v-model="drawerVisible"
+          append-to-body
           :title="detail?.policy_name"
           width="72%"
           align-center

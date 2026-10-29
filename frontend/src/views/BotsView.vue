@@ -279,7 +279,12 @@ onMounted(() => {
     </el-table>
 
     <!-- 添加/编辑对话框 -->
-    <el-dialog v-model="dialogVisible" :title="editingId ? '编辑机器人' : '添加机器人'" width="520px">
+    <el-dialog
+      v-model="dialogVisible"
+      append-to-body
+      :title="editingId ? '编辑机器人' : '添加机器人'"
+      width="520px"
+    >
       <el-form label-width="110px">
         <el-form-item label="平台">
           <el-select v-model="form.platform" :disabled="!!editingId" style="width: 100%">
@@ -342,6 +347,7 @@ onMounted(() => {
     <!-- 会话审批 -->
     <el-dialog
       v-model="drawerVisible"
+      append-to-body
       title="会话审批与消息账本"
       width="620px"
       align-center

@@ -304,6 +304,7 @@
 
     <el-dialog
       v-model="createDialog"
+      append-to-body
       title="新建工单"
       width="520px"
     >
@@ -400,6 +401,7 @@
 
     <el-dialog
       v-model="alertDialog"
+      append-to-body
       title="上报告警"
       width="480px"
     >
@@ -473,6 +475,7 @@
 
     <el-dialog
       v-model="detailDrawer"
+      append-to-body
       :title="detail ? detail.title : '工单详情'"
       width="520px"
       align-center

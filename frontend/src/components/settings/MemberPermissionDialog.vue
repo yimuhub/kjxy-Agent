@@ -1,5 +1,6 @@
 <template>
   <el-dialog
+append-to-body
     :model-value="modelValue"
     title="成员权限与逐人授权"
     width="760px"

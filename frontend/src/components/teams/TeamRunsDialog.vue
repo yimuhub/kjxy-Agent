@@ -1,6 +1,7 @@
 <template>
   <el-dialog
     v-model="visible"
+    append-to-body
     title="运行记录"
     width="min(1060px, 94vw)"
     top="5vh"

@@ -183,6 +183,7 @@
     <!-- 任务详情抽屉 -->
     <el-dialog
       v-model="drawerVisible"
+      append-to-body
       title="任务详情"
       width="520px"
       align-center
@@ -264,6 +265,7 @@
     <!-- 审批确认对话框 -->
     <el-dialog
       v-model="approvalDialogVisible"
+      append-to-body
       :title="approvalAction === 'approve' ? '批准高风险操作' : '驳回高风险操作'"
       width="480px"
     >

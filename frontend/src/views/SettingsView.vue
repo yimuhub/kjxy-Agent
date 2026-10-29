@@ -340,6 +340,7 @@
     <!-- W5a 添加 MCP 服务器（鉴权头行编辑同设备连接器样式） -->
     <el-dialog
       v-model="mcpDialogVisible"
+      append-to-body
       title="添加 MCP 服务器"
       width="620px"
     >
@@ -431,6 +432,7 @@
     <!-- MCP 已缓存工具清单（来自连接测试快照） -->
     <el-dialog
       v-model="mcpToolsVisible"
+      append-to-body
       :title="`缓存工具：${mcpToolsServer?.name || ''}（${mcpToolsList.length}）`"
       width="640px"
     >

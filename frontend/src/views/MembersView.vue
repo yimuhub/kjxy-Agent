@@ -471,6 +471,7 @@
     <!-- 新建成员 -->
     <el-dialog
       v-model="createDialog"
+      append-to-body
       title="新建成员"
       width="520px"
       @closed="resetCreateForm"
@@ -563,6 +564,7 @@
     <!-- 编辑成员 -->
     <el-dialog
       v-model="editDrawer"
+      append-to-body
       :title="`编辑成员：${editTarget?.display_name || editTarget?.username || ''}`"
       width="460px"
       align-center
@@ -657,6 +659,7 @@
     <!-- 批量导入（保留用户名 + 角色模式） -->
     <el-dialog
       v-model="batchDialog"
+      append-to-body
       title="批量导入成员"
       width="560px"
       @closed="resetBatch"
@@ -731,6 +734,7 @@
     <!-- 邀请链接 -->
     <el-dialog
       v-model="inviteDialog"
+      append-to-body
       title="生成邀请链接"
       width="520px"
       @closed="resetInviteForm"
@@ -825,6 +829,7 @@
     <!-- 初始密码 / 临时密码仅显示一次 -->
     <el-dialog
       v-model="passwordDialog"
+      append-to-body
       :title="passwordTitle"
       width="460px"
     >

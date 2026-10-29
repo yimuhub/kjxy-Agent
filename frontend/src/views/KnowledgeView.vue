@@ -270,6 +270,7 @@
     <!-- MarkItDown 结构化分块预览 -->
     <el-dialog
       v-model="chunkDrawerVisible"
+      append-to-body
       :title="`Markdown 结构化分块预览：${activeDoc?.title || activeDoc?.filename || ''}`"
       width="680px"
       align-center

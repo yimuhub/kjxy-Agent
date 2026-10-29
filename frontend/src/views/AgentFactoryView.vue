@@ -215,7 +215,12 @@
     </AsyncState>
 
     <!-- 采纳结果 -->
-    <el-dialog v-model="resultVisible" title="采纳结果" width="620px">
+    <el-dialog
+      v-model="resultVisible"
+      append-to-body
+      title="采纳结果"
+      width="620px"
+    >
       <el-descriptions v-if="applyResult" :column="4" border size="small" class="mb">
         <el-descriptions-item label="发布">
           {{ applyResult.published }}

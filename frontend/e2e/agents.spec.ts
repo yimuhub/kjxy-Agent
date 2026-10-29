@@ -6,9 +6,10 @@ test.describe('智能体编辑弹窗绑定拆分', () => {
     await login(page)
     await page.goto('/agents/custom')
 
-    const editBtn = page.getByRole('button', { name: '编辑', exact: true }).first()
-    await expect(editBtn).toBeVisible()
-    await editBtn.click()
+    const moreBtn = page.getByRole('button', { name: '更多操作' }).first()
+    await expect(moreBtn).toBeVisible()
+    await moreBtn.click()
+    await page.getByRole('menuitem', { name: '编辑', exact: true }).click()
 
     const dialog = page.getByRole('dialog', { name: /编辑智能体|新建智能体/ })
     await expect(dialog).toBeVisible()

@@ -1,5 +1,6 @@
 <template>
   <el-dialog
+append-to-body
     :model-value="modelValue"
     title="上架前评测与签名"
     width="720px"

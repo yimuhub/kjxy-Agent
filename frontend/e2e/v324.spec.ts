@@ -72,6 +72,30 @@ test.describe('权限与千人千面（v3.24）', () => {
     await expect(page.getByText('默认工作台视图已保存')).toBeVisible()
   })
 
+  test('工作台视图：配置未到时不展示可编辑表单（避免默认值被当成真实配置保存）', async ({ page }) => {
+    let release!: () => void
+    const gate = new Promise<void>((r) => {
+      release = r
+    })
+    await page.route('**/api/v1/yards/current/menu', async (route) => {
+      await gate
+      await route.continue()
+    })
+
+    await login(page, 'admin', 'admin123')
+    await page.goto('/settings?tab=menu')
+
+    const pane = page.getByRole('tabpanel', { name: '工作台视图' })
+    // 面板已渲染但配置还在路上：此时不能出现可编辑表单，否则晚到的配置会覆盖管理员的选择
+    await expect(pane.getByText('优先级：成员本地自定义')).toBeVisible()
+    await expect(pane.locator('label.el-radio-button')).toHaveCount(0)
+    await expect(pane.getByRole('button', { name: '保存默认视图' })).toBeDisabled()
+
+    release()
+    await expect(pane.locator('label.el-radio-button')).toHaveCount(3)
+    await expect(pane.getByRole('button', { name: '保存默认视图' })).toBeEnabled()
+  })
+
   test('千人千面：无权限成员看不到入口，直连被拦到无权限页', async ({ page }) => {
     await page.goto('/login')
     await page.locator('input[autocomplete="username"]').fill('operator')

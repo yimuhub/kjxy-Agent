@@ -126,35 +126,44 @@
         发布
       </el-button>
       <el-button
-        size="small"
-        @click="emit('edit', agent)"
-      >
-        编辑
-      </el-button>
-      <el-button
-        v-if="showDuplicate"
-        size="small"
-        @click="emit('duplicate', agent)"
-      >
-        复制
-      </el-button>
-      <el-button
-        v-if="agent.status === 'published'"
+        v-else-if="agent.status === 'published'"
         size="small"
         type="warning"
         @click="emit('deprecate', agent)"
       >
         停用
       </el-button>
-      <el-button
-        size="small"
-        type="danger"
-        plain
-        :aria-label="`删除助手${agent.display_name}`"
-        @click="emit('remove', agent)"
+      <el-dropdown
+        trigger="click"
+        @command="(cmd: DaCardCommand) => onCommand(cmd)"
       >
-        删除
-      </el-button>
+        <el-button
+          size="small"
+          text
+          aria-label="更多操作"
+        >
+          更多
+        </el-button>
+        <template #dropdown>
+          <el-dropdown-menu>
+            <el-dropdown-item command="edit">
+              编辑
+            </el-dropdown-item>
+            <el-dropdown-item
+              v-if="showDuplicate"
+              command="duplicate"
+            >
+              复制
+            </el-dropdown-item>
+            <el-dropdown-item
+              command="remove"
+              divided
+            >
+              删除
+            </el-dropdown-item>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
     </footer>
   </article>
 </template>
@@ -190,6 +199,14 @@
     (e: 'duplicate', agent: DeclarativeAgent): void
     (e: 'toggle-select', agent: DeclarativeAgent): void
   }>()
+
+  type DaCardCommand = 'edit' | 'duplicate' | 'remove'
+
+  function onCommand(cmd: DaCardCommand): void {
+    if (cmd === 'edit') emit('edit', props.agent)
+    else if (cmd === 'duplicate') emit('duplicate', props.agent)
+    else emit('remove', props.agent)
+  }
 
   const STATUS_TYPE: Record<string, 'info' | 'warning' | 'success'> = {
     draft: 'info',
@@ -435,10 +452,14 @@
   .da-actions {
     flex: none;
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    align-items: center;
     gap: 8px;
     padding: 10px 16px 14px;
     border-top: 1px solid var(--ds-border);
+  }
+  .da-actions :deep(.el-button) {
+    margin-left: 0;
   }
   .da-actions :deep(.el-button + .el-button) {
     margin-left: 0;

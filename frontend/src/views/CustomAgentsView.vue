@@ -352,54 +352,63 @@
 
         <el-table-column
           label="操作"
-          min-width="280"
+          width="186"
           fixed="right"
         >
           <template #default="{ row }">
-            <el-button
-              size="small"
-              type="primary"
-              @click="openDaUse(row as DeclarativeAgent)"
-            >
-              对话
-            </el-button>
-            <el-button
-              v-if="row.status === 'draft'"
-              size="small"
-              type="success"
-              @click="daPublish(row as DeclarativeAgent)"
-            >
-              发布
-            </el-button>
-            <el-button
-              size="small"
-              @click="openDaEdit(row as DeclarativeAgent)"
-            >
-              编辑
-            </el-button>
-            <el-button
-              size="small"
-              @click="daDuplicate(row as DeclarativeAgent)"
-            >
-              复制
-            </el-button>
-            <el-button
-              v-if="row.status === 'published'"
-              size="small"
-              type="warning"
-              @click="daDeprecate(row as DeclarativeAgent)"
-            >
-              停用
-            </el-button>
-            <el-button
-              size="small"
-              type="danger"
-              plain
-              :aria-label="`删除助手${row.display_name}`"
-              @click="daRemove(row as DeclarativeAgent)"
-            >
-              删除
-            </el-button>
+            <div class="da-actions">
+              <el-button
+                size="small"
+                type="primary"
+                @click="openDaUse(row as DeclarativeAgent)"
+              >
+                对话
+              </el-button>
+              <el-button
+                v-if="row.status === 'draft'"
+                size="small"
+                type="success"
+                @click="daPublish(row as DeclarativeAgent)"
+              >
+                发布
+              </el-button>
+              <el-button
+                v-else-if="row.status === 'published'"
+                size="small"
+                type="warning"
+                @click="daDeprecate(row as DeclarativeAgent)"
+              >
+                停用
+              </el-button>
+              <el-dropdown
+                trigger="click"
+                @command="(cmd: DaRowCommand) => onDaRowCommand(cmd, row as DeclarativeAgent)"
+              >
+                <el-button
+                  size="small"
+                  text
+                  aria-label="更多操作"
+                >
+                  更多
+                </el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="edit">
+                      编辑
+                    </el-dropdown-item>
+                    <el-dropdown-item command="duplicate">
+                      复制
+                    </el-dropdown-item>
+                    <el-dropdown-item
+                      command="delete"
+                      divided
+                    >
+                      删除
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -408,6 +417,7 @@
     <!-- 新建/编辑智能体弹窗（支持独立大模型+子模型指定、1对多工具与技能绑定） -->
     <el-dialog
       v-model="daDialogVisible"
+      append-to-body
       :title="daEditingId ? '编辑智能体' : '新建智能体'"
       width="700px"
       top="5vh"
@@ -716,6 +726,7 @@
     <!-- 平台审核队列 -->
     <el-dialog
       v-model="reviewVisible"
+      append-to-body
       title="高风险智能体 · 平台审核队列"
       width="720px"
     >
@@ -1438,6 +1449,15 @@
     }
   }
 
+  /* 列表视图「更多」菜单：编辑/复制/删除收进溢出菜单，避免操作栏挤成一团 */
+  type DaRowCommand = 'edit' | 'duplicate' | 'delete'
+
+  function onDaRowCommand(cmd: DaRowCommand, row: DeclarativeAgent) {
+    if (cmd === 'edit') openDaEdit(row)
+    else if (cmd === 'duplicate') daDuplicate(row)
+    else if (cmd === 'delete') daRemove(row)
+  }
+
   /* ---------- 单聊 / 多智能体群聊 / 一键组建班组 ---------- */
   const daUseVisible = ref(false)
   const daUseTarget = ref<DeclarativeAgent | null>(null)
@@ -1787,6 +1807,20 @@
   .token-calls {
     color: var(--ds-text-3);
     font-size: 11px;
+  }
+  /* 操作栏：单行排布，间距均匀，单元格再窄也不会把按钮挤到换行 */
+  .da-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: nowrap;
+    white-space: nowrap;
+  }
+  .da-actions :deep(.el-button) {
+    margin-left: 0;
+  }
+  .da-actions :deep(.el-button + .el-button) {
+    margin-left: 0;
   }
 
   .model-bind-row {

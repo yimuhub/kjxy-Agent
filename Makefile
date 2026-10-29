@@ -1,4 +1,5 @@
 .PHONY: up down logs migrate seed-dev test test-security lint type-check contract contract-check check lock build ps
+.PHONY: dialogs-check
 .PHONY: native-install native-migrate native-seed native-api native-web
 
 # 本机 Python 解释器：优先用仓库 .venv（native 流程产物）
@@ -54,6 +55,11 @@ lint:
 type-check:
 	cd backend && $(PY) -m mypy app
 
+# 弹窗必须 teleport 到 body：卡片上的 backdrop-filter 会成为 position:fixed 的包含块，
+# 漏配 append-to-body 会让弹窗被外框裁切（v3.25.1 修复「弹窗被外框框住」）
+dialogs-check:
+	$(PY) scripts/add_dialog_append_to_body.py --check
+
 # 重新生成 OpenAPI 契约（接口变更后执行，随代码同 PR 提交）
 contract:
 	$(PY) backend/scripts/generate_openapi.py
@@ -64,8 +70,8 @@ contract-check:
 	@git diff --quiet --exit-code contracts/openapi.yaml 2>/dev/null \
 		|| { echo "contracts/openapi.yaml 与代码不一致，请运行 'make contract' 并提交"; exit 1; }
 
-# 一键质量门禁：lint + 类型 + 测试 + 契约漂移
-check: lint type-check test contract-check
+# 一键质量门禁：lint + 类型 + 测试 + 契约漂移 + 弹窗 teleport 检查
+check: lint type-check test contract-check dialogs-check
 
 # 依赖锁文件（spec §2.1 版本原则：提交 uv.lock 与前端 lockfile）
 lock:

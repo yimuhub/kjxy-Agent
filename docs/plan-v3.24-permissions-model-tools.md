@@ -257,3 +257,37 @@
 - 「按 Agent 绑定」目前覆盖专业助手与已发布的自建助手；助手编辑页的「指定模型」仍走单供应商选择，后续与该层合并成同一入口。
 - 供应商自动降级只处理连续失败熔断，尚无「按延迟/成本自动换挡」；`llm_calls.purpose` 已入库，按能力统计成本待做看板。
 
+## 10. 3.25.1 缺陷修复记录（弹窗裁切与操作栏 UI，2026-10-29）
+
+B 批交付后收到实测反馈：「模型中心 → 供应商 → 新增供应商」弹窗被页面外层框框住、尺寸受限、系统设置各环节同样如此。定位为**全局根因**，按根因修复而非逐个弹窗打补丁。
+
+根因（CSS 包含块规则）：
+
+- `.el-card` / `.glass-panel` 上有 `backdrop-filter: blur(18px) saturate(1.2)`，而 `backdrop-filter`（与 `transform` / `filter` / `perspective` / `will-change` / `contain` 同族）会为 `position: fixed` 的后代**创建包含块**。
+- Element Plus 的 `el-dialog` 默认**不 teleport**（`appendToBody` 默认 `false`），遮罩层 `.el-overlay` 就近内联渲染在卡片里，于是 `position: fixed` 相对卡片定位，弹窗被卡片边界裁切。
+- 实测「新增供应商」弹窗：宽 439px、top 1072px、left -94px——基本整个落在可视区之外。
+
+已落地：
+
+- 全站 73 处 `<el-dialog>` 统一加 `append-to-body`，遮罩层 teleport 到 `body`，不再受任何祖先的包含块约束。实测变为宽 620px、left = (676 − 620) / 2 = 28（水平居中）、top 16（垂直居中），overlay 父节点为 `BODY`。
+- 新增 `scripts/add_dialog_append_to_body.py`：幂等批量补属性（遵守 `vue/attributes-order`），`--check` 模式可作 CI 卡口，当前报告「所有 el-dialog 均已设置 append-to-body」。
+- 全局弹窗规则（`frontend/src/styles/design-system.css`）：`max-width: calc(100vw - 32px)`、`max-height: calc(100vh - 32px)` 做视口自适应；弹窗改列布局，标题与底部操作区固定、内容区自行滚动，弹窗再高也顶不出屏幕。
+- 右侧抽屉全部改居中弹窗：`ToolsCatalog.vue`「工具详情」（720px）、`EvolutionView.vue`「Skill 详情」（560px）；至此全站无向右弹出的面板。
+- 智能体列表操作栏重做（`CustomAgentsView.vue`）：原 `min-width="280"` 平铺 6 个按钮导致「字压字」、「对话」重复、「删除」换行；改为 `width="186"` 定宽、操作区 `flex-wrap: nowrap`，主操作「对话」+「发布/停用」，编辑/复制/删除收进「更多」下拉（删除项 `divided`）。
+- 智能体卡片底栏同步重做（`components/agents/DeclarativeAgentCard.vue`）：卡片底栏是同一套 6 个按钮，实测「删除」同样被挤到第二行；改为「对话」+「发布/停用」+「更多」，编辑/复制/删除收进「更多」下拉，两个视图的操作语言统一。
+- 表格固定列透字修复：Element Plus 固定列 `background: inherit` 继承到透明的 `--el-table-tr-bg-color`，相邻列文字从下方透出；补 `background-color: var(--ds-bg-1)`（hover 用 `--ds-bg-2`）。
+- 版本面 9 处升到 3.25.1，`scripts/check_versions.py --tag v3.25.1` 通过；`docs/api.md` 版本握手示例同步。
+
+收口时由全量 E2E 暴露并补修的问题（共四处）：
+
+- **E2E 预算不足导致的假失败**（`frontend/playwright.config.ts`）：本套 E2E 跑的是 Vite dev server 而非构建产物，冷启动要现场编译整棵模块图，登录 + 路由跳转常吃掉 10s 以上，30s 默认预算会在断言执行到一半时把用例砍断。表现极具迷惑性——`v321.spec.ts` 报「弹窗没关掉」，而 trace 显示 DOM 停在 `el-overlay-dialog is-closing` 中间态，「保存」点击实际落在第 29.7s，用例是被超时杀掉的。live browser 复现确认弹窗本身 500ms 内正常关闭，故判定为预算问题而非组件缺陷；全局超时提到 60s。
+- **工作台视图配置被默认值静默覆盖**（`SettingsMenuProfiles.vue`）：面板在服务端配置到达前先渲染 `DEFAULT_CONFIG`，管理员选好的视图会被随后到达的 `load()` 改回默认值，接着一次「保存」就把默认值写回后端——配置被悄悄改掉且用户毫无察觉。改为配置未到前不渲染可编辑表单（`loaded` 标志 + `v-if` + 卡片 loading + 保存按钮禁用），加载失败时同样保持不渲染。回归用例用 `page.route` 闸住配置接口形成确定性复现：旧代码必然失败于「配置未到却已渲染可编辑表单」，新代码通过。
+- **新草稿被上一轮的异步收尾清空**（`frontend/src/components/chat/ChatPanel.vue`）：`onSend()` 里的 `await store.send()` 要等 SSE 流结束**之后**再加两段异步收尾（`renameSession` 的 PATCH、`fetchSessions` 的 GET）才 resolve，但 `sending=false` 是在 `sendViaStream.finish()` 里更早置位的——于是界面已经「可输入」，上一轮收尾却还在路上：用户在这段窗口里新打的字，会被迟到的 resolve 执行 `draft.value = ''` 抹掉，且因文本框已空导致发送按钮置灰。trace 证据：SSE 结束于 trace-t 78568ms → PATCH 78581ms → 用户于 78634–78645ms 键入草稿 → GET 78637ms → `send()` 于 ≈78677ms resolve → 草稿被清 → 按钮置灰 → 断言在 78835ms 失败。改为**只在草稿未被改动时才清空**（`if (ok && draft.value === raw)`），发送失败保留草稿便于重发。
+- **E2E 断言定位器歧义**（`frontend/e2e/v320.spec.ts`）：`getByText('Agent Card')` 同时命中两处——A2A 未开启时 `el-alert` 的告警标题「平台未开启 A2A（环境变量 A2A_ENABLED=false），Agent Card 与入站 RPC 均不可用。」与描述表的「Agent Card」标签，触发 Playwright strict mode violation（命中多个元素直接报错）。改为按角色定位描述表那一格：`getByRole('cell', { name: 'Agent Card' })`。
+- **弹窗布局与操作栏缺回归护栏**（新增 `frontend/e2e/v3251.spec.ts`，5 条用例）：修复前后的行为差别只在几何上（是否被外框裁切、是否居中、按钮是否换行），既有 E2E 没有任何几何断言，改回去不会被测出来。新增用例直接量 `getBoundingClientRect()`：断言遮罩父节点为 `BODY`、遮罩到 `BODY` 之间不存在 `transform/filter/backdrop-filter` 祖先（包含块根因）、弹窗完整落在视口内且水平垂直居中、宽度没被压扁、页面里 `el-drawer` 数为 0、列表视图与卡片视图的操作栏按钮顶端一致（不换行）且「删除」不在按钮栏内而在「更多」下拉里。弹窗有淡入动画，动画期间量到的是过渡值（top 为负），故用 `expect.poll` 轮询到布局稳定再断言。
+
+未完事项：
+
+- `append-to-body` 已接进 `make dialogs-check` 并纳入一键门禁 `make check`（GitHub Actions 侧仍待接入），新写弹窗漏配会被本地门禁拦下。
+- 弹窗内容超高时仍靠内容区滚动承载，未做分页或折叠（与 3.16 的取舍一致）。
+- 表格固定列背景用 `--ds-bg-1` 硬编码，若将来卡片底色体系调整需同步维护。

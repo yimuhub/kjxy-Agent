@@ -1,6 +1,7 @@
 <template>
   <el-dialog
     v-model="visible"
+    append-to-body
     :title="dialogTitle"
     width="min(720px, 94vw)"
     :close-on-click-modal="!busy"

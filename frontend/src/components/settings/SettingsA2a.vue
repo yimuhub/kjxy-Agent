@@ -318,6 +318,7 @@
 
     <el-dialog
       v-model="tokenDialog"
+      append-to-body
       title="入站令牌（只显示一次）"
       width="560px"
     >
@@ -345,6 +346,7 @@
 
     <el-dialog
       v-model="dialogVisible"
+      append-to-body
       :title="editingId ? '编辑协作方' : '新增协作方'"
       width="560px"
     >
@@ -401,6 +403,7 @@
 
     <el-dialog
       v-model="taskDialog"
+      append-to-body
       title="发起协作任务"
       width="560px"
     >
@@ -447,6 +450,7 @@
 
     <el-dialog
       v-model="detailVisible"
+      append-to-body
       title="任务详情"
       width="640px"
     >

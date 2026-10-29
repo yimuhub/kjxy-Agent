@@ -156,6 +156,7 @@
 
     <el-dialog
       v-model="reasonDialog"
+      append-to-body
       title="查看会话正文"
       width="520px"
       @closed="reason = ''"
@@ -192,6 +193,7 @@
 
     <el-dialog
       v-model="drawer"
+      append-to-body
       :title="`会话正文：${activeSession?.title || '未命名会话'}`"
       width="580px"
       align-center

@@ -2,6 +2,75 @@
 
 本项目遵循《工程开发规范 V3.0》；版本号遵循语义化版本。
 
+## [3.25.1] - 2026-10-29
+
+弹窗被外层卡片「框住」的重大缺陷修复：模型中心「新增供应商」以及系统设置各环节的弹窗都被压在页面外框里、尺寸被限制、显示不合理。根因是 CSS 的包含块规则——卡片上的 `backdrop-filter` 会让内部 `position: fixed` 的弹层以卡片为基准定位，于是弹窗被卡片边界裁切。本次按根因修复，并统一全站弹窗为居中弹窗、把右侧抽屉改写为居中弹窗、顺带重做智能体列表的操作栏 UI。
+
+### 根因与全局修复
+
+- **根因**：`.el-card` / `.glass-panel` 上的 `backdrop-filter: blur(18px)` 会为 `position: fixed` 后代创建包含块，Element Plus 默认内联渲染的 `.el-overlay` 因此被困在卡片内——实测「新增供应商」弹窗宽 439px、top 1072px、left -94px，完全在可视区之外。
+- **修复**：全站 73 处 `<el-dialog>` 统一加 `append-to-body`，遮罩层 teleport 到 `body`，不再受任何祖先的包含块约束；实测弹窗变为宽 620px、水平居中（left = (视口宽 − 620) / 2）、垂直居中，overlay 父节点为 `BODY`。
+- **新增脚本** `scripts/add_dialog_append_to_body.py`：幂等批量补属性（遵守 `vue/attributes-order`），带 `--check` 模式并接入 `make dialogs-check`（已并入一键门禁 `make check`），防止新弹窗漏配。
+- **全局弹窗规则**（`styles/design-system.css`）：`max-width: calc(100vw - 32px)` / `max-height: calc(100vh - 32px)` 视口自适应，再宽的弹窗也不横向溢出；弹窗改列布局，标题与底部操作区固定、内容区自行滚动，弹窗再高也顶不出屏幕。
+
+### 界面（前端）
+
+- **全部弹窗居中**：两处右侧抽屉改写为居中 `el-dialog`——「可用工具」工具详情（`ToolsCatalog.vue`，720px）与「Skill 详情」（`EvolutionView.vue`，560px）；至此全站不再有向右侧弹出的面板。
+- **智能体列表操作栏重做**（`CustomAgentsView.vue`）：原 280px 宽的操作列平铺 6 个按钮导致「字压字」、「对话」重复、「删除」换行。改为 186px 定宽，操作区 `flex-wrap: nowrap` 保证一行：主操作「对话」+「发布/停用」，编辑/复制/删除收进「更多」下拉菜单（`divided` 分隔删除项）。
+- **智能体卡片操作栏同步重做**（`components/agents/DeclarativeAgentCard.vue`）：卡片底栏是同一套 6 个按钮，实测「删除」同样被挤到第二行。改为「对话」+「发布/停用」+「更多」，编辑/复制/删除收进「更多」下拉，两个视图的操作语言统一。
+- **表格固定列不再透字**：Element Plus 固定列用 `background: inherit` 继承透明色，导致相邻列文字从固定列下方透出。补 `background-color: var(--ds-bg-1)`（hover 时 `--ds-bg-2`），彻底消除「字压字」。
+
+### 收口时补修的五处
+
+- **E2E 预算不足导致的假失败**（`frontend/playwright.config.ts`）：本套 E2E 跑的是 Vite dev server（不是构建产物），冷启动要现场编译整棵模块图，登录页 + 路由跳转常吃掉 10s 以上；30s 的默认预算会在断言执行到一半时把用例砍断，表现为「弹窗没关掉」的假失败——v321 实测「保存」点击落在第 29.7s，测试被超时杀掉，弹窗停在 `is-closing` 中间态（trace 证据：`el-overlay-dialog is-closing` 持续 4 次轮询未消失）。全局超时提到 60s 后 v321 稳定通过。
+- **工作台视图配置被默认值静默覆盖**（`SettingsMenuProfiles.vue`）：面板在服务端配置到达前就先渲染 `DEFAULT_CONFIG`，管理员刚选好的视图会被随后到达的 `load()` 改回默认值，接着一次「保存」就把默认值写回后端——配置被悄悄改掉且用户毫无察觉。改为配置未到前不渲染可编辑表单（`loaded` 标志 + `v-if` + 卡片 loading + 保存按钮禁用），加载失败时同样保持不渲染，绝不把默认值当成真实配置保存。回归用例用 `page.route` 闸住配置接口，稳定复现旧代码的覆盖并验证新代码不渲染表单。
+- **新草稿被上一轮的异步收尾清空**（`frontend/src/components/chat/ChatPanel.vue`）：`onSend()` 里的 `await store.send()` 要等 SSE 流结束**之后**再加两段异步收尾（`renameSession` 的 PATCH、`fetchSessions` 的 GET）才 resolve，但 `sending=false` 是在 `sendViaStream.finish()` 里更早置位的——于是界面已经「可输入」而上一轮收尾还在路上，这段窗口里用户新打的字会被迟到的 resolve 执行 `draft.value = ''` 抹掉，并因文本框已空导致发送按钮置灰。trace 证据：SSE 结束于 trace-t 78568ms → PATCH 78581ms → 用户于 78634–78645ms 键入草稿 → GET 78637ms → `send()` 于 ≈78677ms resolve → 草稿被清 → 按钮置灰 → 断言在 78835ms 失败。改为只在草稿未被改动时才清空（`if (ok && draft.value === raw)`），发送失败保留草稿便于重发。
+- **E2E 断言定位器歧义**（`frontend/e2e/v320.spec.ts`）：`getByText('Agent Card')` 同时命中两处——A2A 未开启时 `el-alert` 的告警标题「平台未开启 A2A（环境变量 A2A_ENABLED=false），Agent Card 与入站 RPC 均不可用。」与描述表的「Agent Card」标签，触发 Playwright strict mode violation（命中多个元素直接判错）。改为按角色定位描述表那一格：`getByRole('cell', { name: 'Agent Card' })`。
+- **E2E 用例跟着 UI 一起改**（`frontend/e2e/agents.spec.ts`）：卡片视图操作栏把「编辑」收进「更多」下拉后，原用例的 `getByRole('button', { name: '编辑', exact: true })` 找不到元素。改为先点「更多操作」再点菜单里的「编辑」菜单项，列表与卡片两个视图都能命中，不依赖当前视图偏好。
+
+### 契约与文档
+
+- 版本面 9 处（`pyproject.toml` / `uv.lock` / `backend/app/main.py` / `frontend/package.json` / `client/desktop/package.json` / `Cargo.toml` / `Cargo.lock` / `tauri.conf.json` / `contracts/openapi.yaml`）统一升到 `3.25.1`，`scripts/check_versions.py --tag v3.25.1` 校验通过；`docs/api.md` 的版本握手示例同步。
+- OpenAPI 重新生成 261 路径，与代码无漂移。
+
+### 门禁
+
+以下为本版本收口时的实测结果（工作区含 3.25.0 与 3.25.1 的全部改动，一次跑完覆盖两版）。
+
+**后端**
+
+- `pytest tests`：**1609 passed / 0 failed**（4 分 52 秒）。
+- `ruff check app tests`：All checks passed；`ruff format --check app tests`：483 files already formatted。
+- `mypy app`：Success，no issues found in 321 source files。
+
+**前端**
+
+- ESLint：**0 error / 849 warning**（存量风格告警，未新增 error）。
+- `vue-tsc --noEmit`：通过（exit 0）。
+- 单元测试：38 pass / 0 fail。
+- `vite build`：通过（built in 9.35s）。
+
+**契约与一致性**
+
+- `scripts/generate_openapi.py`：**261 路径**，连续生成两次结果一致；相对 v3.24.0 基线新增 10 条路径（模型绑定 5 + 工具目录与 CRUD 启停 5），无意外漂移。
+- `scripts/check_versions.py --tag v3.25.1`：版本一致：3.25.1（9 处）。
+- `make dialogs-check`（`scripts/add_dialog_append_to_body.py --check`）：所有 el-dialog 均已设置 append-to-body。
+
+**E2E**
+
+- 全量 Playwright 套件：**76 passed / 1 skipped / 0 failed**（5.2 分钟，chromium + mobile 两个 project 共 77 条）。较上一版（71 passed）新增 5 条 `e2e/v3251.spec.ts`（弹窗几何回归：新增供应商、成员权限、可用工具详情三个弹窗的居中与不越界，两个智能体视图操作栏的单行不换行）。
+- 唯一跳过的是 `v320.spec.ts:57`「入站 JSON-RPC 全链路」，需要 `A2A_ENABLED=true` 环境变量，属环境前置条件而非缺陷。
+- E2E 的模型链路跑在**本地离线 mock**上（`127.0.0.1:8931`，6 秒延迟 + 8 段结构化 Markdown）。原因：演示小院登记的局域网模型服务 `192.168.3.44:8787` 实测单次「你好」需 16.9–86.5 秒，超过应用侧 60 秒超时（`LLM_TIMEOUT_SECONDS`），模型相关用例会整体报 `LLM_ERROR: 模型请求超时（60 秒）`。
+- **离线 mock 必须同时把供应商「启用」**：v3.25 的解析链是「助手绑定 → 智能体绑定 → 能力绑定 → 小院/平台默认 → 小院当前生效 → 全局默认」，只改 `base_url` 是不够的——供应商处于「已停用」状态（`status=2`）时整条链为空，会静默回落到 `settings.llm_provider` 兜底的 fake Provider。表现为 mock 一次都没被调用、方案合成拿到的正文没有 `##` 分节、8 个章节全被判「未写实」。因此门禁期间把「本地」临时置为启用（`status=1`）并把 `base_url` 指向 mock，跑完已按备份原样还原（`http://192.168.3.44:8787/v1`、status=2），mock 进程已停止。
+- mock 延迟取 6 秒而非 2 秒：`chat.spec.ts` 要断言「等待回答期间能看到实时步骤条」，模型过快时步骤条与结束帧几乎同批到达，Vue 来不及渲染出 `.live-steps`，用例就会假失败（实测 2 秒延迟下该用例失败、6 秒延迟下稳定通过）。
+
+**已知抖动（未复现，不阻塞收口）**
+
+- 首轮并行门禁时（前端 lint + vue-tsc + 单测 + vite build 与 pytest 同时抢 CPU）出现 1 条失败：`tests/integration/test_team_async.py::test_202_ledger_task_identity_and_summary_tokens`（该轮 1608 passed / 1 failed）。此后未再复现，证据如下：① 同一配置下并发复现三轮（每轮 pytest 与前端四项门禁同时抢 CPU）全部 **1609 passed / 0 failed**（296.03s / 374.82s / 413.53s）；② 另三次独占或加压的全量跑同样全绿（290.46s / 293.00s / 353.70s）；③ 该用例单独连续迭代 30 次全通过；④ v3.24.0 基线在同等负载下 **1574 passed / 0 failed**。合计 7 次全量跑仅首轮那 1 次失败。
+- 该用例的断言依赖 SQLite 内存库（`StaticPool` 单连接）在「测试会话」与「worker 会话」之间的读写可见性，属时序敏感型用例。首轮失败时未保留日志，原始 traceback 已不可得，因此**无法给出根因级结论**，只能判定为「与本次改动无关的既有偶发」：本次未改动班组相关代码与该测试文件（`git diff` 对 `app/modules/agents/teams/` 与 `backend/tests/integration/test_team_async.py` 均为空），且 v3.24.0 基线在同等负载下同样全绿。
+- 收口判断：不阻塞 3.25.1 发布；若后续再现，将以该轮的 traceback 为准单独定位（建议届时保留 pytest 日志文件）。
+
+
 ## [3.25.0] - 2026-10-29
 
 模型配置从「一个供应商、一条环境变量」升级为「多供应商 + 分层绑定 + 自动兜底」：供应商、全局默认与兜底、按能力绑定、按智能体绑定集中到新的「小院管理 · 模型中心」，主用被供应商停用或连续失败时下一次调用自动落到下一档。可用工具从只读列表升级为可预览、可新增的目录：点工具名看参数与调用示例，支持手动填写与一句话生成草稿（草稿不自动对模型可见）。

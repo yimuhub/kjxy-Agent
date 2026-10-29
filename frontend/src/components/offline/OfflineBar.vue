@@ -43,6 +43,7 @@
 
     <el-dialog
       v-model="dialogVisible"
+      append-to-body
       title="离线待同步明细"
       width="640px"
     >

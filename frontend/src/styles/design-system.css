@@ -461,6 +461,21 @@ a {
 .el-table__inner-wrapper::before {
   background-color: var(--ds-border);
 }
+/*
+ * 固定列（sticky）必须给不透明底色：本项目表格底色是玻璃透明态，EP 默认让固定列
+ * 继承行底色（=透明），横向滚动时下层单元格的文字会从固定列底下透出来，和按钮
+ * 文字挤在一起叠成「字压字」。这里用不透明的 ds-bg-1 盖住下层内容。
+ */
+.el-table__header-wrapper tr th.el-table-fixed-column--right,
+.el-table__header-wrapper tr th.el-table-fixed-column--left,
+.el-table__body-wrapper tr td.el-table-fixed-column--right,
+.el-table__body-wrapper tr td.el-table-fixed-column--left {
+  background-color: var(--ds-bg-1);
+}
+.el-table--enable-row-hover .el-table__body tr:hover > td.el-table-fixed-column--right,
+.el-table--enable-row-hover .el-table__body tr:hover > td.el-table-fixed-column--left {
+  background-color: var(--ds-bg-2);
+}
 .el-table--enable-row-hover .el-table__body tr:hover > td.el-table__cell {
   background-color: var(--ds-glass);
 }
@@ -495,14 +510,31 @@ a {
  * 也不会出现漏网的那个：遮罩层改成 flex 容器、面板 margin:auto —— auto 外边距
  * 吸收剩余空间即水平+垂直居中；内容比视口高时 auto 归零，面板退回顶部对齐并
  * 随遮罩滚动，不会把顶部顶出屏幕。
+ * justify-content 用 flex-start 而不是 center：面板比视口宽时若居中，两侧同时
+ * 溢出，起始侧那截会滚不到（flex 居中溢出的经典坑）。
  */
 .el-overlay-dialog {
   display: flex;
   align-items: flex-start;
-  justify-content: center;
+  justify-content: flex-start;
 }
 .el-overlay-dialog > .el-dialog {
   margin: auto;
+  /* 视口自适应：再宽的弹窗也不会横向溢出屏幕 */
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
+  /* 列布局：标题与底部操作区固定，内容区自己滚，弹窗再高也不会顶出屏幕 */
+  display: flex;
+  flex-direction: column;
+}
+.el-overlay-dialog > .el-dialog > .el-dialog__body {
+  min-height: 0;
+  overflow-y: auto;
+}
+/* 全屏弹窗不受视口高度限制 */
+.el-dialog.is-fullscreen {
+  max-width: none;
+  max-height: none;
 }
 .el-dialog {
   background: rgba(23, 28, 42, 0.94);

@@ -363,6 +363,7 @@
 
     <el-dialog
       v-model="drawerOpen"
+      append-to-body
       :title="previewTitle"
       width="min(520px, 92vw)"
       destroy-on-close

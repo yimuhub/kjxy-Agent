@@ -376,6 +376,7 @@
     </el-tabs>
     <el-dialog
       v-model="rolloutVisible"
+      append-to-body
       title="Skill 灰度发布"
       width="520px"
     >
@@ -447,6 +448,7 @@
     </el-dialog>
     <el-dialog
       v-model="evalVisible"
+      append-to-body
       title="评测门禁记录"
       width="720px"
     >
@@ -492,6 +494,7 @@
     </el-dialog>
     <el-dialog
       v-model="registerVisible"
+      append-to-body
       title="注册插件"
       width="720px"
     >
@@ -673,6 +676,7 @@
     </el-dialog>
     <el-dialog
       v-model="runVisible"
+      append-to-body
       :title="runDialogTitle"
       width="460px"
     >
@@ -713,6 +717,7 @@
     </el-dialog>
     <el-dialog
       v-model="runResultVisible"
+      append-to-body
       title="插件运行结果"
       width="480px"
       align-center
@@ -729,11 +734,12 @@
       </div>
     </el-dialog>
 
-    <!-- Skill 详情：点名称/编码打开，说明这个技能能做什么 -->
-    <el-drawer
+    <!-- Skill 详情：点名称/编码打开，说明这个技能能做什么（统一改成居中弹窗） -->
+    <el-dialog
       v-model="detailVisible"
       :title="detailSkill ? skillName(detailSkill) : 'Skill 详情'"
-      size="520px"
+      width="560px"
+      append-to-body
     >
       <div
         v-if="detailSkill"
@@ -826,11 +832,12 @@
           </el-button>
         </div>
       </div>
-    </el-drawer>
+    </el-dialog>
 
     <!-- 自动升级设置：只产待审核草稿，不自动发布 -->
     <el-dialog
       v-model="upgradeVisible"
+      append-to-body
       :title="upgradeTarget ? `自动升级：${skillName(upgradeTarget)}` : '自动升级'"
       width="600px"
       align-center
@@ -931,6 +938,7 @@
     <!-- 新建 Skill 草稿（从专家审核并入） -->
     <el-dialog
       v-model="createDialog"
+      append-to-body
       title="新建 Skill 草稿"
       width="560px"
       align-center
@@ -985,6 +993,7 @@
     <!-- 驳回 Skill -->
     <el-dialog
       v-model="skillRejectDialog"
+      append-to-body
       title="驳回 Skill"
       width="480px"
       align-center

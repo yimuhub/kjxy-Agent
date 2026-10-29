@@ -74,7 +74,12 @@
     </AsyncState>
 
     <!-- 新建设备 -->
-    <el-dialog v-model="createVisible" title="新建设备" width="640px">
+    <el-dialog
+      v-model="createVisible"
+      append-to-body
+      title="新建设备"
+      width="640px"
+    >
       <el-form label-width="100px">
         <el-form-item label="名称"><el-input v-model="form.name" placeholder="一号田气象站" /></el-form-item>
         <el-form-item label="类型">
@@ -132,7 +137,12 @@
     </el-dialog>
 
     <!-- 一次性令牌展示 -->
-    <el-dialog v-model="tokenVisible" title="设备接入令牌（仅显示这一次）" width="560px">
+    <el-dialog
+      v-model="tokenVisible"
+      append-to-body
+      title="设备接入令牌（仅显示这一次）"
+      width="560px"
+    >
       <el-alert type="warning" :closable="false" class="mb"
         title="请立即复制保存！关闭后系统不再显示明文，丢失只能重新生成（旧令牌立即失效）。" />
       <div class="token">{{ tokenValue }}</div>
@@ -149,6 +159,7 @@
     <!-- 数据弹窗 -->
     <el-dialog
       v-model="dataVisible"
+      append-to-body
       :title="`数据：${dataDevice?.name || ''}`"
       width="72%"
       align-center
@@ -183,6 +194,7 @@
     <!-- 设备分析（v3.23） -->
     <el-dialog
       v-model="analysisVisible"
+      append-to-body
       :title="`AI 分析：${analysisDevice?.name || ''}`"
       width="760px"
       align-center
@@ -313,7 +325,12 @@
     </el-table>
 
     <!-- 规则对话框 -->
-    <el-dialog v-model="ruleVisible" :title="ruleEditing?.id ? '编辑告警规则' : '新建告警规则'" width="480px">
+    <el-dialog
+      v-model="ruleVisible"
+      append-to-body
+      :title="ruleEditing?.id ? '编辑告警规则' : '新建告警规则'"
+      width="480px"
+    >
       <el-form label-width="90px">
         <el-form-item label="设备">
           <el-select v-model="ruleForm.device_id" clearable placeholder="留空=本小院该指标全部设备" style="width: 100%">

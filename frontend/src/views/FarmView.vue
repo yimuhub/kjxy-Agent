@@ -329,6 +329,7 @@
     <!-- 对外分享（只读快照） -->
     <el-dialog
       v-model="shareDialog"
+      append-to-body
       title="对外分享报表"
       width="600px"
     >
@@ -445,6 +446,7 @@
     <!-- 记录编辑 -->
     <el-dialog
       v-model="recordDialog"
+      append-to-body
       :title="recordForm.record_id ? '编辑农事记录' : '记一笔农事'"
       width="620px"
     >
@@ -542,6 +544,7 @@
     <!-- 地块编辑 -->
     <el-dialog
       v-model="plotDialog"
+      append-to-body
       :title="plotForm.plot_id ? '编辑地块' : '新增地块'"
       width="560px"
     >
@@ -633,6 +636,7 @@
     <!-- 周期抽屉 -->
     <el-dialog
       v-model="cycleDrawer"
+      append-to-body
       :title="`种植周期 · ${cyclePlot?.name ?? ''}`"
       width="460px"
       align-center

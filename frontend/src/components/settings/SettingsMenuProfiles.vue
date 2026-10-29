@@ -1,5 +1,8 @@
 <template>
-  <el-card class="section">
+  <el-card
+    class="section"
+    v-loading="loading"
+  >
     <template #header>
       <div class="card-header">
         <span>工作台视图</span>
@@ -15,6 +18,7 @@
             size="small"
             type="primary"
             :loading="saving"
+            :disabled="!loaded"
             @click="save"
           >
             保存默认视图
@@ -31,7 +35,9 @@
       title="优先级：成员本地自定义 > 角色默认视图 > 全局默认。成员未自定义时按角色取默认；管理员仍可在侧栏 DIY 中随时切换。"
     />
 
+    <!-- 配置加载完成前不渲染表单：否则默认值会被当成真实配置展示并被保存回去 -->
     <el-form
+      v-if="loaded"
       label-width="120px"
       class="view-form"
     >
@@ -128,7 +134,8 @@
     allow_member_customize: true,
   }
 
-  const loading = ref(false)
+  const loading = ref(true)
+  const loaded = ref(false)
   const saving = ref(false)
   const form = reactive<MenuConfig>(structuredClone(DEFAULT_CONFIG))
 
@@ -146,8 +153,9 @@
       form.role_modes = { ...DEFAULT_CONFIG.role_modes, ...(data.role_modes ?? {}) }
       form.profiles = data.profiles ?? []
       form.allow_member_customize = data.allow_member_customize !== false
+      loaded.value = true
     } catch {
-      /* 错误 toast 已由 client 统一处理 */
+      /* 错误 toast 已由 client 统一处理；表单保持未渲染，避免把默认值当成真实配置保存 */
     } finally {
       loading.value = false
     }

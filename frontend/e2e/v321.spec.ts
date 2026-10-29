@@ -17,9 +17,10 @@ test.describe('自生长管理（v3.21）', () => {
     await expect(body.getByText('已发布').first()).toBeVisible()
     await expect(body.getByText('published')).toHaveCount(0)
 
-    // 点技能名称/编码打开详情抽屉：列表里既有「执行提示词」型技能，也有计划型技能，
-    // 逐个尝试直到找到带提示词的那一条，避免依赖种子数据的顺序。
-    const drawer = page.locator('.el-drawer')
+    // 点技能名称/编码打开详情弹窗（v3.25.1 起从右侧抽屉改为居中弹窗）：
+    // 列表里既有「执行提示词」型技能，也有计划型技能，逐个尝试直到找到带提示词的那一条，
+    // 避免依赖种子数据的顺序。
+    const detail = page.locator('.el-dialog:visible').filter({ has: page.locator('.detail-name') })
     const cells = page.locator('.skill-cell')
     const total = await cells.count()
     let found = false
@@ -27,21 +28,21 @@ test.describe('自生长管理（v3.21）', () => {
       const cell = cells.nth(i)
       const candidate = (await cell.locator('.skill-name').innerText()).split('\n')[0].trim()
       await cell.click()
-      await expect(drawer).toBeVisible()
-      await expect(drawer.locator('.detail-name')).toHaveText(candidate)
-      if (await drawer.getByText('执行提示词').isVisible().catch(() => false)) {
+      await expect(detail).toBeVisible()
+      await expect(detail.locator('.detail-name')).toHaveText(candidate)
+      if (await detail.getByText('执行提示词').isVisible().catch(() => false)) {
         found = true
         break
       }
       await page.keyboard.press('Escape')
-      await expect(drawer).toBeHidden()
+      await expect(detail).toBeHidden()
     }
     expect(found, '技能列表中应至少有一条带「执行提示词」的技能').toBe(true)
-    await expect(drawer.getByText('能做什么')).toBeVisible()
-    await expect(drawer.getByText('执行提示词')).toBeVisible()
+    await expect(detail.getByText('能做什么')).toBeVisible()
+    await expect(detail.getByText('执行提示词')).toBeVisible()
 
     // 自动升级设置：门槛/冷却/立即升级，保存后提示
-    await drawer.getByRole('button', { name: '自动升级设置' }).click()
+    await detail.getByRole('button', { name: '自动升级设置' }).click()
     const dialog = page.getByRole('dialog', { name: /自动升级：/ })
     await expect(dialog).toBeVisible()
     await expect(dialog).toContainText('只会生成「待审核」草稿')
@@ -52,7 +53,7 @@ test.describe('自生长管理（v3.21）', () => {
 
     // 列表开关可切换，并明确告知只产草稿
     await page.keyboard.press('Escape')
-    await expect(drawer).toBeHidden()
+    await expect(detail).toBeHidden()
     const sw = page.locator('.auto-cell .el-switch').first()
     const wasOn = await sw.evaluate(el => el.classList.contains('is-checked'))
     await sw.click()

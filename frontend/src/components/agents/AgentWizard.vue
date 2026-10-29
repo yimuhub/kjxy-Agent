@@ -1,6 +1,7 @@
 <template>
   <el-dialog
     v-model="visible"
+    append-to-body
     title="⚡ 一句话生成智能体"
     width="720px"
     top="6vh"

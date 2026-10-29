@@ -250,6 +250,7 @@
     <!-- 新建诊断 -->
     <el-dialog
       v-model="createDialog"
+      append-to-body
       title="新建作物诊断"
       width="640px"
     >
@@ -318,6 +319,7 @@
     <!-- 转专家会诊 -->
     <el-dialog
       v-model="consultDialog"
+      append-to-body
       title="转专家会诊"
       width="480px"
     >
@@ -368,6 +370,7 @@
     <!-- 诊断分享链接 -->
     <el-dialog
       v-model="shareDialog"
+      append-to-body
       title="只读分享链接"
       width="520px"
     >
@@ -390,6 +393,7 @@
     <!-- 详情 -->
     <el-dialog
       v-model="detailDrawer"
+      append-to-body
       :title="detail ? `${detail.crop}诊断 · ${STATUS_LABEL[detail.status]}` : '诊断详情'"
       width="640px"
       align-center
@@ -651,6 +655,7 @@
     <!-- 药剂编辑 -->
     <el-dialog
       v-model="pesticideDialog"
+      append-to-body
       :title="pesticideForm.pesticide_id ? '编辑药剂' : '登记药剂'"
       width="560px"
     >
@@ -723,6 +728,7 @@
     <!-- 安全间隔计算 -->
     <el-dialog
       v-model="harvestDialog"
+      append-to-body
       title="安全间隔期计算"
       width="440px"
     >

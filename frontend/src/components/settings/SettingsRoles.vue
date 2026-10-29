@@ -157,6 +157,7 @@
 
     <el-dialog
       v-model="createDialog"
+      append-to-body
       title="新建自定义角色"
       width="640px"
     >

@@ -12,7 +12,9 @@ test.describe('协作方（v3.20）', () => {
     await expect(page.getByRole('tab', { name: '协作方' })).toBeVisible()
     await expect(page.getByText('跨小院协作（A2A）')).toBeVisible()
     await expect(page.getByText('仅负责人或获得敏感授权的管理员可修改协作配置。')).toBeVisible()
-    await expect(page.getByText('Agent Card')).toBeVisible()
+    // 「Agent Card」在页面里出现两次（A2A 未开启的告警文案 + 描述表标签），
+    // 按文本取会触发 strict mode violation，只能按角色取描述表那一格
+    await expect(page.getByRole('cell', { name: 'Agent Card' })).toBeVisible()
     await expect(page.getByText('协作方（0）')).toBeVisible()
     // 管理员没有保护型权限：生成/轮换令牌按钮不出现
     await expect(page.getByRole('button', { name: /^(生成|轮换)令牌$/ })).toHaveCount(0)

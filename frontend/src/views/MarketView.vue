@@ -149,6 +149,7 @@
     <!-- 装载失败明细 -->
     <el-dialog
       v-model="failedVisible"
+      append-to-body
       title="装载失败明细"
       width="560px"
     >

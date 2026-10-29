@@ -1,6 +1,7 @@
 <template>
   <el-dialog
     v-model="visible"
+    append-to-body
     :title="`定时任务：${team?.name ?? ''}`"
     width="min(580px, 94vw)"
     :close-on-click-modal="!saving"

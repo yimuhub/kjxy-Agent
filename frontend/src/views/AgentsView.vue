@@ -553,6 +553,7 @@
     </el-card>
     <el-dialog
       v-model="skillDialogVisible"
+      append-to-body
       :title="skillDetail?.name || '技能详情'"
       width="420px"
     >
@@ -584,6 +585,7 @@
     <!-- 平台审核队列 -->
     <el-dialog
       v-model="reviewVisible"
+      append-to-body
       title="高风险助手 · 平台审核队列"
       width="720px"
     >

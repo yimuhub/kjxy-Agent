@@ -150,6 +150,7 @@
     <!-- 新建 / 编辑班组（yard_admin/platform_admin） -->
     <el-dialog
       v-model="editVisible"
+      append-to-body
       :title="editingTeamId ? '编辑班组' : '新建班组'"
       width="min(760px, 94vw)"
       top="6vh"
@@ -281,6 +282,7 @@
     <!-- 提交立即返回排队记录，后续执行在后台完成。 -->
     <el-dialog
       v-model="runVisible"
+      append-to-body
       :title="`运行：${runTeam?.name ?? ''}`"
       width="min(560px, 94vw)"
       :close-on-click-modal="!running"

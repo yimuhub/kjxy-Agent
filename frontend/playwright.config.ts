@@ -6,7 +6,10 @@ import { defineConfig, devices } from '@playwright/test'
  */
 export default defineConfig({
   testDir: './e2e',
-  timeout: 30_000,
+  // 前端跑的是 Vite dev server（不是产物），冷启动要现场编译整棵模块图，
+  // 登录页 + 路由跳转常吃掉 10s 以上；30s 会在断言中途被砍断（表现为
+  // “弹窗没关掉”的假失败），60s 才是这套环境的合理预算。
+  timeout: 60_000,
   expect: { timeout: 8_000 },
   fullyParallel: false,
   // 共享同一演示小院与真实模型：并行会互相抢会话/额度，串行跑保证可复现；

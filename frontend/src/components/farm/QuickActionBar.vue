@@ -57,6 +57,7 @@
 
   <el-dialog
     v-model="dialog"
+    append-to-body
     title="确认办理"
     width="560px"
     align-center

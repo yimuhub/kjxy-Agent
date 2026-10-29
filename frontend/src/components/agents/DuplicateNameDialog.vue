@@ -1,5 +1,6 @@
 <template>
   <el-dialog
+append-to-body
     :model-value="modelValue"
     class="dup-dialog"
     title="已有同名助手"

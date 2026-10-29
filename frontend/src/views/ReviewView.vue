@@ -96,6 +96,7 @@
     <!-- 驳回候选知识（单条或批量共用；bulkMode 时 rejectTarget 为空） -->
     <el-dialog
       v-model="rejectDialog"
+      append-to-body
       :title="bulkMode ? '批量驳回候选知识' : '驳回候选知识'"
       width="480px"
       align-center

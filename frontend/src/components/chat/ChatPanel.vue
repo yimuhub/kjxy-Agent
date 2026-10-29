@@ -677,6 +677,7 @@
     <!-- 生成文档预览：后端渲染自包含 HTML，装进无脚本沙箱 iframe -->
     <el-dialog
       v-model="previewOpen"
+      append-to-body
       :title="previewCard?.filename || '文档预览'"
       width="min(920px, 92vw)"
       class="doc-preview-dialog"
@@ -715,6 +716,7 @@
     <!-- 转会诊（v3.14）：同一问题交给班组接力，多成员+检索融合的结果在班组页查看 -->
     <el-dialog
       v-model="escalateOpen"
+      append-to-body
       title="转班组会诊"
       width="min(520px, 92vw)"
     >
@@ -1514,7 +1516,8 @@
   }
 
   async function onSend() {
-    const text = draft.value.trim()
+    const raw = draft.value
+    const text = raw.trim()
     if (!text || props.store.sending) return
     // named 策略没点名：按钮已置灰，键盘 Enter 这条路也要拦下并说明原因
     if (blockedReason.value) return
@@ -1523,11 +1526,13 @@
       ElMessage.warning('知识问答模式不支持附件，请先移除附件或切回通用对话')
       return
     }
-    // 发送失败保留草稿便于重发；成功才清空
+    // 发送失败保留草稿便于重发；成功才清空。
+    // 一轮对话的收尾（改标题、刷会话列表）是异步的，可能在回答已上屏之后才结束；
+    // 期间用户新打的字不能被这一轮的收尾清掉，故只在草稿没被动过时清空。
     const ok = props.qaMode
       ? await props.store.sendQa(text, qaTopK.value)
       : await props.store.send(text)
-    if (ok) draft.value = ''
+    if (ok && draft.value === raw) draft.value = ''
     scrollToBottom()
     emit('sent', ok)
   }
