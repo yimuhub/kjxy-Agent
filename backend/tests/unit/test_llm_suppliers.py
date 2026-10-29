@@ -401,6 +401,10 @@ def test_templates_have_no_keys():
         "moonshot",
         "openai",
         "openai_compatible",
+        # v3.26 视觉域：图像/视频供应商与对话供应商分开配置
+        "openai_images",
+        "dashscope_image",
+        "openai_video",
     }
     for t in templates:
         assert "api_key" not in t.model_dump()
@@ -443,7 +447,7 @@ def test_router_requires_admin(client):
 
 
 def test_router_test_candidate_does_not_persist(client, admin_headers, monkeypatch):
-    async def fake_probe(base_url, api_key, model_id, timeout=10):
+    async def fake_probe(base_url, api_key, model_id, timeout=10, *, provider_type=""):
         assert api_key == TEST_KEY  # key 透传到探测
         from app.modules.llm.supplier_schemas import SupplierTestResult
 
@@ -470,7 +474,7 @@ def test_router_templates(client, admin_headers):
     r = client.get("/api/v1/llm/provider-templates", headers=admin_headers)
     assert r.status_code == 200
     items = r.json()["data"]
-    assert len(items) == 5
+    assert len(items) == 8
     deepseek = next(t for t in items if t["provider_type"] == "deepseek")
     assert deepseek["base_url"] == "https://api.deepseek.com"
 

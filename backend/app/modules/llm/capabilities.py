@@ -53,6 +53,18 @@ CAPABILITIES: tuple[Capability, ...] = (
     Capability("self_improve", "知识自生长", "知识", "定时任务从会话中提炼知识候选"),
     Capability("embedding", "知识向量化", "知识", "知识库切片入库的向量计算"),
     Capability("device_analysis", "设备数据解读", "设备", "设备分析结论的自然语言解释"),
+    Capability(
+        "image_generation",
+        "图像生成",
+        "视觉",
+        "文生图（海报/配图）走的图像供应商；与对话模型分开绑定（v3.26）",
+    ),
+    Capability(
+        "video_generation",
+        "视频生成",
+        "视觉",
+        "视频生成通道预留：登记协议位与绑定位，暂无内置调用工具（v3.26）",
+    ),
 )
 
 CAPABILITY_CODES: tuple[str, ...] = tuple(item.code for item in CAPABILITIES)

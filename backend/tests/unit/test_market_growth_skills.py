@@ -1,4 +1,4 @@
-"""内置增长技能种子（营销 6 + 活动 4）的结构、契约与铺设校验（v3.26 D-1.3）。"""
+"""内置增长技能种子（营销 6 + 活动 4 + 海报 2）的结构、契约与铺设校验。"""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import pytest
 from app.modules.evolution.models import Skill
 from app.modules.growth.skills import (
     _SPEC_EXTRAS,
+    GROUP_CONTENT,
     GROUP_EVENT,
     GROUP_MARKETING,
     builtin_items,
@@ -29,6 +30,8 @@ EXPECTED_CODES = {
     "growth_invitation",
     "growth_live_script",
     "growth_event_review",
+    "growth_poster_prompt",
+    "growth_poster_render",
 }
 MARKETING_CODES = {
     "growth_brand_story",
@@ -38,13 +41,15 @@ MARKETING_CODES = {
     "growth_content_calendar",
     "growth_repurchase_plan",
 }
-EVENT_CODES = EXPECTED_CODES - MARKETING_CODES
+CONTENT_CODES = {"growth_poster_prompt", "growth_poster_render"}
+EVENT_CODES = EXPECTED_CODES - MARKETING_CODES - CONTENT_CODES
 REGISTERED_TOOL_CODES = {
     "knowledge.search",
     "sensor.query",
     "web.search",
     "workorder.dispatch",
     "compliance.check_copy",
+    "image.generate",
 }
 # 各技能对外承诺的边界：提示词必须写明不编造 / 不承诺 / 不自动发送之一
 HONESTY_MARKERS = ("编造", "虚构", "不承诺", "不估算", "不得", "严禁", "不推断", "不自动发送")
@@ -56,9 +61,9 @@ def items() -> list[dict]:
 
 
 def test_builtin_items_shape(items: list[dict]) -> None:
-    assert len(items) == 10
+    assert len(items) == 12
     assert {item["code"] for item in items} == EXPECTED_CODES
-    assert len({item["item_key"] for item in items}) == 10
+    assert len({item["item_key"] for item in items}) == 12
     for item in items:
         assert item["item_type"] == "skill"
         assert item["source"] == "builtin"
@@ -97,15 +102,20 @@ def test_groups_and_categories(items: list[dict]) -> None:
     by_code = {item["code"]: item["definition_json"] for item in items}
     marketing = {code for code, d in by_code.items() if d["skill_group"] == GROUP_MARKETING}
     event = {code for code, d in by_code.items() if d["skill_group"] == GROUP_EVENT}
+    content = {code for code, d in by_code.items() if d["skill_group"] == GROUP_CONTENT}
     assert marketing == MARKETING_CODES
     assert event == EVENT_CODES
+    assert content == CONTENT_CODES
     for code in MARKETING_CODES:
         assert by_code[code]["category"] == "marketing", code
     for code in EVENT_CODES:
         assert by_code[code]["category"] == "event", code
+    for code in CONTENT_CODES:
+        assert by_code[code]["category"] == "content", code
     assert {item["metadata_json"]["skill_group"] for item in items} == {
         GROUP_MARKETING,
         GROUP_EVENT,
+        GROUP_CONTENT,
     }
 
 
@@ -122,7 +132,7 @@ def test_specs_satisfy_skill_spec_contract(items: list[dict]) -> None:
         raw["steps"] = [{"kind": "prompt", "text": step} for step in d["steps"]]
         spec = SkillSpec.model_validate(raw)
         assert spec.code == item["code"]
-        assert spec.category in {"marketing", "event"}
+        assert spec.category in {"marketing", "event", "content"}
         assert spec.license == "内部原创"
         assert len(spec.eval_cases) >= 2
 
@@ -146,6 +156,8 @@ def test_guardrails_match_risk(items: list[dict]) -> None:
         "growth_invitation": "medium",
         "growth_live_script": "high",
         "growth_event_review": "low",
+        "growth_poster_prompt": "low",
+        "growth_poster_render": "medium",
     }
     for item in items:
         d = item["definition_json"]
@@ -185,11 +197,11 @@ def test_repurchase_and_invitation_need_human_send(items: list[dict]) -> None:
 
 
 def test_seed_growth_skills_is_idempotent(db_session) -> None:
-    assert seed_growth_skills(db_session) == 10
-    assert db_session.query(MarketItem).count() == 10
+    assert seed_growth_skills(db_session) == 12
+    assert db_session.query(MarketItem).count() == 12
 
     assert seed_growth_skills(db_session) == 0
-    assert db_session.query(MarketItem).count() == 10
+    assert db_session.query(MarketItem).count() == 12
 
     row = (
         db_session.query(MarketItem)
@@ -213,14 +225,14 @@ def test_seed_keeps_installed_status(db_session) -> None:
 
 def test_get_item_seeds_growth_item_on_demand(db_session) -> None:
     assert get_item(db_session, "builtin:skill:growth_event_review") is not None
-    assert db_session.query(MarketItem).count() >= 10
+    assert db_session.query(MarketItem).count() >= 12
 
 
 def test_ensure_growth_skills_provisions_published_skills(db_session) -> None:
     yard = create_yard(db_session, name="增长技能铺设小院")
     db_session.flush()
 
-    assert ensure_growth_skills(db_session, yard_id=yard.id, actor_id="u-growth") == 10
+    assert ensure_growth_skills(db_session, yard_id=yard.id, actor_id="u-growth") == 12
     skills = db_session.query(Skill).filter(Skill.yard_id == yard.id).all()
     assert {s.skill_code for s in skills} == EXPECTED_CODES
     assert {s.status for s in skills} == {"published"}
@@ -236,5 +248,5 @@ def test_agri_and_growth_skills_coexist(db_session) -> None:
     db_session.flush()
 
     assert ensure_builtin_skills(db_session, yard_id=yard.id, actor_id="u-both") == 12
-    assert ensure_growth_skills(db_session, yard_id=yard.id, actor_id="u-both") == 10
-    assert db_session.query(Skill).filter(Skill.yard_id == yard.id).count() == 22
+    assert ensure_growth_skills(db_session, yard_id=yard.id, actor_id="u-both") == 12
+    assert db_session.query(Skill).filter(Skill.yard_id == yard.id).count() == 24

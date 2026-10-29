@@ -287,15 +287,9 @@ def register_compliance_tool() -> Any:
     return tool_def
 
 
-def seed_growth_tools(db: Any) -> int:
-    """写入 growth 域工具的元数据行（幂等，供「可用工具」目录展示）。
-
-    只刷新描述性字段，保留 enabled 开关与 source；无 source 时目录按内置只读处理。
-    返回新增条数。
-    """
-    from app.modules.tools.models import ToolDefinition
-
-    meta = {
+def tool_meta() -> dict[str, Any]:
+    """工具目录元数据（写入 tool_definitions，供「可用工具」展示）。"""
+    return {
         "code": TOOL_CODE,
         "version": "1.0.0",
         "name": "广告合规体检",
@@ -311,12 +305,3 @@ def seed_growth_tools(db: Any) -> int:
         "timeout_seconds": 10,
         "enabled": True,
     }
-    row = db.query(ToolDefinition).filter_by(code=TOOL_CODE).first()
-    if row is None:
-        db.add(ToolDefinition(**meta))
-        db.flush()
-        return 1
-    for key in ("name", "description", "input_schema_json", "output_schema_json", "risk_level"):
-        setattr(row, key, meta[key])
-    db.flush()
-    return 0

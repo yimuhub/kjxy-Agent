@@ -8,7 +8,17 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-ProviderType = Literal["deepseek", "qwen", "moonshot", "openai", "openai_compatible"]
+ProviderType = Literal[
+    "deepseek",
+    "qwen",
+    "moonshot",
+    "openai",
+    "openai_compatible",
+    # v3.26 视觉域：图像/视频供应商与对话供应商分开配置，能力绑定按 purpose 选取
+    "openai_images",
+    "dashscope_image",
+    "openai_video",
+]
 
 STATUS_ENABLED = 1
 STATUS_DISABLED = 2

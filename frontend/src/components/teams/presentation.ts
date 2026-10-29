@@ -46,6 +46,17 @@ export function safeHttpUrl(value: string | null | undefined): string | undefine
   }
 }
 
+//: 同源海报地址：随机存储键 + 32 位 HMAC 签名（<img> 带不了鉴权头，只能走 capability URL）
+const POSTER_PATH = /^\/api\/v1\/growth\/posters\/[a-z0-9/._-]+\?sig=[a-f0-9]{32}$/
+
+/** 图片地址：http(s) 外链，或同源海报签名路径；其余（data:、相对路径、协议混淆）一律拒绝。 */
+export function safeImageUrl(value: string | null | undefined): string | undefined {
+  const http = safeHttpUrl(value)
+  if (http) return http
+  if (!value || /[\\\s]/.test(value) || value.includes('..')) return undefined
+  return POSTER_PATH.test(value) ? value : undefined
+}
+
 export function teamDocumentFilename(name: string | null, runId: string, format: 'md' | 'docx'): string {
   const basename = `${name || '班组运行'}-${runId}`
   const safeName = Array.from(basename).map(char => char.charCodeAt(0) < 32 || /[\\/:*?"<>|]/.test(char) ? '_' : char).join('')

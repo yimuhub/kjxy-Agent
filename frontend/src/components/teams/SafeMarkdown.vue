@@ -7,7 +7,7 @@
 <script setup lang="ts">
 import { defineComponent, h } from 'vue'
 import { parseInline, parseMarkdown } from './safeMarkdown'
-import { safeHttpUrl } from './presentation'
+import { safeHttpUrl, safeImageUrl } from './presentation'
 
 const props = defineProps<{ content: string }>()
 function inline(text: string) {
@@ -16,6 +16,13 @@ function inline(text: string) {
     if (token.kind === 'link') {
       const href = safeHttpUrl(token.url)
       return href ? h('a', { href, target: '_blank', rel: 'noopener noreferrer' }, token.text) : token.text
+    }
+    if (token.kind === 'image') {
+      // 海报由 <img> 直接加载、带不了鉴权头，因此只放行同源签名地址与 http(s) 外链
+      const src = safeImageUrl(token.url)
+      return src
+        ? h('img', { src, alt: token.text, class: 'md-image', loading: 'lazy', referrerpolicy: 'no-referrer' })
+        : token.text
     }
     return h(token.kind, token.text)
   })
@@ -39,13 +46,15 @@ const Content = defineComponent(() => () => parseMarkdown(props.content).map(blo
 
 <style scoped>
 .safe-markdown { overflow-wrap: anywhere; line-height: 1.8; color: var(--ds-text-1); font-size: 14px; }
-.safe-markdown :deep(p), .safe-markdown :deep(blockquote) { white-space: pre-wrap; }
+.safe-markdown :deep(p), .safe-markdown :deep(.md-image) { display: block; max-width: 100%; height: auto; margin: 10px 0; border-radius: var(--ds-radius-control); border: 1px solid var(--ds-border); }
+.safe-markdown :deep(blockquote) { white-space: pre-wrap; }
 .safe-markdown :deep(h1) { font-size: 1.5em; }
 .safe-markdown :deep(h2) { font-size: 1.3em; }
 .safe-markdown :deep(h3) { font-size: 1.15em; }
 .safe-markdown :deep(a) { color: var(--el-color-primary); }
 .safe-markdown :deep(pre) { overflow: auto; padding: 12px; background: var(--ds-glass); border-radius: var(--ds-radius-control); }
 .safe-markdown :deep(code) { font-size: 0.9em; background: var(--ds-glass); padding: 2px 4px; }
+.safe-markdown :deep(.md-image) { display: block; max-width: 100%; height: auto; margin: 10px 0; border-radius: var(--ds-radius-control); border: 1px solid var(--ds-border); }
 .safe-markdown :deep(blockquote) { margin-left: 0; border-left: 3px solid var(--ds-border-strong); padding-left: 12px; color: var(--ds-text-2); }
 .safe-markdown :deep(.table-scroll) { overflow-x: auto; }
 .safe-markdown :deep(table) { border-collapse: collapse; width: 100%; }

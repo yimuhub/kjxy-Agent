@@ -3488,6 +3488,67 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/growth/posters:
+    post:
+      tags:
+      - v1
+      - growth
+      summary: Create Poster
+      operationId: create_poster_api_v1_growth_posters_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PosterRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/growth/posters/{key}:
+    get:
+      tags:
+      - v1
+      - growth
+      summary: Read Poster
+      description: 按签名取图；签名不符/文件缺失一律 404（不泄露键是否存在）。
+      operationId: read_poster_api_v1_growth_posters__key__get
+      parameters:
+      - name: key
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Key
+      - name: sig
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Sig
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/quick-actions/preview:
     post:
       tags:
@@ -11554,6 +11615,57 @@ components:
       type: object
       title: PolicyProfile
       description: 待匹配画像：任一字段都可缺省，缺省导致对应条件无法判断。
+    PosterRequest:
+      properties:
+        prompt:
+          type: string
+          maxLength: 2000
+          minLength: 4
+          title: Prompt
+        size:
+          type: string
+          title: Size
+          default: 1024x1024
+        n:
+          type: integer
+          maximum: 4.0
+          minimum: 1.0
+          title: N
+          default: 1
+        title:
+          type: string
+          maxLength: 40
+          title: Title
+          default: ''
+        subtitle:
+          type: string
+          maxLength: 120
+          title: Subtitle
+          default: ''
+        footer:
+          type: string
+          maxLength: 120
+          title: Footer
+          default: ''
+        theme:
+          type: string
+          enum:
+          - harvest
+          - orchard
+          - plain
+          title: Theme
+          default: harvest
+        negative_prompt:
+          anyOf:
+          - type: string
+            maxLength: 400
+          - type: 'null'
+          title: Negative Prompt
+      additionalProperties: false
+      type: object
+      required:
+      - prompt
+      title: PosterRequest
     ProfileUpdateRequest:
       properties:
         display_name:
@@ -12707,6 +12819,9 @@ components:
           - moonshot
           - openai
           - openai_compatible
+          - openai_images
+          - dashscope_image
+          - openai_video
           title: Provider Type
         base_url:
           type: string
@@ -12806,6 +12921,9 @@ components:
           - moonshot
           - openai
           - openai_compatible
+          - openai_images
+          - dashscope_image
+          - openai_video
           title: Provider Type
         base_url:
           type: string
@@ -12848,6 +12966,9 @@ components:
             - moonshot
             - openai
             - openai_compatible
+            - openai_images
+            - dashscope_image
+            - openai_video
           - type: 'null'
           title: Provider Type
         base_url:

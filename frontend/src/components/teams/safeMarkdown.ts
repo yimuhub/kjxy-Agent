@@ -1,5 +1,6 @@
-/** 安全 Markdown 子集：只解析结构与文本，不接受 HTML、图片、内联样式。 */
-export type InlineToken = { kind: 'text' | 'strong' | 'em' | 'code' | 'link'; text: string; url?: string }
+/** 安全 Markdown 子集：只解析结构与文本，不接受 HTML 与内联样式；
+ *  图片只接受 http(s) 外链与同源海报签名地址（见 safeImageUrl）。 */
+export type InlineToken = { kind: 'text' | 'strong' | 'em' | 'code' | 'link' | 'image'; text: string; url?: string }
 export type MarkdownBlock =
   | { kind: 'heading'; level: number; text: string }
   | { kind: 'paragraph' | 'quote' | 'code'; text: string }
@@ -9,7 +10,7 @@ export type MarkdownBlock =
 
 export function parseInline(text: string): InlineToken[] {
   const tokens: InlineToken[] = []
-  const pattern = /(`[^`\n]+`|\*\*[^*\n]+\*\*|\*[^*\n]+\*|\[[^\]\n]+\]\([^\s)]+\))/g
+  const pattern = /(`[^`\n]+`|\*\*[^*\n]+\*\*|\*[^*\n]+\*|!\[[^\]\n]*\]\([^\s)]+\)|\[[^\]\n]+\]\([^\s)]+\))/g
   let cursor = 0
   for (const match of text.matchAll(pattern)) {
     const index = match.index ?? 0
@@ -18,7 +19,10 @@ export function parseInline(text: string): InlineToken[] {
     if (value.startsWith('`')) tokens.push({ kind: 'code', text: value.slice(1, -1) })
     else if (value.startsWith('**')) tokens.push({ kind: 'strong', text: value.slice(2, -2) })
     else if (value.startsWith('*')) tokens.push({ kind: 'em', text: value.slice(1, -1) })
-    else {
+    else if (value.startsWith('![')) {
+      const separator = value.indexOf('](')
+      tokens.push({ kind: 'image', text: value.slice(2, separator), url: value.slice(separator + 2, -1) })
+    } else {
       const separator = value.indexOf('](')
       tokens.push({ kind: 'link', text: value.slice(1, separator), url: value.slice(separator + 2, -1) })
     }

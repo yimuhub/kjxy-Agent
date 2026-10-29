@@ -21,6 +21,7 @@ from app.modules.chat.router import router as chat_router
 from app.modules.devices.router import router as devices_router
 from app.modules.evolution.router import router as evolution_router
 from app.modules.farm.router import router as farm_router
+from app.modules.growth.router import router as growth_router
 from app.modules.knowledge.router import router as knowledge_router
 from app.modules.llm.router import router as llm_router
 from app.modules.market.router import router as market_router
@@ -61,6 +62,7 @@ router.include_router(tasks_router)
 router.include_router(knowledge_router)
 router.include_router(agriculture_router)
 router.include_router(farm_router)  # /farm（农业台账：地块/周期/农事记录/报表）
+router.include_router(growth_router)  # /growth/posters（海报出图与签名取图）
 router.include_router(quick_actions_router)  # /quick-actions（一句话业务：预览/确认 v3.22）
 router.include_router(share_router)  # /shares（跨院只读分享：创建/列表/撤销）
 router.include_router(share_public_router)  # /public/shares/{token}（匿名只读快照）

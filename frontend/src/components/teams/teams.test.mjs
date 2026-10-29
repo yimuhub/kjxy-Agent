@@ -109,6 +109,30 @@ test('引用仅允许 http(s)，拦截协议混淆与控制字符', () => {
   }
 })
 
+test('海报图片：只放行 http(s) 与同源签名地址，其余降级为文字', () => {
+  const sig = 'a'.repeat(32)
+  const poster = `/api/v1/growth/posters/ab/x.svg?sig=${sig}`
+  const tokens = markdown.parseInline(`![中秋海报](${poster}) ![危险](javascript:alert)`)
+  assert.equal(tokens[0].kind, 'image')
+  assert.equal(tokens[0].text, '中秋海报')
+  assert.equal(tokens[0].url, poster)
+  assert.equal(presentation.safeImageUrl(poster), poster)
+  assert.equal(presentation.safeImageUrl('https://example.org/a.png'), 'https://example.org/a.png')
+  for (const value of [null, '', 'data:image/png;base64,xx', 'javascript:alert(1)', '//evil.test/a.png', '/api/v1/growth/posters/ab/x.svg', `/api/v1/growth/posters/../x.svg?sig=${sig}`]) {
+    assert.equal(presentation.safeImageUrl(value), undefined, String(value))
+  }
+})
+
+test('实际 Markdown 组件渲染海报图片，非法地址不生成 img', async () => {
+  const html = await render(SafeMarkdown, {
+    content: `![中秋海报](/api/v1/growth/posters/ab/x.svg?sig=${'b'.repeat(32)})\n\n![危险](javascript:alert(1))`,
+  })
+  assert.match(html, /<img[^>]+src="\/api\/v1\/growth\/posters\/ab\/x.svg\?sig=/)
+  assert.match(html, /alt="中秋海报"/)
+  assert.doesNotMatch(html, /<img[^>]+javascript:/)
+  assert.match(html, /危险/)
+})
+
 test('Markdown 支持标题、强调、表格、代码、列表与引用', () => {
   const blocks = markdown.parseMarkdown('# 标题\n\n**重点**\n\n| 列 | 值 |\n| --- | --- |\n| a | b |\n\n1. 一\n2. 二\n\n> 引用\n\n```js\n<x>\n```')
   assert.deepEqual(blocks.map(item => item.kind), ['heading', 'paragraph', 'table', 'list', 'quote', 'code'])

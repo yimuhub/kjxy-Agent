@@ -51,8 +51,8 @@ def _zip_manifest(manifest: dict) -> bytes:
 def test_search_items_lists_builtin_without_network(db_session):
     result = installer.search_items(db_session, _ctx(), "", limit=50)
     assert result["warning"] is None
-    # 12 项农技 + 10 项增长（营销 6 / 活动 4）
-    assert result["total"] == 22
+    # 12 项农技 + 12 项增长（营销 6 / 活动 4 / 海报 2）
+    assert result["total"] == 24
     assert {i["source"] for i in result["items"]} == {"builtin"}
     assert all(i["item_type"] == "skill" for i in result["items"])
     assert {i["code"] for i in result["items"]} >= {

@@ -371,9 +371,21 @@ async def probe_models(
 
 
 async def probe_upstream(
-    base_url: str, api_key: str, model_id: str, timeout: int = PROBE_TIMEOUT_SECONDS
+    base_url: str,
+    api_key: str,
+    model_id: str,
+    timeout: int = PROBE_TIMEOUT_SECONDS,
+    *,
+    provider_type: str = "",
 ) -> SupplierTestResult:
-    """先 GET {base}/models；失败则发一条最小 chat('hi')。key 只在内存使用。"""
+    """先 GET {base}/models；失败则发一条最小 chat('hi')。key 只在内存使用。
+
+    图像/视频类供应商（``provider_type`` 属于视觉域）没有 chat 端点，
+    因此只做 /models 探测，不强塞一条会必然失败的 chat 请求。
+    """
+    from app.modules.llm.images import IMAGE_PROVIDER_TYPES, VIDEO_PROVIDER_TYPES
+
+    visual_only = provider_type in (IMAGE_PROVIDER_TYPES | VIDEO_PROVIDER_TYPES)
     base = base_url.rstrip("/")
     headers = {"Authorization": f"Bearer {api_key}"}
     started = time.perf_counter()
@@ -413,6 +425,12 @@ async def probe_upstream(
                     note="/models 探测成功",
                 )
             # /models 失败/不可用：发一条最小 chat 做真实验证
+            if visual_only:
+                if models_resp is not None and models_resp.status_code in (401, 403):
+                    return _fail("鉴权失败：请检查 API Key")
+                return _fail(
+                    "图像/视频供应商不支持 chat 探测：/models 未返回模型列表，请核对 base_url"
+                )
             chat_started = time.perf_counter()
             chat_resp = await client.post(
                 f"{base}/chat/completions",
@@ -462,7 +480,9 @@ async def test_saved_supplier(
     row = _writable_supplier(db, yard_id, supplier_id, is_platform_admin=is_platform_admin)
     api_key = decrypt_api_key(row.api_key_enc)
     try:
-        result = await probe_upstream(row.base_url, api_key, row.model_id)
+        result = await probe_upstream(
+            row.base_url, api_key, row.model_id, provider_type=row.provider_type
+        )
     finally:
         del api_key  # 明文 key 用完即弃
     row.test_time = datetime.now(UTC)
@@ -588,5 +608,27 @@ def get_provider_templates() -> list[ProviderTemplate]:
             base_url="",
             model_id="",
             note="任意兼容 POST {base_url}/chat/completions 的服务",
+        ),
+        # ---- v3.26 视觉域：图像/视频供应商与对话供应商分开配置 ----
+        ProviderTemplate(
+            provider_type="openai_images",
+            label="图像生成（OpenAI 兼容）",
+            base_url="https://api.openai.com/v1",
+            model_id="gpt-image-1",
+            note="兼容 POST {base_url}/images/generations；海报/配图走这里，不占用对话模型",
+        ),
+        ProviderTemplate(
+            provider_type="dashscope_image",
+            label="图像生成（阿里云百炼）",
+            base_url="https://dashscope.aliyuncs.com",
+            model_id="wanx2.1-t2i-turbo",
+            note="百炼原生异步文生图接口（提交任务后轮询取图），base_url 不要带 /compatible-mode",
+        ),
+        ProviderTemplate(
+            provider_type="openai_video",
+            label="视频生成（通道预留）",
+            base_url="",
+            model_id="",
+            note="协议位已登记，当前无内置调用工具；配置后可用于后续视频技能",
         ),
     ]

@@ -1,4 +1,4 @@
-"""内置增长技能种子：营销策划 6 项 + 活动推广 4 项（v3.26 D-1.3）。
+"""内置增长技能种子：营销策划 6 项 + 活动推广 4 项 + 内容生产 2 项（v3.26 D-1.3/D-1.4）。
 
 与 12 项农技技能同一套结构：``MarketItem`` 字段 + ``SkillSpec`` 形态的
 ``definition_json``，由 ``market/builtin_seed.py`` 统一落库与铺给新小院。
@@ -24,6 +24,7 @@ LICENSE = "内部原创"
 SOURCE_LABEL = "growth_skills"
 GROUP_MARKETING = "growth_marketing"
 GROUP_EVENT = "growth_event"
+GROUP_CONTENT = "growth_content"
 
 
 def _definition(
@@ -110,8 +111,7 @@ _SPEC_EXTRAS: dict[str, dict[str, Any]] = {
             {
                 "input": "脐橙 70-80mm 果，5 斤装，有糖度检测",
                 "expect": (
-                    "给 3 个标题、五点描述、详情分段与 30 秒口播脚本，"
-                    "卖点都能落到规格与检测上"
+                    "给 3 个标题、五点描述、详情分段与 30 秒口播脚本，" "卖点都能落到规格与检测上"
                 ),
             },
             {
@@ -284,6 +284,58 @@ _SPEC_EXTRAS: dict[str, dict[str, Any]] = {
             {
                 "input": "没统计人数，帮我估个转化率",
                 "expect": "不编造数据，标为待补并给下次的登记口径建议",
+            },
+        ],
+    },
+    # ---------------- F. 内容生产（海报）2 项 ----------------
+    "growth_poster_prompt": {
+        "when_to_use": (
+            "只有一句大白话需求（如「做个中秋礼盒海报」），需要先转成高质量出图提示词时使用。"
+        ),
+        "inputs": [
+            {"key": "request", "label": "自然语言需求", "required": True, "type": "text"},
+            {"key": "product", "label": "主推产品/活动", "required": False, "type": "string"},
+            {
+                "key": "scene",
+                "label": "使用场景（朋友圈/门店/电商主图）",
+                "required": False,
+                "type": "string",
+            },
+            {"key": "ratio", "label": "画幅比例", "required": False, "type": "enum"},
+        ],
+        "allowed_tools": [],
+        "eval_cases": [
+            {
+                "input": "给脐橙做一张中秋礼盒预售海报，右下角留二维码",
+                "expect": (
+                    "输出含主体/场景/风格/构图/光线/配色/文字区留白/画幅/负面词的结构化提示词，"
+                    "并说明二维码位"
+                ),
+            },
+            {
+                "input": "随便做张好看的海报",
+                "expect": "先追问产品、场景与尺寸，不凭空编造卖点、价格与认证",
+            },
+        ],
+    },
+    "growth_poster_render": {
+        "when_to_use": "已有结构化海报提示词，需要真正出图并说清楚是否用上了 AI 模型时使用。",
+        "inputs": [
+            {"key": "prompt", "label": "结构化提示词", "required": True, "type": "text"},
+            {"key": "title", "label": "海报大标题", "required": False, "type": "string"},
+            {"key": "subtitle", "label": "副标题", "required": False, "type": "string"},
+            {"key": "footer", "label": "页脚（小院名/电话）", "required": False, "type": "string"},
+            {"key": "size", "label": "尺寸", "required": False, "type": "enum"},
+        ],
+        "allowed_tools": ["image.generate", "compliance.check_copy"],
+        "eval_cases": [
+            {
+                "input": "提示词已给，出 1024x1024 海报，标题「中秋礼盒预售」",
+                "expect": "调用 image.generate 得到图片 URL，按 ![](url) 输出，并说明是否降级模板",
+            },
+            {
+                "input": "标题写「全网最低价」可以吗",
+                "expect": "指出属绝对化用语，改用可核实表述，并先过合规体检",
             },
         ],
     },
@@ -522,6 +574,57 @@ _SKILL_SPECS: tuple[dict[str, Any], ...] = (
         "tags": ["复盘", "简报", "改进"],
         "risk_level": "low",
     },
+    # ---------------- F. 内容生产 2 项：海报提示词 → 出图 ----------------
+    {
+        "code": "growth_poster_prompt",
+        "name": "海报提示词工程",
+        "description": "把一句大白话需求转成可出高质量海报的结构化提示词（含文字区留白与负面词）。",
+        "prompt": (
+            "你是海报提示词工程师。请先确认用途（朋友圈/门店/电商主图）、主推产品与画幅，"
+            "再按以下结构输出一段可直接出图的提示词："
+            "主体与道具、场景与环境、风格与质感、构图与视角、光线、主色与配色、"
+            "文字区留白位置、画幅比例、负面词（不要出现的元素）。"
+            "文字区留白要明确写「不要生成文字」，中文标题由出图后在版面上排，避免模型写错字。"
+            "不编造产品卖点、价格、认证与活动信息；需求过于笼统时先追问，不凭空发挥。"
+        ),
+        "steps": [
+            "确认用途、主推产品、画幅与必须出现/不能出现的元素",
+            "把需求拆成主体、场景、风格、构图、光线、配色六要素",
+            "指定文字区留白位置，并要求画面不生成文字",
+            "补负面词（错字、水印、畸形手指、杂乱背景等）与画幅比例",
+            "输出可复制的结构化提示词，并提示下一步交给「海报出图」",
+        ],
+        "category": "content",
+        "group": GROUP_CONTENT,
+        "tags": ["海报", "提示词", "设计"],
+        "risk_level": "low",
+    },
+    {
+        "code": "growth_poster_render",
+        "name": "海报出图",
+        "description": "调用图像供应商出海报；无可用供应商时降级本地模板，并如实说明。",
+        "prompt": (
+            "你是海报出图助手。请调用工具 image.generate 生成海报，参数用上结构化提示词、"
+            "标题、副标题、页脚与尺寸。"
+            "出图后用 Markdown ![标题](url) 把图片贴出来，并说明 provider 与 model；"
+            "若返回 fallback=true，必须明确告诉用户「这是本地模板图、不是 AI 出图」，"
+            "并给出补配图像供应商的路径，"
+            "不得把模板图说成模型生成。"
+            "海报上的文字（标题、副标题、价格、承诺）必须先过 compliance.check_copy，"
+            "命中硬违规要改到合规再出图；不得编造价格、赠品与认证。"
+        ),
+        "steps": [
+            "确认提示词、标题、副标题、页脚与尺寸",
+            "把海报文案过合规体检，改掉绝对化用语与价格承诺",
+            "调用 image.generate 出图",
+            "检查 fallback 标记，按真实来源向用户说明",
+            "用 Markdown 图片语法贴图，并给出可点击的原图链接",
+        ],
+        "category": "content",
+        "group": GROUP_CONTENT,
+        "tags": ["海报", "出图", "合规"],
+        "risk_level": "medium",
+    },
 )
 
 GROWTH_SKILL_SPECS: tuple[dict[str, Any], ...] = _SKILL_SPECS
@@ -583,9 +686,7 @@ def seed_growth_skills(db: Session) -> int:
     return seed_items(db, builtin_items())
 
 
-def ensure_growth_skills(
-    db: Session, *, yard_id: str, actor_id: str, request_id: str = ""
-) -> int:
+def ensure_growth_skills(db: Session, *, yard_id: str, actor_id: str, request_id: str = "") -> int:
     """为新小院铺 10 项增长技能（published），返回新建数量。"""
     return ensure_skills(
         db,
@@ -599,6 +700,7 @@ def ensure_growth_skills(
 
 __all__ = [
     "GROWTH_SKILL_SPECS",
+    "GROUP_CONTENT",
     "GROUP_EVENT",
     "GROUP_MARKETING",
     "builtin_item_map",

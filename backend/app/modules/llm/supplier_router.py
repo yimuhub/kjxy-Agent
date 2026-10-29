@@ -189,7 +189,7 @@ async def test_provider_candidate(
 ):
     """未落库候选配置的连通性测试：key 只在内存用一次，不落库、不打审计。"""
     result: SupplierTestResult = await supplier_service.probe_upstream(
-        payload.base_url, payload.api_key, payload.model_id
+        payload.base_url, payload.api_key, payload.model_id, provider_type=payload.provider_type
     )
     return ok(result.model_dump())
 

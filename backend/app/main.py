@@ -29,7 +29,9 @@ def _startup_wiring() -> None:
     try:
         from app.db.session import SessionLocal
         from app.modules.devices.agent_tool import register_sensor_query_tool
-        from app.modules.growth.compliance import register_compliance_tool, seed_growth_tools
+        from app.modules.growth.compliance import register_compliance_tool
+        from app.modules.growth.poster import register_image_tool
+        from app.modules.growth.toolseed import seed_growth_tools
         from app.modules.knowledge.service import register_knowledge_search_tool
         from app.modules.market.skill_tools import register_skill_agent_tools
         from app.modules.search.tools import register_search_tools
@@ -76,6 +78,7 @@ def _startup_wiring() -> None:
         register_search_tools()
         register_skill_agent_tools()
         register_compliance_tool()
+        register_image_tool()
     except Exception as e:
         log.warning("startup wiring failed: %s", e)
 
