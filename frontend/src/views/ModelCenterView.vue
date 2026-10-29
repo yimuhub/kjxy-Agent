@@ -196,89 +196,13 @@
       </el-tab-pane>
 
       <el-tab-pane
-        label="按智能体绑定"
+        label="智能体模型"
         name="agent"
       >
-        <el-card class="section">
-          <template #header>
-            智能体绑定（{{ agents.length }}）
-          </template>
-          <el-alert
-            type="info"
-            :closable="false"
-            show-icon
-            class="banner"
-            title="优先级最高的一档：助手在这里绑定的模型，覆盖能力绑定与全局默认。助手编辑页里的「指定模型」同样优先生效。"
-          />
-          <el-table
-            :data="agents"
-            stripe
-            max-height="520"
-          >
-            <el-table-column
-              prop="name"
-              label="助手"
-              width="200"
-            />
-            <el-table-column
-              prop="code"
-              label="编码"
-              width="180"
-              show-overflow-tooltip
-            />
-            <el-table-column
-              prop="kind"
-              label="类型"
-              width="110"
-            />
-            <el-table-column
-              label="当前绑定"
-              min-width="240"
-            >
-              <template #default="{ row }">
-                <template v-if="bindingMap[row.code]?.length">
-                  <el-tag
-                    v-for="(item, i) in bindingMap[row.code]"
-                    :key="item.id"
-                    size="small"
-                    :type="i === 0 ? 'success' : 'info'"
-                    effect="plain"
-                    class="bind-tag"
-                  >
-                    {{ i === 0 ? '主用' : `兜底${i}` }} {{ item.supplier_name }}
-                  </el-tag>
-                </template>
-                <el-tag
-                  v-else-if="row.supplier_id"
-                  size="small"
-                  type="warning"
-                  effect="plain"
-                >
-                  助手自带供应商设置
-                </el-tag>
-                <span
-                  v-else
-                  class="note"
-                >跟随能力/全局默认</span>
-              </template>
-            </el-table-column>
-            <el-table-column
-              label="操作"
-              width="110"
-            >
-              <template #default="{ row }">
-                <el-button
-                  size="small"
-                  text
-                  type="primary"
-                  @click="openBinding('agent', row.code, row.name)"
-                >
-                  配置
-                </el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-        </el-card>
+        <AgentModelSettings
+          :suppliers="supplierOptions"
+          @changed="onBindingSaved"
+        />
       </el-tab-pane>
     </el-tabs>
 
@@ -312,9 +236,10 @@
   import { computed, onMounted, reactive, ref } from 'vue'
   import { Lock } from '@element-plus/icons-vue'
   import { ElMessage } from 'element-plus'
-  import { llmApi, llmBindingApi, llmSupplierApi, agentApi, declarativeApi } from '@/api/modules'
+  import { llmApi, llmBindingApi, llmSupplierApi } from '@/api/modules'
   import type { LlmCapability, LlmBindingItem, LlmSupplier } from '@/api/modules'
   import ModelSuppliers from '@/components/settings/ModelSuppliers.vue'
+  import AgentModelSettings from '@/components/settings/AgentModelSettings.vue'
   import ModelBindings from '@/components/settings/ModelBindings.vue'
   import type { LlmStatus } from '@/types/api'
 
@@ -323,9 +248,6 @@
   const testing = ref(false)
   const suppliers = ref<LlmSupplier[]>([])
   const capabilities = ref<LlmCapability[]>([])
-  const agents = ref<
-    { code: string; name: string; supplier_id: string | null; kind: string }[]
-  >([])
   /** scope_key（能力码或助手 id）→ 该层绑定条目（按主用→兜底顺序） */
   const bindingMap = reactive<Record<string, LlmBindingItem[]>>({})
   const maxFallback = ref(3)
@@ -418,33 +340,6 @@
     }
   }
 
-  async function loadAgents() {
-    // 两类助手都按「编码」绑定：专业助手（平台注册表）与自建/声明式助手（小院行）
-    const rows: { code: string; name: string; supplier_id: string | null; kind: string }[] = []
-    try {
-      const pros = await agentApi.list()
-      pros.forEach(a => rows.push({ code: a.code, name: a.name, supplier_id: null, kind: '专业助手' }))
-    } catch {
-      /* 目录不可读时只展示自建助手 */
-    }
-    try {
-      const mine = await declarativeApi.list()
-      mine
-        .filter(a => a.status === 'published')
-        .forEach(a =>
-          rows.push({
-            code: a.agent_code,
-            name: a.name,
-            supplier_id: a.supplier_id ?? null,
-            kind: '自建助手',
-          }),
-        )
-    } catch {
-      /* 无自建助手是正常态 */
-    }
-    agents.value = rows
-  }
-
   async function loadResolution() {
     try {
       resolutionChat.value = await llmBindingApi.resolution({ purpose: 'declarative' })
@@ -454,7 +349,7 @@
   }
 
   async function refreshAll() {
-    await Promise.all([loadStatus(), loadSuppliers(), loadCapabilities(), loadBindings(), loadAgents()])
+    await Promise.all([loadStatus(), loadSuppliers(), loadCapabilities(), loadBindings()])
     await loadResolution()
   }
 

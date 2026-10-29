@@ -176,3 +176,106 @@ def test_member_without_llm_permission_is_rejected(client, world):
     )
     assert denied.status_code == 403
     assert "llm:manage" in denied.json()["error"]["message"]
+
+
+# ---------- v3.26：模型中心 → 智能体模型（聚合 + 接管旧设置） ----------
+
+
+def _mk_yard_agent(db_session, yard_id: str, *, code: str, name: str, supplier_id=None):
+    from app.modules.agents.models import YardAgent
+
+    agent = YardAgent(
+        yard_id=yard_id,
+        agent_code=code,
+        name=name,
+        persona_prompt="你是测试助手。",
+        task_prompt_template="{{question}}",
+        allowed_tools=[],
+        bound_skills=[],
+        knowledge_scopes=["yard"],
+        status="published",
+        visibility="public",
+        supplier_id=supplier_id,
+        model_name="legacy-sub-model" if supplier_id else None,
+    )
+    db_session.add(agent)
+    db_session.commit()
+    return agent
+
+
+def test_agent_model_overview_lists_platform_and_yard_agents(client, world, db_session):
+    token = _login(client, "llm_owner", world["yard"].id)
+    _mk_yard_agent(db_session, world["yard"].id, code="growth_helper", name="增长助手")
+
+    resp = client.get(f"{PREFIX}/llm/bindings/agents", headers=_hdr(token))
+    assert resp.status_code == 200, resp.text
+    data = resp.json()["data"]
+    codes = {item["code"] for item in data["items"]}
+    assert "orchestrator" in codes
+    assert "growth_helper" in codes
+    row = next(item for item in data["items"] if item["code"] == "growth_helper")
+    assert row["kind"] == "yard"
+    assert row["mode"] == "follow"
+    assert row["bindings"] == []
+    assert data["max_fallback"] == 3
+    purposes = {item["purpose"] for item in data["visual"]}
+    assert purposes == {"image_generation", "video_generation"}
+    labels = {item["label"] for item in data["visual"]}
+    assert {"图像生成", "视频生成"} <= labels
+
+
+def test_agent_binding_save_clears_legacy_agent_model(client, world, db_session):
+    token = _login(client, "llm_owner", world["yard"].id)
+    legacy_supplier = _mk_supplier(client, token, "legacy")
+    new_supplier = _mk_supplier(client, token, "picked")
+    agent = _mk_yard_agent(
+        db_session, world["yard"].id, code="legacy_agent", name="旧设置助手",
+        supplier_id=legacy_supplier,
+    )
+
+    before = client.get(f"{PREFIX}/llm/bindings/agents", headers=_hdr(token)).json()["data"]
+    row = next(item for item in before["items"] if item["code"] == "legacy_agent")
+    assert row["mode"] == "legacy"
+    assert row["legacy"]["supplier_name"] == "legacy"
+    assert row["resolved"]["level_label"] == "助手指定模型"
+
+    saved = client.put(
+        f"{PREFIX}/llm/bindings",
+        headers=_hdr(token),
+        json={
+            "scope_type": "agent",
+            "scope_key": "legacy_agent",
+            "entries": [{"supplier_id": new_supplier}],
+        },
+    )
+    assert saved.status_code == 200, saved.text
+
+    db_session.expire_all()
+    refreshed = db_session.get(type(agent), agent.id)
+    assert refreshed.supplier_id is None
+    assert refreshed.model_name is None
+
+    after = client.get(f"{PREFIX}/llm/bindings/agents", headers=_hdr(token)).json()["data"]
+    row = next(item for item in after["items"] if item["code"] == "legacy_agent")
+    assert row["mode"] == "custom"
+    assert row["legacy"] is None
+    assert row["bindings"][0]["supplier_name"] == "picked"
+    assert row["resolved"]["supplier_name"] == "picked"
+    assert row["resolved"]["level_label"] == "按智能体绑定"
+
+    # 清空即回到跟随中心
+    cleared = client.put(
+        f"{PREFIX}/llm/bindings",
+        headers=_hdr(token),
+        json={"scope_type": "agent", "scope_key": "legacy_agent", "entries": []},
+    )
+    assert cleared.status_code == 200
+    final = client.get(f"{PREFIX}/llm/bindings/agents", headers=_hdr(token)).json()["data"]
+    row = next(item for item in final["items"] if item["code"] == "legacy_agent")
+    assert row["mode"] == "follow"
+
+
+def test_agent_model_overview_requires_llm_manage(client, world):
+    token = _login(client, "llm_viewer", world["yard"].id)
+    resp = client.get(f"{PREFIX}/llm/bindings/agents", headers=_hdr(token))
+    assert resp.status_code == 403

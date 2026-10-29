@@ -4827,7 +4827,12 @@ paths:
       - llm
       - llm-bindings
       summary: Put Bindings
-      description: 整层替换：一次提交某层的全部兜底条目（顺序即优先级）。
+      description: '整层替换：一次提交某层的全部兜底条目（顺序即优先级）。
+
+
+        助手层特殊口径：写入即由统一定义接管——同步清空该自建助手上「旧设置」的
+
+        ``supplier_id`` / ``model_name``（助手编辑页遗留字段），消灭两套入口互相覆盖。'
       operationId: put_bindings_api_v1_llm_bindings_put
       security:
       - HTTPBearer: []
@@ -4849,6 +4854,28 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/llm/bindings/agents:
+    get:
+      tags:
+      - v1
+      - llm
+      - llm-bindings
+      summary: List Agent Model Overview
+      description: '「模型中心 → 智能体模型」聚合：一次返回全部助手 + 解析结果 + 视觉能力档位。
+
+
+        助手来源：平台内置助手（专业角色）+ 本小院已发布的自建助手；
+
+        每行给 ``mode``（follow/custom/legacy）、绑定明细、当前真正会用的供应商与模型。'
+      operationId: list_agent_model_overview_api_v1_llm_bindings_agents_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
   /api/v1/llm/bindings/{binding_id}:
     delete:
       tags:

@@ -524,6 +524,9 @@ export interface LlmBindingItem {
   model_name: string | null
   priority: number
   enabled: boolean
+  // v3.26：停用/熔断的供应商要标「不可用」，否则界面会把绑定当成真的在用
+  supplier_status?: number | null
+  available?: boolean
 }
 
 export interface LlmBindingEntry {
@@ -541,6 +544,34 @@ export interface LlmResolutionHop {
   supplier_name: string | null
   model_name: string | null
   usable: boolean
+}
+
+/** 模型中心 → 智能体模型：一行 = 一个助手 + 它当前真正会用的模型 */
+export interface LlmAgentModelItem {
+  code: string
+  name: string
+  kind: 'platform' | 'yard'
+  agent_id: string | null
+  status: string
+  /** follow=跟随中心，custom=已单独指定，legacy=助手编辑页旧设置 */
+  mode: 'follow' | 'custom' | 'legacy'
+  bindings: LlmBindingItem[]
+  legacy: { supplier_id: string; supplier_name: string; model_id: string; model_name: string | null } | null
+  resolved: { supplier_id: string; supplier_name: string; model_name: string; level: string; level_label: string } | null
+  hops: { level_label: string; supplier_name: string; model_name: string }[]
+}
+
+export interface LlmVisualModelItem {
+  purpose: 'image_generation' | 'video_generation'
+  label: string
+  bindings: LlmBindingItem[]
+  resolved: LlmAgentModelItem['resolved']
+}
+
+export interface LlmAgentModelsOut {
+  items: LlmAgentModelItem[]
+  visual: LlmVisualModelItem[]
+  max_fallback: number
 }
 
 export interface LlmCapabilitiesOut {
@@ -570,7 +601,10 @@ export const llmBindingApi = {
   remove(id: string): Promise<void> {
     return api.delete(`/llm/bindings/${id}`).then(() => undefined)
   },
-  resolution(params: { purpose?: string; agent_id?: string }): Promise<{
+  agents(): Promise<LlmAgentModelsOut> {
+    return unwrap(api.get<ApiResponse<LlmAgentModelsOut>>('/llm/bindings/agents'))
+  },
+  resolution(params: { purpose?: string; agent_code?: string }): Promise<{
     purpose: string | null
     purpose_label: string | null
     resolved_supplier_id: string | null

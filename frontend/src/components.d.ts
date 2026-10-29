@@ -11,6 +11,7 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    AgentModelSettings: typeof import('./components/settings/AgentModelSettings.vue')['default']
     AgentUseDialog: typeof import('./components/agents/AgentUseDialog.vue')['default']
     AgentWizard: typeof import('./components/agents/AgentWizard.vue')['default']
     AsyncState: typeof import('./components/AsyncState.vue')['default']

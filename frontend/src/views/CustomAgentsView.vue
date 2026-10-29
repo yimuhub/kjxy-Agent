@@ -563,12 +563,12 @@
           />
         </el-form-item>
 
-        <el-form-item label="绑定大模型">
+        <el-form-item label="专用模型">
           <div class="model-bind-row">
             <el-select
               v-model="decForm.supplier_id"
               clearable
-              placeholder="跟随小院默认供应商"
+              placeholder="跟随中心（能力/全局默认）"
               style="width: 240px"
               @change="onSupplierChange"
             >
@@ -596,7 +596,7 @@
               />
             </el-select>
           </div>
-          <span class="da-note">每个智能体可绑定独立供应商与具体模型型号（如 deepseek-reasoner、qwen-max）</span>
+          <span class="da-note">留空即跟随中心；也可到「模型中心 → 智能体模型」统一配置主用与兜底（保存后以那边为准）</span>
         </el-form-item>
 
         <el-form-item label="内置与MCP工具">
@@ -989,7 +989,7 @@
   function modelLabel(a: DeclarativeAgent): string {
     const sub = a.model_name?.trim()
     if (!a.supplier_id) {
-      return sub ? `默认供应商 · ${sub}` : '跟随小院默认'
+      return sub ? `跟随中心 · ${sub}` : '跟随中心'
     }
     const sup = supplierMap.value[a.supplier_id]
     if (!sup) return sub || '已绑自定义模型'

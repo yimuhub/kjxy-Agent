@@ -159,3 +159,16 @@ def register_agent_definition(
     }
     AGENT_DEFINITIONS.append(definition)
     return definition
+
+
+def platform_agent_definitions() -> list[dict]:
+    """已启用的平台内置助手定义（先触发各 Agent 模块自注册，保证目录不残缺）。
+
+    模型中心的「智能体模型」用它列出内置六角色等平台助手；调用方不应直接读
+    ``AGENT_DEFINITIONS``，否则可能拿到未经自注册的半截目录。
+    """
+    from app.modules.agents.router import _AGENT_MODULES, _ensure_imported
+
+    for code in _AGENT_MODULES:
+        _ensure_imported(code)
+    return [dict(item) for item in AGENT_DEFINITIONS if item.get("enabled", True)]

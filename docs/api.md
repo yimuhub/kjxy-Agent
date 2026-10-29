@@ -365,13 +365,15 @@ JSON-RPC 方法：
 
 ## 模型中心与工具目录（v3.25）
 
-模型配置从「系统设置」迁到「小院管理 · 模型中心」（`/model-center`，需 `llm:manage`）：供应商、全局默认与兜底、按能力绑定、按智能体绑定集中在同一页；「可用工具」升级为可查看详情、可手动/一句话添加的目录。
+模型配置从「系统设置」迁到「小院管理 · 模型中心」（`/model-center`，需 `llm:manage`）：供应商、全局默认与兜底、按能力绑定、智能体模型集中在同一页；「可用工具」升级为可查看详情、可手动/一句话添加的目录。
+
+v3.26 起「按智能体绑定」页签升级为「智能体模型」：一次列出平台助手与已发布自建助手，显示跟随来源/主用/兜底/可用性，并可试跑；同一页下方配置 `image_generation` / `video_generation` 两个视觉能力档位。
 
 ### 解析链（谁先谁后）
 
 一次调用按下列顺序取第一个可用供应商，同层最多 3 档兜底（主用 + 2 档）：
 
-1. 助手编辑页里指定的供应商
+1. 助手编辑页里指定的供应商（旧设置；在「智能体模型」保存一次即被接管并清空）
 2. 按智能体绑定（`scope_type=agent`，`scope_key` = 助手 `agent_code`）
 3. 按能力绑定（`scope_type=purpose`，`scope_key` = 用途码）
 4. 小院/平台全局默认（`scope_type=global`）
@@ -381,10 +383,11 @@ JSON-RPC 方法：
 
 | 接口 | 说明 |
 |---|---|
-| `GET /llm/capabilities` | 22 条能力（用途码/中文名/分组/说明）+ 三层绑定类型 + 解析层顺序 + `max_fallback` |
+| `GET /llm/capabilities` | 24 条能力（用途码/中文名/分组/说明，含 `image_generation`/`video_generation`）+ 三层绑定类型 + 解析层顺序 + `max_fallback` |
 | `GET /llm/bindings?scope_type&scope_key` | 本小院可见绑定（含平台级），返回供应商名与模型名 |
-| `PUT /llm/bindings` | **整层替换**：`{scope_type, scope_key, entries[]}`，顺序即兜底顺序；超过 3 条 400 `BINDING_TOO_MANY`，平台级仅平台管理员可改 403 `BINDING_READONLY` |
+| `PUT /llm/bindings` | **整层替换**：`{scope_type, scope_key, entries[]}`，顺序即兜底顺序；`scope_type=agent` 时同步清空该自建助手的旧 `supplier_id/model_name`（统一定义接管）；超过 3 条 400 `BINDING_TOO_MANY`，平台级仅平台管理员可改 403 `BINDING_READONLY` |
 | `DELETE /llm/bindings/{id}` | 删单条绑定，不存在 404 `BINDING_NOT_FOUND` |
+| `GET /llm/bindings/agents` | 智能体模型聚合：全部助手（平台 + 已发布自建）× 当前策略（跟随/指定/旧设置）× 绑定与解析结果，另含图像/视频两档默认（v3.26） |
 | `GET /llm/bindings/resolution?purpose&agent_code` | 「这次会用谁」：逐档给出候选与不可用原因 |
 | `POST /llm/bindings/test` | 按层真实试跑一条最小请求（会消耗一次调用），失败如实回 `ok=false` + 原因 |
 
@@ -401,6 +404,19 @@ JSON-RPC 方法：
 | `DELETE /tools/{code}` | 删除自定义工具，内置 403 `TOOL_READONLY` |
 
 自定义工具执行方式二选一：`prompt`（复用小院模型，用途码 `tool_run`）与 `http`（出网受 SSRF 白名单管控、响应 200KB 上限、非 GET 一律升级为 `external_side_effect` 走审批闸）。非法定义 400 `TOOL_SPEC_INVALID`，外部接口异常 502/504 `TOOL_ERROR`。
+
+## 增长技能与海报出图（v3.26）
+
+内置增长技能 12 项：营销 6（品牌定位/卖点详情页/定价毛利/渠道节奏/选题排期/复购老客）、活动 4（活动策划/邀请通知/直播脚本/活动复盘）、海报 2（提示词工程/出图）。全部按 `SkillSpec` 带输入表、≥2 条评测用例与护栏；新小院注册即铺（12 农技 + 12 增长）。所有对外文案出门前可调用只读工具 `compliance.check_copy`（离线 236 词库、按句例外降级、只给建议不改语义）。
+
+图像/视频生成一律由模型供应商供应（不自建出图服务）：供应商类型新增 `openai_images`（兼容 `POST {base_url}/images/generations`）、`dashscope_image`（百炼原生异步任务）、`openai_video`（通道位，暂无内置工具）。三者都是 `suppliers.provider_type` 的字符串取值，**不需要迁移**。
+
+| 接口 | 说明 |
+|---|---|
+| `POST /growth/posters` | 出海报：`{prompt, size?, n?, title?, subtitle?, footer?, theme?}`；优先图像供应商，未配置或失败时降级本地 SVG 模板，`fallback=true` 且 `notice` 说明原因 |
+| `GET /growth/posters/{key}?sig=` | 取图：随机键 + HMAC 签名的 capability URL（`<img>` 带不了鉴权头），只读 `posters/` 子目录，签名不符 404 |
+
+内置工具 `image.generate`（`write_reversible`）：参数同上，返回 `assets[].url` 与 `provider/model/fallback`；对话里可按 `![标题](url)` 直接显示。前端 Markdown 渲染只放行 http(s) 与同源 `/api/v1/growth/posters/...?sig=<32位hex>` 图片地址。
 
 ## 任务状态机
 
