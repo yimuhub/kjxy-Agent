@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.24.0
+  version: 3.25.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -4703,6 +4703,191 @@ paths:
               schema: {}
       security:
       - HTTPBearer: []
+  /api/v1/llm/capabilities:
+    get:
+      tags:
+      - v1
+      - llm
+      - llm-bindings
+      summary: List Capabilities
+      description: 能力清单（用途码 → 中文名/分组/说明）+ 三层绑定类型与合法用途码校验集。
+      operationId: list_capabilities_api_v1_llm_capabilities_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/llm/bindings:
+    get:
+      tags:
+      - v1
+      - llm
+      - llm-bindings
+      summary: Get Bindings
+      description: 读取本小院可见绑定（含平台级），可选按层过滤。
+      operationId: get_bindings_api_v1_llm_bindings_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: scope_type
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Scope Type
+      - name: scope_key
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Scope Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    put:
+      tags:
+      - v1
+      - llm
+      - llm-bindings
+      summary: Put Bindings
+      description: 整层替换：一次提交某层的全部兜底条目（顺序即优先级）。
+      operationId: put_bindings_api_v1_llm_bindings_put
+      security:
+      - HTTPBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BindingsReplace'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/llm/bindings/{binding_id}:
+    delete:
+      tags:
+      - v1
+      - llm
+      - llm-bindings
+      summary: Delete Binding
+      operationId: delete_binding_api_v1_llm_bindings__binding_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: binding_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Binding Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/llm/bindings/resolution:
+    get:
+      tags:
+      - v1
+      - llm
+      - llm-bindings
+      summary: Resolve Preview
+      description: 「这次调用会用谁」：按解析链给出候选顺序与首个可用项。
+      operationId: resolve_preview_api_v1_llm_bindings_resolution_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: purpose
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Purpose
+      - name: agent_code
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Agent Code
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/llm/bindings/test:
+    post:
+      tags:
+      - v1
+      - llm
+      - llm-bindings
+      summary: Test Binding Scope
+      description: 按层试跑一条最小请求：验证绑定与兜底链路真的能出话（会真实消耗一次调用）。
+      operationId: test_binding_scope_api_v1_llm_bindings_test_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              additionalProperties: true
+              type: object
+              title: Payload
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
   /api/v1/llm/traces:
     get:
       tags:
@@ -4843,6 +5028,7 @@ paths:
       - v1
       - tools
       summary: List Tools
+      description: 既有契约：本小院当前**可调用**的工具清单（内置启用项 + 自定义启用项 + MCP 快照）。
       operationId: list_tools_api_v1_tools_get
       responses:
         '200':
@@ -4850,6 +5036,246 @@ paths:
           content:
             application/json:
               schema: {}
+      security:
+      - HTTPBearer: []
+    post:
+      tags:
+      - v1
+      - tools
+      summary: Create Tool
+      description: 手填/确认后新增自定义工具；``enabled=true`` 表示直接启用（仍需实现完整）。
+      operationId: create_tool_api_v1_tools_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              additionalProperties: true
+              type: object
+              title: Payload
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/tools/catalog:
+    get:
+      tags:
+      - v1
+      - tools
+      summary: Get Catalog
+      description: 「可用工具」页视图：三类来源合并 + 分组计数 + 风险/来源中文标签。
+      operationId: get_catalog_api_v1_tools_catalog_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: include_disabled
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: true
+          title: Include Disabled
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/tools/generate:
+    post:
+      tags:
+      - v1
+      - tools
+      summary: Generate Tool
+      description: 一句话生成工具草稿（**不落库**）：预览确认后再调 ``POST /tools`` 建草稿/启用。
+      operationId: generate_tool_api_v1_tools_generate_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              additionalProperties: true
+              type: object
+              title: Payload
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/tools/{code}:
+    get:
+      tags:
+      - v1
+      - tools
+      summary: Get Tool
+      description: 工具详情：能做什么、参数表、风险、所需权限、调用示例与最近调用记录。
+      operationId: get_tool_api_v1_tools__code__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: code
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Code
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    put:
+      tags:
+      - v1
+      - tools
+      summary: Update Tool
+      operationId: update_tool_api_v1_tools__code__put
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: code
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+              title: Payload
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - v1
+      - tools
+      summary: Delete Tool
+      description: 删除仅限本小院自定义工具；内置工具只能停用（历史审批单与调用记录按 code 引用）。
+      operationId: delete_tool_api_v1_tools__code__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: code
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Code
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/tools/{code}/enable:
+    post:
+      tags:
+      - v1
+      - tools
+      summary: Enable Tool
+      description: 启用草稿：内置行为平台级开关；自定义行必须已有可执行实现。
+      operationId: enable_tool_api_v1_tools__code__enable_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: code
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Code
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/tools/{code}/disable:
+    post:
+      tags:
+      - v1
+      - tools
+      summary: Disable Tool
+      operationId: disable_tool_api_v1_tools__code__disable_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: code
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Code
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/tool-approvals:
     get:
       tags:
@@ -9648,6 +10074,62 @@ components:
       - username
       - role
       title: BatchMemberItem
+    BindingEntry:
+      properties:
+        supplier_id:
+          type: string
+          maxLength: 64
+          minLength: 1
+          title: Supplier Id
+        model_name:
+          anyOf:
+          - type: string
+            maxLength: 100
+          - type: 'null'
+          title: Model Name
+          description: 覆盖上游物理模型名
+        priority:
+          type: integer
+          maximum: 1000.0
+          minimum: -1000.0
+          title: Priority
+          description: 越大越优先
+          default: 0
+        enabled:
+          type: boolean
+          title: Enabled
+          default: true
+      additionalProperties: false
+      type: object
+      required:
+      - supplier_id
+      title: BindingEntry
+      description: 同层兜底链上的一条：供应商 + 可选模型覆盖 + 顺序 + 开关。
+    BindingsReplace:
+      properties:
+        scope_type:
+          type: string
+          enum:
+          - global
+          - purpose
+          - agent
+          title: Scope Type
+        scope_key:
+          type: string
+          maxLength: 100
+          title: Scope Key
+          default: ''
+        entries:
+          items:
+            $ref: '#/components/schemas/BindingEntry'
+          type: array
+          title: Entries
+      additionalProperties: false
+      type: object
+      required:
+      - scope_type
+      title: BindingsReplace
+      description: 整层替换：一次提交某（scope_type, scope_key）下的全部条目。
     Body_import_plugin_api_v1_market_plugins_import_post:
       properties:
         file:

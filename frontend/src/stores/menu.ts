@@ -64,6 +64,7 @@ export const ALL_MENU_ATOMS: DiyMenuLeaf[] = [
   { key: 'tasks', path: '/tasks', title: '任务中心', iconName: 'List', permission: 'tasks:read' },
   { key: 'bots', path: '/bots', title: 'IM 机器人', iconName: 'ChatDotRound', permission: 'settings:manage', roles: ADMIN_ROLES },
   { key: 'quota', path: '/quota', title: 'Token 与用量', iconName: 'DataLine', permission: 'insights:read' },
+  { key: 'model-center', path: '/model-center', title: '模型中心', iconName: 'Cpu', permission: 'llm:manage', roles: ADMIN_ROLES },
   { key: 'members', path: '/members', title: '成员管理', iconName: 'User', permission: 'members:manage', roles: ADMIN_ROLES },
   { key: 'settings', path: '/settings', title: '系统设置', iconName: 'Setting', permission: 'settings:manage', roles: ADMIN_ROLES, locked: true },
   {
@@ -172,6 +173,7 @@ function buildDefaultMenuGroupsRaw(): DiyMenuGroup[] {
           roles: ADMIN_ROLES,
           children: [
             { key: 'owner', path: '/owner', title: '负责人驾驶舱', iconName: 'DataLine', permission: 'insights:read', roles: ['yard_owner', 'platform_admin'] },
+            { key: 'model-center', path: '/model-center', title: '模型中心', iconName: 'Cpu', permission: 'llm:manage', roles: ADMIN_ROLES },
             { key: 'members', path: '/members', title: '成员管理', iconName: 'User', permission: 'members:manage', roles: ADMIN_ROLES },
             { key: 'settings', path: '/settings', title: '系统设置', iconName: 'Setting', permission: 'settings:manage', roles: ADMIN_ROLES, locked: true },
             { key: 'bots', path: '/bots', title: 'IM 机器人', iconName: 'ChatDotRound', permission: 'settings:manage', roles: ADMIN_ROLES },

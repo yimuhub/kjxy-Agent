@@ -233,3 +233,27 @@
 - B 批（3.25.0）：模型配置与供应商迁入「小院管理」、兜底/全局默认/按 Agent 与按能力绑定；工具详情预览、「添加可用工具」（手动 + 一句话）。
 - C 批（3.26.0）：演示小院 SSO/A2A/MCP 演示数据；前端配置动态化（含 mock 开关）。
 - 按钮级权限目前覆盖高频入口（成员、设置、设备、政策等页面入口与操作已按角色收敛），后续按页面逐个补 `v-if="auth.hasPermission(...)"`。
+
+## 9. B 批交付记录（3.25.0，2026-10-29）
+
+已落地（与第 3 节设计一致）：
+
+- 迁移 0051 建 `llm_bindings`（`(yard_id, scope_type, scope_key, supplier_id)` 唯一 + 两个索引），并给 `llm_calls` 补 `supplier_id`、`purpose`；迁移 0052 给 `tool_definitions` 补 `source / impl_kind / impl_json / yard_id / created_by`。0051 已验证可升可降，两者均已应用到 dev.db。
+- 解析链（`binding_service.resolve_chain`）：助手指定 → 按智能体（`scope_key = agent_code`）→ 按能力（purpose）→ 小院/平台全局默认 → 小院当前生效 → 平台优先级 → settings 兜底；同层最多 3 档，同供应商跨层去重，不可见/已停用候选逐档过滤并在 `resolution` 里说明原因。
+- 运行时兜底与熔断（`llm/service.py` + `supplier_service.py`）：候选链逐个尝试，失败记录 error trace 并切下一档；成功清零连续失败计数，累计 5 次（`RUNTIME_DEGRADE_FAILURES`）自动置 `status=2` 并从候选链剔除——「停用默认后下一次调用自动落到兜底」由此成立。
+- 能力码唯一来源 `llm/capabilities.py`（22 条，含 `tool_generation`、`tool_run`），`/llm/trace` 的用途校验与 `/llm/capabilities` 共用该表，界面中文名与后端校验不再各写一份。
+- 新接口：`GET /llm/capabilities`、`GET/PUT /llm/bindings`、`DELETE /llm/bindings/{id}`、`GET /llm/bindings/resolution`、`POST /llm/bindings/test`（均需 `llm:manage`）；新错误码 `BINDING_TOO_MANY` / `BINDING_NOT_FOUND` / `BINDING_READONLY`。
+- 工具目录：`GET /tools/catalog`（内置 + 本小院自定义 + MCP 快照，含分组计数与风险/来源中文标签）、`GET /tools/{code}`（能力说明、参数表、调用示例、执行方式、最近调用只取 `tool_executed` 审计）；`POST/PUT/DELETE /tools`、`POST /tools/{code}/enable|disable` 仅对自定义工具开放，内置与 `mcp__` 前缀 403 `TOOL_READONLY`。
+- 一句话生成（`tools/generator.py`）：最多两次尝试（含一轮定点修复），任何失败都返回 `source="fallback"` 的保守草稿且**不落库**；`validate_spec` 拒绝 code 非法、required 与 properties 不一致、声明必填却无参数、非法风险等级，`normalize_spec` 强制 `additionalProperties=false` 并把非 GET 的 http 升级为 `external_side_effect`。
+- 自定义工具运行时（`tools/custom_runtime.py`）：`prompt` 复用小院模型（purpose `tool_run`，参数直替不做 format/eval）；`http` 走出网校验、200KB 响应上限、超时 504/不可达 502，鉴权头明文进、Fernet 密文存且编辑不回填明文。
+- 前端：新增「小院管理 · 模型中心」（`/model-center`），系统设置删除「模型配置」「模型供应商」两页签（`SettingsView.vue` 43.8k → 22.3k 字符）；`ModelSuppliers` / `ModelBindings` / `ToolsCatalog` 拆为独立组件，兜底链可上下移排序、保存后即时回写「当前绑定」与「对话会用谁」；「可用工具」支持点名称看详情、手动填写与一句话添加（草稿默认不启用）。
+- E2E：新增 `e2e/v325.spec.ts` 5 条（模型中心入口与测试当前链路、按能力绑定的主用/兜底顺序与回落、工具详情抽屉与手动添加→启用→删除、一句话生成草稿→启用、无 `llm:manage` 入口隐藏 + 直连被拦）。
+- 顺带修掉的三处真实缺陷：① 前端 30s 默认超时把一句话生成的真实模型调用掐断（`/tools/generate` 150s、`/llm/bindings/test` 120s）；② 绑定弹窗的「这次会用谁」未按本层 purpose/agent 解析，改完看不出效果；③ 保存绑定后父页的「当前绑定」标签与状态卡不刷新（补 `saved` 事件）。
+- mock 适配同步补齐 `/llm/providers`、`/llm/capabilities`、`/llm/bindings*`、`/tools/catalog|generate|{code}` 与启停/删除，纯前端演示环境同样能走通模型中心与工具目录。
+
+未完事项（转入 C 批及后续）：
+
+- C 批（3.26.0）：演示 SSO（可编辑可删）、演示 A2A 协作方、内置演示 MCP 服务器、前端配置动态化（mock 运行时开关等）。
+- 「按 Agent 绑定」目前覆盖专业助手与已发布的自建助手；助手编辑页的「指定模型」仍走单供应商选择，后续与该层合并成同一入口。
+- 供应商自动降级只处理连续失败熔断，尚无「按延迟/成本自动换挡」；`llm_calls.purpose` 已入库，按能力统计成本待做看板。
+

@@ -157,6 +157,29 @@ const MOCK_MEMBERS = [
 
 const MOCK_LLM = { provider: 'deepseek', model: 'deepseek-chat', configured: true, healthy: true, latency_ms: 812, checked_at: '2026-10-16T10:00:00Z' }
 
+const MOCK_SUPPLIERS = [
+  { id: 'sp-main', yard_id: null, name: 'deepseek-main', provider_type: 'deepseek', base_url: 'https://api.deepseek.com', model_id: 'deepseek-chat', api_key_masked: 'sk-s****8888', models: null, priority: 10, status: 1, is_active: true, supports_tools: true, consecutive_failures: 0, test_time: '2026-10-28T09:00:00Z', response_time_ms: 780, last_error: null, readonly: false, created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-28T09:00:00Z' },
+  { id: 'sp-backup', yard_id: 'yard-demo', name: 'qwen-backup', provider_type: 'qwen', base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model_id: 'qwen-max', api_key_masked: 'sk-a****2222', models: null, priority: 5, status: 1, is_active: false, supports_tools: false, consecutive_failures: 0, test_time: '2026-10-27T09:00:00Z', response_time_ms: 940, last_error: null, readonly: false, created_at: '2026-10-02T00:00:00Z', updated_at: '2026-10-27T09:00:00Z' },
+]
+
+const MOCK_CAPABILITIES = [
+  { code: 'declarative', label: '专业助手对话', group: '对话', hint: '内置/自建助手在问答与任务运行时的主模型调用' },
+  { code: 'chat_document', label: '对话内文档生成', group: '文档', hint: '会话中直接产出 md/docx 文档正文' },
+  { code: 'embedding', label: '知识向量化', group: '知识', hint: '知识库切片入库的向量计算' },
+  { code: 'device_analysis', label: '设备数据解读', group: '设备', hint: '设备分析结论的自然语言解释' },
+]
+
+let MOCK_BINDINGS = [
+  { id: 'bd-1', yard_id: 'yard-demo', scope_type: 'global', scope_key: '', supplier_id: 'sp-main', supplier_name: 'deepseek-main', provider_type: 'deepseek', model_id: 'deepseek-chat', model_name: null, priority: 20, enabled: true, created_at: '2026-10-28T00:00:00Z', updated_at: '2026-10-28T00:00:00Z' },
+  { id: 'bd-2', yard_id: 'yard-demo', scope_type: 'global', scope_key: '', supplier_id: 'sp-backup', supplier_name: 'qwen-backup', provider_type: 'qwen', model_id: 'qwen-max', model_name: 'qwen-plus', priority: 10, enabled: true, created_at: '2026-10-28T00:00:00Z', updated_at: '2026-10-28T00:00:00Z' },
+]
+
+const MOCK_CATALOG = [
+  { code: 'knowledge.search', version: '1.0.0', name: '知识库检索', description: '在本小院知识库中检索证据片段', input_schema: { type: 'object', properties: { query: { type: 'string', description: '检索问题' } }, required: ['query'] }, output_schema: null, required_permissions: ['knowledge:read'], risk_level: 'read_only', side_effect: false, timeout_seconds: 30, enabled: true, source: 'builtin', impl_kind: 'registry', yard_id: null, readonly: true, implementation: { kind: 'registry' } },
+  { code: 'pest.alert_read', version: '0.1.0', name: '告警速读', description: '把今天的设备告警读成人话', input_schema: { type: 'object', properties: { crop: { type: 'string', description: '作物名' } }, required: ['crop'] }, output_schema: null, required_permissions: ['tools:execute'], risk_level: 'read_only', side_effect: false, timeout_seconds: 60, enabled: true, source: 'custom', impl_kind: 'prompt', yard_id: 'yard-demo', readonly: false, implementation: { kind: 'prompt', prompt_template: '请用三句话总结 {crop} 的今日告警' } },
+  { code: 'mcp__abcd1234__today_summary', version: 'mcp:abcd1234', name: 'today_summary', description: '演示 MCP：返回小院今日概况', input_schema: { type: 'object', additionalProperties: false }, output_schema: null, required_permissions: ['tools:execute'], risk_level: 'external_side_effect', side_effect: true, timeout_seconds: 20, enabled: true, source: 'mcp', impl_kind: 'mcp', yard_id: 'yard-demo', readonly: true, implementation: { kind: 'mcp', server: '演示 MCP', server_enabled: true } },
+]
+
 const MOCK_TOOLS = [
   { code: 'weather.query', version: '1.0.0', name: '天气查询', description: '查询指定区域未来天气', input_schema: { type: 'object' }, required_permissions: ['tool:weather'], risk_level: 'read_only', side_effect: false, timeout_seconds: 30 },
 ]
@@ -288,6 +311,72 @@ export function getMockAdapter(): AxiosAdapter {
       return respond(ok({ ...MOCK_SKILLS[1], status: 'published' }))
     if (method === 'get' && url === '/llm/status') return respond(ok(MOCK_LLM))
     if (method === 'get' && url === '/tools') return respond(ok(MOCK_TOOLS, pageMeta(MOCK_TOOLS.length)))
+
+    // ---------- 模型中心（v3.25）：供应商、能力清单与三层绑定 ----------
+    if (method === 'get' && url === '/llm/providers') return respond(ok(MOCK_SUPPLIERS))
+    if (method === 'get' && url === '/llm/provider-templates') return respond(ok([]))
+    if (method === 'get' && url === '/llm/capabilities')
+      return respond(ok({ capabilities: MOCK_CAPABILITIES, purpose_codes: MOCK_CAPABILITIES.map(c => c.code), valid_purposes: MOCK_CAPABILITIES.map(c => c.code), scope_types: [{ type: 'global', label: '全局默认', need_key: false }, { type: 'purpose', label: '按能力', need_key: true }, { type: 'agent', label: '按智能体', need_key: true }], levels: [{ level: 'agent_bound', label: '助手指定模型' }, { level: 'purpose_binding', label: '按能力绑定' }, { level: 'yard_default', label: '小院默认+兜底' }], max_fallback: 3 }))
+    if (method === 'get' && url === '/llm/bindings') return respond(ok({ items: MOCK_BINDINGS, scope_type_labels: { global: '全局默认', purpose: '按能力', agent: '按智能体' } }))
+    if (method === 'put' && url === '/llm/bindings') {
+      const body = JSON.parse(String(config.data ?? '{}'))
+      MOCK_BINDINGS = MOCK_BINDINGS.filter(b => !(b.scope_type === body.scope_type && b.scope_key === (body.scope_key ?? '')))
+        .concat((body.entries ?? []).map((e: any, i: number) => {
+          const sp = MOCK_SUPPLIERS.find(x => x.id === e.supplier_id)
+          return { id: `bd-${Date.now()}-${i}`, yard_id: 'yard-demo', scope_type: body.scope_type, scope_key: body.scope_key ?? '', supplier_id: e.supplier_id, supplier_name: sp?.name ?? '', provider_type: sp?.provider_type ?? '', model_id: sp?.model_id ?? '', model_name: e.model_name ?? null, priority: e.priority ?? (body.entries.length - i) * 10, enabled: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
+        }))
+      return respond(ok({ items: MOCK_BINDINGS }))
+    }
+    if (method === 'delete' && url.startsWith('/llm/bindings/')) {
+      MOCK_BINDINGS = MOCK_BINDINGS.filter(b => b.id !== url.split('/').pop())
+      return respond(ok({ deleted: url.split('/').pop() }))
+    }
+    if (method === 'get' && url === '/llm/bindings/resolution') {
+      const hops = MOCK_BINDINGS.map(b => ({ level: b.scope_type === 'global' ? 'yard_default' : 'purpose_binding', level_label: b.scope_type === 'global' ? '小院默认+兜底' : '按能力绑定', reason: '绑定命中', supplier_id: b.supplier_id, supplier_name: b.supplier_name, model_name: b.model_name || b.model_id, usable: true }))
+      return respond(ok({ purpose: null, purpose_label: null, agent_code: null, candidate_supplier_ids: hops.map(h => h.supplier_id), resolved_supplier_id: hops[0]?.supplier_id ?? null, resolved_model: hops[0]?.model_name ?? null, resolved_level: hops[0]?.level_label ?? '环境变量兜底', hops }))
+    }
+    if (method === 'post' && url === '/llm/bindings/test') return respond(ok({ ok: true, model: 'deepseek-chat', latency_ms: 620, reply: 'ok（演示数据）', attempted: [] }))
+
+    // ---------- 可用工具目录（v3.25） ----------
+    if (method === 'get' && url === '/tools/catalog')
+      return respond(ok({ items: MOCK_CATALOG, counts: { builtin: 1, custom: 1, mcp: 1 }, risk_labels: { read_only: '只读：只查询，不改动任何数据', draft: '起草：产出草稿，等待人工确认', write_reversible: '可回滚写入：改动本系统内数据，可撤销', external_side_effect: '外部副作用：改动外部世界，需人工审批' }, source_labels: { builtin: '内置', custom: '本小院添加', mcp: '来自 MCP 服务器' } }))
+    if (method === 'post' && url === '/tools/generate') {
+      const body = JSON.parse(String(config.data ?? '{}'))
+      const title = String(body.utterance ?? '自定义工具').slice(0, 20)
+      return respond(ok({ spec: { code: `custom.demo_${Date.now().toString(36)}`, name: title, description: `${title}（演示草稿）`, input_schema: { type: 'object', properties: { request: { type: 'string', description: '本次请求内容' } }, required: ['request'], additionalProperties: false }, impl_kind: 'prompt', impl: { prompt_template: '请完成任务：{request}' }, risk_level: 'read_only', side_effect: false, required_permissions: ['tools:execute'] }, source: 'fallback', model: '', note: '演示模式下给出保守草稿，请人工确认后启用。' }))
+    }
+    if (method === 'post' && url === '/tools') {
+      const body = JSON.parse(String(config.data ?? '{}'))
+      const item = { code: body.code, version: '0.1.0', name: body.name, description: body.description ?? '', input_schema: body.input_schema ?? { type: 'object' }, output_schema: null, required_permissions: body.required_permissions ?? ['tools:execute'], risk_level: body.risk_level ?? 'read_only', side_effect: !!body.side_effect, timeout_seconds: 60, enabled: !!body.enabled, source: 'custom', impl_kind: body.impl_kind ?? 'prompt', yard_id: 'yard-demo', readonly: false, implementation: body.impl ?? { kind: 'prompt' } }
+      MOCK_CATALOG.push(item)
+      MOCK_TOOLS.push({ code: item.code, version: item.version, name: item.name, description: item.description, input_schema: item.input_schema, required_permissions: item.required_permissions, risk_level: item.risk_level, side_effect: item.side_effect, timeout_seconds: item.timeout_seconds })
+      return respond(ok(item))
+    }
+    if (method === 'get' && url.startsWith('/tools/')) {
+      const code = decodeURIComponent(url.split('/tools/')[1])
+      const base = MOCK_CATALOG.find(t => t.code === code)
+      if (!base) return respond(ok(null))
+      return respond(ok({ ...base, definition_markdown: base.description, call_example: JSON.stringify(Object.fromEntries(Object.keys((base.input_schema as any)?.properties ?? {}).map(k => [k, '示例值'])), null, 2), recent_calls: [] }))
+    }
+    if (method === 'post' && /\/tools\/.+\/(enable|disable)$/.test(url)) {
+      const code = decodeURIComponent(url.split('/tools/')[1].split('/')[0])
+      const item = MOCK_CATALOG.find(t => t.code === code)
+      if (item) item.enabled = url.endsWith('/enable')
+      return respond(ok(item ?? null))
+    }
+    if (method === 'put' && url.startsWith('/tools/')) {
+      const code = decodeURIComponent(url.split('/tools/')[1])
+      const body = JSON.parse(String(config.data ?? '{}'))
+      const item = MOCK_CATALOG.find(t => t.code === code)
+      if (item) Object.assign(item, { name: body.name ?? item.name, description: body.description ?? item.description, input_schema: body.input_schema ?? item.input_schema, risk_level: body.risk_level ?? item.risk_level })
+      return respond(ok(item ?? null))
+    }
+    if (method === 'delete' && url.startsWith('/tools/')) {
+      const code = decodeURIComponent(url.split('/tools/')[1])
+      const idx = MOCK_CATALOG.findIndex(t => t.code === code)
+      if (idx >= 0) MOCK_CATALOG.splice(idx, 1)
+      return respond(ok({ deleted: code }))
+    }
     if (method === 'get' && url === '/audit/logs') return respond(ok([], pageMeta(0)))
     if (method === 'get' && url === '/admin/stats') return respond(ok(MOCK_STATS))
 

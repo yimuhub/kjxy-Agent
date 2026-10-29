@@ -54,6 +54,7 @@ from app.modules.farm.models import (  # noqa: F401
     WorkOrderEvent,
 )
 from app.modules.knowledge.models import KnowledgeChunk, KnowledgeDocument  # noqa: F401
+from app.modules.llm.binding_models import LLMBinding  # noqa: F401
 from app.modules.llm.models import LLMCall, LLMTrace  # noqa: F401
 from app.modules.llm.supplier_models import Supplier, YardActiveSupplier  # noqa: F401
 from app.modules.market.models import MarketItem  # noqa: F401

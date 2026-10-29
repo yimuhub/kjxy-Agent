@@ -16,6 +16,7 @@ const TasksView = () => import('@/views/TasksView.vue')
 const ReviewView = () => import('@/views/ReviewView.vue')
 const MembersView = () => import('@/views/MembersView.vue')
 const SettingsView = () => import('@/views/SettingsView.vue')
+const ModelCenterView = () => import('@/views/ModelCenterView.vue')
 const AgentsView = () => import('@/views/AgentsView.vue')
 const CustomAgentsView = () => import('@/views/CustomAgentsView.vue')
 const TeamsView = () => import('@/views/TeamsView.vue')
@@ -147,6 +148,13 @@ const routes: RouteRecordRaw[] = [
         name: 'Members',
         component: MembersView,
         meta: { title: '成员管理', roles: ADMIN_ROLES, permission: 'members:manage' },
+      },
+      {
+        // 模型中心（v3.25）：供应商 + 全局默认与兜底 + 按能力/按助手绑定，一页配完
+        path: 'model-center',
+        name: 'ModelCenter',
+        component: ModelCenterView,
+        meta: { title: '模型中心', roles: ADMIN_ROLES, permission: 'llm:manage' },
       },
       {
         path: 'settings',

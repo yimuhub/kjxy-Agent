@@ -307,9 +307,83 @@ export const llmApi = {
   },
 }
 
+/** 工具目录条目（v3.25）：内置 / 本小院自定义 / MCP 快照三源统一形状 */
+export interface ToolCatalogItem {
+  code: string
+  version: string
+  name: string
+  description: string
+  input_schema: Record<string, unknown>
+  output_schema?: Record<string, unknown> | null
+  required_permissions: string[]
+  risk_level: string
+  side_effect: boolean
+  timeout_seconds: number
+  enabled: boolean
+  source: 'builtin' | 'custom' | 'mcp'
+  impl_kind: string
+  yard_id?: string | null
+  readonly: boolean
+  implementation?: Record<string, unknown>
+}
+
+export interface ToolCatalogOut {
+  items: ToolCatalogItem[]
+  counts: Record<string, number>
+  risk_labels: Record<string, string>
+  source_labels: Record<string, string>
+}
+
+export interface ToolDetailOut extends ToolCatalogItem {
+  definition_markdown?: string
+  call_example?: string
+  recent_calls?: {
+    at: string
+    action: string
+    result: string
+    latency_ms?: number | null
+    stage?: string | null
+    actor_id?: string | null
+  }[]
+}
+
+export interface ToolGenerateOut {
+  spec: Record<string, unknown>
+  source: 'model' | 'fallback'
+  model: string
+  note: string
+}
+
 export const toolApi = {
   list(): Promise<ToolDefinition[]> {
     return unwrapList<ToolDefinition>(api.get('/tools')).then(r => r.items)
+  },
+  /** 「可用工具」页目录：三类来源合并 + 分组计数 + 中文标签 */
+  catalog(): Promise<ToolCatalogOut> {
+    return unwrap(api.get<ApiResponse<ToolCatalogOut>>('/tools/catalog'))
+  },
+  detail(code: string): Promise<ToolDetailOut> {
+    return unwrap(api.get<ApiResponse<ToolDetailOut>>(`/tools/${encodeURIComponent(code)}`))
+  },
+  /** 一句话生成草稿（不落库，预览确认后 create） */
+  generate(utterance: string): Promise<ToolGenerateOut> {
+    // 一次生成最多 3 轮真实模型调用，30s 默认超时会把慢模型直接掐断
+    return unwrap(api.post<ApiResponse<ToolGenerateOut>>('/tools/generate', { utterance }, { timeout: 150_000 }))
+  },
+  create(payload: Record<string, unknown>, enabled = false): Promise<ToolCatalogItem> {
+    return unwrap(api.post<ApiResponse<ToolCatalogItem>>('/tools', { ...payload, enabled }))
+  },
+  update(code: string, payload: Record<string, unknown>): Promise<ToolCatalogItem> {
+    return unwrap(api.put<ApiResponse<ToolCatalogItem>>(`/tools/${encodeURIComponent(code)}`, payload))
+  },
+  enable(code: string): Promise<ToolCatalogItem> {
+    return unwrap(api.post<ApiResponse<ToolCatalogItem>>(`/tools/${encodeURIComponent(code)}/enable`))
+  },
+  disable(code: string): Promise<ToolCatalogItem> {
+    return unwrap(api.post<ApiResponse<ToolCatalogItem>>(`/tools/${encodeURIComponent(code)}/disable`))
+  },
+  remove(code: string): Promise<void> {
+    return api.delete(`/tools/${encodeURIComponent(code)}`).then(() => undefined)
   },
 }
 
@@ -426,6 +500,94 @@ export const llmSupplierApi = {
     supplier_id?: string
   }): Promise<{ models: { id: string; label: string }[]; source: 'remote' | 'unsupported' | 'error'; message?: string }> {
     return unwrap(api.post<ApiResponse<{ models: { id: string; label: string }[]; source: 'remote' | 'unsupported' | 'error'; message?: string }>>('/llm/providers/probe-models', payload))
+  },
+}
+
+// ---------- 模型绑定与能力清单（v3.25 模型中心） ----------
+
+export interface LlmCapability {
+  code: string
+  label: string
+  group: string
+  hint: string
+}
+
+export interface LlmBindingItem {
+  id: string
+  yard_id: string | null
+  scope_type: 'global' | 'purpose' | 'agent'
+  scope_key: string
+  supplier_id: string
+  supplier_name: string
+  provider_type: string
+  model_id: string
+  model_name: string | null
+  priority: number
+  enabled: boolean
+}
+
+export interface LlmBindingEntry {
+  supplier_id: string
+  model_name?: string | null
+  priority?: number
+  enabled?: boolean
+}
+
+export interface LlmResolutionHop {
+  level: string
+  level_label: string
+  reason: string
+  supplier_id: string | null
+  supplier_name: string | null
+  model_name: string | null
+  usable: boolean
+}
+
+export interface LlmCapabilitiesOut {
+  capabilities: LlmCapability[]
+  purpose_codes: string[]
+  scope_types: { type: string; label: string; need_key: boolean }[]
+  levels: { level: string; label: string }[]
+  max_fallback: number
+}
+
+export const llmBindingApi = {
+  capabilities(): Promise<LlmCapabilitiesOut> {
+    return unwrap(api.get<ApiResponse<LlmCapabilitiesOut>>('/llm/capabilities'))
+  },
+  list(scope?: { scope_type?: string; scope_key?: string }): Promise<{
+    items: LlmBindingItem[]
+  }> {
+    return unwrap(api.get<ApiResponse<{ items: LlmBindingItem[] }>>('/llm/bindings', { params: scope }))
+  },
+  replace(payload: {
+    scope_type: 'global' | 'purpose' | 'agent'
+    scope_key?: string
+    entries: LlmBindingEntry[]
+  }): Promise<{ items: LlmBindingItem[] }> {
+    return unwrap(api.put<ApiResponse<{ items: LlmBindingItem[] }>>('/llm/bindings', payload))
+  },
+  remove(id: string): Promise<void> {
+    return api.delete(`/llm/bindings/${id}`).then(() => undefined)
+  },
+  resolution(params: { purpose?: string; agent_id?: string }): Promise<{
+    purpose: string | null
+    purpose_label: string | null
+    resolved_supplier_id: string | null
+    resolved_model: string | null
+    resolved_level: string
+    hops: LlmResolutionHop[]
+  }> {
+    return unwrap(api.get<ApiResponse<never>>('/llm/bindings/resolution', { params }))
+  },
+  test(payload: { scope_type: string; scope_key?: string }): Promise<{
+    ok: boolean
+    model?: string
+    latency_ms?: number
+    note?: string
+    reply?: string
+  }> {
+    return unwrap(api.post<ApiResponse<never>>('/llm/bindings/test', payload, { timeout: 120_000 }))
   },
 }
 

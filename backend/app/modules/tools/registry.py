@@ -157,17 +157,38 @@ class ToolRegistry:
             metadata=metadata,
         )
 
+    def _db_disabled(self, db: Session, code: str, yard_id: str | None) -> bool:
+        """元数据行显式下线 → 运行时同样不可用（与 GET /tools、插件校验同口径）。"""
+        row = (
+            db.query(ToolDefinition)
+            .filter(ToolDefinition.code == code)
+            .filter(
+                (ToolDefinition.yard_id.is_(None)) | (ToolDefinition.yard_id == yard_id)
+                if yard_id
+                else ToolDefinition.yard_id.is_(None)
+            )
+            .first()
+        )
+        return row is not None and not row.enabled
+
     def _resolve(self, db: Session, code: str, ctx: YardContext) -> ToolDef:
-        """工具解析：内置内存注册表优先，未命中时回落小院级 MCP 动态工具。
+        """工具解析：内置内存注册表优先 → 小院 MCP 动态工具 → 小院自定义工具。
 
         W5a 改造点（execute 主流程唯一改造）：``mcp__`` 前缀的 wire_name 从不注册
         进全局注册表，此前一律 TOOL_NOT_FOUND；现在经 tool_bridge 按**调用方小院
         上下文**作用域解析（enabled + 未熔断 + 连接测试缓存命中才可见）。非 mcp__
         前缀行为逐字不变——executor/workorder/approvals/qa_agent 等既有调用方
         零感知（execute 签名未动，ctx/db 本就是既有入参）。
+
+        v3.25 追加两条：
+        - 内置工具若在元数据里被显式下线，运行时同样拒绝（此前只有插件链路把关）；
+        - ``source=custom`` 的自定义工具按 ``impl_kind`` 现场构建可执行 ToolDef，
+          定义即本次调用的契约，执行期不重复取行。
         """
         tool = self._tools.get(code)
         if tool is not None and tool.enabled:
+            if self._db_disabled(db, code, ctx.yard_id):
+                raise AppError("TOOL_NOT_FOUND", f"工具已被下线：{code}。", http_status=404)
             return tool
         if code.startswith("mcp__"):
             from app.modules.mcp.tool_bridge import lookup_mcp_tool
@@ -176,6 +197,16 @@ class ToolRegistry:
             mcp_tool = lookup_mcp_tool(db, ctx.yard_id, code)
             if mcp_tool is not None:
                 return mcp_tool
+        from app.modules.tools.custom_runtime import build_custom_tool
+
+        row = (
+            db.query(ToolDefinition)
+            .filter(ToolDefinition.code == code, ToolDefinition.yard_id == ctx.yard_id)
+            .first()
+        )
+        custom_tool = build_custom_tool(row, db) if row is not None else None
+        if custom_tool is not None:
+            return custom_tool
         raise AppError("TOOL_NOT_FOUND", f"工具不存在或未启用：{code}。", http_status=404)
 
     async def execute(

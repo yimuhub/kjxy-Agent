@@ -28,6 +28,9 @@ class LLMCall(Base, TimestampMixin):
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     request_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     prompt_sha: Mapped[str] = mapped_column(String(64), nullable=False)  # sha256 hex
+    # v3.25 成本归集：命中的供应商行 id（settings 兜底无供应商 → null，不编造）与调用用途
+    supplier_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    purpose: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
 
 
 class LLMTrace(Base):

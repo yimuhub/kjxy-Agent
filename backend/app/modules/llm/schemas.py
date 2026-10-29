@@ -45,8 +45,11 @@ class LLMMetadata(BaseModel):
     purpose: str | None = None
     agent_ref: str | None = None
     # 模型绑定：声明式助手指定的供应商行 id；provider 解析优先该供应商，
-    # 不可用（他院/禁用/已删）由 get_provider 回退小院 active 解析链。
+    # 不可用（他院/禁用/已删）由解析链自动落到下一档。
     supplier_id: str | None = None
+    # v3.25 按智能体绑定：助手编码（scope_type=agent 的 scope_key）。
+    # 用编码而非行 id：专业助手与自建助手都有稳定编码，跨复制/改名依旧命中。
+    agent_code: str | None = None
 
     model_config = {"extra": "ignore"}
 

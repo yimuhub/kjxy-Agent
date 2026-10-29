@@ -33,6 +33,14 @@ class ToolDefinition(Base, TimestampMixin):
     side_effect: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # v3.25 工具目录：来源与执行方式。内置行实现在内存注册表（registry），
+    # 自定义行按 impl_kind（prompt=复用小院模型、http=受出网管控的 JSON 调用）真实执行。
+    source: Mapped[str] = mapped_column(String(16), nullable=False, default="builtin", index=True)
+    impl_kind: Mapped[str] = mapped_column(String(16), nullable=False, default="registry")
+    impl_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # NULL=平台级（内置行与平台工具），非空=仅归属小院可见（自定义行）
+    yard_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
 
 APPROVAL_PENDING = "pending"

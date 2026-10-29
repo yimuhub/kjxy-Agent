@@ -91,8 +91,8 @@ def _ctx(yard_id):
 def _fake_build(monkeypatch):
     """绑定供应商 provider 用 fake 替换（离线纪律）：保留 supplier 标签与模型位。"""
 
-    def build(row):
-        provider = providers_fake.FakeProvider(model=row.model_id)
+    def build(row, *, model_override: str | None = None):
+        provider = providers_fake.FakeProvider(model=model_override or row.model_id)
         provider.provider_name = f"supplier:{row.name}"[:50]
         provider.supplier_id = row.id
         provider.supports_tools = False

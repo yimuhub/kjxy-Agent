@@ -227,7 +227,7 @@ JSON-RPC 方法：
 `GET /api/v1/meta` 返回后端版本与数据库迁移头，前端用它提示「后端版本较旧」：
 
 ```json
-{ "data": { "version": "3.24.0", "migration_head": "0050_device_analyses" } }
+{ "data": { "version": "3.25.1", "migration_head": "0052_tool_catalog" } }
 ```
 
 - 升级顺序：`alembic upgrade head` → 重启后端 → `curl /api/v1/meta` 确认。
@@ -362,6 +362,45 @@ JSON-RPC 方法：
 - 设置项 `menu`：`default_mode`、`role_modes`（按角色的默认密度）、`profiles`（共享预设）、`allow_member_customize`；模式为 `minimal | standard | full`。
 - `GET /yards/current/menu` 全员可读（登录后即可取默认视图），`PUT` 需 `menu:manage`（负责人/管理员），非法预设返回 400 `MENU_PROFILE_INVALID`。
 - 优先级：成员本地自定义布局 > 角色默认 > 全局默认；侧栏功能池展示全系统所有用户组的功能，是否真正可见仍由权限裁决。
+
+## 模型中心与工具目录（v3.25）
+
+模型配置从「系统设置」迁到「小院管理 · 模型中心」（`/model-center`，需 `llm:manage`）：供应商、全局默认与兜底、按能力绑定、按智能体绑定集中在同一页；「可用工具」升级为可查看详情、可手动/一句话添加的目录。
+
+### 解析链（谁先谁后）
+
+一次调用按下列顺序取第一个可用供应商，同层最多 3 档兜底（主用 + 2 档）：
+
+1. 助手编辑页里指定的供应商
+2. 按智能体绑定（`scope_type=agent`，`scope_key` = 助手 `agent_code`）
+3. 按能力绑定（`scope_type=purpose`，`scope_key` = 用途码）
+4. 小院/平台全局默认（`scope_type=global`）
+5. 小院当前生效供应商 → 6. 平台优先级 → 7. `settings` 环境变量兜底
+
+供应商连续失败 5 次自动置为禁用并从候选链剔除，调用成功即清零计数。
+
+| 接口 | 说明 |
+|---|---|
+| `GET /llm/capabilities` | 22 条能力（用途码/中文名/分组/说明）+ 三层绑定类型 + 解析层顺序 + `max_fallback` |
+| `GET /llm/bindings?scope_type&scope_key` | 本小院可见绑定（含平台级），返回供应商名与模型名 |
+| `PUT /llm/bindings` | **整层替换**：`{scope_type, scope_key, entries[]}`，顺序即兜底顺序；超过 3 条 400 `BINDING_TOO_MANY`，平台级仅平台管理员可改 403 `BINDING_READONLY` |
+| `DELETE /llm/bindings/{id}` | 删单条绑定，不存在 404 `BINDING_NOT_FOUND` |
+| `GET /llm/bindings/resolution?purpose&agent_code` | 「这次会用谁」：逐档给出候选与不可用原因 |
+| `POST /llm/bindings/test` | 按层真实试跑一条最小请求（会消耗一次调用），失败如实回 `ok=false` + 原因 |
+
+### 工具目录
+
+| 接口 | 说明 |
+|---|---|
+| `GET /tools/catalog` | 三源合并（内置/本小院自定义/MCP 快照）+ 分组计数 + 风险与来源中文标签 |
+| `GET /tools/{code}` | 详情：能力说明、参数表、调用示例、执行方式、最近调用（仅 `tool_executed` 审计） |
+| `POST /tools/generate` | 一句话 → 规格草稿，**不落库**；模型不可用或两次尝试（含一轮修复）后仍不合规时，返回 `source="fallback"` 的保守草稿 |
+| `POST /tools` | 新增自定义工具（`enabled=true` 才启用；`prompt` 需提示词、`http` 需合法 URL），重名 409 `DUPLICATE_TOOL_CODE` |
+| `PUT /tools/{code}` | 编辑自定义工具；鉴权头明文进、Fernet 密文存，未提交头则沿用原密文 |
+| `POST /tools/{code}/enable` / `disable` | 启用/停用；内置与 `mcp__` 前缀只读，403 `TOOL_READONLY` |
+| `DELETE /tools/{code}` | 删除自定义工具，内置 403 `TOOL_READONLY` |
+
+自定义工具执行方式二选一：`prompt`（复用小院模型，用途码 `tool_run`）与 `http`（出网受 SSRF 白名单管控、响应 200KB 上限、非 GET 一律升级为 `external_side_effect` 走审批闸）。非法定义 400 `TOOL_SPEC_INVALID`，外部接口异常 502/504 `TOOL_ERROR`。
 
 ## 任务状态机
 

@@ -2,6 +2,59 @@
 
 本项目遵循《工程开发规范 V3.0》；版本号遵循语义化版本。
 
+## [3.25.0] - 2026-10-29
+
+模型配置从「一个供应商、一条环境变量」升级为「多供应商 + 分层绑定 + 自动兜底」：供应商、全局默认与兜底、按能力绑定、按智能体绑定集中到新的「小院管理 · 模型中心」，主用被供应商停用或连续失败时下一次调用自动落到下一档。可用工具从只读列表升级为可预览、可新增的目录：点工具名看参数与调用示例，支持手动填写与一句话生成草稿（草稿不自动对模型可见）。
+
+### 模型绑定与兜底（后端）
+
+- 迁移 `0051_llm_bindings`：新表 `llm_bindings`（`(yard_id, scope_type, scope_key, supplier_id)` 唯一 + 小院/范围两个索引），`llm_calls` 增 `supplier_id` 与 `purpose`，让每次调用能追溯到「用了哪个供应商、为哪条能力」。
+- 解析链七档有序：助手指定供应商 → 按智能体绑定（`scope_key = agent_code`）→ 按能力绑定（purpose）→ 小院/平台全局默认 → 小院当前生效 → 平台优先级 → `settings` 环境变量兜底；同层最多 3 档（`BINDING_TOO_MANY`），跨层同供应商去重，不可见或已停用的候选逐档说明原因。
+- 运行时兜底与熔断：候选链逐个尝试，失败写 error trace 并切下一档；调用成功清零连续失败计数，累计 5 次自动置供应商为禁用并从候选链剔除（`RUNTIME_DEGRADE_FAILURES`），无需人工干预即完成降级。
+- 能力码收敛为唯一来源 `llm/capabilities.py`（22 条，新增 `tool_generation`「一句话生成工具」、`tool_run`「自定义工具执行」），`/llm/trace` 的用途校验与 `/llm/capabilities` 共用同一张表。
+- 新接口（均需 `llm:manage`）：`GET /llm/capabilities`、`GET/PUT /llm/bindings`（整层替换，顺序即兜底顺序）、`DELETE /llm/bindings/{id}`、`GET /llm/bindings/resolution`（「这次会用谁」逐档解释）、`POST /llm/bindings/test`（按层真实试跑，失败如实回 `ok=false`）；新错误码 `BINDING_READONLY`（平台级绑定仅平台管理员可改）。
+
+### 工具目录与自定义工具（后端）
+
+- 迁移 `0052_tool_catalog`：`tool_definitions` 增 `source / impl_kind / impl_json / yard_id / created_by`，工具从「只有内置」变成「内置 + 本小院自定义 + MCP 快照」三源。
+- `GET /tools/catalog` 合并三源并给分组计数与风险/来源中文标签；`GET /tools/{code}` 出详情：能做什么、所需权限（中文）、参数表、调用示例、执行方式与最近调用（只取 `tool_executed` 审计，不再混入目录管理动作）。
+- `POST /tools/generate` 一句话 → 规格草稿且**不落库**：最多两次尝试（含一轮定点修复），模型不可用或输出仍不合规时返回 `source="fallback"` 的保守草稿；`validate_spec` 拒绝 code 非法、`required` 与 `properties` 不一致、声明必填却无参数、非法风险等级，`normalize_spec` 强制 `additionalProperties=false`。
+- `POST/PUT/DELETE /tools`、`POST /tools/{code}/enable|disable` 只开放自定义工具：内置与 `mcp__` 前缀一律 403 `TOOL_READONLY`，重名 409 `DUPLICATE_TOOL_CODE`，定义不合规 400 `TOOL_SPEC_INVALID`；启用前必须有提示词或合法 URL，草稿默认不启用、模型看不见。
+- 执行运行时：`prompt` 复用小院已配置模型（purpose `tool_run`，参数直替不做 format/eval）；`http` 受出网白名单校验、200KB 响应上限、超时 504 与不可达 502（`TOOL_ERROR`），鉴权头明文进、Fernet 密文存且编辑不回填明文；非 GET 的 http 强制升级为 `external_side_effect` 走审批闸。
+
+### 界面（前端）
+
+- 新增「小院管理 · 模型中心」（`/model-center`）：状态卡 + 「对话会用谁」与兜底链 + 测试当前链路，四个页签（供应商 / 全局默认与兜底 / 按能力绑定 / 按智能体绑定）；系统设置删除「模型配置」「模型供应商」两页签并给出跳转提示（`SettingsView.vue` 43.8k → 22.3k 字符）。
+- `ModelBindings` 同层兜底顺序编辑器：主用 + 最多 2 档、上下移、留空即取消该层绑定、保存后即时生效并回写「当前绑定」标签与解析预览；`ModelSuppliers` 补「连续失败」列，熔断状态一眼可见。
+- 「可用工具」改为目录组件 `ToolsCatalog`：三源列表（来源/风险中文标签）、点名称开详情抽屉（参数表、调用示例、执行方式、最近调用）、右上角「添加可用工具」支持一句话生成与手动填写；草稿/启用/停用/删除全程可操作，内置与 MCP 条目显示只读。
+- mock 适配同步补 `/llm/providers`、`/llm/capabilities`、`/llm/bindings*`、`/tools/catalog|generate|{code}` 与启停/删除，无后端演示环境同样能走通。
+- E2E 期间查出并修掉三处真实缺陷：① 前端 30s 默认超时把一句话生成的真实模型调用掐断（`/tools/generate` → 150s、`/llm/bindings/test` → 120s）；② 绑定弹窗的「这次会用谁」未按本层 purpose/agent 解析，改完看不出效果；③ 保存绑定后父页的「当前绑定」标签与状态卡不刷新（补 `saved` 事件）。
+
+### 契约与文档
+
+- OpenAPI 重新生成：**261 路径**（新增 10 个：模型绑定 5 个、工具目录与 CRUD 启停 5 个），两次生成一致。
+- `contracts/error-codes.md` 新增 `BINDING_TOO_MANY`、`BINDING_NOT_FOUND`、`BINDING_READONLY`、`TOOL_SPEC_INVALID`、`DUPLICATE_TOOL_CODE`、`TOOL_READONLY`、`TOOL_ERROR`；`docs/api.md` 新增「模型中心与工具目录（v3.25）」含解析链顺序；`docs/plan-v3.24-permissions-model-tools.md` §9 与状态报告记录 B 批交付与遗留口径。
+
+### 门禁
+
+B 批与随后的 3.25.1 缺陷修复在同一工作区收口，以下门禁一次跑完，同时覆盖两版的全部改动。
+
+**后端**
+
+- 新增用例 35 条：模型绑定单测 14（`tests/unit/test_llm_bindings.py`）、自定义工具单测 9（`tests/unit/test_tools_custom_v325.py`）、模型绑定接口集成 5（`tests/integration/test_llm_bindings_api.py`）、工具目录接口集成 7（`tests/integration/test_tools_catalog_api.py`）。
+- 全量 `pytest tests`：**1609 passed / 0 failed**（4 分 52 秒）。
+- `ruff check app tests` All checks passed；`ruff format --check app tests` 483 files already formatted；`mypy app` Success，no issues found in 321 source files。
+
+**前端**
+
+- ESLint **0 error / 849 warning**；`vue-tsc --noEmit` exit 0；单元测试 38 pass / 0 fail；`vite build` 通过（built in 4.76s）。
+- mock 适配层（`frontend/src/api/mock.ts`）同步补齐模型中心与工具目录的全部端点，无后端演示环境可走通。
+
+**契约与 E2E**
+
+- OpenAPI **261 路径**（新增 10 条），连续生成两次结果一致，相对 3.24.0 基线无意外漂移。
+- 新增 `frontend/e2e/v325.spec.ts` 5 条用例；全量 Playwright 套件 **71 passed / 1 skipped / 0 failed**（chromium + mobile 共 72 条，跳过项为需 `A2A_ENABLED=true` 的入站 JSON-RPC 用例）。
+
 ## [3.24.0] - 2026-10-29
 
 权限从「看得懂英文编码、进得去没权限的页面」升级为「全中文、逐人可授、入口全局按权限收敛」：负责人改敏感权限要二次确认，管理员能管下级角色但碰不到保护型权限，成员管理里可直接给某个人加权限，菜单按有效权限渲染并可由负责人/管理员设定各角色的默认视图。

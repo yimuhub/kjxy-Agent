@@ -1415,6 +1415,7 @@ async def run_declarative_agent(
                 purpose=llm_purpose,
                 agent_ref=agent.agent_code,
                 supplier_id=bound_supplier_id,
+                agent_code=agent.agent_code,
             ),
         )
         if on_step:
@@ -1753,6 +1754,7 @@ async def run_declarative_agent(
                 purpose=llm_purpose,
                 agent_ref=agent.agent_code,
                 supplier_id=bound_supplier_id,
+                agent_code=agent.agent_code,
             ),
         )
         call_started = time.perf_counter()

@@ -79,7 +79,11 @@ class _FailingProvider:
 async def test_service_writes_error_row_and_reraises(db_session, monkeypatch):
     import app.modules.llm.service as llm_service
 
-    monkeypatch.setattr(llm_service, "get_provider", lambda: _FailingProvider())
+    monkeypatch.setattr(
+        llm_service,
+        "get_provider_candidates",
+        lambda: [(_FailingProvider(), "settings_fallback")],
+    )
     req = _make_request()
 
     with pytest.raises(AppError) as exc_info:

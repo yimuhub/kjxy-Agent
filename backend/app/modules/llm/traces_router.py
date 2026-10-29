@@ -18,24 +18,12 @@ from sqlalchemy.orm import Session
 from app.core.deps import YardContext, get_db_session, get_yard_context
 from app.core.errors import AppError
 from app.core.responses import ok
+from app.modules.llm.capabilities import VALID_PURPOSES
 from app.modules.llm.models import LLMTrace
 
 router = APIRouter()
 
 _ADMIN_ROLES = {"platform_admin", "admin", "yard_admin", "yard_owner"}
-
-#: purpose 合法取值（含 group_gate 多助手自判、qa 知识问答）
-VALID_PURPOSES = (
-    "declarative",
-    "factory",
-    "eval",
-    "tool",
-    "embedding",
-    "supervisor",
-    "platform",
-    "group_gate",
-    "qa",
-)
 
 
 def _admin(ctx: YardContext = Depends(get_yard_context)) -> YardContext:
@@ -45,6 +33,10 @@ def _admin(ctx: YardContext = Depends(get_yard_context)) -> YardContext:
 
 
 def _validate_purpose(purpose: str | None) -> None:
+    """用途码以能力清单（``llm/capabilities.py``）为唯一来源（v3.25）。
+
+    清单与真实写入点同源，杜绝「能查但库里从不写」或「库里在写但查询报 400」的错位。
+    """
     if purpose is not None and purpose not in VALID_PURPOSES:
         raise AppError(
             "INVALID_REQUEST",

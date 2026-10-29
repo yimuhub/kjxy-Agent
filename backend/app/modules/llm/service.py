@@ -10,8 +10,9 @@ from app.core.config import settings
 from app.core.errors import AppError
 from app.core.logging import get_logger
 from app.modules.knowledge.chunking import estimate_token_count
+from app.modules.llm.binding_service import LEVEL_LABELS
 from app.modules.llm.models import LLMCall, LLMTrace
-from app.modules.llm.provider import get_provider, provider_resolution
+from app.modules.llm.provider import get_provider_candidates, provider_resolution
 from app.modules.llm.schemas import LLMRequest, LLMResponse, LLMStatusOut
 from app.modules.yards.quota import check_and_consume
 
@@ -121,6 +122,8 @@ def _write_call(
             latency_ms=latency_ms,
             request_id=request_id,
             prompt_sha=_prompt_sha(request),
+            supplier_id=getattr(provider, "supplier_id", None),
+            purpose=request.metadata.purpose or "platform",
         )
     )
     db.add(
@@ -148,8 +151,37 @@ def _write_call(
     db.flush()
 
 
+def _note_runtime_success(db: Session, provider) -> None:
+    """真实调用成功 → 供应商连续失败计数清零（降级后的正向恢复路径）。"""
+    from app.modules.llm import supplier_service
+
+    supplier_service.record_runtime_success(db, getattr(provider, "supplier_id", None))
+
+
+def _note_runtime_failure(db: Session, provider, note: str) -> None:
+    """真实调用失败 → 累计失败数，达阈值自动降级并记一条中文日志。"""
+    from app.modules.llm import supplier_service
+
+    degraded = supplier_service.record_runtime_failure(
+        db, getattr(provider, "supplier_id", None), note
+    )
+    if degraded:
+        log.warning(
+            "供应商 %s 运行时连续失败达到阈值，已自动降级（不再参与解析），"
+            "可在模型中心确认后重新启用",
+            _provider_label(provider),
+        )
+
+
 async def complete_with_logging(db: Session, request: LLMRequest) -> LLMResponse:
-    """调用模型并记录 llm_calls 行；成功/失败都记，失败时原样抛出 AppError。"""
+    """调用模型并记录 llm_calls 行；按解析链逐档兜底，全部失败才抛出最后一次错误。
+
+    兜底纪律（v3.25）：
+    - 只有 provider 层报错（超时/连接/鉴权/限流/上游 4xx·5xx）才换下一档，
+      每档失败都单独写一条 error 记录，成功档再写一条 success；
+    - 失败供应商累计连续失败数，达阈值由供应商服务自动降级（踢出候选链）；
+    - 配额只在入口扣一次，兜底重试不重复计费。
+    """
     yard_id = request.metadata.yard_id
     if not yard_id:
         raise AppError("INVALID_REQUEST", "缺少小院信息，无法记录模型调用。", http_status=400)
@@ -157,43 +189,74 @@ async def complete_with_logging(db: Session, request: LLMRequest) -> LLMResponse
     check_and_consume(db, yard_id, "llm_calls")
     request_id = request.metadata.request_id or f"req_{uuid.uuid4().hex[:16]}"
 
-    with provider_resolution(yard_id, db, request.metadata.supplier_id):
-        provider = get_provider()
-    _log_provider_choice_once(provider)
-    started = time.perf_counter()
-    try:
-        resp = await provider.complete(request)
-    except AppError as e:
+    with provider_resolution(
+        yard_id,
+        db,
+        request.metadata.supplier_id,
+        purpose=request.metadata.purpose,
+        agent_code=request.metadata.agent_code,
+    ):
+        candidates = get_provider_candidates()
+    _log_provider_choice_once(candidates[0][0])
+
+    last_error: AppError | None = None
+    for index, (provider, level) in enumerate(candidates):
+        started = time.perf_counter()
+        try:
+            resp = await provider.complete(request)
+        except AppError as e:
+            latency_ms = int((time.perf_counter() - started) * 1000)
+            category = e.details.get("category") if e.code == "LLM_ERROR" else None
+            _write_call(
+                db,
+                provider=provider,
+                request=request,
+                resp=None,
+                status="error",
+                error_category=category,
+                latency_ms=latency_ms,
+                request_id=request_id,
+                yard_id=yard_id,
+                error_text=f"{e.code}: {e.message}",
+            )
+            _note_runtime_failure(db, provider, f"{e.code}: {e.message}")
+            last_error = e
+            if index + 1 < len(candidates):
+                nxt = candidates[index + 1][0]
+                log.warning(
+                    "模型兜底切换：第 %d 档 %s 调用失败（%s），改用 %s",
+                    index + 1,
+                    _provider_label(provider),
+                    category or e.code,
+                    _provider_label(nxt),
+                )
+                continue
+            raise
         latency_ms = int((time.perf_counter() - started) * 1000)
-        category = e.details.get("category") if e.code == "LLM_ERROR" else None
+        resp = _ensure_token_counts(request, resp)
         _write_call(
             db,
             provider=provider,
             request=request,
-            resp=None,
-            status="error",
-            error_category=category,
+            resp=resp,
+            status="success",
+            error_category=None,
             latency_ms=latency_ms,
             request_id=request_id,
             yard_id=yard_id,
-            error_text=f"{e.code}: {e.message}",
         )
-        raise
+        _note_runtime_success(db, provider)
+        if index:
+            log.info(
+                "模型兜底成功：主用档位失败后由「%s」档（%s）完成调用",
+                LEVEL_LABELS.get(level, level),
+                _provider_label(provider),
+            )
+        return resp
 
-    latency_ms = int((time.perf_counter() - started) * 1000)
-    resp = _ensure_token_counts(request, resp)
-    _write_call(
-        db,
-        provider=provider,
-        request=request,
-        resp=resp,
-        status="success",
-        error_category=None,
-        latency_ms=latency_ms,
-        request_id=request_id,
-        yard_id=yard_id,
-    )
-    return resp
+    # 候选链为空在这里不可达（get_provider_candidates 至少返回 settings 兜底档）
+    assert last_error is not None  # noqa: S101 - 防御性断言
+    raise last_error
 
 
 def get_status() -> LLMStatusOut:

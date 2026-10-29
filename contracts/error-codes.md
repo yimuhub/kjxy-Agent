@@ -107,6 +107,13 @@
 | `TOOL_RISK_BLOCKED` | 403 | 高风险工具未获审批被拦截 |
 | `LLM_ERROR` | 502 | 模型调用失败（供应商错误已分类） |
 | `LLM_NOT_CONFIGURED` | 503 | 真实模型未配置 |
+| `BINDING_TOO_MANY` | 400 | 同一层（能力/智能体/全局）兜底链超过 3 条 |
+| `BINDING_NOT_FOUND` | 404 | 模型绑定不存在或不属于本小院 |
+| `BINDING_READONLY` | 403 | 平台级绑定仅平台管理员可改 |
+| `TOOL_SPEC_INVALID` | 400 | 自定义工具定义不合规（code/Schema/impl/URL/方法） |
+| `DUPLICATE_TOOL_CODE` | 409 | 自定义工具 code 与内置或已有工具重名 |
+| `TOOL_READONLY` | 403 | 内置工具与 MCP 快照不可编辑、启停或删除 |
+| `TOOL_ERROR` | 502 | 自定义工具外部接口不可达/返回异常/响应超限（504 表示超时） |
 
 ## Agent 运行 checkpoint（P0 内核，2026-10-21）
 

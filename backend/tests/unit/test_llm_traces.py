@@ -113,7 +113,11 @@ def test_error_call_writes_error_trace(db_session, monkeypatch):
 
     import app.modules.llm.service as llm_service
 
-    monkeypatch.setattr(llm_service, "get_provider", lambda: _FailingProvider())
+    monkeypatch.setattr(
+        llm_service,
+        "get_provider_candidates",
+        lambda: [(_FailingProvider(), "settings_fallback")],
+    )
     req = LLMRequest(
         messages=[ChatMessage(role="user", content="会失败的问题")],
         metadata=LLMMetadata(yard_id="t-err", request_id="req-err"),

@@ -40,7 +40,10 @@ if TYPE_CHECKING:
 log = get_logger(__name__)
 
 PROBE_TIMEOUT_SECONDS = 10
-AUTO_DISABLE_FAILURES = 3  # 连续失败 3 次自动禁用
+AUTO_DISABLE_FAILURES = 3  # 连续探测失败 3 次自动禁用
+#: 运行时（真实业务调用）连续失败 5 次自动降级：与探测口径分开，
+#: 避免一次上游抖动就把供应商踢出候选链（探测是主动的，运行时是被动的）。
+RUNTIME_DEGRADE_FAILURES = 5
 
 #: §A 模型列表探测：单次超时 8 秒、响应体硬上限 1MB（与 MCP 客户端同口径）
 MODELS_PROBE_TIMEOUT_SECONDS = 8
@@ -482,17 +485,62 @@ async def test_saved_supplier(
     return supplier_to_out(db, row, yard_id or ""), result
 
 
+# ---------- 运行时健康记账（v3.25 兜底与降级） ----------
+
+
+def record_runtime_success(db: Session, supplier_id: str | None) -> None:
+    """真实调用成功：清零连续失败计数（降级恢复的正向路径）。"""
+    if not supplier_id:
+        return
+    row = db.get(Supplier, supplier_id)
+    if row is None:
+        return
+    if row.consecutive_failures:
+        row.consecutive_failures = 0
+        row.last_error = None
+        db.flush()
+
+
+def record_runtime_failure(db: Session, supplier_id: str | None, note: str) -> bool:
+    """真实调用失败：累计连续失败数，达到阈值自动降级（禁用并从候选链剔除）。
+
+    返回是否触发了本次降级，供调用方打一条「已自动降级」日志。
+    """
+    if not supplier_id:
+        return False
+    row = db.get(Supplier, supplier_id)
+    if row is None:
+        return False
+    row.consecutive_failures = (row.consecutive_failures or 0) + 1
+    row.last_error = (note or "")[:300]
+    degraded = False
+    if row.consecutive_failures >= RUNTIME_DEGRADE_FAILURES and row.status == STATUS_ENABLED:
+        row.status = STATUS_DISABLED
+        degraded = True
+    db.flush()
+    invalidate_supplier_cache(supplier_id=row.id)
+    return degraded
+
+
 # ---------- Provider 构建与模板 ----------
 
 
-def build_provider_from_supplier(row: "Supplier") -> "OpenAICompatibleProvider":
-    """由供应商行构建 OpenAI 兼容 Provider（各类型统一走兼容协议）。"""
+def build_provider_from_supplier(
+    row: "Supplier", *, model_override: str | None = None
+) -> "OpenAICompatibleProvider":
+    """由供应商行构建 OpenAI 兼容 Provider（各类型统一走兼容协议）。
+
+    ``model_override`` 来自模型绑定（v3.25）：绑定行指定物理模型时覆盖供应商默认值，
+    白名单校验交给上游（绑错模型会以真实报错暴露，不做本地猜测）。
+    """
     from app.modules.llm.providers_openai import OpenAICompatibleProvider
 
     api_key = decrypt_api_key(row.api_key_enc)
     try:
         provider = OpenAICompatibleProvider(
-            base_url=row.base_url, api_key=api_key, model=row.model_id
+            base_url=row.base_url,
+            api_key=api_key,
+            model=(model_override or "").strip() or row.model_id,
         )
     finally:
         del api_key
