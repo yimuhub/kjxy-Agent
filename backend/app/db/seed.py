@@ -5,6 +5,7 @@
 开发环境设 SEED_RANDOM_PASSWORDS=YES 时，每个账号生成随机密码并只打印一次。
 """
 
+import hashlib
 import os
 import secrets
 import sys
@@ -48,6 +49,25 @@ DEMO_DOC_TEXT = """# 水稻分蘖期管理技术要点
 """
 
 
+DEMO_GROWTH_DOC_TITLE = "示范小院产品与产销档案（演示资料）"
+DEMO_GROWTH_DOC_TEXT = """# 示范小院产品与产销档案
+
+## 一、主推产品与产量
+赣南脐橙（纽荷尔），树龄 8 年，山地果园、红壤；亩产约 3000 斤，
+可售果以 70-80mm 为主，另有少量 80mm 以上大果做礼盒。
+
+## 二、栽培与可核实的品质信息
+以有机肥为主、水肥一体化；2025 年 11 月抽检糖度 13.5°Bx（记录在本院台账）。
+不使用"零农残""绿色认证"等未经证实的说法——如需对外宣称，必须先取得检测报告。
+
+## 三、销售与活动安排
+主要走批发与社区团购；计划中秋礼盒预售、11 月采摘节，
+目标客群为本地家庭、单位团购与周边城市礼赠。
+
+（本资料为平台演示用示例文本，不是真实检测报告或销售数据。）
+"""
+
+
 def _is_development() -> bool:
     return settings.app_env.strip().lower() == "development"
 
@@ -60,6 +80,68 @@ def _admin_username() -> str:
 def _random_password() -> str:
     """随机演示密码：仅在开发随机模式下使用，明文只打印一次。"""
     return secrets.token_urlsafe(12)
+
+
+def _add_demo_doc(db, *, yard_id: str, actor_id: str, title: str, text: str) -> int:
+    """把一段演示文本写成 ready 状态的知识文档；返回切片数。"""
+    from app.modules.knowledge.chunking import split_text
+    from app.modules.knowledge.embedding import MockEmbeddingProvider
+    from app.modules.knowledge.models import KnowledgeChunk, KnowledgeDocument
+
+    doc = KnowledgeDocument(
+        yard_id=yard_id,
+        title=title,
+        storage_key=f"seed/{secrets.token_hex(8)}.txt",
+        mime_type="text/plain",
+        source="seed",
+        status="ready",
+        checksum=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        uploaded_by=actor_id,
+        page_count=1,
+    )
+    db.add(doc)
+    db.flush()
+    embedder = MockEmbeddingProvider()
+    chunks = split_text(text, chunk_size=400, overlap=50)
+    vectors = embedder.embed(chunks)
+    for i, (content, vec) in enumerate(zip(chunks, vectors, strict=False)):
+        db.add(
+            KnowledgeChunk(
+                yard_id=yard_id,
+                document_id=doc.id,
+                chunk_index=i,
+                content=content,
+                page_number=1,
+                title_path=title,
+                trust_level="yard_material",
+                visibility="yard",
+                embedding=list(vec),
+            )
+        )
+    db.flush()
+    return len(chunks)
+
+
+def _ensure_demo_growth_doc(db, *, yard_id: str, actor_id: str) -> bool:
+    """增长线演示资料（幂等，按标题判重）：让品牌/卖点/海报技能有可引用的事实素材。"""
+    from app.modules.knowledge.models import KnowledgeDocument
+
+    exists = db.scalar(
+        select(KnowledgeDocument.id).where(
+            KnowledgeDocument.yard_id == yard_id,
+            KnowledgeDocument.title == DEMO_GROWTH_DOC_TITLE,
+        )
+    )
+    if exists is not None:
+        return False
+    _add_demo_doc(
+        db,
+        yard_id=yard_id,
+        actor_id=actor_id,
+        title=DEMO_GROWTH_DOC_TITLE,
+        text=DEMO_GROWTH_DOC_TEXT,
+    )
+    return True
 
 
 def _ensure_demo_owner(db) -> None:
@@ -96,13 +178,12 @@ def _ensure_demo_owner(db) -> None:
 
     ensure_builtin_skills(db, yard_id=yard.id, actor_id=admin.id, request_id="seed")
     ensure_growth_skills(db, yard_id=yard.id, actor_id=admin.id, request_id="seed")
+    _ensure_demo_growth_doc(db, yard_id=yard.id, actor_id=admin.id)
     db.commit()
 
 
 def seed(random_passwords: bool = False) -> None:
     from app.modules.auth.repository import create_user, get_by_username
-    from app.modules.knowledge.embedding import MockEmbeddingProvider
-    from app.modules.knowledge.models import KnowledgeChunk, KnowledgeDocument
     from app.modules.yards.repository import (
         add_membership,
         create_yard,
@@ -151,41 +232,17 @@ def seed(random_passwords: bool = False) -> None:
         ensure_growth_skills(db, yard_id=yard.id, actor_id=users["admin"].id, request_id="seed")
 
         # 演示知识文档（直接写入 ready 状态，免去解析流程）
-        from app.modules.knowledge.chunking import split_text
-
-        doc = KnowledgeDocument(
+        chunk_count = _add_demo_doc(
+            db,
             yard_id=yard.id,
+            actor_id=users["yard_admin"].id,
             title=DEMO_DOC_TITLE,
-            storage_key="seed/demo-rice-tillering.txt",
-            mime_type="text/plain",
-            source="seed",
-            status="ready",
-            checksum="seed-demo",
-            uploaded_by=users["yard_admin"].id,
-            page_count=1,
+            text=DEMO_DOC_TEXT,
         )
-        db.add(doc)
-        db.flush()
-
-        embedder = MockEmbeddingProvider()
-        chunks = split_text(DEMO_DOC_TEXT, chunk_size=400, overlap=50)
-        vectors = embedder.embed(chunks)
-        for i, (text, vec) in enumerate(zip(chunks, vectors, strict=False)):
-            db.add(
-                KnowledgeChunk(
-                    yard_id=yard.id,
-                    document_id=doc.id,
-                    chunk_index=i,
-                    content=text,
-                    page_number=1,
-                    title_path="水稻分蘖期管理技术要点",
-                    trust_level="yard_material",
-                    visibility="yard",
-                    embedding=list(vec),
-                )
-            )
+        # 增长线演示资料：品牌/卖点/海报技能都能引用到可核实的事实
+        _ensure_demo_growth_doc(db, yard_id=yard.id, actor_id=users["yard_admin"].id)
         db.commit()
-        log.info("seed 完成：小院=%s 用户=%d 文档chunk=%d", yard.id, len(users), len(chunks))
+        log.info("seed 完成：小院=%s 用户=%d 文档chunk=%d", yard.id, len(users), chunk_count)
         if random_passwords:
             # 随机口令只在此处明文打印一次，日志/数据库均不留副本；请立刻保存
             print("SEED_RANDOM_PASSWORDS=YES：以下密码仅打印一次，请立即保存：")

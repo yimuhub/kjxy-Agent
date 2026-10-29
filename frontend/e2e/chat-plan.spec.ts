@@ -21,9 +21,11 @@ test.describe('对话内完整方案合成', () => {
     await page.getByRole('textbox', { name: '对话输入' }).fill('写一份小麦赤霉病的防治方案')
     await page.getByRole('textbox', { name: '对话输入' }).press('Enter')
 
-    const answer = page.locator(
-      '.msg-row.assistant .bubble.assistant:not(.typing):not(.live-steps)',
-    )
+    // 模型可能先回一条寒暄再给方案，取最后一条助手气泡（方案本体），
+    // 否则断言会撞上「strict mode violation: resolved to 2 elements」
+    const answer = page
+      .locator('.msg-row.assistant .bubble.assistant:not(.typing):not(.live-steps)')
+      .last()
     await expect(answer).toBeVisible({ timeout: 240_000 })
     // 正文按章节渲染成标题（不是「已生成文档」那一句，也不是裸的 ## 文本）
     // 本地模型首轮冷启动可能较慢：与回答本身的等待时限保持一致

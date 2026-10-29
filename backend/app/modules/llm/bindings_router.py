@@ -10,6 +10,7 @@ from fastapi import APIRouter, Body, Depends, Query, Request
 from sqlalchemy.orm import Session
 
 from app.core.deps import CurrentUser, get_db_session, require_yard_permission
+from app.core.errors import AppError
 from app.core.responses import ok
 from app.modules.audit.service import log_audit
 from app.modules.llm import binding_service
@@ -134,9 +135,28 @@ def _head_of_summary(summary: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def _visual_head(db: Session, summary: dict[str, Any], purpose: str) -> dict[str, Any] | None:
+    """视觉能力的「当前生效」只认对应类型的供应商。
+
+    解析链的小院生效/平台优先等兜底档不区分能力类型：演示库只配了对话供应商时，
+    直接照搬会让界面显示「图像生成当前生效：某对话模型」，而实际出图会降级模板。
+    宁可显示"没有可用图像供应商"，也不给用户一个用不了的答案。
+    """
+    from app.modules.llm.images import IMAGE_PROVIDER_TYPES, VIDEO_PROVIDER_TYPES
+
+    allowed = IMAGE_PROVIDER_TYPES if purpose == "image_generation" else VIDEO_PROVIDER_TYPES
+    head = _head_of_summary(summary)
+    if head is None or not head.get("supplier_id"):
+        return None
+    supplier = db.get(Supplier, head["supplier_id"])
+    if supplier is None or supplier.provider_type not in allowed:
+        return None
+    return head
+
+
 def _agent_model_row(
     db: Session,
-    yard_id: str,
+    yard_id: str | None,
     *,
     code: str,
     name: str,
@@ -222,7 +242,7 @@ def list_agent_model_overview(
                 bindings=by_key.get(code, []),
             )
         )
-    yard_agents = declarative.list_agents(db, yard_id=user.yard_id, user_id=user.user_id)
+    yard_agents = declarative.list_agents(db, yard_id=user.yard_id or "", user_id=user.user_id)
     for agent in yard_agents:
         if agent.status != "published" or agent.agent_code in seen:
             continue
@@ -252,7 +272,7 @@ def list_agent_model_overview(
                 "purpose": purpose,
                 "label": capability_label(purpose),
                 "bindings": _enrich(db, rows),
-                "resolved": _head_of_summary(summary),
+                "resolved": _visual_head(db, summary, purpose),
             }
         )
     return ok(
@@ -263,6 +283,30 @@ def list_agent_model_overview(
         },
         request,
     )
+
+
+def _ensure_visual_suppliers(db: Session, purpose: str, entries: list[Any]) -> None:
+    """视觉能力层只允许绑定对应类型的供应商。
+
+    出图/出视频走的是专门的协议适配（``images.py``），把对话供应商绑上来也调不通；
+    与其让用户配完才发现降级模板，不如在保存时就拒绝。
+    """
+    from app.modules.llm.capabilities import capability_label
+    from app.modules.llm.images import IMAGE_PROVIDER_TYPES, VIDEO_PROVIDER_TYPES
+
+    allowed = IMAGE_PROVIDER_TYPES if purpose == "image_generation" else VIDEO_PROVIDER_TYPES
+    for entry in entries:
+        supplier = db.get(Supplier, entry.supplier_id)
+        if supplier is None:
+            continue  # 可见性/存在性由 replace_bindings 统一报错
+        if supplier.provider_type not in allowed:
+            raise AppError(
+                "INVALID_REQUEST",
+                f"{capability_label(purpose)}只能绑定对应类型的供应商"
+                f"（可选：{'、'.join(sorted(allowed))}），"
+                f"「{supplier.name}」是 {supplier.provider_type}，不能用于该能力。",
+                http_status=400,
+            )
 
 
 @router.put("/bindings")
@@ -278,6 +322,8 @@ def put_bindings(
     ``supplier_id`` / ``model_name``（助手编辑页遗留字段），消灭两套入口互相覆盖。
     """
     try:
+        if payload.scope_type == SCOPE_PURPOSE and payload.scope_key in VISUAL_PURPOSES:
+            _ensure_visual_suppliers(db, payload.scope_key, payload.entries)
         rows = binding_service.replace_bindings(
             db,
             user.yard_id,

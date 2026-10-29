@@ -237,7 +237,7 @@
       :scope-key="dialogScopeKey"
       :title="dialogTitle"
       hint="留空并保存即取消该层的单独绑定，回落到下一档；保存会接管助手编辑页的旧设置。"
-      :suppliers="suppliers"
+      :suppliers="dialogSuppliers"
       :max-fallback="maxFallback"
       @saved="onSaved"
     />
@@ -257,7 +257,7 @@
   import type { LlmAgentModelItem, LlmSupplier, LlmVisualModelItem } from '@/api/modules'
   import ModelBindings from './ModelBindings.vue'
 
-  defineProps<{ suppliers: LlmSupplier[] }>()
+  const props = defineProps<{ suppliers: LlmSupplier[] }>()
   const emit = defineEmits<{ (event: 'changed'): void }>()
 
   const items = ref<LlmAgentModelItem[]>([])
@@ -272,6 +272,7 @@
   const dialogScopeType = ref<'agent' | 'purpose'>('agent')
   const dialogScopeKey = ref('')
   const dialogTitle = ref('')
+  const dialogSuppliers = ref<LlmSupplier[]>([])
 
   const filtered = computed(() => {
     const word = keyword.value.trim().toLowerCase()
@@ -314,6 +315,7 @@
     dialogScopeType.value = 'agent'
     dialogScopeKey.value = row.code
     dialogTitle.value = `${row.name}（${row.code}）`
+    dialogSuppliers.value = props.suppliers
     dialogVisible.value = true
   }
 
@@ -321,6 +323,12 @@
     dialogScopeType.value = 'purpose'
     dialogScopeKey.value = item.purpose
     dialogTitle.value = item.label
+    // 视觉能力只列对应类型的供应商：对话供应商绑上来也调不通
+    const allowed
+      = item.purpose === 'image_generation'
+        ? ['openai_images', 'dashscope_image']
+        : ['openai_video']
+    dialogSuppliers.value = props.suppliers.filter(s => allowed.includes(s.provider_type))
     dialogVisible.value = true
   }
 

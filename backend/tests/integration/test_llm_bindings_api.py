@@ -50,6 +50,22 @@ def _mk_supplier(client, token: str, name: str) -> str:
     return resp.json()["data"]["id"]
 
 
+def _mk_image_supplier(client, token: str, name: str) -> str:
+    resp = client.post(
+        f"{PREFIX}/llm/providers",
+        headers=_hdr(token),
+        json={
+            "name": name,
+            "provider_type": "openai_images",
+            "base_url": "https://img.example.test/v1",
+            "model_id": f"{name}-image",
+            "api_key": "sk-integration-test-key",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()["data"]["id"]
+
+
 def test_capabilities_lists_every_binding_target_in_chinese(client, world):
     token = _login(client, "llm_owner", world["yard"].id)
     data = client.get(f"{PREFIX}/llm/capabilities", headers=_hdr(token)).json()["data"]
@@ -224,12 +240,63 @@ def test_agent_model_overview_lists_platform_and_yard_agents(client, world, db_s
     assert {"图像生成", "视频生成"} <= labels
 
 
+def test_visual_capability_ignores_chat_supplier(client, world):
+    """图像/视频的「当前生效」只认对应类型供应商，不能被对话模型的小院兜底顶替。"""
+    token = _login(client, "llm_owner", world["yard"].id)
+    _mk_supplier(client, token, "chat-only")
+
+    data = client.get(f"{PREFIX}/llm/bindings/agents", headers=_hdr(token)).json()["data"]
+    image = next(i for i in data["visual"] if i["purpose"] == "image_generation")
+    video = next(i for i in data["visual"] if i["purpose"] == "video_generation")
+    assert image["bindings"] == []
+    assert image["resolved"] is None
+    assert video["resolved"] is None
+
+    image_id = _mk_image_supplier(client, token, "img-main")
+    saved = client.put(
+        f"{PREFIX}/llm/bindings",
+        headers=_hdr(token),
+        json={
+            "scope_type": "purpose",
+            "scope_key": "image_generation",
+            "entries": [{"supplier_id": image_id}],
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    data = client.get(f"{PREFIX}/llm/bindings/agents", headers=_hdr(token)).json()["data"]
+    image = next(i for i in data["visual"] if i["purpose"] == "image_generation")
+    assert image["resolved"]["supplier_id"] == image_id
+    assert image["resolved"]["supplier_name"] == "img-main"
+    assert image["resolved"]["level_label"]
+
+
+def test_visual_purpose_rejects_chat_supplier(client, world):
+    """出图/出视频的绑定只收对应类型供应商，保存时就拒绝，不留"配了也用不了"的状态。"""
+    token = _login(client, "llm_owner", world["yard"].id)
+    chat_id = _mk_supplier(client, token, "chat-only")
+    resp = client.put(
+        f"{PREFIX}/llm/bindings",
+        headers=_hdr(token),
+        json={
+            "scope_type": "purpose",
+            "scope_key": "image_generation",
+            "entries": [{"supplier_id": chat_id}],
+        },
+    )
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["error"]["code"] == "INVALID_REQUEST"
+    assert "对应类型" in resp.json()["error"]["message"]
+
+
 def test_agent_binding_save_clears_legacy_agent_model(client, world, db_session):
     token = _login(client, "llm_owner", world["yard"].id)
     legacy_supplier = _mk_supplier(client, token, "legacy")
     new_supplier = _mk_supplier(client, token, "picked")
     agent = _mk_yard_agent(
-        db_session, world["yard"].id, code="legacy_agent", name="旧设置助手",
+        db_session,
+        world["yard"].id,
+        code="legacy_agent",
+        name="旧设置助手",
         supplier_id=legacy_supplier,
     )
 
