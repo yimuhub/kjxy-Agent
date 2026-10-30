@@ -97,6 +97,11 @@ class Settings(BaseSettings):
     )
     asr_language: str = Field(default="zh", description="语音转写语言提示")
     transcribe_max_mb: int = Field(default=10, ge=1, le=100, description="语音文件大小上限（MB）")
+    # 本机离线模型（v3.30）：sherpa-onnx 的 ONNX 模型按机器存放，不随安装包分发。
+    # 留空则按操作系统应用数据目录解析（macOS/Windows/Linux 各走各的约定，见 asr.storage）。
+    asr_model_dir: str = Field(
+        default="", description="本机语音模型目录（留空=操作系统默认应用数据目录）"
+    )
     vision_model: str = Field(default="", description="图片理解模型名；留空则复用当前供应商的模型")
     vision_max_mb: int = Field(default=8, ge=1, le=50, description="图片理解原图大小上限（MB）")
 

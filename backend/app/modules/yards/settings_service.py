@@ -98,6 +98,11 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "weather_lat": None,
         "weather_lon": None,
     },
+    # 语音转写（v3.30）：auto=本机就绪走本机、否则在线；local/online 强制单通道；off 关闭
+    "asr": {
+        "mode": "auto",
+        "local_model_id": "paraformer-zh-small",
+    },
     # 工作台视图：默认模式 + 按角色的默认视图 + 共享预设（成员仍可在本地 DIY）
     "menu": {
         "default_mode": "standard",  # minimal | standard | full
@@ -136,6 +141,7 @@ FA_THRESHOLD_RANGES: dict[str, tuple[float, float]] = {
     "offline_hours": (0.5, 168.0),
 }
 MENU_MODES = {"minimal", "standard", "full"}
+ASR_MODES = {"auto", "local", "online", "off"}
 
 
 def _row(db: Session, yard_id: str, key: str) -> YardSettings | None:
@@ -378,6 +384,13 @@ def _validate(key: str, value: dict[str, Any], merged: dict[str, Any]) -> None:
                         "OpenWeather 需要填写城市名或经纬度。",
                         http_status=400,
                     )
+    elif key == "asr":
+        from app.modules.asr.catalog import get_model
+
+        if merged.get("mode") not in ASR_MODES:
+            raise AppError("INVALID_REQUEST", "语音转写模式不合法。", http_status=400)
+        if get_model(str(merged.get("local_model_id") or "")) is None:
+            raise AppError("INVALID_REQUEST", "未知的本机转写模型。", http_status=400)
     elif key == "menu":
         _validate_menu(merged)
     else:
@@ -449,6 +462,7 @@ def public_view(db: Session, yard_id: str) -> dict[str, dict[str, Any]]:
 
 
 __all__ = [
+    "ASR_MODES",
     "BUILTIN_SEARCH_SOURCES",
     "DEFAULTS",
     "REGISTRATION_MODES",

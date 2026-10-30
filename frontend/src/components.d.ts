@@ -104,6 +104,7 @@ declare module 'vue' {
     SessionAudit: typeof import('./components/owner/SessionAudit.vue')['default']
     SettingsA2a: typeof import('./components/settings/SettingsA2a.vue')['default']
     SettingsAgentGenerate: typeof import('./components/settings/SettingsAgentGenerate.vue')['default']
+    SettingsAsr: typeof import('./components/settings/SettingsAsr.vue')['default']
     SettingsDeviceAnalysis: typeof import('./components/settings/SettingsDeviceAnalysis.vue')['default']
     SettingsFarmAgent: typeof import('./components/settings/SettingsFarmAgent.vue')['default']
     SettingsGrants: typeof import('./components/settings/SettingsGrants.vue')['default']
@@ -125,6 +126,7 @@ declare module 'vue' {
     ToolsCatalog: typeof import('./components/settings/ToolsCatalog.vue')['default']
     TransferOwner: typeof import('./components/owner/TransferOwner.vue')['default']
     UsageTrend: typeof import('./components/owner/UsageTrend.vue')['default']
+    UsageTrendChart: typeof import('./components/usage/UsageTrendChart.vue')['default']
   }
   export interface GlobalDirectives {
     vLoading: typeof import('element-plus/es')['ElLoadingDirective']

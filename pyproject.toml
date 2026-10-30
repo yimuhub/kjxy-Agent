@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tech-yard-platform"
-version = "3.28.0"
+version = "3.30.0"
 description = "科技小院多智能体自生长开发平台"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -33,6 +33,7 @@ dependencies = [
     "openpyxl>=3.1.5",
     "python-pptx>=1.0.2",
     "reportlab>=5.1.0",
+    "sherpa-onnx>=1.10",
 ]
 
 [project.optional-dependencies]

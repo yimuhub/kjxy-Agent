@@ -24,6 +24,9 @@
 #    sqlalchemy.dialects.sqlite；psycopg 驱动一并带上（用户可切 DATABASE_URL）。
 # 7. cryptography（passlib[bcrypt]/JWT 链路中间接依赖）有二进制 .so，
 #    collect-all 防漏。email-validator 是 pydantic EmailStr 的运行期导入。
+# 8. sherpa-onnx（v3.30 本机语音转写）：sherpa_onnx 是 ctypes 包，原生库在
+#    sherpa_onnx_core 里，靠动态查找加载 → 两个包都 collect-all；
+#    模型文件**不打进安装包**（首次使用按需下载到用户数据目录）。
 # ────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -67,6 +70,8 @@ rm -rf "build/${NAME}" "dist/${NAME}" "dist/${NAME}.spec"
   --collect-all sqlalchemy \
   --collect-all cryptography \
   --collect-submodules email_validator \
+  --collect-all sherpa_onnx \
+  --collect-all sherpa_onnx_core \
   --hidden-import app.main \
   --hidden-import app.db.models_registry \
   --hidden-import app.db.seed \

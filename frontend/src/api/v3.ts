@@ -215,6 +215,11 @@ export interface YardSettingsBundle {
   }
   /** v3.24：工作台视图（默认模式 + 按角色默认 + 共享预设） */
   menu?: MenuConfig
+  /** v3.30：语音转写通道（auto/local/online/off + 本机模型） */
+  asr?: {
+    mode: 'auto' | 'local' | 'online' | 'off'
+    local_model_id: string
+  }
 }
 
 export const governanceApi = {
@@ -278,7 +283,8 @@ export const governanceApi = {
       | 'agent_generate'
       | 'device_analysis'
       | 'farm_agent'
-      | 'menu',
+      | 'menu'
+      | 'asr',
     value: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
     return unwrap(
@@ -1049,6 +1055,8 @@ export interface AgentPreviewResult {
   utterance: string
   keywords: string[]
   matches: AgentPreviewMatch[]
+  /** 可直接自动绑定的最低分（后端 MATCH_THRESHOLD，避免两边口径漂移） */
+  threshold?: number
   note: string
   policy: AgentGeneratePolicy
 }

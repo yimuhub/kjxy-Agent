@@ -1,10 +1,10 @@
-"""多模态输入（v3.11）：语音转写与图片理解。
+"""图片理解（v3.11，语音转写已于 v3.30 迁到 ``app.modules.asr``）。
 
 原则：
 1. **不伪造能力**：只调用当前生效供应商的 OpenAI 兼容端点；未配置或模型不支持时
-   返回明确错误（503/502），绝不返回编造的转写或识别内容。
-2. **隐私最小化**：语音只在内存中转发给上游，不落库、不留存；图片识别结果只写入
-   该附件自身的 ``extracted_text``，沿用附件既有的会话/小院边界。
+   返回明确错误（503/502），绝不返回编造的识别内容。
+2. **隐私最小化**：图片识别结果只写入该附件自身的 ``extracted_text``，
+   沿用附件既有的会话/小院边界。
 3. **图片是数据不是指令**：提示词要求模型只描述可见事实，并把图中文字当数据处理；
    识别结果随后作为不可信附件资料注入对话上下文（见 ``build_attachment_context``）。
 4. **不做医疗/用药建议**：识别只描述症状与可见文字，不给农药品种、剂量或施用方案。
@@ -13,8 +13,6 @@
 from __future__ import annotations
 
 import base64
-import os
-from typing import Any
 
 import httpx
 
@@ -30,14 +28,6 @@ from app.modules.llm.provider import get_provider, provider_resolution
 
 log = get_logger(__name__)
 
-#: 语音扩展名 → 规范 MIME
-AUDIO_MIMES: dict[str, str] = {
-    ".webm": "audio/webm",
-    ".ogg": "audio/ogg",
-    ".wav": "audio/wav",
-    ".mp3": "audio/mpeg",
-    ".m4a": "audio/mp4",
-}
 
 #: 图片识别提示词：只描述事实 + 数据边界 + 不给用药方案
 VISION_PROMPT = (
@@ -50,21 +40,6 @@ VISION_PROMPT = (
 )
 
 
-def _sniff_audio(data: bytes, ext: str) -> bool:
-    """按文件头判定语音容器；认不出即拒绝，不信任客户端声明。"""
-    if data.startswith(b"\x1a\x45\xdf\xa3"):
-        return ext == ".webm"
-    if data.startswith(b"OggS"):
-        return ext == ".ogg"
-    if data.startswith(b"RIFF") and data[8:12] == b"WAVE":
-        return ext == ".wav"
-    if data.startswith(b"ID3") or (len(data) > 2 and data[0] == 0xFF and data[1] & 0xE0 == 0xE0):
-        return ext == ".mp3"
-    if len(data) > 12 and data[4:8] == b"ftyp":
-        return ext == ".m4a"
-    return False
-
-
 def _provider_media_config(db, yard_id: str) -> tuple[str, str, str]:
     """取当前生效供应商的 base_url/api_key/model（只读内存，明文用完即弃）。"""
     with provider_resolution(yard_id, db):
@@ -75,7 +50,7 @@ def _provider_media_config(db, yard_id: str) -> tuple[str, str, str]:
     if not base_url or not api_key:
         raise AppError(
             "MULTIMODAL_NOT_CONFIGURED",
-            "当前没有可用的模型供应商，无法使用语音转写或图片理解；请联系管理员配置模型。",
+            "当前没有可用的模型供应商，无法使用图片理解；请联系管理员配置模型。",
             http_status=503,
         )
     return base_url, api_key, model
@@ -96,39 +71,6 @@ def _upstream_error(what: str, status_code: int, body: str) -> AppError:
         http_status=502,
         details={"upstream_status": status_code},
     )
-
-
-async def _post_transcription(
-    base_url: str, api_key: str, filename: str, mime: str, data: bytes
-) -> str:
-    url = f"{base_url}/audio/transcriptions"
-    check_egress_url(url, context="asr", allow_local=True)
-    async with httpx.AsyncClient(timeout=settings.llm_timeout_seconds) as client:
-        try:
-            resp = await client.post(
-                url,
-                files={"file": (filename, data, mime)},
-                data={
-                    "model": settings.asr_model,
-                    "language": settings.asr_language,
-                },
-                headers={"Authorization": f"Bearer {api_key}"},
-            )
-        except httpx.HTTPError as e:
-            raise AppError(
-                "MULTIMODAL_UPSTREAM_ERROR",
-                "语音转写请求失败：无法连接上游服务。",
-                http_status=502,
-            ) from e
-    if resp.status_code >= 400:
-        raise _upstream_error("语音转写", resp.status_code, resp.text)
-    try:
-        text = str(resp.json().get("text") or "").strip()
-    except ValueError as e:
-        raise AppError(
-            "MULTIMODAL_UPSTREAM_ERROR", "语音转写返回了无法解析的内容。", http_status=502
-        ) from e
-    return text
 
 
 async def _post_vision(base_url: str, api_key: str, model: str, data_url: str) -> str:
@@ -187,51 +129,6 @@ def _audit(db, ctx: YardContext, action: str, resource_id: str, metadata: dict) 
     )
 
 
-async def transcribe_audio(db, ctx: YardContext, file: Any) -> dict:
-    """语音转写：校验 → 上游转写 → 返回文本（音频不落库）。"""
-    filename = os.path.basename(file.filename or "").strip()[:255] or "audio.webm"
-    ext = os.path.splitext(filename)[1].lower()
-    if ext not in AUDIO_MIMES:
-        raise AppError(
-            "UNSUPPORTED_AUDIO_TYPE",
-            f"不支持的语音格式：{ext or '未知'}，支持 WEBM/OGG/WAV/MP3/M4A。",
-            http_status=415,
-        )
-    data = file.file.read()
-    if not data:
-        raise AppError("INVALID_REQUEST", "语音文件为空。", http_status=400)
-    max_bytes = settings.transcribe_max_mb * 1024 * 1024
-    if len(data) > max_bytes:
-        raise AppError(
-            "FILE_TOO_LARGE",
-            f"语音文件超过 {settings.transcribe_max_mb}MB 上限。",
-            http_status=413,
-        )
-    if not _sniff_audio(data, ext):
-        raise AppError(
-            "UNSUPPORTED_AUDIO_TYPE",
-            "文件内容不是受支持的语音格式（扩展名与内容不一致）。",
-            http_status=415,
-        )
-    base_url, api_key, _model = _provider_media_config(db, ctx.yard_id)
-    text = (await _post_transcription(base_url, api_key, filename, AUDIO_MIMES[ext], data)).strip()
-    _audit(
-        db,
-        ctx,
-        "chat_audio_transcribed",
-        resource_id="",
-        metadata={"bytes": len(data), "chars": len(text)},
-    )
-    db.commit()
-    if not text:
-        raise AppError(
-            "MULTIMODAL_EMPTY_RESULT",
-            "没有识别到语音内容，请靠近麦克风后重试。",
-            http_status=422,
-        )
-    return {"text": text, "model": settings.asr_model}
-
-
 async def recognize_image(db, ctx: YardContext, attachment: ChatAttachment) -> dict:
     """图片理解：读原图 → 上游识别 → 结果写回附件 extracted_text。"""
     if attachment.kind != ATT_IMAGE:
@@ -274,8 +171,6 @@ async def recognize_image(db, ctx: YardContext, attachment: ChatAttachment) -> d
 
 
 __all__ = [
-    "AUDIO_MIMES",
     "VISION_PROMPT",
     "recognize_image",
-    "transcribe_audio",
 ]

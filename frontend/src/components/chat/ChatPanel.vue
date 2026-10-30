@@ -631,6 +631,11 @@
                 <Microphone v-else />
               </el-icon>
             </button>
+            <span
+              v-if="recording"
+              class="rec-hint"
+              role="status"
+            >录音中 {{ recordSeconds }}s，再点一次结束</span>
             <el-input
               ref="inputRef"
               v-model="draft"
@@ -760,7 +765,7 @@
 <script setup lang="ts">
   import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
   import { useRouter } from 'vue-router'
-  import { ElInput, ElMessage } from 'element-plus'
+  import { ElInput, ElMessage, ElMessageBox } from 'element-plus'
   import {
     ChatLineSquare,
     Close,
@@ -818,6 +823,7 @@
   import type { TeamDefinition } from '@/api/modules'
   import type { MemberRoundRow } from '@/stores/chat'
   import type { ChatStoreInstance } from '@/stores/chat'
+  import { canRecord, WavRecorder } from '@/utils/wavRecorder'
 
   /** 路由来源徽章（仅作老数据兜底：后端下发 routed_label 后不再走这里） */
   const ROUTED_META: Record<
@@ -1249,63 +1255,71 @@
     }
   }
 
-  /** ---- 语音输入（v3.11）：MediaRecorder 录音 → 后端转写 → 文本填入草稿 ---- */
+  /** ---- 语音输入（v3.30）：前端编 16k WAV → 后端本机/在线转写 → 文本填入草稿 ---- */
   const recording = ref(false)
   const transcribing = ref(false)
-  let recorder: MediaRecorder | null = null
-  let recordChunks: Blob[] = []
-  let recordStream: MediaStream | null = null
+  const recordSeconds = ref(0)
+  let recorder: WavRecorder | null = null
+  let recordTimer: ReturnType<typeof setInterval> | undefined
 
-  function stopRecordTracks() {
-    recordStream?.getTracks().forEach(track => track.stop())
-    recordStream = null
+  function stopRecordTimer() {
+    if (recordTimer) clearInterval(recordTimer)
+    recordTimer = undefined
   }
 
   async function onToggleRecord() {
     if (recording.value) {
-      recorder?.stop()
+      finishRecord()
       return
     }
-    if (typeof MediaRecorder === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+    if (!canRecord()) {
       ElMessage.warning('当前环境不支持录音，请改用文字输入')
       return
     }
+    const instance = new WavRecorder()
     try {
-      recordStream = await navigator.mediaDevices.getUserMedia({ audio: true })
-    } catch {
-      ElMessage.warning('无法访问麦克风，请在系统或浏览器设置中允许后重试')
+      await instance.start(finishRecord)
+    } catch (err) {
+      instance.abort()
+      ElMessage.warning(
+        (err as Error)?.message === 'UNSUPPORTED'
+          ? '当前环境不支持录音，请改用文字输入'
+          : '无法访问麦克风，请在系统或浏览器设置中允许后重试',
+      )
       return
     }
-    recordChunks = []
-    const preferred = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg']
-    const mimeType = preferred.find(type => MediaRecorder.isTypeSupported(type)) || ''
-    recorder = mimeType ? new MediaRecorder(recordStream, { mimeType }) : new MediaRecorder(recordStream)
-    recorder.ondataavailable = event => {
-      if (event.data.size > 0) recordChunks.push(event.data)
-    }
-    recorder.onstop = () => {
-      stopRecordTracks()
-      recording.value = false
-      const type = recorder?.mimeType || 'audio/webm'
-      recorder = null
-      const blob = new Blob(recordChunks, { type })
-      recordChunks = []
-      if (!blob.size) return
-      if (blob.size > 10 * 1024 * 1024) {
-        ElMessage.warning('录音超过 10MB，请缩短后重试')
-        return
-      }
-      const ext = type.includes('mp4')
-        ? 'm4a'
-        : type.includes('ogg')
-          ? 'ogg'
-          : type.includes('wav')
-            ? 'wav'
-            : 'webm'
-      void transcribeBlob(new File([blob], `voice-${Date.now()}.${ext}`, { type }))
-    }
-    recorder.start()
+    recorder = instance
     recording.value = true
+    recordSeconds.value = 0
+    stopRecordTimer()
+    recordTimer = setInterval(() => {
+      recordSeconds.value = Math.floor((recorder?.durationMs ?? 0) / 1000)
+    }, 500)
+  }
+
+  function finishRecord() {
+    if (!recorder) return
+    const blob = recorder.stop()
+    recorder = null
+    recording.value = false
+    recordSeconds.value = 0
+    stopRecordTimer()
+    if (!blob.size) return
+    void transcribeBlob(new File([blob], `voice-${Date.now()}.wav`, { type: 'audio/wav' }))
+  }
+
+  /** 转写不可用时的统一引导：说明原因 + 一键跳到「语音转写」设置 */
+  async function guideToAsrSettings(message: string) {
+    try {
+      await ElMessageBox.confirm(message, '语音转写尚未就绪', {
+        confirmButtonText: '去设置',
+        cancelButtonText: '改用文字',
+        type: 'warning',
+      })
+      void router.push({ path: '/settings', query: { tab: 'asr' } })
+    } catch {
+      /* 用户选择继续用文字输入 */
+    }
   }
 
   async function transcribeBlob(file: File) {
@@ -1316,24 +1330,31 @@
       await nextTick()
       inputRef.value?.focus()
     } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error
-          ?.message || '语音转写失败，请稍后重试或改用文字输入'
-      ElMessage.warning(msg)
+      const error = (
+        err as { response?: { data?: { error?: { code?: string; message?: string } } } }
+      )?.response?.data?.error
+      const code = error?.code ?? ''
+      const message = error?.message || '语音转写失败，请稍后重试或改用文字输入'
+      if (
+        code === 'ASR_DISABLED' ||
+        code === 'ASR_NOT_CONFIGURED' ||
+        code === 'ASR_LOCAL_NOT_READY' ||
+        code === 'ASR_UPSTREAM_ERROR'
+      ) {
+        await guideToAsrSettings(message)
+      } else {
+        ElMessage.warning(message)
+      }
     } finally {
       transcribing.value = false
     }
   }
 
   onBeforeUnmount(() => {
-    if (recording.value) {
-      try {
-        recorder?.stop()
-      } catch {
-        /* 组件卸载时停止失败无需处理 */
-      }
-    }
-    stopRecordTracks()
+    recorder?.abort()
+    recorder = null
+    recording.value = false
+    stopRecordTimer()
   })
 
   /** ---- 生成文档：预览（沙箱 iframe + srcdoc）与下载（带登录态的 blob） ---- */
@@ -2231,6 +2252,13 @@
     color: var(--ds-danger);
     border-color: color-mix(in srgb, var(--ds-danger) 55%, transparent);
     animation: attach-rec 1.2s ease-in-out infinite;
+  }
+  .rec-hint {
+    flex: none;
+    align-self: center;
+    font-size: 12px;
+    color: var(--ds-danger);
+    white-space: nowrap;
   }
   @keyframes attach-rec {
     50% {

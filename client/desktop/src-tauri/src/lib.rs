@@ -201,12 +201,16 @@ fn spawn_sidecar(app: &tauri::AppHandle, state: &EngineState, dir: &PathBuf, por
         .shell()
         .sidecar("techyard-sidecar")
         .map_err(|e| format!("找不到 sidecar：{e}"))?;
+    // 语音模型目录固定在数据目录下：与安装位置解耦，升级/重装客户端不必重下模型
+    let asr_dir = dir.join("models").join("asr");
+    let _ = fs::create_dir_all(&asr_dir);
     let (_rx, child) = sidecar
         .envs([
             ("TECHYARD_DATA_DIR", dir.to_string_lossy().to_string()),
             ("TECHYARD_PORT", port.to_string()),
             ("APP_SECRET_KEY", secret),
             ("FRONTEND_DIST", frontend_dist.to_string_lossy().to_string()),
+            ("ASR_MODEL_DIR", asr_dir.to_string_lossy().to_string()),
         ])
         .spawn()
         .map_err(|e| format!("启动本地引擎失败：{e}"))?;

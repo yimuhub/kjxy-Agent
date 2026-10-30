@@ -65,6 +65,13 @@ CAPABILITIES: tuple[Capability, ...] = (
         "视觉",
         "视频生成通道预留：登记协议位与绑定位，暂无内置调用工具（v3.26）",
     ),
+    Capability(
+        "asr",
+        "语音转写",
+        "语音",
+        "对话语音输入的在线转写通道（POST {base_url}/audio/transcriptions）；"
+        "与对话模型分开绑定，本机离线模型不占用此能力（v3.30）",
+    ),
 )
 
 CAPABILITY_CODES: tuple[str, ...] = tuple(item.code for item in CAPABILITIES)

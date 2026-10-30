@@ -60,6 +60,8 @@ SETTINGS_PERMISSIONS: dict[str, str] = {
     "farm_agent": "settings:manage",
     # 工作台视图（菜单模式与角色预设）由负责人/管理员统一设置
     "menu": "menu:manage",
+    # 语音转写模式影响全小院的音频去向（本机/在线），按管理型设置处理
+    "asr": "settings:manage",
 }
 
 

@@ -741,8 +741,10 @@ async def transcribe_audio(
     ctx: YardContext = Depends(get_yard_context),
     db: Session = Depends(get_db_session),
 ):
-    """语音转写：音频只在内存中转发给上游，不落库（隐私最小化）。"""
-    data = await multimodal.transcribe_audio(db, ctx, file)
+    """语音转写：本机离线优先、在线通道兜底；音频只在内存中处理，不落库。"""
+    from app.modules.asr import service as asr_service
+
+    data = await asr_service.transcribe(db, ctx, file)
     return ok(data, request)
 
 

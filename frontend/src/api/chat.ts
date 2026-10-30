@@ -837,11 +837,13 @@ export const chatApi = {
     )
   },
   /** 语音转写（v3.11）：音频只在服务端内存中转发上游，不落库 */
-  transcribeAudio(file: File): Promise<{ text: string; model: string }> {
+  transcribeAudio(file: File): Promise<{ text: string; model: string; engine?: 'local' | 'online' }> {
     const form = new FormData()
     form.append('file', file)
     return unwrap(
-      api.post<ApiResponse<{ text: string; model: string }>>('/chat/transcribe', form, {
+      api.post<
+        ApiResponse<{ text: string; model: string; engine?: 'local' | 'online' }>
+      >('/chat/transcribe', form, {
         ...silentCfg,
         headers: { 'Content-Type': 'multipart/form-data' },
       }),

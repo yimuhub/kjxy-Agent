@@ -6,6 +6,76 @@
 
 开发中的修复先累积在这里；定版时把本段改名为 `## [3.x.y] - 日期`，同时一次改齐 9 处版本面。
 
+## [3.30.0] - 2026-10-30
+
+语音输入不再依赖聊天模型：新增独立的「语音转写」通道，本机离线模型（sherpa-onnx）优先、在线转写按需绑定兜底；录音端直接输出 16kHz WAV，安装包不含模型、按需下载，三端（macOS/Windows/Linux）共用同一份模型文件。
+
+### 根因与修复
+
+- **404 的根因**：v3.11 把语音转写绑在「当前生效聊天供应商」的 `/audio/transcriptions` 上，而多数聊天模型供应商并不提供该端点，于是点麦克风必 404。
+- **通道解耦**：新增能力码 `asr`（模型中心可按能力绑定在线转写供应商，解析链仍是 7 档兜底）；语音转写不再隐式复用聊天模型。在线链上遇到 404/405（供应商没有转写端点）会继续试下一个候选，其他失败（鉴权/网络）立即返回，不会把同一段音频到处乱传。
+
+### 后端（`backend/app/modules/asr/`）
+
+- **模式**：`auto`（本机就绪走本机，否则在线兜底）/ `local`（只本机，未就绪直接 409，**绝不偷偷上传音频**）/ `online` / `off`（403）。本机识别成功但结果为空 → 422，不再把同一段音频传线上。
+- **本机引擎**：sherpa-onnx 纯 CPU、懒加载、可卸载（Windows 删除文件前先卸载）；输入统一 16kHz 单声道 PCM16 WAV，服务端无需 ffmpeg。
+- **两个内置模型**：Paraformer-zh-small int8（78MB，最快）与 SenseVoice-Small int8（228MB，自带标点与数字规整）；清单 `catalog.py` 带真实 SHA256（已按真实文件校验）。
+- **下载器**：镜像回退 + Range 断点续传 + SHA256 校验 + `.part` 原子落盘；取消保留已下载部分可续传；磁盘空间不足提前拒绝；下载状态线程安全、可在 `/asr/status` 轮询。
+- **跨平台存储**：macOS `~/Library/Application Support/tech-yard/models/asr`、Windows `%LOCALAPPDATA%\tech-yard\models\asr`、Linux `$XDG_DATA_HOME/tech-yard/models/asr`；`ASR_MODEL_DIR` 可覆盖，桌面壳显式传 `<数据目录>/models/asr`。
+- **接口**：`GET /asr/status`、`GET /asr/models`、`POST /asr/models/{id}/download|cancel`、`DELETE /asr/models/{id}`、`POST /asr/test`；成员可读状态，下载/删除/测试按 `settings:manage` 收口。`POST /chat/transcribe` 改为走统一服务，响应新增 `engine`。
+
+### 前端
+
+- **录音**：`utils/wavRecorder.ts` 用 WebAudio 采集并自行编码 16kHz 单声道 WAV（ScriptProcessor，兼容 WKWebView），三端同一份字节；60 秒自动停止，录音中显示秒数。
+- **引导**：转写未启用/未配置/本机未就绪/上游 404 时弹出「去设置」，一键跳到 `系统设置 → 语音转写`，不用再自己猜。
+- **设置页签**：新增「语音转写」——使用方式四档、当前生效通道、在线通道来源、运行环境（OS/架构/引擎）、两个模型的下载/取消/删除/切换、进度条与错误态，以及「用一段音频测试当前通道」。
+
+### 打包与 CI
+
+- PyInstaller sidecar 增加 `--collect-all sherpa_onnx sherpa_onnx_core`；模型不进安装包，升级/重装不重下。
+- 新增 `backend/scripts/asr_smoke.py` 与 CI `asr-smoke` 作业：macOS/Linux/Windows 三端「下载 → 识别固定中文音频 → 删除」，模型按校验和缓存。
+
+### 测试与门禁
+
+- 后端新增 `tests/unit/test_asr_service.py`（22 条：格式/内容嗅探、四档模式路由、本机空结果不转线上、本机失败回落在线、在线 404 换下一候选、清单校验和、安装标记、设置项校验、HTTP 权限）；`test_multimodal.py` 收敛为图片理解。
+- 前端新增 `e2e/v330.spec.ts` 3 条：设置页通道与模型可见、下载进度按轮询渲染、对话页语音按钮可用。
+- 真实引擎验证：本机 Paraformer 对 5 秒中文音频识别 27ms（预热后）、SenseVoice 60ms；`asr_smoke.py` 本机通过；在线链本次真实上游返回 404，错误文案已带「去设置」指引。
+- 门禁：后端 ruff / format / mypy（343 文件）；pytest 全量 1750 passed；前端 eslint（0 error）/ vue-tsc / 单测 40 / build / `make dialogs-check`；OpenAPI 契约 281 路径；`check_versions.py`（9 处版本面）。
+- 全量 Playwright E2E 97 项：93 通过、1 跳过（需 A2A 开关）、2 项重试通过（回答反馈回流、群聊加人弹窗）；`chat-panel 多实例隔离` 在全量串行跑时因上游模型连续两轮超过其 150s 预算而失败，单跑 1.0 分钟通过——属模型长尾而非回归。最后一次后端改动（在线候选逐个尝试）之后已重跑 `v330` 3 条全绿。
+
+## [3.29.0] - 2026-10-30
+
+可读性与用量观测升级：演示成员换成真人姓名、任务中心首列直接显示「任务名称」、用量额度页新增趋势图与 CSV 一键导出、新建智能体按名称/职责自动绑定相关技能。
+
+### 演示数据
+
+- **真人成员**：新增 `DEMO_ROSTER`（10 人）与 `ensure_demo_roster()`（幂等），除「小院负责人 / 小院管理员 / 农业专家 / 科研人员」四个固定展示名外，其余成员统一为真人姓名；老库跑 seed 时会自动校正展示名与成员关系。
+- **存量库整理**：新增 `backend/scripts/normalize_demo_members.py`（默认 dry-run，`--apply` 才写），只清理演示小院里的 E2E/测试占位成员关系（`m_*`、`join_*`、`e2e_*` 等），不动账号本身。本地演示库已从 37 人（含 33 个测试占位）整理为 14 人。
+
+### 用量额度与 Token 统计
+
+- **趋势图**：`/llm/usage/overview` 新增 `by_day`（按最近 N 天逐日补零）与 `by_model`；前端新增 `UsageTrendChart`（ECharts 6 按需引入），柱状=Token 消耗、折线=调用次数，固定高度、日期多时横向滚动。
+- **一键导出**：新增 `utils/csv.ts`（UTF-8 BOM + 标准转义），可导出「统计汇总 CSV」（概览/按日/按场景/按智能体/按模型/按日×模型）与「调用流水 CSV」。
+- **页面协调**：支持近 7/30/90 天切换（KPI、趋势、排行、流水同步刷新）；按场景、按智能体、按模型、按日×模型四张表统一固定高度（320px）内部滚动，补齐占比进度条与中文用途名（对齐 `llm/capabilities.py` 全量能力码）。
+
+### 任务中心
+
+- **任务名称**：`TaskOut` 新增 `title` / `task_type_label` 计算字段——由「任务类型中文名 + 输入里的主体」派生（`tasks/titles.py`），不新增数据库列，历史任务同样生效；列表首列改为「任务名称」，任务 ID 后移，详情弹窗同步。
+- **班组接力**：`team_run` 任务把班组名与原始问题写入 `meta.display`（`data` 仍严格等于 `{"run_id": ...}`，不破坏 worker 的身份校验），任务中心能看出是哪条班组问题。
+
+### 一句话 / 手动创建智能体自动绑技能
+
+- **领域同义词**：`agent_builder.DOMAIN_SYNONYMS` 做确定性扩展（维修→保养/检修/故障、拖拉机/收割机→农机、滴灌→灌溉、打药→农药+病虫害 等），「我需要一个农机维修专家」现在能命中「农机保养」（score 7，阈值 3）。
+- **标签进召回**：`bindable` 的技能/市场/插件条目补充 `tags`，名称与摘要都不含关键词时也能靠标签命中。
+- **手动创建自动绑定**：新建智能体弹窗监听名称与职责（700ms 防抖），调用预览接口按后端同一阈值自动勾选技能，并提示「已按名称/职责自动绑定 N 项技能」；用户手动取消的项不再自动加回。
+- **口径一致**：预览返回 `threshold`（即后端 `MATCH_THRESHOLD`），前端不再写死数字。
+
+### 测试与门禁
+
+- 后端新增单测：`test_task_titles.py` 7 条（标题拼接、主体优先级、截断、未知类型、TaskOut 计算字段）、`test_demo_roster.py` 3 条（幂等补人、展示名/角色校正、非角色别名）、`test_agent_builder.py` 新增 3 条 + 预览阈值断言（同义词命中、tags 召回、不误绑无关查询）。
+- 前端新增 `e2e/v329.spec.ts` 3 条：用量页图表/区间切换/固定高度/两种 CSV 导出；任务中心首列任务名称；新建智能体输入「农机维修专家」后自动绑定「农机保养」。
+- 门禁：后端 ruff / format / mypy；pytest 全量 1734 passed；前端 eslint / vue-tsc / 单测 / build / `make dialogs-check`；OpenAPI 契约（275 路径）；`check_versions.py --tag v3.29.0`（9 处版本面）；全量 Playwright E2E 94 项（91 通过、1 跳过-需 A2A 开关、2 项因上游模型长尾首轮超时并于重试通过：对话内方案合成、知识问答）。
+
 ## [3.28.0] - 2026-10-30
 
 Agent 自动执行与自动推送：把 v3.27 的「设备自动诊断」扩到整条农事台账链路——设备读数、天气、台账、药剂库与种植周期做证据，确定性规则产出发现，按三档策略自动执行或进入「待确认」，落成告警、工单、诊断、巡田记录、药剂草稿与地块建档，并经推送通道主动发出去；同类设备问题合并，不刷屏。

@@ -25,6 +25,28 @@
 - 关窗级联杀 sidecar；再开复用健康引擎不重拉；启动失败给原生对话框+原因+下一步（失败即教学）。
 - `client.json` 可切 `{"mode":"remote","url":"https://试点"}`——桌面也能连服务器（数据回云端）。
 
+## 语音输入（v3.30，离线优先）
+
+- **录音端**：前端用 WebAudio 采集并**自己编码成 16kHz 单声道 PCM16 WAV**（`frontend/src/utils/wavRecorder.ts`），
+  不再依赖 `MediaRecorder` 的 webm/ogg/mp4——后端因此不需要 ffmpeg，三端内嵌 WebView 行为一致。
+- **引擎**：`sherpa-onnx`（PyPI wheel 覆盖 macOS x64/arm64、Windows amd64/arm64、Linux x86_64/aarch64）；
+  模型是**同一份 ONNX 文件**，跨系统通用，不打进安装包，首次使用按需下载。
+- **两个可选模型**（设置页可下载、切换）：
+  「中文语音转写（轻量）」Paraformer-zh-small int8 ≈78MB / 内存 1GB，最快、无标点；
+  「中文语音转写（高精度）」SenseVoice-Small int8 ≈228MB / 内存 2GB，自带标点与数字规整。
+  两者都只在本机 CPU 上跑；极少数专业术语仍可能听错，重要内容请人工核对。
+- **模型目录**（都可用 `ASR_MODEL_DIR` 覆盖）：
+  macOS `~/Library/Application Support/tech-yard/models/asr`，
+  Windows `%LOCALAPPDATA%\tech-yard\models\asr`，
+  Linux `$XDG_DATA_HOME/tech-yard/models/asr`；
+  桌面壳显式传 `<数据目录>/models/asr`，升级/重装不会重下模型。
+- **下载**：`/asr/models/{id}/download` 后台线程，镜像回退 + Range 断点续传 + SHA256 校验 +
+  `.part` 原子落盘；`/asr/status` 给进度，前端设置页轮询展示。
+- **通道**：`auto`（本机就绪走本机，否则在线兜底）/ `local`（只本机，未就绪直接报错，绝不偷偷上传）/
+  `online`（走模型中心的 `asr` 能力绑定）/ `off`。对话页遇到不可用会弹「去设置」直接跳到设置页签。
+- **CI 冒烟**：`.github/workflows/ci.yml` 的 `asr-smoke` 在 macOS/Linux/Windows 三端跑
+  `backend/scripts/asr_smoke.py`（下载→识别固定中文音频→删除），模型按校验和缓存。
+
 ## 服务器地址配置
 
 前端构建期 `VITE_API_BASE`（云端壳）；桌面壳由 sidecar 本机提供，无需服务器。

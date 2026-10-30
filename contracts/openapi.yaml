@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.28.0
+  version: 3.30.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -9664,13 +9664,157 @@ paths:
       - v1
       - chat
       summary: Transcribe Audio
-      description: 语音转写：音频只在内存中转发给上游，不落库（隐私最小化）。
+      description: 语音转写：本机离线优先、在线通道兜底；音频只在内存中处理，不落库。
       operationId: transcribe_audio_api_v1_chat_transcribe_post
       requestBody:
         content:
           multipart/form-data:
             schema:
               $ref: '#/components/schemas/Body_transcribe_audio_api_v1_chat_transcribe_post'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/asr/status:
+    get:
+      tags:
+      - v1
+      - asr
+      summary: Asr Status
+      description: 当前语音转写状态：模式、本机模型进度、在线通道、最终生效通道。
+      operationId: asr_status_api_v1_asr_status_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/asr/models:
+    get:
+      tags:
+      - v1
+      - asr
+      summary: Asr Models
+      description: 内置模型清单（含体积/许可/是否内置引擎）。
+      operationId: asr_models_api_v1_asr_models_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /api/v1/asr/models/{model_id}/download:
+    post:
+      tags:
+      - v1
+      - asr
+      summary: Asr Download
+      description: 开始下载本机模型（幂等，可断点续传）。
+      operationId: asr_download_api_v1_asr_models__model_id__download_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: model_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Model Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/asr/models/{model_id}/cancel:
+    post:
+      tags:
+      - v1
+      - asr
+      summary: Asr Cancel
+      operationId: asr_cancel_api_v1_asr_models__model_id__cancel_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: model_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Model Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/asr/models/{model_id}:
+    delete:
+      tags:
+      - v1
+      - asr
+      summary: Asr Remove
+      description: 删除本机模型文件（释放磁盘；在线通道不受影响）。
+      operationId: asr_remove_api_v1_asr_models__model_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: model_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Model Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/asr/test:
+    post:
+      tags:
+      - v1
+      - asr
+      summary: Asr Test
+      description: 设置页「测试转写」：用一段短音频走当前生效通道，返回文本/引擎/耗时。
+      operationId: asr_test_api_v1_asr_test_post
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_asr_test_api_v1_asr_test_post'
         required: true
       responses:
         '200':
@@ -10534,6 +10678,16 @@ components:
       - scope_type
       title: BindingsReplace
       description: 整层替换：一次提交某（scope_type, scope_key）下的全部条目。
+    Body_asr_test_api_v1_asr_test_post:
+      properties:
+        file:
+          type: string
+          format: binary
+          title: File
+      type: object
+      required:
+      - file
+      title: Body_asr_test_api_v1_asr_test_post
     Body_import_plugin_api_v1_market_plugins_import_post:
       properties:
         file:
