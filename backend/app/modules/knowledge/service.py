@@ -4,12 +4,15 @@ import hashlib
 import math
 import os
 import threading
+import time
+from array import array
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC
 
 from fastapi import UploadFile
-from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session, contains_eager
 
 from app.core.config import settings
 from app.core.deps import YardContext
@@ -354,20 +357,156 @@ def delete_document(db: Session, ctx: YardContext, document_id: str) -> Document
         request_id=ctx.request_id,
     )
     db.commit()
+    invalidate_search_cache(ctx.yard_id)
     db.refresh(doc)
     return _enrich_doc_out(db, [doc])[0]
 
 
-def _cosine(a: list[float], b: list[float]) -> float:
-    n = min(len(a), len(b))
-    if n == 0:
+def _cosine(a: Sequence[float], b: Sequence[float]) -> float:
+    """余弦相似度；不切片拷贝，按最短长度一次遍历算完点积与模长。"""
+    if not a or not b:
         return 0.0
-    dot = sum(x * y for x, y in zip(a[:n], b[:n], strict=False))
-    na = math.sqrt(sum(x * x for x in a[:n]))
-    nb = math.sqrt(sum(y * y for y in b[:n]))
-    if na == 0.0 or nb == 0.0:
+    dot = 0.0
+    na2 = 0.0
+    nb2 = 0.0
+    for x, y in zip(a, b, strict=False):
+        dot += x * y
+        na2 += x * x
+        nb2 += y * y
+    if na2 == 0.0 or nb2 == 0.0:
         return 0.0
-    return dot / (na * nb)
+    return dot / math.sqrt(na2 * nb2)
+
+
+# ---------------------------------------------------------------------------
+# 检索索引缓存（SQLite / 无 pgvector 路径）
+#
+# 每次检索若都把全部切块的 embedding JSON 反序列化再逐条算余弦，知识库一大
+# 就会把请求拖成秒级。这里把「已解析的向量 + 关键词 bigram」按小院缓存在
+# 进程内，切块写入/删除/文档状态变化时显式失效；另有 TTL 兜底跨进程变更。
+# ---------------------------------------------------------------------------
+
+_SEARCH_CACHE_TTL = 60.0
+#: 超过该切块数不常驻内存（向量 + bigram 集按块线性增长，宁可逐次扫描也不吃爆进程）
+_SEARCH_CACHE_MAX_CHUNKS = 1200
+_search_cache: dict[str, tuple[float, list["_CachedChunk"]]] = {}
+_search_cache_lock = threading.Lock()
+_query_embed_cache: dict[tuple[str, str, int, str], tuple[float, ...]] = {}
+
+
+@dataclass(frozen=True)
+class _CachedChunk:
+    """检索缓存条目：与 KnowledgeChunk 同名字段，供评分循环直接复用。"""
+
+    chunk_id: str
+    document_id: str
+    content: str
+    page_number: int | None
+    title_path: str | None
+    trust_level: str
+    embedding: array
+    bigrams: frozenset[str]
+    title: str
+    source: str
+
+    @property
+    def id(self) -> str:
+        return self.chunk_id
+
+    @property
+    def document(self) -> None:
+        return None
+
+
+def invalidate_search_cache(yard_id: str | None = None) -> None:
+    """切块/文档状态变化后失效缓存；yard_id 为空时清空全部。"""
+    with _search_cache_lock:
+        if yard_id is None:
+            _search_cache.clear()
+        else:
+            _search_cache.pop(yard_id, None)
+
+
+def _load_scan_index(db: Session, yard_id: str) -> list[_CachedChunk] | None:
+    now = time.monotonic()
+    with _search_cache_lock:
+        cached = _search_cache.get(yard_id)
+    if cached is not None and now - cached[0] < _SEARCH_CACHE_TTL:
+        return cached[1]
+
+    total = int(
+        db.scalar(
+            select(func.count(KnowledgeChunk.id))
+            .select_from(KnowledgeChunk)
+            .join(KnowledgeDocument, KnowledgeChunk.document_id == KnowledgeDocument.id)
+            .where(
+                KnowledgeChunk.yard_id == yard_id,
+                KnowledgeDocument.status == "ready",
+                KnowledgeDocument.deleted_at.is_(None),
+            )
+        )
+        or 0
+    )
+    if total > _SEARCH_CACHE_MAX_CHUNKS:
+        # 超出内存预算时退回逐次扫描，避免把大库的向量常驻内存
+        return None
+
+    rows = (
+        db.query(KnowledgeChunk)
+        # contains_eager：复用下面的显式 join，不再额外连一次文档表
+        .options(contains_eager(KnowledgeChunk.document))
+        .join(KnowledgeDocument, KnowledgeChunk.document_id == KnowledgeDocument.id)
+        .filter(
+            KnowledgeChunk.yard_id == yard_id,
+            KnowledgeDocument.status == "ready",
+            KnowledgeDocument.deleted_at.is_(None),
+        )
+        .order_by(KnowledgeChunk.document_id, KnowledgeChunk.chunk_index)
+        .all()
+    )
+    index: list[_CachedChunk] = []
+    for row in rows:
+        vector = row.embedding
+        if not vector:
+            continue
+        doc = row.document
+        index.append(
+            _CachedChunk(
+                chunk_id=row.id,
+                document_id=row.document_id,
+                content=row.content or "",
+                page_number=row.page_number,
+                title_path=row.title_path,
+                trust_level=row.trust_level,
+                embedding=array("f", vector),
+                bigrams=frozenset(_char_bigrams(row.content or "")),
+                title=doc.title if doc else "",
+                source=doc.source if doc else "upload",
+            )
+        )
+    with _search_cache_lock:
+        _search_cache[yard_id] = (now, index)
+    return index
+
+
+def _embed_query(query: str) -> tuple[float, ...]:
+    """查询向量：同一查询在进程内复用（Mock 嵌入按 bigram 逐维生成，重复计算很贵）。"""
+    key = (
+        settings.embedding_provider,
+        settings.embedding_model,
+        int(settings.embedding_dim),
+        query,
+    )
+    with _search_cache_lock:
+        cached = _query_embed_cache.get(key)
+    if cached is not None:
+        return cached
+    vector = tuple(get_embedding_provider().embed([query])[0])
+    with _search_cache_lock:
+        if len(_query_embed_cache) >= 512:
+            _query_embed_cache.clear()
+        _query_embed_cache[key] = vector
+    return vector
 
 
 def _char_bigrams(text: str) -> set[str]:
@@ -414,12 +553,12 @@ def search(
         )
     alpha = settings.retrieval_alpha if resolved_mode == "hybrid" else 1.0
 
-    provider = get_embedding_provider()
-    query_vec = provider.embed([query])[0]
+    query_vec = list(_embed_query(query))
     query_bigrams = _char_bigrams(query) if resolved_mode == "hybrid" else set()
 
     base_query = (
         db.query(KnowledgeChunk)
+        .options(contains_eager(KnowledgeChunk.document))
         .join(KnowledgeDocument, KnowledgeChunk.document_id == KnowledgeDocument.id)
         .filter(
             KnowledgeChunk.yard_id == ctx.yard_id,
@@ -428,7 +567,7 @@ def search(
         )
     )
     scan_limit = max(50, int(settings.retrieval_scan_limit))
-    candidates: list[KnowledgeChunk]
+    candidates: list[KnowledgeChunk] | list[_CachedChunk]
     if settings.use_pgvector and _is_postgresql(db):
         oversample = min(max(top_k * VECTOR_OVERSAMPLE_FACTOR, 40), scan_limit)
         candidates = (
@@ -445,23 +584,28 @@ def search(
                 len(query),
             )
     else:
-        candidates = (
-            base_query.order_by(KnowledgeChunk.document_id, KnowledgeChunk.chunk_index)
-            .limit(scan_limit)
-            .all()
-        )
-        if len(candidates) >= scan_limit:
-            log.warning(
-                "knowledge.search truncated(scan) t=%s lim=%d k=%d qlen=%d",
-                ctx.yard_id,
-                scan_limit,
-                top_k,
-                len(query),
+        cached_index = _load_scan_index(db, ctx.yard_id)
+        if cached_index is not None and len(cached_index) <= scan_limit:
+            # 命中进程内索引：不再反序列化 embedding JSON，也不再逐条算 bigram
+            candidates = cached_index
+        else:
+            candidates = (
+                base_query.order_by(KnowledgeChunk.document_id, KnowledgeChunk.chunk_index)
+                .limit(scan_limit)
+                .all()
             )
+            if len(candidates) >= scan_limit:
+                log.warning(
+                    "knowledge.search truncated(scan) t=%s lim=%d k=%d qlen=%d",
+                    ctx.yard_id,
+                    scan_limit,
+                    top_k,
+                    len(query),
+                )
 
     min_score = settings.retrieval_min_score
     chunk_bigrams_cache: dict[str, set[str]] = {}
-    scored: list[tuple[float, float, float, KnowledgeChunk]] = []
+    scored: list[tuple[float, float, float, KnowledgeChunk | _CachedChunk]] = []
     for chunk in candidates:
         vec = chunk.embedding
         if not vec:
@@ -469,10 +613,12 @@ def search(
         vector_score = _cosine(query_vec, list(vec))
         keyword_score = 0.0
         if resolved_mode == "hybrid":
-            bigrams = chunk_bigrams_cache.get(chunk.id)
+            bigrams = getattr(chunk, "bigrams", None)
             if bigrams is None:
-                bigrams = _char_bigrams(chunk.content or "")
-                chunk_bigrams_cache[chunk.id] = bigrams
+                bigrams = chunk_bigrams_cache.get(chunk.id)
+                if bigrams is None:
+                    bigrams = _char_bigrams(chunk.content or "")
+                    chunk_bigrams_cache[chunk.id] = bigrams
             keyword_score = _keyword_overlap_score(query_bigrams, bigrams)
         final_score = _fuse_score(vector_score, keyword_score, alpha)
         if resolved_mode == "hybrid" and keyword_score >= 1.0:
@@ -493,8 +639,8 @@ def search(
             ChunkHit(
                 chunk_id=chunk.id,
                 document_id=chunk.document_id,
-                title=doc.title if doc else "",
-                source=doc.source if doc else "upload",
+                title=doc.title if doc else getattr(chunk, "title", ""),
+                source=doc.source if doc else getattr(chunk, "source", "upload"),
                 page_number=chunk.page_number,
                 quote=quote_str,
                 score=round(final_score, 4),

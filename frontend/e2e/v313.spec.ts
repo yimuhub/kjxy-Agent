@@ -52,7 +52,7 @@ test.describe('问答并入对话', () => {
   test('侧边菜单不再有独立问答入口', async ({ page }) => {
     await login(page)
     await expect(page.getByRole('menuitem', { name: '问答', exact: true })).toHaveCount(0)
-    await expect(page.getByRole('menuitem', { name: '对话', exact: true })).toBeVisible()
+    await expect(page.getByRole('menuitem', { name: '智能对话', exact: true })).toBeVisible()
   })
 
   test('知识问答模式在对话内可用：只依据知识库、可调解检索条数', async ({ page }) => {

@@ -26,6 +26,7 @@
       class="settings-tabs"
     >
       <el-tab-pane
+        lazy
         label="角色与权限"
         name="roles"
       >
@@ -33,6 +34,7 @@
       </el-tab-pane>
 
       <el-tab-pane
+        lazy
         label="工作台视图"
         name="menu"
       >
@@ -40,6 +42,7 @@
       </el-tab-pane>
 
       <el-tab-pane
+        lazy
         label="注册与安全"
         name="registration"
       >
@@ -47,6 +50,7 @@
       </el-tab-pane>
 
       <el-tab-pane
+        lazy
         label="网络与搜索"
         name="network"
       >
@@ -56,6 +60,7 @@
       </el-tab-pane>
 
       <el-tab-pane
+        lazy
         label="自我总结"
         name="self_improve"
       >
@@ -63,6 +68,7 @@
       </el-tab-pane>
 
       <el-tab-pane
+        lazy
         label="设备分析"
         name="device_analysis"
       >
@@ -70,6 +76,7 @@
       </el-tab-pane>
 
       <el-tab-pane
+        lazy
         label="单点登录"
         name="sso"
       >
@@ -77,6 +84,7 @@
       </el-tab-pane>
 
       <el-tab-pane
+        lazy
         label="协作方"
         name="a2a"
       >
@@ -85,6 +93,7 @@
 
       <el-tab-pane
         v-if="isOwner"
+        lazy
         label="敏感授权"
         name="grants"
       >
@@ -92,6 +101,7 @@
       </el-tab-pane>
 
       <el-tab-pane
+        lazy
         label="MCP 工具服务器"
         name="mcp"
       >
@@ -202,6 +212,7 @@
       </el-tab-pane>
 
       <el-tab-pane
+        lazy
         label="可用工具"
         name="tools"
       >
@@ -209,6 +220,7 @@
       </el-tab-pane>
 
       <el-tab-pane
+        lazy
         label="手机接入"
         name="pairing"
       >
@@ -301,6 +313,7 @@
       </el-tab-pane>
 
       <el-tab-pane
+        lazy
         label="导航菜单 DIY"
         name="menu-diy"
       >
@@ -313,6 +326,7 @@
       </el-tab-pane>
 
       <el-tab-pane
+        lazy
         label="前端配置"
         name="frontend"
       >
@@ -462,7 +476,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Lock } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -491,10 +505,46 @@ import { classifyError, type ViewState } from '@/utils/status'
 
 const route = useRoute()
 const auth = useAuthStore()
-const activeTab = ref(typeof route.query.tab === 'string' ? route.query.tab : 'config')
 /** 负责人可改系统角色与保护设置；管理员只能维护自定义角色与普通设置 */
 const isOwner = computed(
   () => auth.roles.includes('yard_owner') || auth.roles.includes('platform_admin'),
+)
+
+/** 与下方 el-tab-pane 的 name 一一对应；默认落第一个面板，避免落到不存在的 tab 只剩标签 */
+const TAB_NAMES = [
+  'roles',
+  'menu',
+  'registration',
+  'network',
+  'self_improve',
+  'device_analysis',
+  'sso',
+  'a2a',
+  'grants',
+  'mcp',
+  'tools',
+  'pairing',
+  'menu-diy',
+  'frontend',
+] as const
+type TabName = (typeof TAB_NAMES)[number]
+
+const availableTabs = computed<TabName[]>(() =>
+  isOwner.value ? [...TAB_NAMES] : TAB_NAMES.filter(name => name !== 'grants'),
+)
+
+function resolveTab(raw: unknown): TabName {
+  return typeof raw === 'string' && (availableTabs.value as string[]).includes(raw)
+    ? (raw as TabName)
+    : 'roles'
+}
+
+const activeTab = ref<TabName>(resolveTab(route.query.tab))
+watch(
+  () => route.query.tab,
+  raw => {
+    activeTab.value = resolveTab(raw)
+  },
 )
 
 // ---------- 既有：模型配置 / 工具 / 前端配置 ----------

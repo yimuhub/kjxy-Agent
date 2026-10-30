@@ -104,7 +104,7 @@ test.describe('权限与千人千面（v3.24）', () => {
     await expect(page).toHaveURL(/\/(chat)?$/)
 
     const nav = page.locator('#main-nav')
-    await expect(nav.getByText('对话')).toBeVisible()
+    await expect(nav.getByText('智能对话')).toBeVisible()
     await expect(nav.getByText('成员管理')).toHaveCount(0)
     await expect(nav.getByText('系统设置')).toHaveCount(0)
 

@@ -121,7 +121,11 @@ class FarmRecord(Base, TimestampMixin):
     client_op_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
-DIAGNOSIS_STATUSES = ("open", "expert_review", "confirmed", "closed")
+#: 诊断状态机：手动创建 → 待跟进；设备/Agent 自动诊断 → agent_diagnosed（高亮）；
+#: 转专家 → expert_review；专家复核后 → confirmed（专家诊断）/ closed。
+DIAGNOSIS_STATUSES = ("open", "agent_diagnosed", "expert_review", "confirmed", "closed")
+#: 诊断来源：manual=人工描述；device=已对接设备自动推送；agent=Agent 主动发起
+DIAGNOSIS_SOURCES = ("manual", "device", "agent")
 
 #: 图像识别接入点状态：当前只保存图片引用，不做识别
 VISION_STATUSES = ("not_configured", "pending", "done", "failed")
@@ -150,6 +154,9 @@ class CropDiagnosis(Base, TimestampMixin):
     confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     needs_expert_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="open")
+    # manual=人工描述；device=已对接设备推送后自动诊断
+    source: Mapped[str] = mapped_column(String(16), nullable=False, default="manual")
+    device_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     vision_status: Mapped[str] = mapped_column(String(16), nullable=False, default="not_configured")
     created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
     expert_reviewer_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
@@ -158,6 +165,29 @@ class CropDiagnosis(Base, TimestampMixin):
     expert_reviewed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+
+class DiagnosisAttachment(Base, TimestampMixin):
+    """诊断材料：现场照片与文档/PDF，先上传后关联（diagnosis_id 可空=草稿）。
+
+    存储键随机且与原始文件名无关；读取必须经过带小院校验的接口，
+    禁止把存储键直接当公开 URL 使用。
+    """
+
+    __tablename__ = "diagnosis_attachments"
+    __table_args__ = (Index("ix_diagnosis_attachments_yard_diag", "yard_id", "diagnosis_id"),)
+
+    yard_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    diagnosis_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    storage_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    mime: Mapped[str] = mapped_column(String(128), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # image | document
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
 
 class DiagnosisFollowUp(Base, TimestampMixin):

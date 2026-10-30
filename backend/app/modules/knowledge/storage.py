@@ -55,6 +55,10 @@ class LocalStorageBackend:
     def open(self, key: str) -> BinaryIO:
         return self._resolve(key).open("rb")
 
+    def path(self, key: str) -> Path:
+        """存储键对应的绝对路径（已做越界校验；供 FileResponse 等需要路径的调用方）。"""
+        return self._resolve(key)
+
     def delete(self, key: str) -> None:
         try:
             self._resolve(key).unlink(missing_ok=True)

@@ -525,7 +525,13 @@
         key: `dx-${d.diagnosis_id}`,
         kindLabel: '诊断',
         tone: 'tone-diagnosis',
-        title: `${d.crop} · ${d.status === 'expert_review' ? '待专家复核' : '待跟进'}`,
+        title: `${d.crop} · ${
+          d.status === 'expert_review'
+            ? '待专家复核'
+            : d.status === 'agent_diagnosed'
+              ? 'Agent 自动诊断'
+              : '待跟进'
+        }`,
         to: '/diagnosis',
         ts: parseApiTime(d.created_at)?.getTime() ?? 0,
         timeText: timeText(d.created_at),
@@ -562,7 +568,7 @@
       workOrderApi.list({ page_size: 200, assignee_id: assignee }),
       workOrderApi.alerts({ status: 'new', page_size: 100 }),
       diagnosisApi.list({
-        status: canReview.value ? 'expert_review' : 'open',
+        status: canReview.value ? 'expert_review,agent_diagnosed' : 'open',
         page_size: 20,
       }),
       canReview.value

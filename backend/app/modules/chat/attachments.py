@@ -84,6 +84,19 @@ class _Signature:
     family: str
 
 
+@dataclass(frozen=True)
+class StoredUpload:
+    """已通过扩展名+魔数校验并落盘的上传文件（对话附件与诊断附件共用）。"""
+
+    filename: str
+    mime: str
+    kind: str
+    size_bytes: int
+    storage_key: str
+    extracted_text: str
+    error: str | None
+
+
 def _sniff(data: bytes) -> _Signature | None:
     """按文件头判定真实内容族；认不出返回 None（不放行）。
 
@@ -179,14 +192,8 @@ def get_attachment(
     return row
 
 
-def upload_attachment(
-    db: Session,
-    *,
-    ctx: YardContext,
-    session_id: str,
-    file: UploadFile,
-) -> ChatAttachment:
-    """上传附件：校验 → 存储 → 抽取文本 → 入库。"""
+def store_uploaded_file(file: UploadFile) -> StoredUpload:
+    """校验扩展名与真实文件头后落盘，并抽取文档文字（不解业务表）。"""
     filename = os.path.basename(file.filename or "").strip()[:255]
     ext = os.path.splitext(filename)[1].lower()
     allowed = {**IMAGE_MIMES, **DOC_MIMES}
@@ -220,28 +227,46 @@ def upload_attachment(
 
     mime = IMAGE_MIMES.get(ext) or DOC_MIMES[ext]
     kind = _kind_of(mime)
-    storage = LocalStorageBackend()
-    storage_key = storage.save(data, ext)
+    storage_key = LocalStorageBackend().save(data, ext)
 
     text, error = ("", None)
     if kind == ATT_DOCUMENT:
         text, error = _extract_document_text(storage_key, mime)
-    status = ATT_FAILED if error else ATT_READY
     if error:
         log.info("附件 %s 解析失败：%s", filename, error)
+    return StoredUpload(
+        filename=filename,
+        mime=mime,
+        kind=kind,
+        size_bytes=len(data),
+        storage_key=storage_key,
+        extracted_text=text,
+        error=error,
+    )
 
+
+def upload_attachment(
+    db: Session,
+    *,
+    ctx: YardContext,
+    session_id: str,
+    file: UploadFile,
+) -> ChatAttachment:
+    """上传附件：校验 → 存储 → 抽取文本 → 入库。"""
+    stored = store_uploaded_file(file)
+    status = ATT_FAILED if stored.error else ATT_READY
     att = ChatAttachment(
         session_id=session_id,
         yard_id=ctx.yard_id,
         created_by=ctx.user_id,
-        filename=filename,
-        storage_key=storage_key,
-        mime=mime,
-        size_bytes=len(data),
-        kind=kind,
+        filename=stored.filename,
+        storage_key=stored.storage_key,
+        mime=stored.mime,
+        size_bytes=stored.size_bytes,
+        kind=stored.kind,
         status=status,
-        extracted_text=text,
-        error=error,
+        extracted_text=stored.extracted_text,
+        error=stored.error,
     )
     db.add(att)
     db.flush()
@@ -254,7 +279,12 @@ def upload_attachment(
         resource_id=att.id,
         result="success",
         request_id=ctx.request_id,
-        metadata={"filename": filename, "kind": kind, "size": len(data), "status": status},
+        metadata={
+            "filename": stored.filename,
+            "kind": stored.kind,
+            "size": stored.size_bytes,
+            "status": status,
+        },
     )
     return att
 
@@ -410,6 +440,7 @@ def build_attachment_context(attachments: list[ChatAttachment]) -> str:
 __all__ = [
     "MAX_CONTEXT_CHARS",
     "MAX_EXTRACT_CHARS",
+    "StoredUpload",
     "attachment_out",
     "build_attachment_context",
     "delete_attachment",
@@ -417,5 +448,6 @@ __all__ = [
     "get_attachment",
     "list_attachments",
     "remove_attachment_files",
+    "store_uploaded_file",
     "upload_attachment",
 ]

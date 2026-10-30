@@ -6,6 +6,38 @@
 
 开发中的修复先累积在这里；定版时把本段改名为 `## [3.x.y] - 日期`，同时一次改齐 9 处版本面。
 
+## [3.27.0] - 2026-10-30
+
+体验修复 + 作物诊断增强 + 执行效率优化：系统设置不再「只有标签没有内容」，侧栏「对话」统一为「智能对话」；新建诊断可直接多选上传图片/文档并引用已接入设备由 Agent 自动诊断（高亮标记），专家复核后标记为专家诊断；SQLite 并发与知识检索、诊断列表查询一并提速。
+
+### 体验修复（前端）
+
+- **系统设置空白**：`SettingsView.vue` 默认 `activeTab='config'`，但页面没有 `name="config"` 的面板，进入设置页只看到一排标签、正文空白。改为按可用标签校验并默认落到第一个面板（`roles`），`?tab=` 非法值同样回落；同时给全部 `el-tab-pane` 加 `lazy`，只挂载当前面板，避免进入设置页一次性挂载 14 个子组件并发起一堆请求。
+- **命名统一**：侧栏「对话」在标准/高频布局里是 `对话`，而负责人全功能视图（原子池）是 `智能对话`，同一功能两种叫法。统一为 **智能对话**（`menu.ts` 两处布局 + 路由 meta 标题）；已有本地自定义布局由 `normalizeAndMergeGroups` 按原子池自动同步标题，无需用户重配。
+- 首页今日行动板：诊断条目新增「Agent 自动诊断」状态文案与查询（`expert_review,agent_diagnosed` 多状态）。
+
+### 作物诊断（v3.27）
+
+- **多材料上传**（迁移 `0053_diagnosis_attachments`）：新建诊断的「图片引用」文本框换成**点击/拖拽上传**，支持 PNG/JPG/WEBP 多张 + PDF/DOCX/TXT/MD/CSV，单次最多 20 个。后端新增 `diagnosis_attachments` 表（yard 隔离、草稿期 `diagnosis_id` 可空），复用对话附件的扩展名白名单 + 文件头魔数嗅探 + 大小上限，文档顺手抽取文字；`POST /farm/diagnoses/attachments`（farm:write）取附件 id，创建诊断时按 `attachment_ids` 关联。文档摘录（上限 3000 字，标注不可信数据）并入检索与规则匹配，不再只是「留档看看」。
+- **安全取图**：`GET /farm/diagnoses/attachments/{id}/file` 走登录态 + 小院校验（跨院 404），存储键与原始文件名不暴露为公开 URL；前端带 token 取 blob 做缩略图预览。
+- **设备自动诊断**：新增 `POST /farm/diagnoses/from-device`（farm:write）——选择已接入设备后，读取设备最近一次分析（findings/等级/摘要）与最新读数，自动组装症状上下文生成诊断；`crop_diagnoses` 增 `source`（manual/device/agent）与 `device_id`。没有读数也没有症状时明确 422 `DEVICE_NO_DATA`，不硬编造。
+- **状态与高亮**：诊断状态扩为 `open / agent_diagnosed / expert_review / confirmed / closed`；设备来源且无需复核时落 `agent_diagnosed`，列表整行高亮 + 深色标签，详情显示「Agent 自动诊断 · 设备名」；转专家会诊时 `agent_diagnosed` 一并进入 `expert_review`；复核结论 `confirmed` 在界面标记为「专家诊断（已确认）」。
+- **前端**：诊断列表新增「来源」列；详情新增「现场材料」区（图片缩略图可放大、文档可查看）；引用设备后按钮变为「设备自动诊断」，仍可补充症状与材料。
+
+### 执行效率
+
+- **SQLite 并发**：连接建立时统一 `journal_mode=WAL` / `synchronous=NORMAL` / `busy_timeout=5000`，读写不再互相阻塞（内存库自动降级，无副作用）。
+- **知识检索索引缓存**：SQLite 非 pgvector 路径原先把全部切块的 embedding JSON 反序列化后逐条算余弦、逐条重算 bigram。改为按小院在进程内缓存「向量（array）+ bigram 集 + 文档标题」，切块写入/文档删除/解析失败时显式失效，另有 60s TTL 兜底跨进程变更；超过 1200 块不常驻内存，退回逐次扫描。查询向量也按「供应商/模型/维度/文本」复用。实测演示库：优化前 8.6ms/次，热态 **0.6ms/次**（约 14×），冷启动 14.5ms；切块越多差距越大。
+- **诊断列表 N+1**：`list_diagnoses` 原先每行查一次地块名（1+N 查询）。改为一次批量取地块名 + 一次批量取设备名，**固定 4 条 SQL**（实测 14 行 12.9ms），页大小不再放大查询次数。
+- **关联加载**：知识检索对文档元数据用 `contains_eager` 复用显式 join，避免命中后逐条懒加载文档。
+- **设置页懒挂载**：见上，进入系统设置不再同时初始化 14 个子模块。
+
+### 测试与门禁
+
+- 新增 `backend/tests/integration/test_diagnosis_materials_api.py` 4 条（多文件上传 + 关联 + 鉴权取图 + 跨院 404；重复关联 409；设备自动诊断 source/device_name 与多状态筛选；无数据 422）。
+- 新增 `frontend/e2e/v327.spec.ts` 5 条（设置默认有内容、非法 tab 回落、负责人/管理员菜单都叫「智能对话」、多选上传图片+文档并留档、引用设备 Agent 自动诊断高亮）。
+- 门禁：后端全量 pytest（1696 项通过）、ruff/format、mypy；前端 eslint / vue-tsc / 单测 / build / `make dialogs-check`；OpenAPI 契约（268 路径）；`check_versions.py --tag v3.27.0`（9 处版本面）；全量 Playwright E2E（89 项：87 通过、1 跳过-需 A2A 开关、1 项因上游模型 5xx 首次失败，重跑通过）。
+
 ## [3.26.0] - 2026-10-30
 
 增长与服务技能包第一批（D-1）：营销/活动/海报 12 项内置技能、广告合规护栏、图像供应商通道与海报出图、按智能体统一配模型，外加演示经营线与 7 条 E2E。

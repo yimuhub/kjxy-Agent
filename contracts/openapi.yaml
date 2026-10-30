@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.26.0
+  version: 3.27.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -2845,6 +2845,119 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/farm/diagnoses/attachments:
+    post:
+      tags:
+      - v1
+      - farm
+      summary: Upload Diagnosis Attachments
+      description: 先上传材料拿附件 id，创建诊断时再按 attachment_ids 关联。
+      operationId: upload_diagnosis_attachments_api_v1_farm_diagnoses_attachments_post
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_upload_diagnosis_attachments_api_v1_farm_diagnoses_attachments_post'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/farm/diagnoses/attachments/{attachment_id}:
+    delete:
+      tags:
+      - v1
+      - farm
+      summary: Delete Diagnosis Attachment
+      operationId: delete_diagnosis_attachment_api_v1_farm_diagnoses_attachments__attachment_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: attachment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Attachment Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/farm/diagnoses/attachments/{attachment_id}/file:
+    get:
+      tags:
+      - v1
+      - farm
+      summary: Download Diagnosis Attachment
+      description: 按附件 id 取原文件（登录态 + 小院校验）；存储键不直接暴露为公开 URL。
+      operationId: download_diagnosis_attachment_api_v1_farm_diagnoses_attachments__attachment_id__file_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: attachment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Attachment Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/farm/diagnoses/from-device:
+    post:
+      tags:
+      - v1
+      - farm
+      summary: Create Diagnosis From Device
+      description: 已对接设备推送问题 → Agent 自动诊断（source=device，状态 agent_diagnosed）。
+      operationId: create_diagnosis_from_device_api_v1_farm_diagnoses_from_device_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DiagnosisFromDevice'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
   /api/v1/farm/diagnoses/{diagnosis_id}:
     get:
       tags:
@@ -10268,6 +10381,19 @@ components:
       required:
       - file
       title: Body_upload_declarative_cover_api_v1_agents_declarative__agent_id__cover_post
+    Body_upload_diagnosis_attachments_api_v1_farm_diagnoses_attachments_post:
+      properties:
+        files:
+          items:
+            type: string
+            format: binary
+          type: array
+          title: Files
+          description: 图片（PNG/JPG/WEBP）或文档（PDF/DOCX/TXT/MD/CSV）
+      type: object
+      required:
+      - files
+      title: Body_upload_diagnosis_attachments_api_v1_farm_diagnoses_attachments_post
     Body_upload_document_api_v1_knowledge_documents_post:
       properties:
         file:
@@ -10682,6 +10808,12 @@ components:
             type: string
           type: array
           title: Image Refs
+        attachment_ids:
+          items:
+            type: string
+          type: array
+          maxItems: 20
+          title: Attachment Ids
         observed_at:
           anyOf:
           - type: string
@@ -10693,6 +10825,59 @@ components:
       - crop
       - symptoms
       title: DiagnosisCreate
+    DiagnosisFromDevice:
+      properties:
+        device_id:
+          type: string
+          maxLength: 36
+          minLength: 1
+          title: Device Id
+        crop:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Crop
+        plot_id:
+          anyOf:
+          - type: string
+            maxLength: 36
+          - type: 'null'
+          title: Plot Id
+        variety:
+          anyOf:
+          - type: string
+            maxLength: 100
+          - type: 'null'
+          title: Variety
+        growth_stage:
+          anyOf:
+          - type: string
+            maxLength: 100
+          - type: 'null'
+          title: Growth Stage
+        region:
+          anyOf:
+          - type: string
+            maxLength: 100
+          - type: 'null'
+          title: Region
+        symptoms:
+          type: string
+          maxLength: 4000
+          title: Symptoms
+          default: ''
+        attachment_ids:
+          items:
+            type: string
+          type: array
+          maxItems: 20
+          title: Attachment Ids
+      type: object
+      required:
+      - device_id
+      - crop
+      title: DiagnosisFromDevice
+      description: 把已对接设备的读数/分析推送为一次自动诊断。
     DiagnosisReviewRequest:
       properties:
         expert_note:

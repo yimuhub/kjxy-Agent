@@ -116,6 +116,10 @@ def parse_document_sync(db: Session, document_id: str) -> None:
         doc.status = "ready"
         doc.page_count = page_count
         db.commit()
+        # 切块内容已变化：本进程内的检索索引缓存立即失效
+        from app.modules.knowledge.service import invalidate_search_cache
+
+        invalidate_search_cache(doc.yard_id)
         log_audit(
             db,
             yard_id=doc.yard_id,
@@ -150,6 +154,9 @@ def _mark_failed(db: Session, document_id: str, message: str) -> None:
     doc.status = "failed"
     doc.error_message = message
     db.commit()
+    from app.modules.knowledge.service import invalidate_search_cache
+
+    invalidate_search_cache(doc.yard_id)
 
 
 @celery_app.task(name="knowledge.parse_document", bind=True, task_ignore_result=True)

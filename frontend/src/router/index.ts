@@ -84,7 +84,7 @@ const routes: RouteRecordRaw[] = [
     children: [
       { path: '', name: 'Dashboard', component: Dashboard, meta: { title: '概览' } },
       // 对话模式：全员可用（§10 契约：全部登录可用，成员级）
-      { path: 'chat', name: 'Chat', component: ChatView, meta: { title: '对话', permission: 'chat:use' } },
+      { path: 'chat', name: 'Chat', component: ChatView, meta: { title: '智能对话', permission: 'chat:use' } },
       { path: 'knowledge', name: 'Knowledge', component: KnowledgeView, meta: { title: '知识库', permission: 'knowledge:read' } },
       { path: 'farm', name: 'Farm', component: FarmView, meta: { title: '农业台账', permission: 'farm:read' } },
       { path: 'diagnosis', name: 'Diagnosis', component: DiagnosisView, meta: { title: '作物诊断', permission: 'farm:read' } },

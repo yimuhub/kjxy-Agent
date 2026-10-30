@@ -2221,13 +2221,35 @@ export const quickActionApi = {
 
 // ---------- 作物诊断闭环（v3.9） ----------
 
+export type DiagnosisStatus =
+  | 'open'
+  | 'agent_diagnosed'
+  | 'expert_review'
+  | 'confirmed'
+  | 'closed'
+
+export interface DiagnosisAttachment {
+  attachment_id: string
+  filename: string
+  mime: string
+  kind: 'image' | 'document'
+  size_bytes: number
+  chars: number
+  error: string | null
+  url: string
+  created_at: string
+}
+
 export interface FarmDiagnosisSummary {
   diagnosis_id: string
   plot_id: string | null
   plot_name: string
   crop: string
   growth_stage: string
-  status: 'open' | 'expert_review' | 'confirmed' | 'closed'
+  status: DiagnosisStatus
+  source: 'manual' | 'device' | 'agent'
+  device_id: string | null
+  device_name: string | null
   confidence: number
   needs_expert_review: boolean
   top_candidate: string | null
@@ -2275,11 +2297,13 @@ export interface FarmFollowUp {
   created_at: string
 }
 
-export interface FarmDiagnosis extends Omit<FarmDiagnosisSummary, 'top_candidate' | 'top_confidence' | 'plot_name'> {
+export interface FarmDiagnosis
+  extends Omit<FarmDiagnosisSummary, 'top_candidate' | 'top_confidence'> {
   variety: string
   region: string
   symptoms: string
   image_refs: string[] | null
+  attachments: DiagnosisAttachment[]
   environment: Record<string, unknown> | null
   observed_at: string | null
   output: FarmDiagnosisOutput | null
@@ -2323,8 +2347,44 @@ export const diagnosisApi = {
     region?: string
     environment?: Record<string, unknown>
     image_refs?: string[]
+    attachment_ids?: string[]
   }): Promise<FarmDiagnosis> {
     return unwrap(api.post<ApiResponse<FarmDiagnosis>>('/farm/diagnoses', payload))
+  },
+  /** 上传诊断材料：图片与文档/PDF 可多选，先拿附件 id 再创建诊断 */
+  uploadAttachments(files: File[]): Promise<DiagnosisAttachment[]> {
+    const form = new FormData()
+    for (const file of files) form.append('files', file)
+    return unwrap(
+      api.post<ApiResponse<DiagnosisAttachment[]>>('/farm/diagnoses/attachments', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      }),
+    )
+  },
+  deleteAttachment(attachmentId: string): Promise<void> {
+    return api
+      .delete<ApiResponse<unknown>>(`/farm/diagnoses/attachments/${attachmentId}`)
+      .then(() => undefined)
+  },
+  /** 带登录态取附件原文件（图片预览 / 文档下载） */
+  async fetchAttachmentBlob(attachmentId: string): Promise<Blob> {
+    const res = await api.get<Blob>(`/farm/diagnoses/attachments/${attachmentId}/file`, {
+      responseType: 'blob',
+    })
+    return res.data
+  },
+  /** 引用已对接设备：由设备最新读数/分析自动生成诊断（source=device） */
+  createFromDevice(payload: {
+    device_id: string
+    crop: string
+    plot_id?: string
+    variety?: string
+    growth_stage?: string
+    region?: string
+    symptoms?: string
+    attachment_ids?: string[]
+  }): Promise<FarmDiagnosis> {
+    return unwrap(api.post<ApiResponse<FarmDiagnosis>>('/farm/diagnoses/from-device', payload))
   },
   list(query: { status?: string; plot_id?: string; page?: number; page_size?: number } = {}): Promise<ListResult<FarmDiagnosisSummary>> {
     return unwrapList(api.get<ListResponse<FarmDiagnosisSummary>>('/farm/diagnoses', { params: query }))

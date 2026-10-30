@@ -5,7 +5,8 @@
 
 from datetime import date
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
+from fastapi.responses import FileResponse
 
 from app.core.deps import CurrentUser, get_db_session, require_yard_permission
 from app.core.errors import AppError
@@ -17,6 +18,7 @@ from app.modules.farm.schemas import (
     CycleUpdate,
     DiagnosisConsultRequest,
     DiagnosisCreate,
+    DiagnosisFromDevice,
     DiagnosisReviewRequest,
     FollowUpCreate,
     PesticideCreate,
@@ -249,10 +251,71 @@ def create_diagnosis(
     return ok(data, request)
 
 
+@router.post("/diagnoses/attachments", status_code=201)
+def upload_diagnosis_attachments(
+    request: Request,
+    files: list[UploadFile] = File(
+        ..., description="图片（PNG/JPG/WEBP）或文档（PDF/DOCX/TXT/MD/CSV）"
+    ),
+    user: CurrentUser = Depends(require_yard_permission("farm:write")),
+    db=Depends(get_db_session),
+):
+    """先上传材料拿附件 id，创建诊断时再按 attachment_ids 关联。"""
+    data = diagnosis_service.upload_diagnosis_attachments(db, _yard_id(user), user.user_id, files)
+    return ok(data, request)
+
+
+@router.delete("/diagnoses/attachments/{attachment_id}")
+def delete_diagnosis_attachment(
+    attachment_id: str,
+    request: Request,
+    user: CurrentUser = Depends(require_yard_permission("farm:write")),
+    db=Depends(get_db_session),
+):
+    diagnosis_service.delete_diagnosis_attachment(db, _yard_id(user), attachment_id, user.user_id)
+    return ok({"attachment_id": attachment_id}, request)
+
+
+@router.get("/diagnoses/attachments/{attachment_id}/file")
+def download_diagnosis_attachment(
+    attachment_id: str,
+    user: CurrentUser = Depends(require_yard_permission("farm:read")),
+    db=Depends(get_db_session),
+):
+    """按附件 id 取原文件（登录态 + 小院校验）；存储键不直接暴露为公开 URL。"""
+    from app.modules.knowledge.storage import LocalStorageBackend
+
+    row = diagnosis_service.get_diagnosis_attachment(db, _yard_id(user), attachment_id)
+    try:
+        path = LocalStorageBackend().path(row.storage_key)
+    except ValueError as exc:
+        raise AppError("ATTACHMENT_NOT_FOUND", "附件文件不存在。", http_status=404) from exc
+    if not path.exists():
+        raise AppError("ATTACHMENT_NOT_FOUND", "附件文件不存在。", http_status=404)
+    return FileResponse(
+        path,
+        media_type=row.mime,
+        filename=row.filename,
+        content_disposition_type="inline",
+    )
+
+
+@router.post("/diagnoses/from-device", status_code=201)
+def create_diagnosis_from_device(
+    payload: DiagnosisFromDevice,
+    request: Request,
+    user: CurrentUser = Depends(require_yard_permission("farm:write")),
+    db=Depends(get_db_session),
+):
+    """已对接设备推送问题 → Agent 自动诊断（source=device，状态 agent_diagnosed）。"""
+    data = diagnosis_service.create_from_device(db, _yard_id(user), user.user_id, payload)
+    return ok(data, request)
+
+
 @router.get("/diagnoses")
 def list_diagnoses(
     request: Request,
-    status: str | None = Query(default=None, max_length=16),
+    status: str | None = Query(default=None, max_length=64, description="单个状态或逗号分隔多状态"),
     plot_id: str | None = Query(default=None, max_length=36),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=200),

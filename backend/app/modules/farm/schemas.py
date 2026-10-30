@@ -191,6 +191,8 @@ class DiagnosisCreate(BaseModel):
     region: str | None = Field(default=None, max_length=100)
     environment: dict | None = None
     image_refs: list[str] = Field(default_factory=list)
+    #: 先经 /farm/diagnoses/attachments 上传得到的附件 id
+    attachment_ids: list[str] = Field(default_factory=list, max_length=20)
     observed_at: datetime | None = None
 
     @model_validator(mode="after")
@@ -200,6 +202,20 @@ class DiagnosisCreate(BaseModel):
         if any(len(ref) > 500 for ref in self.image_refs):
             raise ValueError("单条图片引用不能超过 500 字符")
         return self
+
+
+class DiagnosisFromDevice(BaseModel):
+    """把已对接设备的读数/分析推送为一次自动诊断。"""
+
+    device_id: str = Field(..., min_length=1, max_length=36)
+    crop: str = Field(..., min_length=1, max_length=100)
+    plot_id: str | None = Field(default=None, max_length=36)
+    variety: str | None = Field(default=None, max_length=100)
+    growth_stage: str | None = Field(default=None, max_length=100)
+    region: str | None = Field(default=None, max_length=100)
+    #: 人工补充观察（可选）；缺省由设备最新读数/分析自动组装症状
+    symptoms: str = Field(default="", max_length=4000)
+    attachment_ids: list[str] = Field(default_factory=list, max_length=20)
 
 
 class DiagnosisReviewRequest(BaseModel):
@@ -239,6 +255,10 @@ class DiagnosisOut(BaseModel):
     confidence: float
     needs_expert_review: bool
     status: str
+    source: str = "manual"
+    device_id: str | None = None
+    device_name: str | None = None
+    attachments: list[dict] = Field(default_factory=list)
     vision_status: str
     medication_guard: dict | None = None
     expert_reviewer_id: str | None

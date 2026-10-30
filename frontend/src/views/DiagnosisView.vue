@@ -6,7 +6,8 @@
           作物诊断
         </h2>
         <p class="page-sub">
-          症状描述生成诊断辅助并留档；涉及用药必须专家复核。图片仅保存引用，当前不做图像识别。
+          症状描述与现场材料（照片/文档）生成诊断辅助并留档；也可引用已接入设备自动诊断；
+          涉及用药必须专家复核。
         </p>
       </div>
       <el-button
@@ -71,6 +72,7 @@
           v-loading="loading"
           :data="diagnoses"
           size="small"
+          :row-class-name="diagnosisRowClass"
         >
           <el-table-column
             label="时间"
@@ -95,6 +97,28 @@
             </template>
           </el-table-column>
           <el-table-column
+            label="来源"
+            width="130"
+          >
+            <template #default="{ row }">
+              <el-tag
+                v-if="row.source === 'device'"
+                type="success"
+                size="small"
+                effect="dark"
+              >
+                Agent 自动诊断
+              </el-tag>
+              <el-tag
+                v-else
+                type="info"
+                size="small"
+              >
+                人工录入
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column
             label="首要候选"
             min-width="180"
             show-overflow-tooltip
@@ -113,12 +137,13 @@
           </el-table-column>
           <el-table-column
             label="状态"
-            width="110"
+            width="130"
           >
             <template #default="{ row }">
               <el-tag
                 size="small"
                 :type="STATUS_TAG[row.status]"
+                :effect="row.status === 'agent_diagnosed' ? 'dark' : 'light'"
               >
                 {{ STATUS_LABEL[row.status] }}
               </el-tag>
@@ -288,18 +313,101 @@
           <el-input
             v-model="createForm.symptoms"
             type="textarea"
-            :rows="5"
+            :rows="4"
             maxlength="4000"
-            placeholder="描述发病部位、颜色变化、发生范围、近期天气与用药情况"
+            placeholder="描述发病部位、颜色变化、发生范围、近期天气与用药情况；引用设备时可留空"
           />
         </el-form-item>
-        <el-form-item label="图片引用">
-          <el-input
-            v-model="createForm.imageRefs"
-            type="textarea"
-            :rows="2"
-            placeholder="每行一个图片地址或存储键；当前只留档，不做图像识别"
-          />
+        <el-form-item label="现场材料">
+          <div class="upload-block">
+            <div
+              class="upload-zone"
+              @click="pickFiles"
+              @dragover.prevent
+              @drop.prevent="onDropFiles"
+            >
+              <el-icon class="upload-icon">
+                <UploadFilled />
+              </el-icon>
+              <div>点击或拖拽上传图片 / PDF / 文档（可多选）</div>
+              <div class="hint">
+                支持 PNG/JPG/WEBP 图片与 PDF/DOCX/TXT/MD/CSV 文档；图片会做预览，文档抽取文字参与诊断
+              </div>
+            </div>
+            <input
+              ref="fileInput"
+              type="file"
+              multiple
+              accept=".png,.jpg,.jpeg,.webp,.pdf,.docx,.txt,.md,.csv"
+              class="hidden-input"
+              @change="onFilesChosen"
+            >
+            <div
+              v-if="uploading"
+              class="hint"
+            >
+              正在上传…
+            </div>
+            <div
+              v-if="createAttachments.length"
+              class="attach-grid"
+            >
+              <div
+                v-for="att in createAttachments"
+                :key="att.attachment_id"
+                class="attach-item"
+              >
+                <img
+                  v-if="att.kind === 'image' && previewMap[att.attachment_id]"
+                  :src="previewMap[att.attachment_id]"
+                  class="attach-thumb"
+                  alt=""
+                >
+                <div
+                  v-else
+                  class="attach-file"
+                >
+                  <el-icon><Document /></el-icon>
+                </div>
+                <div class="attach-meta">
+                  <span
+                    class="attach-name"
+                    :title="att.filename"
+                  >{{ att.filename }}</span>
+                  <span class="hint">{{ att.kind === 'image' ? '图片' : `文档 · ${att.chars} 字` }}</span>
+                </div>
+                <el-button
+                  link
+                  type="danger"
+                  :loading="removingAttachmentId === att.attachment_id"
+                  @click="removeCreateAttachment(att)"
+                >
+                  移除
+                </el-button>
+              </div>
+            </div>
+          </div>
+        </el-form-item>
+        <el-form-item label="引用设备">
+          <div class="full">
+            <el-select
+              v-model="createForm.device_id"
+              clearable
+              filterable
+              placeholder="可选：引用已接入的智能设备"
+              class="full"
+            >
+              <el-option
+                v-for="d in devices"
+                :key="d.id"
+                :label="`${d.name}（${DEVICE_TYPE_LABEL[d.device_type] || d.device_type}）`"
+                :value="d.id"
+              />
+            </el-select>
+            <div class="hint">
+              选中后由 Agent 读取设备最新读数与分析自动生成诊断，结果标记为「Agent 自动诊断」；仍可补充症状与材料。
+            </div>
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -311,7 +419,7 @@
           :loading="creating"
           @click="submitCreate"
         >
-          生成并留档
+          {{ createForm.device_id ? '设备自动诊断' : '生成并留档' }}
         </el-button>
       </template>
     </el-dialog>
@@ -403,6 +511,21 @@
           <span>{{ formatTime(detail.created_at) }}</span>
           <span>置信度 {{ Math.round(detail.confidence * 100) }}%</span>
           <el-tag
+            :type="STATUS_TAG[detail.status]"
+            size="small"
+            :effect="detail.status === 'agent_diagnosed' ? 'dark' : 'light'"
+          >
+            {{ STATUS_LABEL[detail.status] }}
+          </el-tag>
+          <el-tag
+            v-if="detail.source === 'device'"
+            type="success"
+            size="small"
+            effect="dark"
+          >
+            Agent 自动诊断<span v-if="detail.device_name"> · {{ detail.device_name }}</span>
+          </el-tag>
+          <el-tag
             v-if="detail.needs_expert_review"
             type="warning"
             size="small"
@@ -414,7 +537,7 @@
             type="info"
             size="small"
           >
-            未启用图像识别
+            图片未做识别（仅留档）
           </el-tag>
         </div>
 
@@ -450,11 +573,53 @@
             {{ detail.symptoms }}
           </p>
           <p
-            v-if="detail.image_refs?.length"
+            v-if="detail.image_refs?.length && !detail.attachments?.length"
             class="text muted"
           >
             图片引用：{{ detail.image_refs.join('、') }}
           </p>
+        </section>
+
+        <section
+          v-if="detail.attachments?.length"
+          class="block"
+        >
+          <h4>现场材料（{{ detail.attachments.length }}）</h4>
+          <div class="attach-grid">
+            <div
+              v-for="att in detail.attachments"
+              :key="att.attachment_id"
+              class="attach-item"
+            >
+              <img
+                v-if="att.kind === 'image' && detailPreview[att.attachment_id]"
+                :src="detailPreview[att.attachment_id]"
+                class="attach-thumb"
+                alt=""
+                @click="openAttachment(att)"
+              >
+              <div
+                v-else
+                class="attach-file"
+              >
+                <el-icon><Document /></el-icon>
+              </div>
+              <div class="attach-meta">
+                <span
+                  class="attach-name"
+                  :title="att.filename"
+                >{{ att.filename }}</span>
+                <span class="hint">{{ att.kind === 'image' ? '图片' : `文档 · ${att.chars} 字` }}</span>
+              </div>
+              <el-button
+                link
+                type="primary"
+                @click="openAttachment(att)"
+              >
+                查看
+              </el-button>
+            </div>
+          </div>
         </section>
 
         <section
@@ -582,7 +747,7 @@
                 class="w160"
               >
                 <el-option
-                  label="已确认"
+                  label="专家诊断（已确认）"
                   value="confirmed"
                 />
                 <el-option
@@ -770,27 +935,33 @@
 </template>
 
 <script setup lang="ts">
-  import { computed, onMounted, reactive, ref } from 'vue'
+  import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
   import { ElMessage, ElMessageBox } from 'element-plus'
+  import { Document, UploadFilled } from '@element-plus/icons-vue'
   import {
     diagnosisApi,
+    deviceApi,
     farmApi,
     shareApi,
     workOrderApi,
     type AssignableMember,
+    type Device,
+    type DiagnosisAttachment,
     type FarmDiagnosis,
     type FarmDiagnosisSummary,
     type FarmPlot,
     type PesticideProduct,
   } from '@/api/modules'
+  import { extractErrorMessage } from '@/api/client'
   import { useAuthStore } from '@/stores/auth'
   import QuickActionBar from '@/components/farm/QuickActionBar.vue'
   import { formatDateTime as formatTime } from '@/utils/format'
 
   const STATUS_OPTIONS = [
     { value: 'open', label: '待跟进' },
+    { value: 'agent_diagnosed', label: 'Agent 自动诊断' },
     { value: 'expert_review', label: '待专家复核' },
-    { value: 'confirmed', label: '已确认' },
+    { value: 'confirmed', label: '专家诊断（已确认）' },
     { value: 'closed', label: '已关闭' },
   ]
   const STATUS_LABEL: Record<string, string> = Object.fromEntries(
@@ -798,9 +969,17 @@
   )
   const STATUS_TAG: Record<string, 'success' | 'warning' | 'info' | 'danger'> = {
     open: 'info',
+    agent_diagnosed: 'success',
     expert_review: 'warning',
     confirmed: 'success',
     closed: 'info',
+  }
+  const DEVICE_TYPE_LABEL: Record<string, string> = {
+    weather: '气象站',
+    soil: '土壤墒情',
+    pest: '虫情测报',
+    greenhouse: '温室环境',
+    other: '其他',
   }
 
   const auth = useAuthStore()
@@ -828,8 +1007,124 @@
     plot_id: '',
     growth_stage: '',
     symptoms: '',
-    imageRefs: '',
+    device_id: '',
   })
+
+  /** ---- 现场材料上传（图片多选 + 文档/PDF） ---- */
+  const devices = ref<Device[]>([])
+  const fileInput = ref<HTMLInputElement | null>(null)
+  const uploading = ref(false)
+  const createAttachments = ref<DiagnosisAttachment[]>([])
+  const previewMap = reactive<Record<string, string>>({})
+  const detailPreview = reactive<Record<string, string>>({})
+  const removingAttachmentId = ref('')
+
+  function pickFiles() {
+    fileInput.value?.click()
+  }
+
+  function revokePreview(map: Record<string, string>, attachmentId?: string) {
+    if (attachmentId) {
+      if (map[attachmentId]) {
+        URL.revokeObjectURL(map[attachmentId])
+        delete map[attachmentId]
+      }
+      return
+    }
+    for (const key of Object.keys(map)) {
+      URL.revokeObjectURL(map[key])
+      delete map[key]
+    }
+  }
+
+  async function loadPreview(
+    att: DiagnosisAttachment,
+    map: Record<string, string> = previewMap,
+  ) {
+    if (att.kind !== 'image' || map[att.attachment_id]) return
+    try {
+      const blob = await diagnosisApi.fetchAttachmentBlob(att.attachment_id)
+      map[att.attachment_id] = URL.createObjectURL(blob)
+    } catch {
+      /* 预览失败不阻断上传/查看 */
+    }
+  }
+
+  async function uploadFiles(files: File[]) {
+    if (!files.length) return
+    if (createAttachments.value.length + files.length > 20) {
+      ElMessage.warning('一次诊断最多关联 20 个文件')
+      return
+    }
+    uploading.value = true
+    try {
+      const uploaded = await diagnosisApi.uploadAttachments(files)
+      createAttachments.value.push(...uploaded)
+      for (const att of uploaded) void loadPreview(att)
+      const failed = uploaded.filter(att => att.error)
+      if (failed.length) {
+        ElMessage.warning(
+          `${failed[0].filename} 已上传，但未能抽取文字：${failed[0].error || '可能为扫描件'}`,
+        )
+      } else {
+        ElMessage.success(`已上传 ${uploaded.length} 个文件`)
+      }
+    } catch (err) {
+      ElMessage.error(extractErrorMessage(err).message || '上传失败')
+    } finally {
+      uploading.value = false
+    }
+  }
+
+  async function onFilesChosen(event: Event) {
+    const input = event.target as HTMLInputElement
+    const files = Array.from(input.files || [])
+    input.value = ''
+    await uploadFiles(files)
+  }
+
+  async function onDropFiles(event: DragEvent) {
+    await uploadFiles(Array.from(event.dataTransfer?.files || []))
+  }
+
+  async function removeCreateAttachment(att: DiagnosisAttachment) {
+    removingAttachmentId.value = att.attachment_id
+    try {
+      await diagnosisApi.deleteAttachment(att.attachment_id)
+    } catch {
+      /* 已被关联或已删除都视为完成 */
+    } finally {
+      createAttachments.value = createAttachments.value.filter(
+        item => item.attachment_id !== att.attachment_id,
+      )
+      revokePreview(previewMap, att.attachment_id)
+      removingAttachmentId.value = ''
+    }
+  }
+
+  async function openAttachment(att: DiagnosisAttachment) {
+    try {
+      const url = previewMap[att.attachment_id] || detailPreview[att.attachment_id]
+      if (url) {
+        window.open(url, '_blank')
+        return
+      }
+      const blob = await diagnosisApi.fetchAttachmentBlob(att.attachment_id)
+      const objectUrl = URL.createObjectURL(blob)
+      window.open(objectUrl, '_blank')
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000)
+    } catch (err) {
+      ElMessage.error(extractErrorMessage(err).message || '附件读取失败')
+    }
+  }
+
+  async function loadDevices() {
+    try {
+      devices.value = (await deviceApi.list()).filter(item => item.enabled)
+    } catch {
+      devices.value = []
+    }
+  }
 
   const detailDrawer = ref(false)
   const detail = ref<FarmDiagnosis | null>(null)
@@ -919,34 +1214,54 @@
       plot_id: '',
       growth_stage: '',
       symptoms: '',
-      imageRefs: '',
+      device_id: '',
     })
+    createAttachments.value = []
+    revokePreview(previewMap)
     createDialog.value = true
   }
 
   async function submitCreate() {
-    if (!createForm.crop.trim() || !createForm.symptoms.trim()) {
-      return ElMessage.warning('请填写作物与症状描述')
+    if (!createForm.crop.trim()) {
+      return ElMessage.warning('请填写作物')
+    }
+    const symptoms = createForm.symptoms.trim()
+    if (!createForm.device_id && !symptoms) {
+      return ElMessage.warning('请填写症状描述，或选择引用设备自动诊断')
     }
     creating.value = true
     try {
-      const imageRefs = createForm.imageRefs
-        .split('\n')
-        .map(s => s.trim())
-        .filter(Boolean)
-      const created = await diagnosisApi.create({
-        crop: createForm.crop.trim(),
-        symptoms: createForm.symptoms.trim(),
-        plot_id: createForm.plot_id || undefined,
-        growth_stage: createForm.growth_stage || undefined,
-        image_refs: imageRefs,
-      })
+      const attachmentIds = createAttachments.value.map(att => att.attachment_id)
+      const created = createForm.device_id
+        ? await diagnosisApi.createFromDevice({
+            device_id: createForm.device_id,
+            crop: createForm.crop.trim(),
+            symptoms: symptoms || undefined,
+            plot_id: createForm.plot_id || undefined,
+            growth_stage: createForm.growth_stage || undefined,
+            attachment_ids: attachmentIds,
+          })
+        : await diagnosisApi.create({
+            crop: createForm.crop.trim(),
+            symptoms,
+            plot_id: createForm.plot_id || undefined,
+            growth_stage: createForm.growth_stage || undefined,
+            attachment_ids: attachmentIds,
+          })
       createDialog.value = false
+      createAttachments.value = []
+      revokePreview(previewMap)
       ElMessage.success(
-        created.needs_expert_review ? '诊断已生成，等待专家复核' : '诊断已生成并留档',
+        created.source === 'device'
+          ? '设备自动诊断已生成'
+          : created.needs_expert_review
+            ? '诊断已生成，等待专家复核'
+            : '诊断已生成并留档',
       )
       await loadDiagnoses(1)
       await openDetail(created.diagnosis_id)
+    } catch (err) {
+      ElMessage.error(extractErrorMessage(err).message || '生成诊断失败')
     } finally {
       creating.value = false
     }
@@ -961,7 +1276,15 @@
     followForm.note = ''
     consultOrderId.value = ''
     sharePath.value = ''
+    revokePreview(detailPreview)
+    for (const att of detail.value.attachments || []) void loadPreview(att, detailPreview)
     detailDrawer.value = true
+  }
+
+  function diagnosisRowClass({ row }: { row: FarmDiagnosisSummary }) {
+    return row.status === 'agent_diagnosed' || row.source === 'device'
+      ? 'agent-diagnosis-row'
+      : ''
   }
 
   /** ---- 转专家会诊（v3.12）：复用告警与工单闭环 ---- */
@@ -1140,6 +1463,12 @@
 
   onMounted(async () => {
     await Promise.all([loadPlots(), loadDiagnoses(1), loadPesticides()])
+    if (canWrite.value && auth.hasPermission('devices:read')) void loadDevices()
+  })
+
+  onUnmounted(() => {
+    revokePreview(previewMap)
+    revokePreview(detailPreview)
   })
 </script>
 
@@ -1277,5 +1606,85 @@
   .harvest-result {
     margin-top: 10px;
     font-size: 14px;
+  }
+  .upload-block {
+    width: 100%;
+  }
+  .upload-zone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 14px 12px;
+    border: 1px dashed var(--ds-border);
+    border-radius: 10px;
+    background: var(--ds-glass);
+    color: var(--ds-text-2);
+    font-size: 13px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s ease;
+  }
+  .upload-zone:hover {
+    border-color: var(--el-color-primary);
+  }
+  .upload-icon {
+    font-size: 22px;
+    color: var(--ds-text-3);
+  }
+  .hidden-input {
+    display: none;
+  }
+  .attach-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .attach-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 8px;
+    border: 1px solid var(--ds-border);
+    border-radius: 8px;
+    background: var(--ds-glass);
+  }
+  .attach-thumb {
+    width: 44px;
+    height: 44px;
+    object-fit: cover;
+    border-radius: 6px;
+    cursor: zoom-in;
+    flex: none;
+  }
+  .attach-file {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 6px;
+    background: var(--ds-bg-2, var(--ds-glass));
+    color: var(--ds-text-3);
+    flex: none;
+  }
+  .attach-meta {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+  }
+  .attach-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+  }
+  :deep(.agent-diagnosis-row) > td {
+    background: rgba(103, 194, 58, 0.08) !important;
+  }
+  :deep(.agent-diagnosis-row):hover > td {
+    background: rgba(103, 194, 58, 0.14) !important;
   }
 </style>
