@@ -215,6 +215,12 @@ export interface YardSettingsBundle {
   }
   /** v3.24：工作台视图（默认模式 + 按角色默认 + 共享预设） */
   menu?: MenuConfig
+  /** v3.32：额度环境与旧调用额度模式 */
+  quota?: {
+    environment: string
+    legacy_calls_mode: 'enforce' | 'warn' | 'off'
+    default_grant_days: number
+  }
   /** v3.30：语音转写通道（auto/local/online/off + 本机模型） */
   asr?: {
     mode: 'auto' | 'local' | 'online' | 'off'
@@ -284,7 +290,8 @@ export const governanceApi = {
       | 'device_analysis'
       | 'farm_agent'
       | 'menu'
-      | 'asr',
+      | 'asr'
+      | 'quota',
     value: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
     return unwrap(

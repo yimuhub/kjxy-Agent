@@ -103,6 +103,13 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "mode": "auto",
         "local_model_id": "paraformer-zh-small",
     },
+    # 分级额度（v3.32）：环境模板 + 旧「调用次数」配额的处理方式。
+    # legacy_calls_mode：enforce=超限即拒；warn=只告警放行（默认）；off=完全不看
+    "quota": {
+        "environment": "standard",
+        "legacy_calls_mode": "warn",
+        "default_grant_days": 7,
+    },
     # 工作台视图：默认模式 + 按角色的默认视图 + 共享预设（成员仍可在本地 DIY）
     "menu": {
         "default_mode": "standard",  # minimal | standard | full
@@ -384,6 +391,28 @@ def _validate(key: str, value: dict[str, Any], merged: dict[str, Any]) -> None:
                         "OpenWeather 需要填写城市名或经纬度。",
                         http_status=400,
                     )
+    elif key == "quota":
+        from app.modules.quota.environments import ENVIRONMENTS
+
+        if merged.get("environment") not in ENVIRONMENTS:
+            raise AppError(
+                "INVALID_REQUEST",
+                "未知的额度环境，可选：" + "、".join(ENVIRONMENTS),
+                http_status=400,
+            )
+        if merged.get("legacy_calls_mode") not in {"enforce", "warn", "off"}:
+            raise AppError(
+                "INVALID_REQUEST",
+                "旧调用额度模式只能是 enforce / warn / off。",
+                http_status=400,
+            )
+        days = merged.get("default_grant_days")
+        if not isinstance(days, int) or isinstance(days, bool) or not 0 <= days <= 90:
+            raise AppError(
+                "INVALID_REQUEST",
+                "默认临时额度有效期需为 0–90 的整数天。",
+                http_status=400,
+            )
     elif key == "asr":
         from app.modules.asr.catalog import get_model
 

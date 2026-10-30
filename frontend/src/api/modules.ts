@@ -442,6 +442,9 @@ export interface LlmSupplier {
   is_active: boolean
   // function-calling 能力位：true 才允许该供应商的助手进入工具调用循环（后端恒返回）
   supports_tools?: boolean
+  // v3.32 金额额度单价（元/千 token）；null = 未配置
+  price_in_per_1k?: number | null
+  price_out_per_1k?: number | null
   consecutive_failures: number
   test_time: string | null
   response_time_ms: number | null
@@ -461,6 +464,8 @@ export interface LlmSupplierCreate {
   models?: string
   priority?: number
   scope?: 'yard' | 'global'
+  price_in_per_1k?: number | null
+  price_out_per_1k?: number | null
 }
 
 export interface LlmSupplierUpdate {
@@ -473,6 +478,8 @@ export interface LlmSupplierUpdate {
   priority?: number
   // function-calling 能力位开关（PUT 语义：传则覆盖）
   supports_tools?: boolean
+  price_in_per_1k?: number | null
+  price_out_per_1k?: number | null
 }
 
 export interface LlmTestResult {
@@ -571,6 +578,7 @@ export interface LlmBindingItem {
 export interface LlmBindingEntry {
   supplier_id: string
   model_name?: string | null
+  group_name?: string | null
   priority?: number
   enabled?: boolean
 }
@@ -1170,6 +1178,7 @@ export interface DeclarativeAgent {
   knowledge_scopes: string[]
   supplier_id: string | null
   model_name?: string | null
+  group_name?: string | null
   risk_level: 'low' | 'high'
   status: 'draft' | 'pending_platform_review' | 'published' | 'deprecated'
   version: string
@@ -1207,6 +1216,7 @@ export interface DeclarativeAgentCreate {
   knowledge_scopes?: string[]
   supplier_id?: string | null
   model_name?: string | null
+  group_name?: string | null
   visibility?: AgentVisibility
 }
 
@@ -1222,6 +1232,7 @@ export interface DeclarativeAgentUpdate {
   knowledge_scopes?: string[]
   supplier_id?: string | null
   model_name?: string | null
+  group_name?: string | null
   visibility?: AgentVisibility
   /** v3.5：待补技能清单允许人工维护（删除已补齐项） */
   skill_requirements?: { need: string; keywords?: string[]; reason?: string; status?: string }[]

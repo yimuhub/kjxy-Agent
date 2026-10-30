@@ -184,6 +184,8 @@ class DeclarativeAgentCreate(BaseModel):
     knowledge_scopes: list[str] = Field(default_factory=list)
     supplier_id: str | None = Field(default=None, max_length=36)
     model_name: str | None = Field(default=None, max_length=100)
+    # v3.32：Agent 分组（如「诊断」「营销」），一类助手共用同一条额度策略
+    group_name: str | None = Field(default=None, max_length=40)
     created_from: str = Field(default=CREATED_FROM_MANUAL)
     visibility: str | None = Field(default=None, max_length=10)
 
@@ -222,6 +224,7 @@ class DeclarativeAgentUpdate(BaseModel):
     knowledge_scopes: list[str] | None = None
     supplier_id: str | None = Field(default=None, max_length=36)
     model_name: str | None = Field(default=None, max_length=100)
+    group_name: str | None = Field(default=None, max_length=40)
     visibility: str | None = Field(default=None, max_length=10)
     # v3.5：待补技能清单允许人工维护（补齐后可删除该项），其余生成元信息只读
     skill_requirements: list[dict[str, Any]] | None = Field(default=None, max_length=20)
@@ -386,6 +389,7 @@ def to_out(agent: YardAgent, db: Session | None = None) -> dict[str, Any]:
         "knowledge_scopes": list(agent.knowledge_scopes or []),
         "supplier_id": agent.supplier_id,
         "model_name": getattr(agent, "model_name", None),
+        "group_name": getattr(agent, "group_name", None),
         "cover_image_url": f"/api/v1/agents/declarative/{agent.id}/cover"
         if agent.cover_image
         else None,
@@ -610,6 +614,7 @@ def create_agent(
         knowledge_scopes=list(req.knowledge_scopes),
         supplier_id=req.supplier_id,
         model_name=(req.model_name or "").strip() or None,
+        group_name=(req.group_name or "").strip() or None,
         risk_level=assess_risk(req.allowed_tools, req.knowledge_scopes),
         status=STATUS_DRAFT,
         visibility=visibility,
@@ -657,6 +662,8 @@ def update_agent(
             )
     if "model_name" in data:
         data["model_name"] = (data["model_name"] or "").strip() or None
+    if "group_name" in data:
+        data["group_name"] = (data["group_name"] or "").strip() or None
     new_name = data.get("name")
     if new_name is not None and new_name != agent.name:
         _require_name_free(db, yard_id, new_name, exclude_id=agent.id)
@@ -733,6 +740,7 @@ def duplicate_agent(
         knowledge_scopes=list(source.knowledge_scopes or []),
         supplier_id=source.supplier_id,
         model_name=getattr(source, "model_name", None),
+        group_name=getattr(source, "group_name", None),
         created_from=CREATED_FROM_TEMPLATE,
         visibility=source.visibility,
     )

@@ -40,14 +40,22 @@
       </div>
     </div>
 
-    <el-alert
-      v-for="w in warnings"
-      :key="w.kind"
-      type="warning"
-      :title="w.message"
-      show-icon
-      class="warn"
-    />
+    <el-tabs
+      v-model="tab"
+      class="quota-tabs"
+    >
+      <el-tab-pane
+        label="概览"
+        name="overview"
+      >
+        <el-alert
+          v-for="w in warnings"
+          :key="w.kind"
+          type="warning"
+          :title="w.message"
+          show-icon
+          class="warn"
+        />
 
     <!-- 全场景 Token 统计看板（全员可见） -->
     <div
@@ -572,6 +580,22 @@
         </el-button>
       </template>
     </el-dialog>
+      </el-tab-pane>
+      <el-tab-pane
+        label="额度策略"
+        name="policies"
+        lazy
+      >
+        <QuotaPolicies :can-manage="canManageQuota" />
+      </el-tab-pane>
+      <el-tab-pane
+        label="额度申请"
+        name="requests"
+        lazy
+      >
+        <QuotaRequests :can-approve="canApproveQuota" />
+      </el-tab-pane>
+    </el-tabs>
   </div>
 </template>
 <script setup lang="ts">
@@ -588,6 +612,8 @@
   import { formatTime } from '@/utils/format'
   import { downloadCsvSections, todayStamp, type CsvSection } from '@/utils/csv'
   import UsageTrendChart from '@/components/usage/UsageTrendChart.vue'
+  import QuotaPolicies from '@/components/quota/QuotaPolicies.vue'
+  import QuotaRequests from '@/components/quota/QuotaRequests.vue'
   import AsyncState from '@/components/AsyncState.vue'
   import { classifyError, type ViewState } from '@/utils/status'
   import { useAuthStore } from '@/stores/auth'
@@ -666,6 +692,8 @@
 
   const unitsName = computed(() => auth.yard?.name ?? '当前小院')
   const canManageQuota = computed(() => auth.hasPermission('quota:manage'))
+  const canApproveQuota = computed(() => auth.hasPermission('quota:approve'))
+  const tab = ref('overview')
   const rows = computed<QuotaRow[]>(() =>
     Object.entries(quotas).map(([kind, item]) => ({
       kind,

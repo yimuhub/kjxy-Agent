@@ -70,6 +70,9 @@ class OpenAICompatibleProvider:
     supplier_id: str | None = None
     #: function-calling 能力位：供应商配置显式声明后才走工具循环（默认关闭，零回归）
     supports_tools: bool = False
+    #: 供应商单价（元/千 token）；未填则回落到 PRICE_PER_1K_USD 估算
+    price_in_per_1k: float | None = None
+    price_out_per_1k: float | None = None
 
     def __init__(
         self,

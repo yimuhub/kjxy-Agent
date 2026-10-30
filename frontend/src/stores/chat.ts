@@ -29,7 +29,8 @@ import type {
   SessionBatchAction,
   SessionPatch,
 } from '@/api/chat'
-import { extractErrorMessage } from '@/api/client'
+import { extractErrorDetails, extractErrorMessage } from '@/api/client'
+import type { QuotaBlockInfo } from '@/api/quota'
 import { skillApi, skillApiErrorText, skillLabApi } from '@/api/v3'
 import { friendlyErrorMessage } from '@/utils/status'
 import { apiTimeMs } from '@/utils/format'
@@ -285,8 +286,28 @@ function buildChatStore(scope: string) {
     }
 
     /** 发送类请求走了 skipErrorToast，这里统一给一条中文提示 */
+    /** 额度用尽且允许申请时，带上策略信息让界面弹「申请提额」 */
+    const quotaBlock = ref<QuotaBlockInfo | null>(null)
+
+    function clearQuotaBlock() {
+      quotaBlock.value = null
+    }
+
     function toastError(err: unknown) {
       const { code, message } = extractErrorMessage(err)
+      const details = extractErrorDetails(err)
+      if (code === 'QUOTA_EXCEEDED' && details?.requestable) {
+        quotaBlock.value = {
+          policyId: String(details.policy_id ?? ''),
+          scopeType: String(details.scope_type ?? ''),
+          scopeKey: String(details.scope_key ?? ''),
+          metric: String(details.metric ?? 'tokens'),
+          window: String(details.window ?? 'month'),
+          used: Number(details.used ?? 0),
+          limit: Number(details.limit ?? 0),
+          requestId: details.request_id ? String(details.request_id) : '',
+        }
+      }
       ElMessage.error(friendlyErrorMessage(code, message))
     }
 
@@ -1176,6 +1197,8 @@ function buildChatStore(scope: string) {
       uploading,
       liveSteps,
       streamError,
+      quotaBlock,
+      clearQuotaBlock,
       activeSession,
       activeTitle,
       /* 点名与群聊：全部按实例隔离，弹出面板与主对话互不污染 */

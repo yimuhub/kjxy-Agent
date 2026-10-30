@@ -63,21 +63,55 @@ def ensure_quota(db: Session, yard_id: str) -> YardQuota:
     return quota
 
 
-def check_and_consume(db: Session, yard_id: str, kind: str, amount: int = 1) -> None:
+def legacy_calls_mode(db: Session, yard_id: str) -> str:
+    """旧「模型调用次数」配额的模式：enforce / warn / off（v3.32 起由设置控制）。
+
+    默认 warn：Token 额度接管硬约束后，旧的 1000 次上限只保留可见性与告警，
+    不至于在新额度还很充裕时先把人拦在门外。
+    """
+    from app.modules.yards.settings_service import get_setting
+
+    try:
+        value = get_setting(db, yard_id, "quota").get("legacy_calls_mode")
+    except Exception:  # 设置读取失败不阻断调用，按告警模式处理
+        return "warn"
+    return str(value or "warn")
+
+
+def check_and_consume(
+    db: Session, yard_id: str, kind: str, amount: int = 1, mode: str = "enforce"
+) -> None:
     """原子扣减：判断与累加在同一条 UPDATE 内完成，并发请求不会超卖或丢计数。
 
     旧实现是「读-判断-写回」，两个并发请求都读到 used=N 时各自写 N+1，
     实际只记一次；改成条件 UPDATE 后由数据库保证串行语义。
+
+    mode（v3.32）：enforce=超限拒绝（默认）；warn=照常计数与告警但不拦；off=不计数。
     """
     fields = _QUOTA_FIELDS.get(kind)
     if fields is None:
         raise AppError("INVALID_REQUEST", f"未知配额类型：{kind}。", http_status=400)
     if amount < 1:
         raise AppError("INVALID_REQUEST", "配额扣减数量必须为正整数。", http_status=400)
+    if mode == "off":
+        return
     ensure_quota(db, yard_id)
     used_attr, limit_attr = fields
     used_col = getattr(YardQuota, used_attr)
     limit_col = getattr(YardQuota, limit_attr)
+    if mode == "warn":
+        db.execute(
+            update(YardQuota)
+            .where(YardQuota.yard_id == yard_id)
+            .values({used_attr: used_col + amount})
+            .execution_options(synchronize_session=False)
+        )
+        used, limit = db.execute(
+            select(used_col, limit_col).where(YardQuota.yard_id == yard_id)
+        ).one()
+        db.commit()
+        _alert_thresholds(yard_id, kind, int(used), int(limit))
+        return
     result = db.execute(
         update(YardQuota)
         .where(

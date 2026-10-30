@@ -33,6 +33,7 @@ from app.modules.plugins.router import router as plugins_router
 from app.modules.policy.router import router as policy_router
 from app.modules.push.router import router as push_router
 from app.modules.quick_actions.router import router as quick_actions_router
+from app.modules.quota.router import router as quota_router
 from app.modules.search.router import router as search_router
 from app.modules.self_improve.router import router as self_improve_router
 from app.modules.share.router import public_router as share_public_router
@@ -86,6 +87,7 @@ router.include_router(chat_router)  # /chat/sessions（对话模式：会话+消
 router.include_router(chat_mention_router)  # /chat/mention-candidates（@ 点名候选集合资源）
 router.include_router(chat_media_router)  # /chat/transcribe（语音转写，v3.11）
 router.include_router(asr_router)  # /asr/*（语音转写状态/本机模型/测试，v3.30）
+router.include_router(quota_router)  # /quota/*（分级额度策略、申请与审批，v3.32）
 router.include_router(pairing_router)  # /pairing（手机扫码配对：建码/交换/设备台账）
 router.include_router(bots_router)  # /bots（IM 机器人网关：配置/测试/会话批准/账本）
 router.include_router(search_router)  # /search（联网状态探测 + 连通性测试）

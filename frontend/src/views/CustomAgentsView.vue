@@ -599,6 +599,16 @@
           <span class="da-note">留空即跟随中心；也可到「模型中心 → 智能体模型」统一配置主用与兜底（保存后以那边为准）</span>
         </el-form-item>
 
+        <el-form-item label="助手分组">
+          <el-input
+            v-model="decForm.group_name"
+            maxlength="40"
+            placeholder="例如：诊断、营销、客服（同类助手共用一条额度）"
+            style="width: 320px"
+          />
+          <span class="da-note">在「用量额度 → 额度策略 → 按 Agent 分组」里按这个分组设额度</span>
+        </el-form-item>
+
         <el-form-item label="内置与MCP工具">
           <div class="skill-bind-box">
             <el-checkbox-group v-model="decForm.allowed_tools">
@@ -1059,6 +1069,7 @@
     bound_skills: [] as string[],
     supplier_id: '' as string,
     model_name: '' as string,
+    group_name: '' as string,
   })
 
   const candidateSubModels = computed<string[]>(() => {
@@ -1289,6 +1300,7 @@
       bound_skills: [],
       supplier_id: '',
       model_name: '',
+      group_name: '',
     }
     daDialogVisible.value = true
   }
@@ -1312,6 +1324,7 @@
       bound_skills: [...(row.bound_skills ?? [])],
       supplier_id: row.supplier_id ?? '',
       model_name: row.model_name ?? '',
+      group_name: row.group_name ?? '',
     }
     daDialogVisible.value = true
   }
@@ -1433,6 +1446,7 @@
       knowledge_scopes: f.knowledge_scopes,
       supplier_id: f.supplier_id || null,
       model_name: f.model_name.trim() || null,
+      group_name: f.group_name.trim() || null,
     }
     daSaving.value = true
     try {

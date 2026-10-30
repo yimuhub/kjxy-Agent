@@ -161,6 +161,8 @@ def supplier_to_out(
         response_time_ms=row.response_time_ms,
         last_error=row.last_error,
         supports_tools=bool(row.supports_tools),
+        price_in_per_1k=row.price_in_per_1k,
+        price_out_per_1k=row.price_out_per_1k,
         created_at=row.created_at.isoformat(),
         updated_at=row.updated_at.isoformat(),
     )
@@ -208,6 +210,8 @@ def create_supplier(
         models=(payload.models.strip() or None) if payload.models else None,
         priority=payload.priority,
         status=STATUS_ENABLED,
+        price_in_per_1k=payload.price_in_per_1k,
+        price_out_per_1k=payload.price_out_per_1k,
     )
     db.add(row)
     db.flush()
@@ -243,6 +247,10 @@ def update_supplier(
     # function-calling 能力位（布尔位单独处理：不走上方字符串 strip 分支）
     if data.get("supports_tools") is not None:
         row.supports_tools = bool(data["supports_tools"])
+    # v3.32 金额额度单价：显式传 null 表示清空（回退到 Provider 默认估算）
+    for price_field in ("price_in_per_1k", "price_out_per_1k"):
+        if price_field in data:
+            row.__setattr__(price_field, data[price_field])
     db.flush()
     invalidate_supplier_cache(supplier_id=row.id)
     return supplier_to_out(db, row, yard_id or "")
@@ -569,6 +577,9 @@ def build_provider_from_supplier(
     provider.supplier_id = row.id
     # function-calling 能力位由供应商行声明（默认 false → 工具循环关闭，零回归）
     provider.supports_tools = bool(getattr(row, "supports_tools", False))
+    # v3.32 金额额度：供应商自带单价（元/千 token），未填则沿用 Provider 默认估算
+    provider.price_in_per_1k = getattr(row, "price_in_per_1k", None)
+    provider.price_out_per_1k = getattr(row, "price_out_per_1k", None)
     return provider
 
 

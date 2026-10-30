@@ -8,7 +8,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin
@@ -33,6 +33,9 @@ class Supplier(Base, TimestampMixin):
     # （迁移 0013；默认 false → 旧行为零回归）。后端 PATCH 可设，前端表单 P2 补。
     supports_tools: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     consecutive_failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # v3.32 金额额度：单价（元 / 千 token）；空 = 未配置，按 Provider 默认常量估算
+    price_in_per_1k: Mapped[float | None] = mapped_column(Float, nullable=True)
+    price_out_per_1k: Mapped[float | None] = mapped_column(Float, nullable=True)
     test_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     response_time_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)

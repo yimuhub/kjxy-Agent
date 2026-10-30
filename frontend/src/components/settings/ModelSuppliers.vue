@@ -330,6 +330,30 @@
           />
           <span class="note">越大越优先（全局兜底时）</span>
         </el-form-item>
+        <el-form-item label="计费单价">
+          <div class="price-row">
+            <el-input-number
+              v-model="form.price_in_per_1k"
+              :min="0"
+              :precision="4"
+              :step="0.1"
+              placeholder="输入"
+              controls-position="right"
+              style="width: 160px"
+            />
+            <span class="note">元 / 千输入 token</span>
+            <el-input-number
+              v-model="form.price_out_per_1k"
+              :min="0"
+              :precision="4"
+              :step="0.1"
+              placeholder="输出"
+              controls-position="right"
+              style="width: 160px"
+            />
+            <span class="note">元 / 千输出 token（供金额额度估算）</span>
+          </div>
+        </el-form-item>
         <el-form-item v-if="editingId">
           <template #label>
             <el-tooltip
@@ -434,6 +458,8 @@
     scope: 'yard' as 'yard' | 'global',
     // function-calling 能力位：仅编辑时提交（创建接口不接受该字段）
     supports_tools: false,
+    price_in_per_1k: null as number | null,
+    price_out_per_1k: null as number | null,
   })
 
   async function probeModels(force = false) {
@@ -527,6 +553,8 @@
       priority: 0,
       scope: 'yard' as const,
       supports_tools: false,
+      price_in_per_1k: null as number | null,
+      price_out_per_1k: null as number | null,
     })
     templateKey.value = ''
     templateNote.value = ''
@@ -566,6 +594,8 @@
       priority: row.priority,
       scope: 'yard' as const,
       supports_tools: row.supports_tools ?? false,
+      price_in_per_1k: row.price_in_per_1k ?? null,
+      price_out_per_1k: row.price_out_per_1k ?? null,
     })
     templateKey.value = ''
     templateNote.value = ''
@@ -598,6 +628,8 @@
           models: form.models.trim() || null,
           priority: form.priority,
           supports_tools: form.supports_tools,
+          price_in_per_1k: form.price_in_per_1k,
+          price_out_per_1k: form.price_out_per_1k,
         }
         if (form.api_key) payload.api_key = form.api_key
         await llmSupplierApi.update(editingId.value, payload)
@@ -612,6 +644,8 @@
           models: form.models.trim() || undefined,
           priority: form.priority,
           scope: form.scope,
+          price_in_per_1k: form.price_in_per_1k,
+          price_out_per_1k: form.price_out_per_1k,
         })
         ElMessage.success('已新增')
       }
@@ -710,6 +744,12 @@
 </script>
 
 <style scoped>
+  .price-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
   .section {
     margin-bottom: 16px;
   }

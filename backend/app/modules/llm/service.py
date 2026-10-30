@@ -14,7 +14,8 @@ from app.modules.llm.binding_service import LEVEL_LABELS
 from app.modules.llm.models import LLMCall, LLMTrace
 from app.modules.llm.provider import get_provider_candidates, provider_resolution
 from app.modules.llm.schemas import LLMRequest, LLMResponse, LLMStatusOut
-from app.modules.yards.quota import check_and_consume
+from app.modules.quota import engine as quota_engine
+from app.modules.yards.quota import check_and_consume, legacy_calls_mode
 
 log = get_logger(__name__)
 
@@ -59,7 +60,19 @@ def _prompt_digest(request: LLMRequest) -> str:
 
 
 def _estimate_cost(provider, input_tokens: int | None, output_tokens: int | None) -> float:
-    """(in+out)/1000 * 单价；单价取 provider 常量（fake 为 0）。"""
+    """按 token 估算费用。
+
+    v3.32：供应商行填了单价（元/千 token）就按输入/输出分开算，金额额度才有意义；
+    没填则回退到 Provider 常量（历史口径，仅作占位估算）。
+    """
+    price_in = getattr(provider, "price_in_per_1k", None)
+    price_out = getattr(provider, "price_out_per_1k", None)
+    if price_in is not None or price_out is not None:
+        return round(
+            (input_tokens or 0) / 1000 * float(price_in or 0.0)
+            + (output_tokens or 0) / 1000 * float(price_out or 0.0),
+            6,
+        )
     unit_price = float(getattr(provider, "PRICE_PER_1K_USD", 0.0) or 0.0)
     total = (input_tokens or 0) + (output_tokens or 0)
     return round(total / 1000 * unit_price, 6)
@@ -185,8 +198,15 @@ async def complete_with_logging(db: Session, request: LLMRequest) -> LLMResponse
     yard_id = request.metadata.yard_id
     if not yard_id:
         raise AppError("INVALID_REQUEST", "缺少小院信息，无法记录模型调用。", http_status=400)
-    # 配额拦截：调用模型前先扣减 llm_calls，超限直接 429 拒绝，不消耗上游资源
-    check_and_consume(db, yard_id, "llm_calls")
+    # 配额拦截：调用模型前先扣减 llm_calls（模式由小院设置决定，默认只告警），
+    # 再按分级额度（小院 → Agent/分组）预检，超限直接 429，不消耗上游资源
+    check_and_consume(db, yard_id, "llm_calls", mode=legacy_calls_mode(db, yard_id))
+    quota_engine.preflight(
+        db,
+        yard_id,
+        agent_code=request.metadata.agent_code,
+        requester_id=request.metadata.user_id,
+    )
     request_id = request.metadata.request_id or f"req_{uuid.uuid4().hex[:16]}"
 
     with provider_resolution(
@@ -198,6 +218,15 @@ async def complete_with_logging(db: Session, request: LLMRequest) -> LLMResponse
     ):
         candidates = get_provider_candidates()
     _log_provider_choice_once(candidates[0][0])
+    # 供应商/模型级额度：解析出真实供应商后再判，避免「绑了贵模型却按默认额度放行」
+    quota_engine.preflight(
+        db,
+        yard_id,
+        agent_code=request.metadata.agent_code,
+        supplier_id=getattr(candidates[0][0], "supplier_id", None),
+        model=request.model or getattr(candidates[0][0], "model", None),
+        requester_id=request.metadata.user_id,
+    )
 
     last_error: AppError | None = None
     for index, (provider, level) in enumerate(candidates):
@@ -244,6 +273,17 @@ async def complete_with_logging(db: Session, request: LLMRequest) -> LLMResponse
             latency_ms=latency_ms,
             request_id=request_id,
             yard_id=yard_id,
+        )
+        # 分级额度记账：Token 与金额是后付费指标，拿到响应后按真实用量累加
+        quota_engine.charge(
+            db,
+            yard_id,
+            agent_code=request.metadata.agent_code,
+            supplier_id=getattr(provider, "supplier_id", None),
+            model=resp.model or getattr(provider, "model", None),
+            tokens=float((resp.input_tokens or 0) + (resp.output_tokens or 0)),
+            cost=float(_estimate_cost(provider, resp.input_tokens, resp.output_tokens) or 0.0),
+            calls=1.0,
         )
         _note_runtime_success(db, provider)
         if index:

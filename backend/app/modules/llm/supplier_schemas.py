@@ -39,6 +39,9 @@ class SupplierCreate(BaseModel):
         default=None, max_length=2000, description="模型白名单，逗号分隔；空=全量"
     )
     priority: int = Field(default=0, description="越大越优先")
+    # v3.32 金额额度：单价（元/千 token）；不填则按 Provider 默认常量估算
+    price_in_per_1k: float | None = Field(default=None, ge=0, le=10000)
+    price_out_per_1k: float | None = Field(default=None, ge=0, le=10000)
     scope: Literal["yard", "global"] = Field(
         default="yard", description="yard=仅本小院可见，global=全局共享（仅平台管理员）"
     )
@@ -59,6 +62,8 @@ class SupplierUpdate(BaseModel):
     priority: int | None = None
     # function-calling 能力位：true 才允许声明式 Agent 对该供应商启用工具循环
     supports_tools: bool | None = None
+    price_in_per_1k: float | None = Field(default=None, ge=0, le=10000)
+    price_out_per_1k: float | None = Field(default=None, ge=0, le=10000)
 
 
 class SupplierOut(BaseModel):
@@ -75,6 +80,9 @@ class SupplierOut(BaseModel):
     is_active: bool = False
     # function-calling 能力位（默认 false：未显式声明的供应商不进工具循环）
     supports_tools: bool = False
+    # 金额额度用的单价（元/千 token）；None = 未配置
+    price_in_per_1k: float | None = None
+    price_out_per_1k: float | None = None
     # 小院管理员视角：平台全局行（yard_id 为 NULL）只读（不可增删改/探测，仅可设为本小院生效）；
     # 平台管理员恒为 false。默认 false，兼容未感知该字段的旧前端。
     readonly: bool = False

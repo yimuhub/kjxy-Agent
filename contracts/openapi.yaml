@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.31.0
+  version: 3.32.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -9864,6 +9864,261 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - HTTPBearer: []
+  /api/v1/quota/overview:
+    get:
+      tags:
+      - v1
+      summary: Quota Overview
+      operationId: quota_overview_api_v1_quota_overview_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/quota/environments:
+    get:
+      tags:
+      - v1
+      summary: Quota Environments
+      operationId: quota_environments_api_v1_quota_environments_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/quota/environment:
+    put:
+      tags:
+      - v1
+      summary: Quota Set Environment
+      operationId: quota_set_environment_api_v1_quota_environment_put
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnvironmentRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/quota/policies:
+    put:
+      tags:
+      - v1
+      summary: Quota Upsert Policy
+      operationId: quota_upsert_policy_api_v1_quota_policies_put
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicyUpsertRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/quota/policies/{policy_id}:
+    delete:
+      tags:
+      - v1
+      summary: Quota Delete Policy
+      operationId: quota_delete_policy_api_v1_quota_policies__policy_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: policy_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Policy Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/quota/policies/{policy_id}/reset:
+    post:
+      tags:
+      - v1
+      summary: Quota Reset Counter
+      description: 清零某条策略当前窗口的用量（跨窗口的历史不动）。
+      operationId: quota_reset_counter_api_v1_quota_policies__policy_id__reset_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: policy_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Policy Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/quota/requests:
+    get:
+      tags:
+      - v1
+      summary: Quota List Requests
+      operationId: quota_list_requests_api_v1_quota_requests_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - v1
+      summary: Quota Create Request
+      operationId: quota_create_request_api_v1_quota_requests_post
+      security:
+      - HTTPBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuotaRequestBody'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/quota/requests/{request_id}/approve:
+    post:
+      tags:
+      - v1
+      summary: Quota Approve
+      operationId: quota_approve_api_v1_quota_requests__request_id__approve_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: request_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Request Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuotaDecisionRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/quota/requests/{request_id}/reject:
+    post:
+      tags:
+      - v1
+      summary: Quota Reject
+      operationId: quota_reject_api_v1_quota_requests__request_id__reject_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: request_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Request Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuotaDecisionRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/pairing/codes:
     post:
       tags:
@@ -11307,6 +11562,19 @@ components:
       - model
       title: DocumentCreateRequest
       description: 按 DocModel 生成文档：format 缺省 word，model 为结构化文档内容。
+    EnvironmentRequest:
+      properties:
+        environment:
+          type: string
+          enum:
+          - trial
+          - standard
+          - production
+          title: Environment
+      type: object
+      required:
+      - environment
+      title: EnvironmentRequest
     FactoryApplyRequest:
       properties:
         codes:
@@ -11447,7 +11715,7 @@ components:
           items:
             type: string
           type: array
-          maxItems: 44
+          maxItems: 46
           title: Grants
       additionalProperties: false
       type: object
@@ -11743,7 +12011,7 @@ components:
           items:
             type: string
           type: array
-          maxItems: 44
+          maxItems: 46
           title: Grants
         confirm_protected:
           type: boolean
@@ -12218,6 +12486,66 @@ components:
       type: object
       title: PolicyProfile
       description: 待匹配画像：任一字段都可缺省，缺省导致对应条件无法判断。
+    PolicyUpsertRequest:
+      properties:
+        scope_type:
+          type: string
+          enum:
+          - yard
+          - agent
+          - agent_group
+          - model
+          - supplier
+          title: Scope Type
+        scope_key:
+          type: string
+          maxLength: 100
+          title: Scope Key
+          description: yard 作用域留空
+          default: ''
+        metric:
+          type: string
+          enum:
+          - tokens
+          - calls
+          - cost
+          title: Metric
+          default: tokens
+        window:
+          type: string
+          enum:
+          - day
+          - month
+          title: Window
+          default: month
+        limit_value:
+          type: number
+          minimum: 0.0
+          title: Limit Value
+          description: tokens/calls 为个数，cost 为元
+        on_exceed:
+          type: string
+          enum:
+          - warn
+          - block
+          - approve
+          title: On Exceed
+          default: approve
+        note:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Note
+        enabled:
+          type: boolean
+          title: Enabled
+          default: true
+      type: object
+      required:
+      - scope_type
+      - limit_value
+      title: PolicyUpsertRequest
     PosterRequest:
       properties:
         prompt:
@@ -12497,6 +12825,48 @@ components:
       type: object
       title: QuotaAdminResetRequest
       description: 清零已用量：``kinds`` 为空表示三类全部清零。
+    QuotaDecisionRequest:
+      properties:
+        note:
+          type: string
+          maxLength: 500
+          title: Note
+          default: ''
+        approved_limit:
+          anyOf:
+          - type: number
+            exclusiveMinimum: 0.0
+          - type: 'null'
+          title: Approved Limit
+      type: object
+      title: QuotaDecisionRequest
+    QuotaRequestBody:
+      properties:
+        policy_id:
+          type: string
+          maxLength: 36
+          minLength: 1
+          title: Policy Id
+        requested_limit:
+          type: number
+          exclusiveMinimum: 0.0
+          title: Requested Limit
+        reason:
+          type: string
+          maxLength: 500
+          title: Reason
+          default: ''
+        valid_days:
+          type: integer
+          maximum: 90.0
+          minimum: 0.0
+          title: Valid Days
+          default: 7
+      type: object
+      required:
+      - policy_id
+      - requested_limit
+      title: QuotaRequestBody
     RecordCreate:
       properties:
         client_op_id:
@@ -13466,6 +13836,20 @@ components:
           title: Priority
           description: 越大越优先
           default: 0
+        price_in_per_1k:
+          anyOf:
+          - type: number
+            maximum: 10000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Price In Per 1K
+        price_out_per_1k:
+          anyOf:
+          - type: number
+            maximum: 10000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Price Out Per 1K
         scope:
           type: string
           enum:
@@ -13623,6 +14007,20 @@ components:
           - type: boolean
           - type: 'null'
           title: Supports Tools
+        price_in_per_1k:
+          anyOf:
+          - type: number
+            maximum: 10000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Price In Per 1K
+        price_out_per_1k:
+          anyOf:
+          - type: number
+            maximum: 10000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Price Out Per 1K
       additionalProperties: false
       type: object
       title: SupplierUpdate

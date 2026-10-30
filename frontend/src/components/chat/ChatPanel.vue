@@ -759,11 +759,17 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <QuotaRequestDialog
+      v-model="quotaDialogVisible"
+      :block="store.quotaBlock"
+      @submitted="store.clearQuotaBlock()"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-  import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+  import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
   import { useRouter } from 'vue-router'
   import { ElInput, ElMessage, ElMessageBox } from 'element-plus'
   import {
@@ -789,6 +795,8 @@
   import ChatMemberBar from '@/components/chat/ChatMemberBar.vue'
   import ChatMentionLayer from '@/components/chat/ChatMentionLayer.vue'
   import ChatPolicyPicker from '@/components/chat/ChatPolicyPicker.vue'
+  import QuotaRequestDialog from '@/components/quota/QuotaRequestDialog.vue'
+  import type { QuotaBlockInfo } from '@/api/quota'
   import ChatSteps from '@/components/chat/ChatSteps.vue'
   import { safeHttpUrl } from '@/components/teams/presentation'
   import PluginCard from '@/components/chat/PluginCard.vue'
@@ -913,6 +921,14 @@
   }>()
 
   const draft = ref('')
+  /** 额度用尽时弹「申请提额」：store 收到 QUOTA_EXCEEDED(requestable) 就会置位 */
+  const quotaDialogVisible = ref(false)
+  watch(
+    () => props.store.quotaBlock,
+    (value: QuotaBlockInfo | null) => {
+      if (value) quotaDialogVisible.value = true
+    },
+  )
   /** 角色用于决定「自动放行 / 完全访问」是否可选；最终裁决在服务端 */
   const auth = useAuthStore()
   /** 待批准卡片跳任务中心审批列表 */

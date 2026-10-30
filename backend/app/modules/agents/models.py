@@ -77,6 +77,8 @@ class YardAgent(Base, TimestampMixin):
     supplier_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     # 0027 新增：可选具体大模型名称覆写（同一供应商下不同 Agent 可绑定不同子模型）
     model_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # v3.32：Agent 分组（如「诊断」「营销」），让一类助手共用同一条额度策略
+    group_name: Mapped[str | None] = mapped_column(String(40), nullable=True)
     risk_level: Mapped[str] = mapped_column(String(10), nullable=False, default=RISK_LOW)
     status: Mapped[str] = mapped_column(
         String(35), index=True, nullable=False, default=STATUS_DRAFT
