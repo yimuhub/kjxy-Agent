@@ -56,6 +56,8 @@ SETTINGS_PERMISSIONS: dict[str, str] = {
     "self_improve": "settings:manage_protected",
     "agent_generate": "settings:manage",
     "device_analysis": "settings:manage",
+    # Agent 自动执行会创建告警/工单/台账，按管理型设置处理
+    "farm_agent": "settings:manage",
     # 工作台视图（菜单模式与角色预设）由负责人/管理员统一设置
     "menu": "menu:manage",
 }
@@ -193,6 +195,19 @@ def update_setting(
             db,
             yard_id=yard_id,
             setting=settings_service.get_setting(db, yard_id, "device_analysis"),
+            actor_id=user.user_id,
+        )
+        db.commit()
+    elif key == "farm_agent":
+        # Agent 自动执行：启停/周期即时对齐定时任务；天气配置变了就清缓存
+        from app.modules.farm.agent_jobs import sync_job as sync_agent_job
+        from app.modules.farm.weather import clear_cache
+
+        clear_cache(yard_id)
+        sync_agent_job(
+            db,
+            yard_id=yard_id,
+            setting=settings_service.get_setting(db, yard_id, "farm_agent"),
             actor_id=user.user_id,
         )
         db.commit()

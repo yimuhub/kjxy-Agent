@@ -8,7 +8,7 @@
 3. 连续失败 5 次自动 ``enabled=false`` 熔断 + 审计（见 service.dispatch）。
 
 ``events_json`` 为订阅事件数组（device_alert|workorder_created|team_run_failed|
-skill_force_published）；
+skill_force_published|self_improve_run|farm_alert|farm_agent_run）；
 ``url_enc`` 可空：允许先建通道后补 URL，无 URL 的通道 dispatch 直接跳过。
 """
 
@@ -28,12 +28,17 @@ EVENT_WORKORDER_CREATED = "workorder_created"
 EVENT_TEAM_RUN_FAILED = "team_run_failed"
 EVENT_SKILL_FORCE_PUBLISHED = "skill_force_published"
 EVENT_SELF_IMPROVE_RUN = "self_improve_run"
+#: v3.28：Agent 自动执行产出的告警与运行摘要
+EVENT_FARM_ALERT = "farm_alert"
+EVENT_FARM_AGENT_RUN = "farm_agent_run"
 VALID_EVENTS = (
     EVENT_DEVICE_ALERT,
     EVENT_WORKORDER_CREATED,
     EVENT_TEAM_RUN_FAILED,
     EVENT_SKILL_FORCE_PUBLISHED,
     EVENT_SELF_IMPROVE_RUN,
+    EVENT_FARM_ALERT,
+    EVENT_FARM_AGENT_RUN,
 )
 
 #: 事件的人类中文标签（markdown 正文与审计展示共用口径）
@@ -43,6 +48,8 @@ EVENT_LABELS = {
     EVENT_TEAM_RUN_FAILED: "班组运行失败",
     EVENT_SKILL_FORCE_PUBLISHED: "私有技能被转为公共",
     EVENT_SELF_IMPROVE_RUN: "自我总结运行完成",
+    EVENT_FARM_ALERT: "农事预警",
+    EVENT_FARM_AGENT_RUN: "Agent 自动执行",
 }
 
 

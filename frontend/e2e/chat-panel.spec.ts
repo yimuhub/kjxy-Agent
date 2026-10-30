@@ -110,6 +110,8 @@ test.describe('对话面板多实例隔离', () => {
 
     const mainRows = await main.locator('.msg-row').count()
     expect(mainRows).toBeGreaterThanOrEqual(2)
+    // 首轮回答结束后才用首句自动命名；等标题落定再取基线，避免抓到「新对话」
+    await expect(page.locator('.t-title')).not.toHaveText('新对话', { timeout: 150_000 })
     const mainTitle = (await page.locator('.t-title').innerText()).trim()
     // 列表窗口化后 DOM 行数封顶，条目数改读容器上的模型总数
     const mainSessionCount = await sessionTotal(page)

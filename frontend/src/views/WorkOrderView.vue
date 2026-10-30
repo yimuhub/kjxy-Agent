@@ -147,10 +147,18 @@
           </el-table-column>
           <el-table-column
             label="来源"
-            width="90"
+            width="100"
           >
             <template #default="{ row }">
-              {{ sourceLabel(row.source) }}
+              <el-tag
+                v-if="row.agent_run_id || row.source === 'agent'"
+                size="small"
+                type="warning"
+                effect="plain"
+              >
+                Agent 自动
+              </el-tag>
+              <span v-else>{{ sourceLabel(row.source) }}</span>
             </template>
           </el-table-column>
           <el-table-column
@@ -256,6 +264,22 @@
               {{
                 row.work_order_id ? '已转工单' : row.status === 'dismissed' ? '已忽略' : '待处理'
               }}
+            </template>
+          </el-table-column>
+          <el-table-column
+            label="来源"
+            width="100"
+          >
+            <template #default="{ row }">
+              <el-tag
+                v-if="row.agent_run_id || row.source === 'agent'"
+                size="small"
+                type="warning"
+                effect="plain"
+              >
+                Agent 自动
+              </el-tag>
+              <span v-else>{{ sourceLabel(row.source) }}</span>
             </template>
           </el-table-column>
           <el-table-column
@@ -724,7 +748,9 @@
     return 'success'
   }
   const sourceLabel = (value: string) =>
-    ({ manual: '手工', alert: '告警', device: '设备', diagnosis: '诊断' })[value] || value
+    ({ manual: '手工', alert: '告警', device: '设备', diagnosis: '诊断', agent: 'Agent 自动' })[
+      value
+    ] || value
   const eventLabel = (value: string) =>
     ({
       created: '创建',

@@ -58,7 +58,7 @@ MAX_MATERIAL_CHARS = 3000
 MAX_DIAGNOSIS_ATTACHMENTS = 20
 
 REVIEW_STATUSES = ("confirmed", "closed")
-PESTICIDE_STATUSES = ("active", "archived")
+PESTICIDE_STATUSES = ("active", "draft", "archived")
 
 
 def _utcnow() -> datetime:
@@ -420,7 +420,8 @@ def create_diagnosis(
     needs_review = bool(output.get("needs_expert_review"))
     if needs_review:
         status = "expert_review"
-    elif source == "device":
+    elif source in ("device", "agent"):
+        # 设备推送与 Agent 自动发起都属于「机器初诊」，统一高亮为待人工跟进
         status = "agent_diagnosed"
     else:
         status = "open"
@@ -854,6 +855,12 @@ def delete_pesticide(db: Session, yard_id: str, pesticide_id: str, user_id: str)
 
 def safe_harvest(db: Session, yard_id: str, pesticide_id: str, applied_on: date) -> dict:
     row = _get_pesticide(db, yard_id, pesticide_id)
+    if row.status != "active" or int(row.pre_harvest_interval_days or 0) <= 0:
+        raise AppError(
+            "PESTICIDE_NOT_READY",
+            "该药剂尚未补充安全间隔期（或仍在草稿/归档状态），不能用于推算采收时间。",
+            http_status=422,
+        )
     earliest = applied_on + timedelta(days=int(row.pre_harvest_interval_days or 0))
     return {
         "pesticide_id": row.id,

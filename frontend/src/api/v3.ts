@@ -277,6 +277,7 @@ export const governanceApi = {
       | 'self_improve'
       | 'agent_generate'
       | 'device_analysis'
+      | 'farm_agent'
       | 'menu',
     value: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {

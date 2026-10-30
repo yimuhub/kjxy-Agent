@@ -2108,6 +2108,9 @@ export interface FarmRecord {
   unit: string
   operator_name: string
   metadata_json: Record<string, unknown> | null
+  /** manual=人工录入；agent=Agent 自动执行（界面标「Agent 自动」） */
+  source?: 'manual' | 'agent' | 'device'
+  agent_run_id?: string | null
   revision: number
   created_at: string
   updated_at: string
@@ -2332,7 +2335,8 @@ export interface PesticideProduct {
   registered_crops: string[] | null
   pre_harvest_interval_days: number
   label_notes: string
-  status: 'active' | 'archived'
+  status: 'active' | 'draft' | 'archived'
+  source?: string
   created_at: string
   updated_at: string
 }
@@ -2439,6 +2443,7 @@ export interface FarmAlert {
   plot_id: string | null
   status: 'new' | 'converted' | 'dismissed'
   work_order_id: string | null
+  agent_run_id?: string | null
   created_at: string
 }
 
@@ -2468,6 +2473,7 @@ export interface WorkOrder {
   escalation_level: number
   resolution: string
   closed_at: string | null
+  agent_run_id?: string | null
   created_at: string
   updated_at: string
   events: WorkOrderEvent[]
@@ -2580,5 +2586,167 @@ export const shareApi = {
         skipErrorToast: true,
       } as AxiosRequestConfig & { skipErrorToast?: boolean }),
     )
+  },
+}
+
+// ---------- Agent 自动执行（v3.28） ----------
+
+export type FarmAgentActionKind = 'alert' | 'work_order' | 'diagnosis' | 'record' | 'pesticide' | 'plot'
+export type FarmAgentActionStatus = 'pending' | 'executed' | 'dismissed' | 'failed'
+export type FarmAgentPolicy = 'auto' | 'confirm' | 'off'
+
+export interface FarmAgentAction {
+  id: string
+  run_id: string
+  kind: FarmAgentActionKind
+  kind_label: string
+  rule_code: string
+  rule_label: string
+  status: FarmAgentActionStatus
+  policy: FarmAgentPolicy
+  severity: AlertSeverity | 'info' | 'watch' | 'warning'
+  title: string
+  detail: string
+  payload: Record<string, unknown>
+  target_type: string | null
+  target_id: string | null
+  dedupe_key: string
+  error: string | null
+  confirmed_by: string | null
+  confirmed_at: string | null
+  created_at: string
+}
+
+export interface FarmAgentFinding {
+  code: string
+  rule_label: string
+  level: 'info' | 'watch' | 'warning' | 'critical'
+  level_label: string
+  title: string
+  detail: string
+  suggestion: string
+  evidence: Record<string, unknown>[]
+  dedupe_key: string
+  actions: { kind: FarmAgentActionKind | string; kind_label?: string; title: string }[]
+}
+
+export interface FarmAgentRun {
+  run_id: string
+  trigger: 'manual' | 'schedule'
+  status: 'running' | 'ok' | 'insufficient' | 'failed'
+  level: 'info' | 'watch' | 'warning' | 'critical'
+  level_label: string
+  window_from: string | null
+  window_to: string | null
+  summary: string
+  evidence: {
+    devices?: number
+    device_names?: string[]
+    plots?: number
+    records_30d?: number
+    pesticides?: number
+    weather_provider?: string | null
+    warnings?: string[]
+  }
+  findings: FarmAgentFinding[]
+  model: string | null
+  tokens_used: number
+  error: string | null
+  started_at: string | null
+  finished_at: string | null
+  duration_ms: number
+  created_at: string
+  actions?: FarmAgentAction[]
+}
+
+export interface FarmAgentOverview {
+  enabled: boolean
+  schedule: { preset?: string }
+  actions: Record<FarmAgentActionKind, FarmAgentPolicy>
+  weather_provider: string
+  weather_configured: boolean
+  dedupe_hours: number
+  last_run: FarmAgentRun | null
+  pending_count: number
+  pending: FarmAgentAction[]
+  today_executed: number
+}
+
+export const farmAgentApi = {
+  overview(): Promise<FarmAgentOverview> {
+    return unwrap(api.get<ApiResponse<FarmAgentOverview>>('/farm/automation/overview'))
+  },
+  runs(page = 1, pageSize = 20): Promise<ListResult<FarmAgentRun>> {
+    return unwrapList(
+      api.get<ListResponse<FarmAgentRun>>('/farm/automation/runs', {
+        params: { page, page_size: pageSize },
+      }),
+    )
+  },
+  run(runId: string): Promise<FarmAgentRun> {
+    return unwrap(api.get<ApiResponse<FarmAgentRun>>(`/farm/automation/runs/${runId}`))
+  },
+  runNow(): Promise<FarmAgentRun> {
+    return unwrap(api.post<ApiResponse<FarmAgentRun>>('/farm/automation/run', {}))
+  },
+  confirm(actionId: string): Promise<FarmAgentAction> {
+    return unwrap(
+      api.post<ApiResponse<FarmAgentAction>>(`/farm/automation/actions/${actionId}/confirm`, {}),
+    )
+  },
+  dismiss(actionId: string): Promise<FarmAgentAction> {
+    return unwrap(
+      api.post<ApiResponse<FarmAgentAction>>(`/farm/automation/actions/${actionId}/dismiss`, {}),
+    )
+  },
+}
+
+// ---------- 推送通道（v3.28 前端入口；后端 /settings/push-channels） ----------
+
+export type PushChannelKind = 'wecom_robot' | 'dingtalk' | 'generic_webhook'
+
+export interface PushChannel {
+  id: string
+  name: string
+  kind: PushChannelKind
+  url_masked: string | null
+  events: string[]
+  enabled: boolean
+  consecutive_failures: number
+  created_at: string | null
+  updated_at: string | null
+}
+
+export const PUSH_EVENT_OPTIONS: { value: string; label: string }[] = [
+  { value: 'farm_alert', label: '农事预警（Agent 自动执行）' },
+  { value: 'farm_agent_run', label: 'Agent 自动执行摘要' },
+  { value: 'workorder_created', label: '工单已创建' },
+  { value: 'device_alert', label: '设备告警' },
+  { value: 'self_improve_run', label: '自我总结运行完成' },
+  { value: 'team_run_failed', label: '班组运行失败' },
+  { value: 'skill_force_published', label: '私有技能被转为公共' },
+]
+
+export const pushChannelApi = {
+  list(): Promise<PushChannel[]> {
+    return unwrap(api.get<ApiResponse<PushChannel[]>>('/settings/push-channels'))
+  },
+  create(payload: {
+    name: string
+    kind: PushChannelKind
+    url?: string
+    events: string[]
+    enabled?: boolean
+  }): Promise<PushChannel> {
+    return unwrap(api.post<ApiResponse<PushChannel>>('/settings/push-channels', payload))
+  },
+  update(
+    channelId: string,
+    payload: Partial<{ name: string; kind: PushChannelKind; url: string; events: string[]; enabled: boolean }>,
+  ): Promise<PushChannel> {
+    return unwrap(api.patch<ApiResponse<PushChannel>>(`/settings/push-channels/${channelId}`, payload))
+  },
+  remove(channelId: string): Promise<unknown> {
+    return unwrap(api.delete(`/settings/push-channels/${channelId}`))
   },
 }

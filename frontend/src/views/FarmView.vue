@@ -37,6 +37,8 @@
       @fallback="onQuickFallback"
     />
 
+    <FarmAgentPanel @changed="onAgentChanged" />
+
     <el-tabs v-model="tab">
       <el-tab-pane
         label="农事记录"
@@ -131,7 +133,21 @@
             label="事项"
             min-width="160"
             show-overflow-tooltip
-          />
+          >
+            <template #default="{ row }">
+              <el-tag
+                v-if="row.source === 'agent'"
+                size="small"
+                type="success"
+                effect="dark"
+                class="agent-tag"
+              >
+                Agent 自动
+              </el-tag>
+              <span v-if="row.source === 'agent' && !row.title">系统观察记录</span>
+              <span v-else>{{ row.title }}</span>
+            </template>
+          </el-table-column>
           <el-table-column
             label="用量"
             width="110"
@@ -751,6 +767,7 @@
   import SafeMarkdown from '@/components/teams/SafeMarkdown.vue'
   import OfflineBar from '@/components/offline/OfflineBar.vue'
   import QuickActionBar from '@/components/farm/QuickActionBar.vue'
+  import FarmAgentPanel from '@/components/farm/FarmAgentPanel.vue'
   import { installOfflineQueue, writeWithQueue } from '@/offline/queue'
   import { formatDateTime as formatTime } from '@/utils/format'
 
@@ -934,6 +951,11 @@
       return
     }
     openRecord(data.payload as unknown as FarmRecord)
+  }
+
+  /** Agent 自动执行可能新增地块/观察记录：刷新两个列表，让结果立即可见 */
+  async function onAgentChanged() {
+    await Promise.all([loadRecords(1), loadPlots()])
   }
 
   function openRecord(row?: FarmRecord) {
@@ -1244,6 +1266,9 @@
     display: flex;
     flex-direction: column;
     gap: 16px;
+  }
+  .agent-tag {
+    margin-right: 6px;
   }
   .page-head {
     display: flex;

@@ -168,6 +168,7 @@ def _alert_out(row: FarmAlert) -> dict:
         "plot_id": row.plot_id,
         "status": row.status,
         "work_order_id": row.work_order_id,
+        "agent_run_id": getattr(row, "agent_run_id", None),
         "created_at": row.created_at,
     }
 
@@ -200,6 +201,7 @@ def _order_out(row: WorkOrder, events: Sequence[WorkOrderEvent] | None = None) -
         "escalation_level": row.escalation_level,
         "resolution": row.resolution,
         "closed_at": row.closed_at,
+        "agent_run_id": getattr(row, "agent_run_id", None),
         "revision": int(row.revision or 1),
         "created_at": row.created_at,
         "updated_at": row.updated_at,

@@ -77,6 +77,15 @@
 
       <el-tab-pane
         lazy
+        label="Agent 自动执行"
+        name="farm_agent"
+      >
+        <SettingsFarmAgent />
+        <SettingsPushChannels />
+      </el-tab-pane>
+
+      <el-tab-pane
+        lazy
         label="单点登录"
         name="sso"
       >
@@ -496,6 +505,8 @@ import SettingsSkillLab from '@/components/settings/SettingsSkillLab.vue'
   import SettingsAgentGenerate from '@/components/settings/SettingsAgentGenerate.vue'
 import SettingsSelfImprove from '@/components/settings/SettingsSelfImprove.vue'
 import SettingsDeviceAnalysis from '@/components/settings/SettingsDeviceAnalysis.vue'
+import SettingsFarmAgent from '@/components/settings/SettingsFarmAgent.vue'
+import SettingsPushChannels from '@/components/settings/SettingsPushChannels.vue'
 import SettingsSso from '@/components/settings/SettingsSso.vue'
 import SettingsA2a from '@/components/settings/SettingsA2a.vue'
 import SettingsGrants from '@/components/settings/SettingsGrants.vue'
@@ -518,6 +529,7 @@ const TAB_NAMES = [
   'network',
   'self_improve',
   'device_analysis',
+  'farm_agent',
   'sso',
   'a2a',
   'grants',

@@ -65,6 +65,39 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "daily_budget_tokens": 100000,
         "window_hours": 24,
     },
+    # Agent 自动执行（v3.28）：设备/天气/台账 → 规则 → 告警/工单/诊断/台账/药剂
+    "farm_agent": {
+        "enabled": False,
+        "schedule": {"preset": "daily"},
+        "explain_with_llm": True,
+        "daily_budget_tokens": 100000,
+        "dedupe_hours": 24,
+        "window_hours": 24,
+        "actions": {
+            "alert": "auto",
+            "work_order": "confirm",
+            "diagnosis": "confirm",
+            "record": "auto",
+            "pesticide": "confirm",
+            "plot": "confirm",
+        },
+        "thresholds": {
+            "soil_moisture_low": 20.0,
+            "rain_no_spray_mm": 10.0,
+            "wind_no_spray_ms": 10.0,
+            "temp_drop_c": 8.0,
+            "temp_min_c": 3.0,
+            "temp_max_c": 35.0,
+            "humidity_disease_pct": 85.0,
+            "offline_hours": 6.0,
+        },
+        # 天气预报（可选）：none | qweather | openweather
+        "weather_provider": "none",
+        "weather_api_key": "",
+        "weather_location": "",
+        "weather_lat": None,
+        "weather_lon": None,
+    },
     # 工作台视图：默认模式 + 按角色的默认视图 + 共享预设（成员仍可在本地 DIY）
     "menu": {
         "default_mode": "standard",  # minimal | standard | full
@@ -88,6 +121,20 @@ SI_PRESETS = {"daily", "hours12", "hours6", "days3", "weekly", "monthly", "custo
 SI_UNITS = {"hours", "days", "months"}
 SI_SCOPES = {"yard", "per_member"}
 DA_PRESETS = {"hours12", "daily", "weekly"}
+FA_PRESETS = {"hours6", "hours12", "daily"}
+FA_POLICIES = {"auto", "confirm", "off"}
+FA_ACTIONS = ("alert", "work_order", "diagnosis", "record", "pesticide", "plot")
+FA_WEATHER_PROVIDERS = {"none", "qweather", "openweather"}
+FA_THRESHOLD_RANGES: dict[str, tuple[float, float]] = {
+    "soil_moisture_low": (1.0, 80.0),
+    "rain_no_spray_mm": (0.0, 200.0),
+    "wind_no_spray_ms": (0.0, 40.0),
+    "temp_drop_c": (0.0, 30.0),
+    "temp_min_c": (-30.0, 20.0),
+    "temp_max_c": (15.0, 55.0),
+    "humidity_disease_pct": (50.0, 100.0),
+    "offline_hours": (0.5, 168.0),
+}
 MENU_MODES = {"minimal", "standard", "full"}
 
 
@@ -255,6 +302,82 @@ def _validate(key: str, value: dict[str, Any], merged: dict[str, Any]) -> None:
             ) from e
         if not 0 <= budget <= 10_000_000 or not 6 <= window <= 168:
             raise AppError("INVALID_REQUEST", "设备分析预算/窗口超出允许范围。", http_status=400)
+    elif key == "farm_agent":
+        for flag in ("enabled", "explain_with_llm"):
+            if not isinstance(merged[flag], bool):
+                raise AppError(
+                    "INVALID_REQUEST", "Agent 自动执行开关必须是布尔值。", http_status=400
+                )
+        schedule = merged.get("schedule")
+        if not isinstance(schedule, dict) or schedule.get("preset") not in FA_PRESETS:
+            raise AppError("INVALID_REQUEST", "自动执行调度不合法。", http_status=400)
+        actions = merged.get("actions")
+        if not isinstance(actions, dict):
+            raise AppError("INVALID_REQUEST", "动作策略必须是对象。", http_status=400)
+        unknown = set(actions) - set(FA_ACTIONS)
+        if unknown:
+            raise AppError(
+                "INVALID_REQUEST",
+                f"未知动作类型：{', '.join(sorted(unknown))}",
+                http_status=400,
+            )
+        if any(value not in FA_POLICIES for value in actions.values()):
+            raise AppError("INVALID_REQUEST", "动作策略必须是 auto/confirm/off。", http_status=400)
+        thresholds = merged.get("thresholds")
+        if not isinstance(thresholds, dict):
+            raise AppError("INVALID_REQUEST", "阈值必须是对象。", http_status=400)
+        for name, raw in thresholds.items():
+            if name not in FA_THRESHOLD_RANGES:
+                raise AppError("INVALID_REQUEST", f"未知阈值：{name}", http_status=400)
+            try:
+                number = float(raw)
+            except (TypeError, ValueError) as e:
+                raise AppError(
+                    "INVALID_REQUEST", f"阈值 {name} 必须是数字。", http_status=400
+                ) from e
+            low, high = FA_THRESHOLD_RANGES[name]
+            if not low <= number <= high:
+                raise AppError(
+                    "INVALID_REQUEST",
+                    f"阈值 {name} 超出允许范围（{low:g}~{high:g}）。",
+                    http_status=400,
+                )
+        try:
+            budget = int(merged["daily_budget_tokens"])
+            dedupe = int(merged["dedupe_hours"])
+            window = int(merged["window_hours"])
+        except (TypeError, ValueError) as e:
+            raise AppError(
+                "INVALID_REQUEST", "自动执行预算/降噪/窗口必须是整数。", http_status=400
+            ) from e
+        if not 0 <= budget <= 10_000_000:
+            raise AppError("INVALID_REQUEST", "自动执行预算超出允许范围。", http_status=400)
+        if not 1 <= dedupe <= 168 or not 6 <= window <= 168:
+            raise AppError("INVALID_REQUEST", "降噪时长或窗口超出允许范围。", http_status=400)
+        provider = merged.get("weather_provider")
+        if provider not in FA_WEATHER_PROVIDERS:
+            raise AppError("INVALID_REQUEST", "天气预报供应商不合法。", http_status=400)
+        if provider != "none":
+            if not str(merged.get("weather_api_key") or "").strip():
+                raise AppError(
+                    "INVALID_REQUEST",
+                    "启用天气预报需要填写 API Key（未填写时请保持供应商为 none）。",
+                    http_status=400,
+                )
+            if provider == "qweather" and not str(merged.get("weather_location") or "").strip():
+                raise AppError(
+                    "INVALID_REQUEST", "和风天气需要填写 Location ID 或城市名。", http_status=400
+                )
+            if provider == "openweather":
+                has_coords = isinstance(merged.get("weather_lat"), int | float) and isinstance(
+                    merged.get("weather_lon"), int | float
+                )
+                if not has_coords and not str(merged.get("weather_location") or "").strip():
+                    raise AppError(
+                        "INVALID_REQUEST",
+                        "OpenWeather 需要填写城市名或经纬度。",
+                        http_status=400,
+                    )
     elif key == "menu":
         _validate_menu(merged)
     else:
@@ -319,6 +442,9 @@ def public_view(db: Session, yard_id: str) -> dict[str, dict[str, Any]]:
     search = data["search"]
     search["tavily_configured"] = bool(search.pop("tavily_api_key", ""))
     search["brave_configured"] = bool(search.pop("brave_api_key", ""))
+    farm_agent = data.get("farm_agent")
+    if farm_agent is not None:
+        farm_agent["weather_api_key_configured"] = bool(farm_agent.pop("weather_api_key", ""))
     return data
 
 

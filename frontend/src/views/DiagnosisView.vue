@@ -223,7 +223,7 @@
             width="110"
           >
             <template #default="{ row }">
-              {{ row.pre_harvest_interval_days }} 天
+              {{ row.pre_harvest_interval_days > 0 ? `${row.pre_harvest_interval_days} 天` : '未填' }}
             </template>
           </el-table-column>
           <el-table-column
@@ -231,7 +231,21 @@
             width="90"
           >
             <template #default="{ row }">
+              <el-tooltip
+                v-if="row.status === 'draft'"
+                content="Agent 按用药记录名称建的草稿，请补全有效成分与安全间隔期后改为「在用」"
+                placement="top"
+              >
+                <el-tag
+                  size="small"
+                  type="warning"
+                  effect="plain"
+                >
+                  待补充
+                </el-tag>
+              </el-tooltip>
               <el-tag
+                v-else
                 size="small"
                 :type="row.status === 'active' ? 'success' : 'info'"
               >
@@ -870,6 +884,10 @@
               value="active"
             />
             <el-option
+              label="待补充（Agent 草稿）"
+              value="draft"
+            />
+            <el-option
               label="归档"
               value="archived"
             />
@@ -1148,7 +1166,7 @@
     cropsText: '',
     pre_harvest_interval_days: 0,
     label_notes: '',
-    status: 'active' as 'active' | 'archived',
+    status: 'active' as 'active' | 'draft' | 'archived',
   })
 
   const harvestDialog = ref(false)
@@ -1455,6 +1473,11 @@
 
   async function calcHarvest() {
     if (!harvestProduct.value || !appliedOn.value) return
+    const product = harvestProduct.value
+    if (product.status !== 'active' || product.pre_harvest_interval_days <= 0) {
+      ElMessage.warning('该药剂还没有有效的安全间隔期，请先补全信息并在状态里改为「在用」。')
+      return
+    }
     harvestResult.value = await diagnosisApi.safeHarvest(
       harvestProduct.value.pesticide_id,
       appliedOn.value,

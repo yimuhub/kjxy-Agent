@@ -83,6 +83,8 @@ def _record_out(record: FarmRecord, plot_name: str) -> dict:
         "unit": record.unit,
         "operator_name": record.operator_name,
         "metadata_json": record.metadata_json,
+        "source": getattr(record, "source", "manual"),
+        "agent_run_id": getattr(record, "agent_run_id", None),
         "revision": int(record.revision or 1),
         "created_at": record.created_at,
         "updated_at": record.updated_at,

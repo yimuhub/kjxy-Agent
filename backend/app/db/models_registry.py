@@ -45,6 +45,8 @@ from app.modules.evolution.models import (  # noqa: F401
 from app.modules.farm.models import (  # noqa: F401
     CropDiagnosis,
     DiagnosisFollowUp,
+    FarmAgentAction,
+    FarmAgentRun,
     FarmAlert,
     FarmCycle,
     FarmPlot,

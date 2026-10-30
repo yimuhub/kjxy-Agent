@@ -116,6 +116,9 @@ class FarmRecord(Base, TimestampMixin):
     operator_name: Mapped[str] = mapped_column(String(60), nullable=False, default="")
     # 照片/附件等扩展信息，先留结构位，不把大对象写进主表
     metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # manual=人工录入；agent=Agent 自动执行（如系统观察记录）；device=设备推送
+    source: Mapped[str] = mapped_column(String(16), nullable=False, default="manual")
+    agent_run_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     client_op_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -240,6 +243,7 @@ class FarmAlert(Base, TimestampMixin):
     plot_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="new")
     work_order_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    agent_run_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
 
@@ -267,6 +271,7 @@ class WorkOrder(Base, TimestampMixin):
     escalation_level: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     resolution: Mapped[str] = mapped_column(Text, nullable=False, default="")
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    agent_run_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     client_op_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -290,3 +295,76 @@ class WorkOrderEvent(Base, TimestampMixin):
     from_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
     to_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
     client_op_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+# ---------------------------------------------------------------------------
+# Agent 自动执行（v3.28）
+# ---------------------------------------------------------------------------
+
+FARM_AGENT_RUN_STATUSES = ("running", "ok", "insufficient", "failed")
+#: 动作类型：alert=告警；work_order=工单；diagnosis=作物诊断；record=台账观察记录；
+#: pesticide=待登记药剂；plot=建议建档地块
+FARM_AGENT_ACTION_KINDS = ("alert", "work_order", "diagnosis", "record", "pesticide", "plot")
+#: pending=待人工确认；executed=已执行；dismissed=已忽略；failed=执行失败
+FARM_AGENT_ACTION_STATUSES = ("pending", "executed", "dismissed", "failed")
+#: auto=直接执行；confirm=进入待确认；off=不产出该动作
+FARM_AGENT_POLICIES = ("auto", "confirm", "off")
+
+
+class FarmAgentRun(Base, TimestampMixin):
+    """一次 Agent 自动执行：证据摘要、规则发现、结论与消耗只追加不改写。"""
+
+    __tablename__ = "farm_agent_runs"
+    __table_args__ = (
+        Index("ix_farm_agent_runs_yard_created", "yard_id", "created_at"),
+        Index("ix_farm_agent_runs_yard_status", "yard_id", "status"),
+    )
+
+    yard_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    # manual=人在页面点「立即运行」；schedule=定时任务
+    trigger: Mapped[str] = mapped_column(String(16), nullable=False, default="manual")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="running")
+    level: Mapped[str] = mapped_column(String(16), nullable=False, default="info")
+    window_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    window_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # 设备/天气/台账/药剂/周期的证据摘要（不含原始读数全文）
+    evidence_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    findings_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    model: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    tokens_used: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+
+
+class FarmAgentAction(Base, TimestampMixin):
+    """Agent 产出的一个动作；confirm 策略先落 pending，由人确认后才真正执行。"""
+
+    __tablename__ = "farm_agent_actions"
+    __table_args__ = (
+        Index("ix_farm_agent_actions_yard_status", "yard_id", "status"),
+        Index("ix_farm_agent_actions_yard_run", "yard_id", "run_id"),
+        Index("ix_farm_agent_actions_yard_dedupe", "yard_id", "dedupe_key"),
+    )
+
+    yard_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    run_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    rule_code: Mapped[str] = mapped_column(String(60), nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    policy: Mapped[str] = mapped_column(String(16), nullable=False, default="confirm")
+    severity: Mapped[str] = mapped_column(String(16), nullable=False, default="normal")
+    title: Mapped[str] = mapped_column(String(160), nullable=False)
+    detail: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    payload_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # 执行产物：farm_alert|work_order|crop_diagnosis|farm_record|pesticide_product|farm_plot
+    target_type: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    target_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # 幂等/降噪键：同键在 dedupe_hours 内不重复产出
+    dedupe_key: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    error: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    confirmed_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

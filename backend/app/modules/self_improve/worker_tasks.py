@@ -49,6 +49,16 @@ def run_due_jobs_task() -> dict[str, int]:
             except Exception as e:  # noqa: BLE001 - 设备分析失败不影响其他调度
                 db.rollback()
                 log.warning("devices.run_due_analyses failed: %s", e)
+            try:
+                # 自动执行排在设备分析之后：规则读到的永远是最新一次分析结论
+                from app.modules.farm.agent_jobs import run_due_automations
+
+                agent_stats = run_due_automations(db)
+                if agent_stats["due"]:
+                    log.info("farm.run_due_automations: %s", agent_stats)
+            except Exception as e:  # noqa: BLE001 - 自动执行失败不影响其他调度
+                db.rollback()
+                log.warning("farm.run_due_automations failed: %s", e)
     finally:
         db.close()
     if stats["due"]:
@@ -86,6 +96,10 @@ def start_inline_scheduler() -> bool:
                         from app.modules.devices.analysis_jobs import run_due_analyses
 
                         run_due_analyses(db)
+                        db.rollback()
+                        from app.modules.farm.agent_jobs import run_due_automations
+
+                        run_due_automations(db)
                 finally:
                     db.close()
             except Exception as e:  # noqa: BLE001 - 调度线程绝不因单次失败退出

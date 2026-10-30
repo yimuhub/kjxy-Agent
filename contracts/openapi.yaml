@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.27.0
+  version: 3.28.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -3591,6 +3591,207 @@ paths:
         schema:
           type: string
           title: Order Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/farm/automation/overview:
+    get:
+      tags:
+      - v1
+      - farm-automation
+      summary: Overview
+      operationId: overview_api_v1_farm_automation_overview_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/farm/automation/runs:
+    get:
+      tags:
+      - v1
+      - farm-automation
+      summary: List Runs
+      operationId: list_runs_api_v1_farm_automation_runs_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+          title: Page
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 20
+          title: Page Size
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/farm/automation/runs/{run_id}:
+    get:
+      tags:
+      - v1
+      - farm-automation
+      summary: Get Run
+      operationId: get_run_api_v1_farm_automation_runs__run_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Run Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/farm/automation/actions:
+    get:
+      tags:
+      - v1
+      - farm-automation
+      summary: List Actions
+      operationId: list_actions_api_v1_farm_automation_actions_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 16
+          - type: 'null'
+          title: Status
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+          title: Page
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 20
+          title: Page Size
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/farm/automation/run:
+    post:
+      tags:
+      - v1
+      - farm-automation
+      summary: Run Now
+      operationId: run_now_api_v1_farm_automation_run_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/farm/automation/actions/{action_id}/confirm:
+    post:
+      tags:
+      - v1
+      - farm-automation
+      summary: Confirm Action
+      operationId: confirm_action_api_v1_farm_automation_actions__action_id__confirm_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: action_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Action Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/farm/automation/actions/{action_id}/dismiss:
+    post:
+      tags:
+      - v1
+      - farm-automation
+      summary: Dismiss Action
+      operationId: dismiss_action_api_v1_farm_automation_actions__action_id__dismiss_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: action_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Action Id
       responses:
         '200':
           description: Successful Response

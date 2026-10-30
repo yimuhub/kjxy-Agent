@@ -146,6 +146,9 @@ class RecordOut(BaseModel):
     unit: str
     operator_name: str
     metadata_json: dict | None
+    #: manual=人工录入；agent=Agent 自动执行（界面标「Agent 自动」）
+    source: str = "manual"
+    agent_run_id: str | None = None
     revision: int = 1
     created_at: datetime
     updated_at: datetime
@@ -344,6 +347,7 @@ class AlertOut(BaseModel):
     plot_id: str | None
     status: str
     work_order_id: str | None
+    agent_run_id: str | None = None
     created_at: datetime
 
 
@@ -410,6 +414,7 @@ class WorkOrderOut(BaseModel):
     escalation_level: int
     resolution: str
     closed_at: datetime | None
+    agent_run_id: str | None = None
     revision: int = 1
     created_at: datetime
     updated_at: datetime
