@@ -90,6 +90,28 @@ export const authApi = {
 
 // ---------- 小院 ----------
 
+export interface QuotaItem {
+  /** 后端下发的中文名（模型调用 / 知识库文档 / 任务） */
+  label?: string
+  limit: number
+  used: number
+  remaining: number
+  usage_percent: number
+}
+
+export interface QuotaStatus {
+  yard_id: string
+  period: string
+  quotas: Record<string, QuotaItem>
+  warnings: { kind: string; label?: string; level: string; message: string }[]
+}
+
+export interface QuotaLimitPatch {
+  llm_calls_limit?: number
+  knowledge_docs_limit?: number
+  tasks_limit?: number
+}
+
 export const yardApi = {
   current(): Promise<Yard> {
     return unwrap(api.get<ApiResponse<Yard>>('/yards/current'))
@@ -142,8 +164,20 @@ export const yardApi = {
     )
   },
   /** 当前小院配额状态 */
-  getQuota(): Promise<any> {
-    return unwrap(api.get<ApiResponse<any>>('/yards/quota'))
+  getQuota(): Promise<QuotaStatus> {
+    return unwrap(api.get<ApiResponse<QuotaStatus>>('/yards/quota'))
+  },
+  /** 调整小院配额上限（quota:manage）：上限为 0 表示该额度禁用 */
+  updateQuota(yardId: string, payload: QuotaLimitPatch): Promise<QuotaStatus> {
+    return unwrap(
+      api.patch<ApiResponse<QuotaStatus>>(`/admin/quotas/${yardId}`, payload),
+    )
+  },
+  /** 清零已用量（不动上限）：本地部署没有 Redis 月度任务时靠这里恢复 */
+  resetQuota(yardId: string, kinds: string[] = []): Promise<QuotaStatus> {
+    return unwrap(
+      api.post<ApiResponse<QuotaStatus>>(`/admin/quotas/${yardId}/reset`, { kinds }),
+    )
   },
   /** 公开：小院自助注册，返回可直接登录的 access_token */
   signup(payload: YardSignupPayload): Promise<YardSignupResult> {

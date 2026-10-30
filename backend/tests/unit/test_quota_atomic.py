@@ -59,7 +59,7 @@ def test_stale_reader_cannot_bypass_limit(sessions):
     with pytest.raises(AppError) as exc:
         quota_mod.check_and_consume(stale, yard, "tasks")
     assert exc.value.code == "QUOTA_EXCEEDED"
-    assert exc.value.details == {"kind": "tasks", "used": 1, "limit": 1}
+    assert exc.value.details == {"kind": "tasks", "label": "任务", "used": 1, "limit": 1}
     assert _used(other, yard) == 1
 
 
@@ -83,7 +83,7 @@ def test_batch_amount_respects_remaining(sessions):
     with pytest.raises(AppError) as exc:
         quota_mod.check_and_consume(db, yard, "tasks", amount=3)
     assert exc.value.code == "QUOTA_EXCEEDED"
-    assert exc.value.details == {"kind": "tasks", "used": 3, "limit": 5}
+    assert exc.value.details == {"kind": "tasks", "label": "任务", "used": 3, "limit": 5}
     assert _used(db, yard) == 3
 
 

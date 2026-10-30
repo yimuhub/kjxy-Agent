@@ -30,6 +30,13 @@ DEFAULT_LIMITS: dict[str, int] = {
     "tasks": 500,
 }
 
+#: 额度类型中文名（告警、状态、界面统一口径，避免把 llm_calls 这种码抛给用户）
+KIND_LABELS: dict[str, str] = {
+    "llm_calls": "模型调用",
+    "knowledge_docs": "知识库文档",
+    "tasks": "任务",
+}
+
 WARNING_THRESHOLD = 90
 
 
@@ -83,11 +90,13 @@ def check_and_consume(db: Session, yard_id: str, kind: str, amount: int = 1) -> 
     # 读取扣减后的真实用量：直接查列，避免命中身份映射里的旧值。
     used, limit = db.execute(select(used_col, limit_col).where(YardQuota.yard_id == yard_id)).one()
     if not getattr(result, "rowcount", 0):
+        label = KIND_LABELS.get(kind, kind)
         raise AppError(
             "QUOTA_EXCEEDED",
-            f"{kind} 配额已用尽（已用 {used}/{limit}）。",
+            f"{label}配额已用尽（已用 {used}/{limit}）。"
+            "可由小院负责人/管理员在「管理与统计 → 用量额度」调整上限或清零已用。",
             http_status=429,
-            details={"kind": kind, "used": used, "limit": limit},
+            details={"kind": kind, "label": label, "used": used, "limit": limit},
         )
     db.commit()
     _alert_thresholds(yard_id, kind, int(used), int(limit))
@@ -100,10 +109,11 @@ def _alert_thresholds(yard_id: str, kind: str, new_used: int, limit: int) -> Non
     """
     if limit <= 0:
         return
+    label = KIND_LABELS.get(kind, kind)
     if new_used >= limit:
         send_alert(
             title="quota",
-            message=f"小院 {yard_id} 的 {kind} 配额已用尽（{new_used}/{limit}）。",
+            message=f"小院 {yard_id} 的{label}配额已用尽（{new_used}/{limit}）。",
             level="critical",
             dedupe_key=f"quota:{yard_id}:{kind}:100",
         )
@@ -111,7 +121,7 @@ def _alert_thresholds(yard_id: str, kind: str, new_used: int, limit: int) -> Non
         send_alert(
             title="quota",
             message=(
-                f"小院 {yard_id} 的 {kind} 使用率已达 "
+                f"小院 {yard_id} 的{label}使用率已达 "
                 f"{WARNING_THRESHOLD}%（{new_used}/{limit}）。"
             ),
             level="warning",
@@ -132,8 +142,10 @@ def get_quota_status(db: Session, yard_id: str) -> dict:
     for kind, (used_attr, limit_attr) in _QUOTA_FIELDS.items():
         used = int(getattr(quota, used_attr))
         limit = int(getattr(quota, limit_attr))
+        label = KIND_LABELS.get(kind, kind)
         percent = round(used / limit * 100, 2) if limit > 0 else 0.0
         items[kind] = {
+            "label": label,
             "limit": limit,
             "used": used,
             "remaining": max(limit - used, 0),
@@ -143,8 +155,9 @@ def get_quota_status(db: Session, yard_id: str) -> dict:
             warnings.append(
                 {
                     "kind": kind,
+                    "label": label,
                     "level": "warning",
-                    "message": f"{kind} 配额使用率已达 {percent}%（{used}/{limit}）。",
+                    "message": f"{label}配额使用率已达 {percent}%（{used}/{limit}）。",
                 }
             )
     return {
@@ -153,3 +166,28 @@ def get_quota_status(db: Session, yard_id: str) -> dict:
         "quotas": items,
         "warnings": warnings,
     }
+
+
+def reset_usage(db: Session, yard_id: str, kinds: list[str] | None = None) -> dict:
+    """把已用量清零（只动 used，不动 limit）。
+
+    月度清零依赖 Redis beat 任务，本地/桌面部署没有 Redis 时永远不会执行；
+    因此给运营侧一个显式入口，超限后可以立刻恢复可用。
+    """
+    targets = list(dict.fromkeys(kinds or list(_QUOTA_FIELDS)))
+    unknown = [k for k in targets if k not in _QUOTA_FIELDS]
+    if unknown:
+        raise AppError(
+            "INVALID_REQUEST",
+            f"未知配额类型：{'、'.join(unknown)}。",
+            http_status=400,
+        )
+    ensure_quota(db, yard_id)
+    db.execute(
+        update(YardQuota)
+        .where(YardQuota.yard_id == yard_id)
+        .values({_QUOTA_FIELDS[k][0]: 0 for k in targets})
+        .execution_options(synchronize_session=False)
+    )
+    db.commit()
+    return get_quota_status(db, yard_id)

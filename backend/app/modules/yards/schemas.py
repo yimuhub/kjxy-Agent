@@ -218,3 +218,12 @@ class QuotaAdminPatchRequest(BaseModel):
         ):
             raise ValueError("至少提供一个配额限额字段")
         return self
+
+
+class QuotaAdminResetRequest(BaseModel):
+    """清零已用量：``kinds`` 为空表示三类全部清零。"""
+
+    kinds: list[str] = Field(
+        default_factory=list,
+        description="要清零的额度类型：llm_calls / knowledge_docs / tasks；空=全部",
+    )

@@ -450,7 +450,28 @@
       shadow="never"
     >
       <template #header>
-        用量额度（{{ unitsName }}）
+        <div class="card-head">
+          <span>用量额度（{{ unitsName }}）</span>
+          <div
+            v-if="canManageQuota"
+            class="quota-actions"
+          >
+            <span class="card-hint">上限为 0 表示停用该额度</span>
+            <el-button
+              size="small"
+              @click="openQuotaDialog"
+            >
+              调整额度
+            </el-button>
+            <el-button
+              size="small"
+              :loading="quotaResetting"
+              @click="resetQuota"
+            >
+              清零已用
+            </el-button>
+          </div>
+        </div>
       </template>
       <AsyncState
         :state="quotaState"
@@ -513,17 +534,56 @@
         </el-table>
       </AsyncState>
     </el-card>
+
+    <el-dialog
+      v-model="quotaDialogVisible"
+      title="调整用量额度"
+      width="480px"
+      append-to-body
+    >
+      <p class="dialog-hint">
+        上限为 0 表示停用该额度；调整只影响之后的新请求，不会回溯已发生的调用。
+      </p>
+      <el-form label-width="110px">
+        <el-form-item
+          v-for="item in quotaForm"
+          :key="item.kind"
+          :label="item.label"
+        >
+          <el-input-number
+            v-model="item.limit"
+            :min="0"
+            :max="100000000"
+            :step="100"
+          />
+          <span class="form-hint">已用 {{ item.used }}</span>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="quotaDialogVisible = false">
+          取消
+        </el-button>
+        <el-button
+          type="primary"
+          :loading="quotaSaving"
+          @click="saveQuota"
+        >
+          保存
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 <script setup lang="ts">
   import { computed, onMounted, reactive, ref, watch } from 'vue'
-  import { ElMessage } from 'element-plus'
+  import { ElMessage, ElMessageBox } from 'element-plus'
   import {
     yardApi,
     llmTraceApi,
     type LlmTraceItem,
     type LlmUsageOverview,
     type LlmUsageRow,
+    type QuotaLimitPatch,
   } from '@/api/modules'
   import { formatTime } from '@/utils/format'
   import { downloadCsvSections, todayStamp, type CsvSection } from '@/utils/csv'
@@ -533,6 +593,7 @@
   import { useAuthStore } from '@/stores/auth'
 
   interface QuotaItem {
+    label?: string
     limit: number
     used: number
     remaining: number
@@ -604,13 +665,90 @@
   const range = ref(30)
 
   const unitsName = computed(() => auth.yard?.name ?? '当前小院')
+  const canManageQuota = computed(() => auth.hasPermission('quota:manage'))
   const rows = computed<QuotaRow[]>(() =>
     Object.entries(quotas).map(([kind, item]) => ({
       kind,
-      label: KIND_LABELS[kind] ?? kind,
+      label: item.label ?? KIND_LABELS[kind] ?? kind,
       ...item,
     })),
   )
+
+  // 管理员调整上限：三个额度一起改，避免只改一项时其余被误清空
+  const quotaDialogVisible = ref(false)
+  const quotaSaving = ref(false)
+  const quotaResetting = ref(false)
+  const quotaForm = ref<{ kind: string; label: string; limit: number; used: number }[]>([])
+
+  function openQuotaDialog() {
+    quotaForm.value = rows.value.map(r => ({
+      kind: r.kind,
+      label: r.label,
+      limit: r.limit,
+      used: r.used,
+    }))
+    quotaDialogVisible.value = true
+  }
+
+  async function saveQuota() {
+    const yardId = auth.yard?.yard_id
+    if (!yardId) {
+      ElMessage.error('未取到当前小院，无法调整额度')
+      return
+    }
+    const payload: QuotaLimitPatch = {}
+    for (const item of quotaForm.value) {
+      if (item.limit < 0 || !Number.isFinite(item.limit)) {
+        ElMessage.error(`${item.label}的上限必须是非负整数`)
+        return
+      }
+      if (item.limit < item.used) {
+        ElMessage.warning(`${item.label}的上限低于已用量，保存后该额度会立即处于超限状态`)
+      }
+      const limit = Math.floor(item.limit)
+      if (item.kind === 'llm_calls') payload.llm_calls_limit = limit
+      else if (item.kind === 'knowledge_docs') payload.knowledge_docs_limit = limit
+      else if (item.kind === 'tasks') payload.tasks_limit = limit
+    }
+    quotaSaving.value = true
+    try {
+      await yardApi.updateQuota(yardId, payload)
+      ElMessage.success('额度已更新')
+      quotaDialogVisible.value = false
+      await loadQuota()
+    } catch (e) {
+      ElMessage.error('调整额度失败：' + (e instanceof Error ? e.message : String(e)))
+    } finally {
+      quotaSaving.value = false
+    }
+  }
+
+  async function resetQuota() {
+    const yardId = auth.yard?.yard_id
+    if (!yardId) {
+      ElMessage.error('未取到当前小院，无法清零')
+      return
+    }
+    try {
+      await ElMessageBox.confirm(
+        '清零只重置「已用」计数（模型调用 / 知识库文档 / 任务），上限保持不变。确定继续？',
+        '清零已用量',
+        { type: 'warning', confirmButtonText: '清零', cancelButtonText: '取消' },
+      )
+    } catch {
+      return
+    }
+    quotaResetting.value = true
+    try {
+      await yardApi.resetQuota(yardId)
+      ElMessage.success('已用量已清零')
+      await loadQuota()
+    } catch (e) {
+      ElMessage.error('清零失败：' + (e instanceof Error ? e.message : String(e)))
+    } finally {
+      quotaResetting.value = false
+    }
+  }
   function progressStatus(percent: number): 'success' | 'warning' | 'exception' | undefined {
     if (percent >= 90) return 'exception'
     if (percent >= 70) return 'warning'
@@ -905,6 +1043,24 @@
   }
   .warn {
     margin-bottom: 12px;
+  }
+  .quota-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  .dialog-hint {
+    margin: 0 0 12px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--ds-text-3);
+  }
+  .form-hint {
+    margin-left: 10px;
+    font-size: 12px;
+    color: var(--ds-text-3);
+    font-variant-numeric: tabular-nums;
   }
   .section {
     margin-bottom: 16px;

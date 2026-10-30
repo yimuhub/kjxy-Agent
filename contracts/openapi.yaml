@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.30.0
+  version: 3.31.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -1136,7 +1136,7 @@ paths:
       tags:
       - v1
       summary: Admin Patch Quota
-      description: 运营调整小院配额限额（ge=0）；每次调整写审计，返回调整后的配额状态。
+      description: 调整小院配额限额（ge=0）；每次调整写审计，返回调整后的配额状态。
       operationId: admin_patch_quota_api_v1_admin_quotas__yard_id__patch
       security:
       - HTTPBearer: []
@@ -1153,6 +1153,40 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/QuotaAdminPatchRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/admin/quotas/{yard_id}/reset:
+    post:
+      tags:
+      - v1
+      summary: Admin Reset Quota
+      description: 清零已用量（不动上限）：本地/桌面部署没有 Redis 时月度清零不会执行，靠这里恢复。
+      operationId: admin_reset_quota_api_v1_admin_quotas__yard_id__reset_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: yard_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Yard Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuotaAdminResetRequest'
       responses:
         '200':
           description: Successful Response
@@ -11413,7 +11447,7 @@ components:
           items:
             type: string
           type: array
-          maxItems: 43
+          maxItems: 44
           title: Grants
       additionalProperties: false
       type: object
@@ -11709,7 +11743,7 @@ components:
           items:
             type: string
           type: array
-          maxItems: 43
+          maxItems: 44
           title: Grants
         confirm_protected:
           type: boolean
@@ -12452,6 +12486,17 @@ components:
       type: object
       title: QuotaAdminPatchRequest
       description: 运营调整小院配额限额：三个限额字段均 ge=0，至少提供一个。
+    QuotaAdminResetRequest:
+      properties:
+        kinds:
+          items:
+            type: string
+          type: array
+          title: Kinds
+          description: 要清零的额度类型：llm_calls / knowledge_docs / tasks；空=全部
+      type: object
+      title: QuotaAdminResetRequest
+      description: 清零已用量：``kinds`` 为空表示三类全部清零。
     RecordCreate:
       properties:
         client_op_id:

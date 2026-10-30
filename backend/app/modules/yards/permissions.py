@@ -45,6 +45,7 @@ ALL_PERMISSIONS: frozenset[str] = frozenset(
         "finance:read",
         "audit:read",
         "admin:stats",
+        "quota:manage",
         "tools:execute",
         "tools:manage",
         "llm:manage",
@@ -115,6 +116,7 @@ PERMISSION_LABELS: dict[str, str] = {
     "finance:read": "查看财务数据",
     "audit:read": "查看审计日志",
     "admin:stats": "查看平台统计",
+    "quota:manage": "调整用量额度",
     "tools:execute": "执行工具",
     "tools:manage": "管理可用工具",
     "llm:manage": "管理模型配置",
@@ -273,6 +275,7 @@ PERMISSION_GROUPS: tuple[dict[str, object], ...] = (
             "finance:read",
             "audit:read",
             "admin:stats",
+            "quota:manage",
         ],
     },
     {
