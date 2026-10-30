@@ -2804,9 +2804,11 @@ paths:
         schema:
           anyOf:
           - type: string
-            maxLength: 16
+            maxLength: 64
           - type: 'null'
+          description: 单个状态或逗号分隔多状态
           title: Status
+        description: 单个状态或逗号分隔多状态
       - name: plot_id
         in: query
         required: false
