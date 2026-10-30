@@ -11,6 +11,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.deps import YardContext
 from app.core.errors import AppError
@@ -697,8 +698,21 @@ def create_run_task(db: Session, *, run: TeamRun, ctx: YardContext):
 
     require_run_access(run, ctx)
     task = TaskService.create(
-        db, ctx, task_type="team_run", input={"run_id": run.id}, request_id=ctx.request_id
+        db,
+        ctx,
+        task_type="team_run",
+        # data 必须严格等于 {"run_id": ...}：worker 用严格相等做身份校验，
+        # 展示用的班组名/问题放 meta.display（不参与校验）。
+        input={"run_id": run.id},
+        request_id=ctx.request_id,
     )
+    meta = dict((task.input_json or {}).get("meta") or {})
+    meta["display"] = {
+        "team_name": run.team_name or "",
+        "question": (run.input or "")[:120],
+    }
+    task.input_json = {**(task.input_json or {}), "meta": meta}
+    flag_modified(task, "input_json")
     run.task_id = task.id
     db.flush()
     return task

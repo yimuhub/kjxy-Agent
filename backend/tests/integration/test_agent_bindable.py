@@ -145,6 +145,7 @@ def test_admin_and_member_see_published_skills_and_enabled_plugins(client, db_se
         definition={
             "name": "病虫害防治",
             "summary": "一句话说明" * 80,  # >200 字 → 截断
+            "tags": ["病虫害", "防治"],
             "guardrails": {"risk_level": "medium"},
             "market_item_key": "builtin:skill:agri_pest",
         },
@@ -173,12 +174,14 @@ def test_admin_and_member_see_published_skills_and_enabled_plugins(client, db_se
         "code",
         "name",
         "summary",
+        "tags",
         "source",
         "visibility",
         "risk_level",
         "bound_count",
     }
     assert mine["name"] == "病虫害防治"
+    assert mine["tags"] == ["病虫害", "防治"]  # v3.29：标签参与一句话建 Agent 召回
     assert mine["summary"] == "一句话说明" * 40  # 400 字截断为 200 字
     assert mine["source"] == "builtin"
     assert mine["visibility"] == "yard"
@@ -194,6 +197,7 @@ def test_admin_and_member_see_published_skills_and_enabled_plugins(client, db_se
         "code",
         "name",
         "summary",
+        "tags",
         "source",
         "status",
         "risk_level",

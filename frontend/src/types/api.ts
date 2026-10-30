@@ -164,6 +164,9 @@ export type TaskPriority = 'low' | 'normal' | 'high'
 export interface Task {
   id: string
   task_type: string
+  /** 可读任务名称（后端按类型 + 输入主体生成，v3.29） */
+  title?: string
+  task_type_label?: string
   status: TaskStatus
   priority?: TaskPriority
   input?: Record<string, unknown>

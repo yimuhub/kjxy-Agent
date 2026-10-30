@@ -164,8 +164,64 @@ def _keywords(text: str) -> list[str]:
     return out
 
 
+#: 领域同义词：用户说「农机维修」，技能名叫「农机保养」也要能命中。
+#: 只做“词 → 同领域词”的确定性扩展，不引入模型判断，结果可复核。
+DOMAIN_SYNONYMS: dict[str, tuple[str, ...]] = {
+    "维修": ("保养", "检修", "故障", "易损件"),
+    "检修": ("保养", "维修", "故障"),
+    "故障": ("维修", "保养", "检修"),
+    "拖拉机": ("农机", "保养"),
+    "收割机": ("农机", "保养"),
+    "插秧机": ("农机", "保养"),
+    "播种机": ("农机", "保养"),
+    "旋耕机": ("农机", "保养"),
+    "水泵": ("灌溉", "农机"),
+    "滴灌": ("灌溉", "节水"),
+    "喷灌": ("灌溉", "节水"),
+    "浇水": ("灌溉", "墒情"),
+    "打药": ("农药", "病虫害", "防治"),
+    "喷药": ("农药", "病虫害"),
+    "施肥": ("营养", "缺素"),
+    "缺素": ("营养", "施肥"),
+    "病害": ("病虫害", "诊断"),
+    "虫害": ("病虫害", "防治"),
+    "稻瘟病": ("病虫害", "诊断"),
+    "纹枯病": ("病虫害", "诊断"),
+    "稻飞虱": ("病虫害", "诊断"),
+    "防冻": ("气候", "低温", "灾害"),
+    "台风": ("气候", "大风", "灾害"),
+    "冰雹": ("气候", "灾害"),
+    "干旱": ("气候", "灌溉", "灾害"),
+    "渍涝": ("气候", "排水", "灾害"),
+    "采摘": ("采收", "保鲜"),
+    "储藏": ("贮运", "保鲜"),
+    "冷链": ("贮运", "保鲜"),
+    "行情": ("市场", "询价"),
+    "收购": ("收购", "市场", "询价"),
+    "补贴": ("政策", "申报"),
+    "惠农": ("政策", "申报"),
+    "台账": ("记录", "可追溯"),
+    "巡田": ("田间", "记录"),
+    "农时": ("农事", "日历"),
+}
+
+
+def _expand_keywords(keywords: list[str]) -> list[str]:
+    """按领域同义词扩展关键词（保序去重），让「维修」能命中「保养」类技能。"""
+    out: list[str] = []
+    seen: set[str] = set()
+    for kw in keywords:
+        for token in (kw, *DOMAIN_SYNONYMS.get(kw, ())):
+            if token and token not in seen:
+                seen.add(token)
+                out.append(token)
+    return out
+
+
 def _hay(entry: dict[str, Any]) -> str:
-    return f"{entry.get('name') or ''} {entry.get('summary') or ''}".lower()
+    tags = entry.get("tags") or []
+    tag_text = " ".join(str(tag) for tag in tags) if isinstance(tags, list) else ""
+    return f"{entry.get('name') or ''} {entry.get('summary') or ''} {tag_text}".lower()
 
 
 def _score(entry: dict[str, Any], keywords: list[str]) -> int:
@@ -221,7 +277,9 @@ def match_skills(
     requirements: list[dict[str, Any]] = []
     used: set[str] = set()
     for need in needs:
-        keywords = [str(kw).lower() for kw in (need.get("keywords") or []) if len(str(kw)) >= 2]
+        keywords = _expand_keywords(
+            [str(kw).lower() for kw in (need.get("keywords") or []) if len(str(kw)) >= 2]
+        )
         best: tuple[int, str, dict[str, Any]] | None = None
         for kind, entry in pool:
             code = str(entry.get("code") or "")
@@ -265,7 +323,7 @@ def request_agent(db: Session, *, ctx: YardContext, utterance: str) -> dict[str,
         raise AppError("INVALID_REQUEST", "请用一句话描述你需要的智能体。", http_status=400)
 
     extensions = bindable.list_bindable_extensions(db, ctx.yard_id)
-    keywords = _keywords(text)
+    keywords = _expand_keywords(_keywords(text))
     scored: list[tuple[int, str, dict[str, Any]]] = []
     for kind, entry in _pool(extensions):
         score = _score(entry, keywords)
@@ -292,6 +350,8 @@ def request_agent(db: Session, *, ctx: YardContext, utterance: str) -> dict[str,
         "utterance": text,
         "keywords": keywords[:12],
         "matches": matches,
+        # 前端按同一阈值判断“可直接自动绑定”，避免两边口径漂移
+        "threshold": MATCH_THRESHOLD,
         "note": note,
         "policy": quota_snapshot(db, ctx.yard_id, ctx.user_id),
     }

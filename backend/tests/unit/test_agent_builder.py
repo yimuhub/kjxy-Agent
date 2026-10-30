@@ -55,6 +55,61 @@ def test_match_skills_caps_and_dedups():
     assert [m["need"] for m in missing] == ["病虫害复诊"]
 
 
+def test_match_skills_expands_domain_synonyms():
+    """用户说「农机维修」、技能名叫「农机保养」也要命中（v3.29）。"""
+    pool = {
+        "skills": [
+            {
+                "code": "skill:maint",
+                "name": "农机保养",
+                "summary": "拖拉机、收割机保养与检修",
+                "source": "builtin",
+            }
+        ]
+    }
+    needs = [{"need": "农机维修", "keywords": ["维修"], "reason": "核心能力"}]
+    matched, missing = agent_builder.match_skills(pool, needs)
+    assert missing == []
+    assert [m["code"] for m in matched] == ["skill:maint"]
+    assert matched[0]["score"] >= agent_builder.MATCH_THRESHOLD
+    assert "保养" in agent_builder._expand_keywords(["维修"])
+
+
+def test_match_skills_uses_definition_tags():
+    """技能即使名称/摘要不含关键词，也能靠 definition.tags 命中。"""
+    pool = {
+        "skills": [
+            {
+                "code": "skill:tags",
+                "name": "田间助手",
+                "summary": "帮助记录农事",
+                "source": "yard",
+                "tags": ["农机", "维修"],
+            }
+        ]
+    }
+    needs = [{"need": "农机维修", "keywords": ["农机", "维修"], "reason": "r"}]
+    matched, _ = agent_builder.match_skills(pool, needs)
+    assert [m["code"] for m in matched] == ["skill:tags"]
+
+
+def test_match_skills_does_not_overbind_unrelated_query():
+    """「文案写作」不应被农机保养技能误绑。"""
+    pool = {
+        "skills": [
+            {
+                "code": "skill:maint",
+                "name": "农机保养",
+                "summary": "保养与检修",
+                "source": "builtin",
+            }
+        ]
+    }
+    needs = [{"need": "文案写作", "keywords": ["文案", "写作"], "reason": "r"}]
+    matched, missing = agent_builder.match_skills(pool, needs)
+    assert matched == [] and missing[0]["status"] == "missing"
+
+
 def test_match_skills_max_five():
     pool = {
         "skills": [
@@ -159,5 +214,7 @@ def test_request_agent_returns_policy_and_candidates(db_session):
     )
     assert result["policy"]["enabled"] is True
     assert isinstance(result["matches"], list) and isinstance(result["keywords"], list)
+    # 前端按同一阈值判断“可直接自动绑定”，两边口径必须一致
+    assert result["threshold"] == agent_builder.MATCH_THRESHOLD
     # keywords[:12] 截断内应含核心词（中文 2/3-gram）
     assert "病虫害" in result["keywords"]

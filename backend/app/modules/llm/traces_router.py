@@ -211,6 +211,50 @@ def usage_overview(
     ]
     by_agent.sort(key=lambda x: x["total_tokens"], reverse=True)
 
+    # 按日趋势：补齐没有调用的日期（0），前端画柱状图/折线图时不用自己补洞
+    day_rows = db.execute(
+        select(
+            func.date(LLMTrace.created_at).label("day"),
+            call_cnt,
+            in_sum,
+            out_sum,
+        )
+        .where(LLMTrace.yard_id == ctx.yard_id, LLMTrace.created_at >= cutoff)
+        .group_by(func.date(LLMTrace.created_at))
+    ).all()
+    day_map = {_iso(r[0]): (int(r[1] or 0), int(r[2] or 0), int(r[3] or 0)) for r in day_rows}
+    by_day: list[dict[str, Any]] = []
+    start_day = (datetime.now(UTC) - timedelta(days=days - 1)).date()
+    for offset in range(days):
+        key = (start_day + timedelta(days=offset)).isoformat()
+        calls_, in_, out_ = day_map.get(key, (0, 0, 0))
+        by_day.append(
+            {
+                "day": key,
+                "calls": calls_,
+                "input_tokens": in_,
+                "output_tokens": out_,
+                "total_tokens": in_ + out_,
+            }
+        )
+
+    model_rows = db.execute(
+        select(LLMTrace.model, call_cnt, in_sum, out_sum)
+        .where(LLMTrace.yard_id == ctx.yard_id, LLMTrace.created_at >= cutoff)
+        .group_by(LLMTrace.model)
+    ).all()
+    by_model: list[dict[str, Any]] = [
+        {
+            "model": str(r[0] or "unknown"),
+            "calls": int(r[1] or 0),
+            "input_tokens": int(r[2] or 0),
+            "output_tokens": int(r[3] or 0),
+            "total_tokens": int(r[2] or 0) + int(r[3] or 0),
+        }
+        for r in model_rows
+    ]
+    by_model.sort(key=lambda x: x["total_tokens"], reverse=True)
+
     return ok(
         {
             "days": days,
@@ -225,5 +269,7 @@ def usage_overview(
             "total_tokens": total_in + total_out,
             "by_purpose": by_purpose,
             "by_agent": by_agent,
+            "by_day": by_day,
+            "by_model": by_model,
         }
     )

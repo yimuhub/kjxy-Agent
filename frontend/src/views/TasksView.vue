@@ -97,15 +97,27 @@
           stripe
         >
           <el-table-column
+            label="任务名称"
+            min-width="280"
+            show-overflow-tooltip
+          >
+            <template #default="{ row }">
+              <span class="task-title">{{ row.title || row.task_type }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column
+            label="类型"
+            width="150"
+          >
+            <template #default="{ row }">
+              {{ row.task_type_label || row.task_type }}
+            </template>
+          </el-table-column>
+          <el-table-column
             prop="id"
             label="任务 ID"
-            width="200"
+            width="180"
             show-overflow-tooltip
-          />
-          <el-table-column
-            prop="task_type"
-            label="类型"
-            width="160"
           />
           <el-table-column
             label="状态"
@@ -198,11 +210,14 @@
           :column="1"
           border
         >
-          <el-descriptions-item label="任务 ID">
-            {{ detail?.id }}
+          <el-descriptions-item label="任务名称">
+            {{ detail?.title || detail?.task_type }}
           </el-descriptions-item>
           <el-descriptions-item label="类型">
-            {{ detail?.task_type }}
+            {{ detail?.task_type_label || detail?.task_type }}
+          </el-descriptions-item>
+          <el-descriptions-item label="任务 ID">
+            {{ detail?.id }}
           </el-descriptions-item>
           <el-descriptions-item label="状态">
             <el-tag
@@ -561,6 +576,9 @@
 </script>
 
 <style scoped>
+  .task-title {
+    font-weight: 600;
+  }
   .tasks {
     padding: 4px;
   }

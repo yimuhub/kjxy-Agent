@@ -1784,6 +1784,7 @@ export interface LlmUsageRow {
 
 export interface LlmUsageOverview {
   days: number
+  today_date?: string
   today_tokens: number
   today_calls: number
   today_input_tokens: number
@@ -1801,6 +1802,22 @@ export interface LlmUsageOverview {
   }>
   by_agent: Array<{
     agent_ref: string
+    calls: number
+    input_tokens: number
+    output_tokens: number
+    total_tokens: number
+  }>
+  /** 按日聚合，后端已按 days 补零（最新一天在末尾） */
+  by_day: Array<{
+    day: string
+    calls: number
+    input_tokens: number
+    output_tokens: number
+    total_tokens: number
+  }>
+  /** 按模型聚合，token 总量降序 */
+  by_model: Array<{
+    model: string
     calls: number
     input_tokens: number
     output_tokens: number

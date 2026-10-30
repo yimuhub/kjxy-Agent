@@ -20,6 +20,7 @@ log = get_logger(__name__)
 
 DEMO_YARD_NAME = "演示科技小院"
 
+#: 四个固定演示账号：展示名保持「角色名」口径不变（负责人/管理员/专家/科研人员）
 SEED_USERS = [
     # (username, password, display_name, yard_role|None)
     # admin 同时是演示小院负责人
@@ -27,6 +28,22 @@ SEED_USERS = [
     ("yard_admin", "yard123", "小院管理员", "yard_admin"),
     ("expert", "expert123", "农业专家", "expert"),
     ("operator", "operator123", "科研人员", "operator"),
+]
+
+#: 演示团队其余成员：用真人姓名，列表里看起来像真实小院团队。
+#: 口令统一 demo123（仅开发演示库）；正式部署不会执行 seed。
+DEMO_MEMBER_PASSWORD = "demo123"
+DEMO_ROSTER = [
+    ("chen_liqun", "陈立群", "operator"),
+    ("li_huimin", "李慧敏", "expert"),
+    ("wang_wenbo", "王文博", "operator"),
+    ("zhao_mengqi", "赵梦琪", "viewer"),
+    ("zhou_zhenyu", "周振宇", "operator"),
+    ("sun_xiaotong", "孙晓彤", "operator"),
+    ("liu_guoqiang", "刘国强", "operator"),
+    ("wu_jiayi", "吴佳怡", "expert"),
+    ("zheng_haitao", "郑海涛", "operator"),
+    ("he_yutong", "何雨桐", "viewer"),
 ]
 
 DEMO_DOC_TITLE = "水稻分蘖期管理技术要点（演示资料）"
@@ -144,6 +161,38 @@ def _ensure_demo_growth_doc(db, *, yard_id: str, actor_id: str) -> bool:
     return True
 
 
+def ensure_demo_roster(db, yard) -> int:
+    """补齐演示团队真人成员（幂等）。返回本次新建人数。
+
+    四个固定演示账号保持「角色名」展示，其余成员一律用真人姓名，
+    让成员列表看起来像真实小院团队而不是测试占位。
+    """
+    from app.modules.auth.repository import create_user, get_by_username
+    from app.modules.yards.repository import add_membership, get_membership
+
+    created = 0
+    for username, display_name, role in DEMO_ROSTER:
+        user = get_by_username(db, username)
+        if user is None:
+            user = create_user(
+                db,
+                username=username,
+                password=DEMO_MEMBER_PASSWORD,
+                display_name=display_name,
+            )
+            created += 1
+        elif user.display_name != display_name:
+            user.display_name = display_name
+        membership = get_membership(db, yard.id, user.id)
+        if membership is None:
+            add_membership(db, yard_id=yard.id, user_id=user.id, role=role)
+        else:
+            membership.role = role
+            membership.status = "active"
+    db.flush()
+    return created
+
+
 def _ensure_demo_owner(db) -> None:
     """演示小院：平台管理员必须是负责人。
 
@@ -179,6 +228,7 @@ def _ensure_demo_owner(db) -> None:
     ensure_builtin_skills(db, yard_id=yard.id, actor_id=admin.id, request_id="seed")
     ensure_growth_skills(db, yard_id=yard.id, actor_id=admin.id, request_id="seed")
     _ensure_demo_growth_doc(db, yard_id=yard.id, actor_id=admin.id)
+    ensure_demo_roster(db, yard)
     db.commit()
 
 
@@ -241,6 +291,8 @@ def seed(random_passwords: bool = False) -> None:
         )
         # 增长线演示资料：品牌/卖点/海报技能都能引用到可核实的事实
         _ensure_demo_growth_doc(db, yard_id=yard.id, actor_id=users["yard_admin"].id)
+        # 演示团队其余成员：真人姓名，成员列表更像真实小院
+        ensure_demo_roster(db, yard)
         db.commit()
         log.info("seed 完成：小院=%s 用户=%d 文档chunk=%d", yard.id, len(users), chunk_count)
         if random_passwords:

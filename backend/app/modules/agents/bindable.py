@@ -92,6 +92,17 @@ def _plugin_source(manifest: dict[str, Any]) -> str:
     return "local"
 
 
+def _tags(data: dict[str, Any]) -> list[str]:
+    """技能/插件标签（用于一句话建 Agent 的关键词匹配，读不到就返回空列表）。"""
+    raw = data.get("tags")
+    if not isinstance(raw, list):
+        meta = data.get("metadata_json") or data.get("metadata")
+        raw = meta.get("tags") if isinstance(meta, dict) else None
+    if not isinstance(raw, list):
+        return []
+    return [str(tag)[:24] for tag in raw if str(tag).strip()][:12]
+
+
 def _recency(row: Any) -> float:
     """created_at 排序键（None 容错，时区差异不影响相对顺序）。"""
     created = getattr(row, "created_at", None)
@@ -163,6 +174,7 @@ def _skill_entries(db: Session, yard_id: str, counts: dict[str, int]) -> list[di
                 "code": f"{SKILL_CODE_PREFIX}{row.id}",
                 "name": str(definition.get("name") or skill_code),
                 "summary": _summary(definition),
+                "tags": _tags(definition),
                 "source": _skill_source(row.created_from),
                 "visibility": "yard" if row.yard_id == yard_id else "platform",
                 "risk_level": _risk_level(definition),
@@ -202,6 +214,7 @@ def _skill_entries(db: Session, yard_id: str, counts: dict[str, int]) -> list[di
                 "code": f"{SKILL_CODE_PREFIX}{item.id}",
                 "name": str(item.name or item_code),
                 "summary": _summary(definition, str(item.description or "")),
+                "tags": _tags(definition),
                 "source": "market",
                 "visibility": "platform",
                 "risk_level": _risk_level(definition, str(item.risk_level or RISK_LOW)),
@@ -240,6 +253,7 @@ def _plugin_entries(db: Session, yard_id: str, counts: dict[str, int]) -> list[d
                 "code": f"{PLUGIN_CODE_PREFIX}{plugin_id}",
                 "name": str(manifest.get("name") or plugin_id),
                 "summary": _summary(manifest),
+                "tags": _tags(manifest),
                 "source": _plugin_source(manifest),
                 "status": str(row.status or "enabled"),
                 "risk_level": _risk_level(manifest),

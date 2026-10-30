@@ -3,7 +3,9 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
+
+from app.modules.tasks.titles import TASK_TYPE_LABELS, task_title
 
 
 class TaskCreate(BaseModel):
@@ -29,6 +31,17 @@ class TaskOut(BaseModel):
     updated_at: datetime
     started_at: datetime | None = None
     finished_at: datetime | None = None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def task_type_label(self) -> str:
+        return TASK_TYPE_LABELS.get(self.task_type, self.task_type)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def title(self) -> str:
+        """可读任务名称：类型中文名 + 输入主体（v3.29）。"""
+        return task_title(self.task_type, self.input_json)
 
 
 class TaskEventOut(BaseModel):

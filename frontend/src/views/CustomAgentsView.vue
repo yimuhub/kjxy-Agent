@@ -652,6 +652,12 @@
             empty-text="暂无可绑定的扩展技能，可在「插件与技能库」安装或导入后重试"
             @retry="loadBindableExtensions"
           />
+          <div
+            v-if="!daEditingId && (autoSkillBusy || autoSkillNote)"
+            class="da-note auto-skill-note"
+          >
+            {{ autoSkillBusy ? '正在按名称与职责匹配技能…' : autoSkillNote }}
+          </div>
         </el-form-item>
 
         <el-form-item label="扩展插件">
@@ -796,7 +802,12 @@
     type DuplicateNameDetails,
     type LlmSupplier,
   } from '@/api/modules'
-  import { agentsApi, type BindablePlugin, type BindableSkill } from '@/api/v3'
+  import {
+    agentGenerateApi,
+    agentsApi,
+    type BindablePlugin,
+    type BindableSkill,
+  } from '@/api/v3'
   import { chatApi } from '@/api/chat'
   import { api, extractErrorDetails, extractErrorMessage } from '@/api/client'
   import { useAuthStore } from '@/stores/auth'
@@ -1189,11 +1200,82 @@
     }
   }
 
+  /* ---------- 新建时按名称/职责自动匹配技能（v3.29） ---------- */
+  const autoSkillBusy = ref(false)
+  const autoSkillNote = ref('')
+  const autoSkipped = ref<Set<string>>(new Set())
+  let autoSkillTimer: ReturnType<typeof setTimeout> | null = null
+  let autoApplying = false
+
+  function scheduleAutoSkillBind(): void {
+    if (daEditingId.value) return
+    if (autoSkillTimer) clearTimeout(autoSkillTimer)
+    autoSkillTimer = setTimeout(() => {
+      void autoBindSkills()
+    }, 700)
+  }
+
+  /** 名称 + 职责走一次轻量预览（不调模型），命中阈值即自动绑定 */
+  async function autoBindSkills(): Promise<void> {
+    if (daEditingId.value) return
+    const text = `${decForm.value.name} ${decForm.value.description}`.trim()
+    if (text.length < 4) {
+      autoSkillNote.value = ''
+      return
+    }
+    autoSkillBusy.value = true
+    try {
+      const res = await agentGenerateApi.preview(text)
+      const threshold = res.threshold ?? 3
+      const hits = (res.matches || []).filter(
+        m => m.kind === 'skill' && m.score >= threshold && !autoSkipped.value.has(m.code),
+      )
+      if (!hits.length) {
+        autoSkillNote.value = '未发现直接匹配的技能，可在下方手动选择。'
+        return
+      }
+      const current = new Set(decForm.value.bound_skills)
+      const added = hits.filter(h => !current.has(h.code))
+      if (added.length) {
+        autoApplying = true
+        decForm.value.bound_skills = [...decForm.value.bound_skills, ...added.map(h => h.code)]
+        await nextTick()
+        autoApplying = false
+      }
+      const names = hits.map(h => h.name).join('、')
+      autoSkillNote.value = added.length
+        ? `已按名称/职责自动绑定 ${added.length} 项技能：${names}（可手动增减）`
+        : `已匹配到相关技能：${names}`
+    } catch {
+      autoSkillNote.value = ''
+    } finally {
+      autoSkillBusy.value = false
+    }
+  }
+
+  watch(
+    () => [decForm.value.name, decForm.value.description],
+    () => scheduleAutoSkillBind(),
+  )
+
+  // 用户手动移除过的技能不再自动加回
+  watch(
+    () => decForm.value.bound_skills,
+    (next, prev) => {
+      if (autoApplying) return
+      const removed = (prev || []).filter(code => !(next || []).includes(code))
+      removed.forEach(code => autoSkipped.value.add(code))
+    },
+    { deep: true },
+  )
+
   function openDaCreate() {
     daEditingId.value = ''
     daTemplate.value = ''
     daFocusId.value = ''
     daEditingVisibility.value = 'public'
+    autoSkipped.value = new Set()
+    autoSkillNote.value = ''
     decForm.value = {
       agent_code: '',
       name: '',
@@ -1646,6 +1728,10 @@
 </script>
 
 <style scoped>
+  .auto-skill-note {
+    margin-top: 4px;
+    color: var(--ds-text-3);
+  }
   .custom-agents {
     display: flex;
     flex-direction: column;
