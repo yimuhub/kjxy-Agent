@@ -121,12 +121,20 @@
         name="plugins"
       />
       <el-tab-pane
+        label="官方库"
+        name="official"
+      />
+      <el-tab-pane
         label="已安装"
         name="installed"
       />
     </el-tabs>
 
-    <template v-if="activeTab !== 'installed'">
+    <template v-if="activeTab === 'official'">
+      <OfficialLibraryPanel />
+    </template>
+
+    <template v-else-if="activeTab !== 'installed'">
       <!-- 技能区归属视图：市场检索 / 我的 / 小院 / 平台（v3.2） -->
       <el-tabs
         v-if="activeTab === 'skills'"
@@ -483,6 +491,7 @@
   import { extractErrorMessage } from '@/api/client'
   import AsyncState from '@/components/AsyncState.vue'
   import LibraryItemCard from '@/components/library/LibraryItemCard.vue'
+  import OfficialLibraryPanel from '@/components/library/OfficialLibraryPanel.vue'
   import SkillScopePanel from '@/components/library/SkillScopePanel.vue'
   import SkillWizard from '@/components/library/SkillWizard.vue'
   import {
@@ -515,7 +524,7 @@
   } from '@/components/settings/permissions'
   import { useAuthStore } from '@/stores/auth'
 
-  type TabName = 'skills' | 'plugins' | 'installed'
+  type TabName = 'skills' | 'plugins' | 'official' | 'installed'
   type ScopeTab = 'market' | SkillScope
   type NetMode = 'online' | 'degraded' | 'offline' | 'unknown'
   type SourceFilter = 'all' | 'builtin' | 'github' | 'local'
@@ -764,8 +773,16 @@
 
   function onTabClick(pane: { paneName?: string | number }) {
     const name = String(pane?.paneName ?? activeTab.value)
-    if (name !== 'skills' && name !== 'plugins' && name !== 'installed') return
+    if (
+      name !== 'skills' &&
+      name !== 'plugins' &&
+      name !== 'official' &&
+      name !== 'installed'
+    )
+      return
     activeTab.value = name
+    // 官方库面板自行加载状态与条目，不触发市场检索
+    if (name === 'official') return
     if (name === 'installed') {
       void loadInstalled(true)
       return

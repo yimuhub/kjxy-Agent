@@ -25,6 +25,7 @@ from app.modules.farm.agent_router import router as farm_agent_router
 from app.modules.farm.router import router as farm_router
 from app.modules.growth.router import router as growth_router
 from app.modules.knowledge.router import router as knowledge_router
+from app.modules.library.router import router as library_router
 from app.modules.llm.router import router as llm_router
 from app.modules.market.router import router as market_router
 from app.modules.mcp.router import router as mcp_router
@@ -63,6 +64,7 @@ router.include_router(yard_invite_router)
 router.include_router(yard_settings_router)  # /yards/current/settings|roles（系统设置 + 角色权限）
 router.include_router(tasks_router)
 router.include_router(knowledge_router)
+router.include_router(library_router)  # /library（官方技能库/插件库：签名清单/同步/更新/回滚 v3.35）
 router.include_router(agriculture_router)
 router.include_router(farm_router)  # /farm（农业台账：地块/周期/农事记录/报表）
 router.include_router(farm_agent_router)  # /farm/automation（Agent 自动执行 v3.28）
