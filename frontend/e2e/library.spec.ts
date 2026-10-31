@@ -45,7 +45,7 @@ test.describe('插件与技能库', () => {
     await grantCard.getByRole('button', { name: /预览/ }).click()
     await expect(page.locator('.el-dialog')).toContainText('待核实')
 
-    await page.locator('.el-dialog').getByRole('button', { name: /关闭|取消/ }).click()
+    await page.locator('.el-dialog').getByRole('button', { name: '关闭', exact: true }).click()
     await keyword.fill('投标文件')
     await keyword.press('Enter')
     await expect(page.locator('.lib-card', { hasText: '投标文件' }).first()).toBeVisible({

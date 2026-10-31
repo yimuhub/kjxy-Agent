@@ -749,7 +749,7 @@ def _chart(prs, plan: DeckPlan, slide_model: DeckSlide, theme: DeckTheme, page: 
             pass
     _chart_east_asian(chart, theme)
     if data.unit:
-        unit = _textbox(slide, MARGIN, FOOTER_Y - 0.38, 3.0, 0.32, name="qa:caption")
+        unit = _textbox(slide, MARGIN, FOOTER_Y - 0.45, 3.0, 0.4, name="qa:caption")
         _paragraph(
             unit.text_frame,
             f"单位：{data.unit}",

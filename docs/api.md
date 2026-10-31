@@ -423,6 +423,80 @@ v3.26 起「按智能体绑定」页签升级为「智能体模型」：一次�
 
 内置工具 `image.generate`（`write_reversible`）：参数同上，返回 `assets[].url` 与 `provider/model/fallback`；对话里可按 `![标题](url)` 直接显示。前端 Markdown 渲染只放行 http(s) 与同源 `/api/v1/growth/posters/...?sig=<32位hex>` 图片地址。
 
+## 多模型供应商与官方中转站（v3.36）
+
+一个供应商不再只对应一个模型：`suppliers` 描述渠道，`supplier_models` 按行承载同渠道下的文本/图像/视频/多模态/Embedding/ASR 等模型。绑定优先写 `supplier_model_id`，解析链再依次回落模型名、供应商默认模型与旧 `model_id`，旧配置无需迁移即可继续工作。
+
+### 模型导入与试跑
+
+| 接口 | 说明 |
+|---|---|
+| `GET /llm/providers/{supplier_id}/models` | 列出渠道下全部模型（模态、协议、能力、上下文、单价、最近测试结果） |
+| `POST /llm/providers/{supplier_id}/models` | 手工新增模型（`model_key` 供应商内唯一） |
+| `PATCH /llm/providers/{supplier_id}/models/{model_id}` | 编辑模型；改默认模型请走供应商 PATCH 的 `default_model_id` |
+| `DELETE /llm/providers/{supplier_id}/models/{model_id}` | 删除模型（默认模型不可直接删除） |
+| `POST /llm/providers/{supplier_id}/models/import?dry_run=1` | 批量导入：`content` + `format`（json/yaml/csv，可自动识别）；`dry_run=1` 只返回新增/更新/跳过预览 |
+| `POST /llm/providers/{supplier_id}/models/import-url?dry_run=1` | 按 URL 拉取目录导入：仅 http(s)、2MB 上限、每跳做 SSRF 校验 |
+| `POST /llm/providers/import?dry_run=1` | 「新供应商 + 多模型」一次导入 |
+| `POST /llm/providers/{supplier_id}/models/{model_id}/test` | 单模型真实试跑（按协议发最小请求，返回延迟与错误分类） |
+| `POST /llm/providers/{supplier_id}/models/batch-test` | 批量试跑，逐条返回 `ok/latency_ms/error` |
+| `GET /llm/provider-templates` | 供应商模板（含各模态协议的字段提示与示例） |
+
+导入格式统一为模型对象数组，核心字段：`model_key`、`upstream_model_id`、`display_name`、`modality`、`protocol`、`input_modalities`、`output_modalities`、`capabilities`、`context_window`、`max_output_tokens`、`endpoint_path`、`pricing`、`default_params`、`limits`。未填 `modality` 时按模型名推断（如 `-vision/-vl` → multimodal、`embedding` → embedding、`whisper/asr` → asr），未知值拒绝并回报行号。
+
+### 官方 / 私有 API 中转站
+
+`relay_channels` 描述一个 OpenAI 兼容中转站（`kind=official|private`）：平台可维护全局官方通道，小院可维护自己的私有通道；密钥 Fernet 加密，出参只给掩码。
+
+| 接口 | 说明 |
+|---|---|
+| `GET /llm/relay/channels` | 可见通道（平台官方 + 本小院私有） |
+| `POST /llm/relay/channels` | 新建：`{name, kind, base_url, api_key?, catalog_path?, webhook_secret?}` |
+| `PATCH /llm/relay/channels/{id}` / `DELETE` | 修改/删除；平台级通道仅平台管理员可写 |
+| `POST /llm/relay/channels/{id}/sync` | 拉取 `catalog_path` 的模型目录，同步为 `source=relay` 的供应商与模型；返回新增/更新/跳过计数 |
+| `GET /llm/relay/channels/{id}/models` | 查看该中转站当前目录（与供应商模型同构） |
+
+### 官方模型通道（试用 / 购买预留）
+
+官方通道默认关闭：没有启用中的官方 `relay_channels` 时，除 `status` 外的接口返回 503 `OFFICIAL_CHANNEL_DISABLED`。金额只信服务端套餐，请求体只选套餐与模型；试用每小院每模型一次。
+
+| 接口 | 说明 |
+|---|---|
+| `GET /llm/official/status` | 开通状态、官方通道数量、可用模型数与当前权益摘要（未开通也返回，前端据此渲染未开通态） |
+| `GET /llm/official/models` | 当前小院有权益的官方模型；无权益为空 |
+| `GET /llm/official/plans` | 可购买/试用套餐（单价、试用 token/天数、计费单位） |
+| `POST /llm/official/trials` | 领取试用：`{model_key, plan_code?}`；重复领取 409 |
+| `GET /llm/official/entitlements` | 本小院权益（来源 trial/order、额度总量/已用、有效期） |
+| `POST /llm/official/orders` | 下单：`{plan_code, model_key, idempotency_key}`；返回订单与支付链接 |
+| `GET /llm/official/orders/{id}` | 订单状态 |
+| `POST /llm/official/webhooks/payment` | 支付回调：HMAC-SHA256 校验 `timestamp.raw_body`，±300 秒窗口，`event_id` 幂等；`paid` 激活权益、`refund` 撤销 |
+
+### 官方技能 / 插件库
+
+官方库与私有库共用一套协议：发布者用 Ed25519 私钥签清单，客户端用公钥验签，再按 `.kjxpack` 的 SHA-256 校验包体。插件包只允许声明式内容，不执行包内脚本；撤销只改状态，不删除已装数据。
+
+| 接口 | 说明 |
+|---|---|
+| `GET /library/sources` | 可见源（平台官方 + 本小院私有），含状态、ETag、序号、最近同步 |
+| `POST /library/sources` | 新建源：`{name, kind, base_url, public_key_b64, channel?}`；官方源仅平台管理员 |
+| `PATCH` / `DELETE /library/sources/{id}` | 更新/删除；仍有安装台账时拒绝删除 |
+| `POST /library/sources/{id}/sync` | 拉清单：ETag / 单调 `sequence` 条件跳过，验签后 upsert 并镜像市场条目；失败落 `library_sync_runs` |
+| `GET /library/items?source_id&item_type&keyword` | 条目列表：`skill/plugin/agent_template/deck_theme/doc_template`，同键多版本倒序 |
+| `POST /library/items/{id}/install` | 安装：下载、校验 SHA-256、安全解包；技能写版本表，插件只登记 |
+| `GET /library/installs` | 本小院安装台账（已装版本、上一版本、固定/自动更新） |
+| `POST /library/installs/{id}/update` / `rollback` | 升级 / 离线回滚到上一版本 |
+| `POST /library/installs/{id}/pin` / `auto-update` | 固定版本 / 切换自动更新 |
+| `GET /library/status` | 源与安装汇总、最近同步运行，前端设置页据此显示 |
+
+发布工具在 `scripts/library/`：`build.py` 打包 `.kjxpack`、`sign.py` 生成/签名清单、`publish.py` 生成 ETag/序号、`verify.py` 客户端侧校验；使用说明见 `scripts/library/README.md`。
+
+## 办公与正式写作（v3.36）
+
+- **PPT 设计系统**：对话里生成 `.pptx` 时先产出严格 `DeckPlan`（5–30 页、15 种版式、8 套主题），再经 23 项结构质检（溢出/空页/重复标题/图表与表格约束等）自动修复后渲染；支持真实图表、表格、时间线、流程图、演讲者备注、页码与东亚字体。可选 `soffice` 视觉质检在缺少 LibreOffice 时跳过并说明。
+- **PPT 专项技能**：`office_ppt_storyline`（叙事）、`office_ppt_design`（视觉）、`office_ppt_chart`（图表）、`office_ppt_review`（质检）、`office_ppt_template`（模板替换），与 `office_ppt_deck` 组合使用。
+- **正式写作技能 28 项**：公文 10（通知/请示/报告/函/纪要/工作计划/总结/批复/讲话稿/简报）、申报 7（项目申报/科技计划/补贴/荣誉/中期/验收/预算）、招投标 7（招标文件/投标文件/响应矩阵/技术标/商务标/风险审查/澄清答复）、通用 4（长篇正式文/高管简报/政策解读/会议包），新小院注册即铺并自动建议绑定。
+- **Word 公文版式**：`DocModel.doc_style=official_cn|grant|tender|brief`，A4、版心与页边距、仿宋/黑体/楷体东亚字体、标题分级、页码页脚、封面与目录；由绑定技能或需求意图自动选择。
+
 ## 任务状态机
 
 `queued → running → succeeded | failed | cancelled | awaiting_review → succeeded | failed | cancelled`

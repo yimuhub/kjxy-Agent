@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.35.0
+  version: 3.36.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -2338,6 +2338,405 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/library/sources:
+    get:
+      tags:
+      - v1
+      - library
+      summary: Get Sources
+      description: 可见源：官方源 + 本小院私有源。
+      operationId: get_sources_api_v1_library_sources_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+    post:
+      tags:
+      - v1
+      - library
+      summary: Create Source
+      description: 新建源：平台管理员可建官方源；小院管理员只能建本小院私有源。
+      operationId: create_source_api_v1_library_sources_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourceCreateRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/library/sources/{source_id}:
+    patch:
+      tags:
+      - v1
+      - library
+      summary: Patch Source
+      description: 更新源：官方源仅平台管理员，私有源仅本小院。
+      operationId: patch_source_api_v1_library_sources__source_id__patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: source_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Source Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourceUpdateRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - v1
+      - library
+      summary: Remove Source
+      description: 删除源：仍有安装台账时拒绝（撤销条目即可，不删已装数据）。
+      operationId: remove_source_api_v1_library_sources__source_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: source_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Source Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/library/sources/{source_id}/sync:
+    post:
+      tags:
+      - v1
+      - library
+      summary: Sync Source
+      description: 拉取清单：ETag/sequence 条件跳过；失败落账后仍返回统一错误信封。
+      operationId: sync_source_api_v1_library_sources__source_id__sync_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: source_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Source Id
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - $ref: '#/components/schemas/SourceSyncRequest'
+              - type: 'null'
+              title: Body
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/library/items:
+    get:
+      tags:
+      - v1
+      - library
+      summary: Get Items
+      description: 条目列表：只列可见源；同一 item_key 多版本按版本号倒序。
+      operationId: get_items_api_v1_library_items_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: source_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source Id
+      - name: item_type
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Item Type
+      - name: keyword
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Keyword
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 100
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/library/items/{item_id}/install:
+    post:
+      tags:
+      - v1
+      - library
+      summary: Install Library Item
+      description: 安装：下载→重算 sha256→验签验包→复用 Skill/Plugin 落地；同版本幂等。
+      operationId: install_library_item_api_v1_library_items__item_id__install_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: item_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Item Id
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - $ref: '#/components/schemas/ItemInstallRequest'
+              - type: 'null'
+              title: Payload
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/library/installs:
+    get:
+      tags:
+      - v1
+      - library
+      summary: Get Installs
+      description: 本小院安装台账：含可更新数量与回滚可用性。
+      operationId: get_installs_api_v1_library_installs_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/library/installs/{install_id}/update:
+    post:
+      tags:
+      - v1
+      - library
+      summary: Update Library Item
+      description: 更新到最新可用版本；失败回滚事务，旧版本保留。
+      operationId: update_library_item_api_v1_library_installs__install_id__update_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: install_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Install Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/library/installs/{install_id}/rollback:
+    post:
+      tags:
+      - v1
+      - library
+      summary: Rollback Library Item
+      description: 离线回滚到上一版本（仅 Skill：本地版本表仍在）。
+      operationId: rollback_library_item_api_v1_library_installs__install_id__rollback_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: install_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Install Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/library/installs/{install_id}/pin:
+    post:
+      tags:
+      - v1
+      - library
+      summary: Pin Library Item
+      description: 固定版本：pinned 条目永不自动更新。
+      operationId: pin_library_item_api_v1_library_installs__install_id__pin_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: install_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Install Id
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - $ref: '#/components/schemas/PinRequest'
+              - type: 'null'
+              title: Payload
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/library/installs/{install_id}/auto-update:
+    post:
+      tags:
+      - v1
+      - library
+      summary: Auto Update Library Item
+      description: 开关自动更新（只影响低风险版本）。
+      operationId: auto_update_library_item_api_v1_library_installs__install_id__auto_update_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: install_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Install Id
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - $ref: '#/components/schemas/AutoUpdateRequest'
+              - type: 'null'
+              title: Payload
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/library/status:
+    get:
+      tags:
+      - v1
+      - library
+      summary: Library Status
+      description: 源状态、上次同步、可更新数量与离线标记。
+      operationId: library_status_api_v1_library_status_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
       security:
       - HTTPBearer: []
   /api/v1/qa/answers:
@@ -5139,6 +5538,345 @@ paths:
               schema: {}
       security:
       - HTTPBearer: []
+  /api/v1/llm/providers/import:
+    post:
+      tags:
+      - v1
+      - llm
+      - llm-suppliers
+      summary: Import Provider Bundle
+      description: 导入「新供应商 + 多模型」：dry_run=1 只预览分类，不写库。
+      operationId: import_provider_bundle_api_v1_llm_providers_import_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: dry_run
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 1
+          minimum: 0
+          default: 0
+          title: Dry Run
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SupplierImportBundle'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/llm/providers/{supplier_id}/models/import:
+    post:
+      tags:
+      - v1
+      - llm
+      - llm-suppliers
+      summary: Import Supplier Models
+      description: 向既有供应商导入多模型（JSON/YAML/CSV 文本同样走 content 字段）。
+      operationId: import_supplier_models_api_v1_llm_providers__supplier_id__models_import_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: supplier_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Supplier Id
+      - name: dry_run
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 1
+          minimum: 0
+          default: 0
+          title: Dry Run
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SupplierImportBundle'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/llm/providers/{supplier_id}/models/import-url:
+    post:
+      tags:
+      - v1
+      - llm
+      - llm-suppliers
+      summary: Import Supplier Models From Url
+      description: 按 URL 拉取目录导入：http(s) only、2MB 上限、最多 3 次重定向（每跳 SSRF 校验）。
+      operationId: import_supplier_models_from_url_api_v1_llm_providers__supplier_id__models_import_url_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: supplier_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Supplier Id
+      - name: dry_run
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 1
+          minimum: 0
+          default: 0
+          title: Dry Run
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SupplierImportUrlBody'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/llm/providers/{supplier_id}/models:
+    get:
+      tags:
+      - v1
+      - llm
+      - llm-suppliers
+      summary: List Supplier Models
+      operationId: list_supplier_models_api_v1_llm_providers__supplier_id__models_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: supplier_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Supplier Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - v1
+      - llm
+      - llm-suppliers
+      summary: Create Supplier Model
+      operationId: create_supplier_model_api_v1_llm_providers__supplier_id__models_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: supplier_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Supplier Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SupplierModelCreate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/llm/providers/{supplier_id}/models/{model_id}:
+    patch:
+      tags:
+      - v1
+      - llm
+      - llm-suppliers
+      summary: Update Supplier Model
+      operationId: update_supplier_model_api_v1_llm_providers__supplier_id__models__model_id__patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: supplier_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Supplier Id
+      - name: model_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Model Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SupplierModelUpdate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - v1
+      - llm
+      - llm-suppliers
+      summary: Delete Supplier Model
+      operationId: delete_supplier_model_api_v1_llm_providers__supplier_id__models__model_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: supplier_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Supplier Id
+      - name: model_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Model Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/llm/providers/{supplier_id}/models/{model_id}/test:
+    post:
+      tags:
+      - v1
+      - llm
+      - llm-suppliers
+      summary: Test Supplier Model
+      operationId: test_supplier_model_api_v1_llm_providers__supplier_id__models__model_id__test_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: supplier_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Supplier Id
+      - name: model_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Model Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/llm/providers/{supplier_id}/models/batch-test:
+    post:
+      tags:
+      - v1
+      - llm
+      - llm-suppliers
+      summary: Batch Test Supplier Models
+      operationId: batch_test_supplier_models_api_v1_llm_providers__supplier_id__models_batch_test_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: supplier_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Supplier Id
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - $ref: '#/components/schemas/SupplierModelsBatchTestBody'
+              - type: 'null'
+              title: Payload
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/llm/capabilities:
     get:
       tags:
@@ -5351,6 +6089,350 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - HTTPBearer: []
+  /api/v1/llm/relay/channels:
+    get:
+      tags:
+      - v1
+      - llm
+      - llm-relay
+      summary: List Relay Channels
+      operationId: list_relay_channels_api_v1_llm_relay_channels_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+    post:
+      tags:
+      - v1
+      - llm
+      - llm-relay
+      summary: Create Relay Channel
+      operationId: create_relay_channel_api_v1_llm_relay_channels_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RelayChannelCreate'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/llm/relay/channels/{channel_id}:
+    patch:
+      tags:
+      - v1
+      - llm
+      - llm-relay
+      summary: Update Relay Channel
+      operationId: update_relay_channel_api_v1_llm_relay_channels__channel_id__patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: channel_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Channel Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RelayChannelUpdate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - v1
+      - llm
+      - llm-relay
+      summary: Delete Relay Channel
+      operationId: delete_relay_channel_api_v1_llm_relay_channels__channel_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: channel_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Channel Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/llm/relay/channels/{channel_id}/sync:
+    post:
+      tags:
+      - v1
+      - llm
+      - llm-relay
+      summary: Sync Relay Channel
+      operationId: sync_relay_channel_api_v1_llm_relay_channels__channel_id__sync_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: channel_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Channel Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/llm/relay/channels/{channel_id}/models:
+    get:
+      tags:
+      - v1
+      - llm
+      - llm-relay
+      summary: List Relay Channel Models
+      operationId: list_relay_channel_models_api_v1_llm_relay_channels__channel_id__models_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: channel_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Channel Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/llm/official/status:
+    get:
+      tags:
+      - v1
+      - llm
+      - llm-official
+      summary: Official Status
+      description: 通道探针：未开通也返回 200，前端据此显示「未开通」而不是错误页。
+      operationId: official_status_api_v1_llm_official_status_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/llm/official/models:
+    get:
+      tags:
+      - v1
+      - llm
+      - llm-official
+      summary: List Official Models
+      operationId: list_official_models_api_v1_llm_official_models_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/llm/official/plans:
+    get:
+      tags:
+      - v1
+      - llm
+      - llm-official
+      summary: List Official Plans
+      operationId: list_official_plans_api_v1_llm_official_plans_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/llm/official/trials:
+    post:
+      tags:
+      - v1
+      - llm
+      - llm-official
+      summary: Create Official Trial
+      operationId: create_official_trial_api_v1_llm_official_trials_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OfficialTrialBody'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/llm/official/entitlements:
+    get:
+      tags:
+      - v1
+      - llm
+      - llm-official
+      summary: List Official Entitlements
+      operationId: list_official_entitlements_api_v1_llm_official_entitlements_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: model_key
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Model Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/llm/official/orders:
+    post:
+      tags:
+      - v1
+      - llm
+      - llm-official
+      summary: Create Official Order
+      operationId: create_official_order_api_v1_llm_official_orders_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OfficialOrderCreate'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/llm/official/orders/{order_id}:
+    get:
+      tags:
+      - v1
+      - llm
+      - llm-official
+      summary: Get Official Order
+      operationId: get_official_order_api_v1_llm_official_orders__order_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: order_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Order Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/llm/official/webhooks/payment:
+    post:
+      tags:
+      - v1
+      - llm
+      - llm-official
+      summary: Official Payment Webhook
+      description: 支付回调：不要求登录，但必须验签（X-Signature/X-Timestamp 或报文字段）。
+      operationId: official_payment_webhook_api_v1_llm_official_webhooks_payment_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
   /api/v1/llm/traces:
     get:
       tags:
@@ -10900,6 +11982,20 @@ components:
           title: Note
       type: object
       title: ApprovalDecisionRequest
+    AutoUpdateRequest:
+      properties:
+        enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Enabled
+        auto_update:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Auto Update
+      type: object
+      title: AutoUpdateRequest
     BatchAddMembersRequest:
       properties:
         members:
@@ -10943,6 +12039,12 @@ components:
           maxLength: 64
           minLength: 1
           title: Supplier Id
+        supplier_model_id:
+          anyOf:
+          - type: string
+            maxLength: 36
+          - type: 'null'
+          title: Supplier Model Id
         model_name:
           anyOf:
           - type: string
@@ -11875,6 +12977,16 @@ components:
       required:
       - role
       title: InvitationCreateRequest
+    ItemInstallRequest:
+      properties:
+        version:
+          anyOf:
+          - type: string
+            maxLength: 50
+          - type: 'null'
+          title: Version
+      type: object
+      title: ItemInstallRequest
     KnowledgeAskRequest:
       properties:
         question:
@@ -12142,6 +13254,42 @@ components:
         - ``target``：群聊 ``named`` 的点名对象；
 
         - ``target_code``：@ 点名定向执行的对象（单聊与群聊通用）。'
+    OfficialOrderCreate:
+      properties:
+        model_key:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Model Key
+        plan_code:
+          anyOf:
+          - type: string
+            maxLength: 100
+          - type: 'null'
+          title: Plan Code
+      additionalProperties: false
+      type: object
+      required:
+      - model_key
+      title: OfficialOrderCreate
+    OfficialTrialBody:
+      properties:
+        model_key:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Model Key
+        plan_code:
+          anyOf:
+          - type: string
+            maxLength: 100
+          - type: 'null'
+          title: Plan Code
+      additionalProperties: false
+      type: object
+      required:
+      - model_key
+      title: OfficialTrialBody
     PairExchangeRequest:
       properties:
         code:
@@ -12254,6 +13402,14 @@ components:
           title: Status
       type: object
       title: PesticideUpdate
+    PinRequest:
+      properties:
+        pinned:
+          type: boolean
+          title: Pinned
+          default: true
+      type: object
+      title: PinRequest
     PlotCreate:
       properties:
         client_op_id:
@@ -13105,6 +14261,122 @@ components:
           title: Reason
       type: object
       title: RegistrationRejectRequest
+    RelayChannelCreate:
+      properties:
+        name:
+          type: string
+          maxLength: 80
+          minLength: 1
+          title: Name
+        kind:
+          type: string
+          enum:
+          - official
+          - private
+          title: Kind
+          default: private
+        base_url:
+          type: string
+          maxLength: 500
+          minLength: 1
+          title: Base Url
+        api_key:
+          anyOf:
+          - type: string
+            maxLength: 2000
+          - type: 'null'
+          title: Api Key
+        public_key:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Public Key
+        webhook_secret:
+          anyOf:
+          - type: string
+            maxLength: 2000
+          - type: 'null'
+          title: Webhook Secret
+        catalog_path:
+          type: string
+          maxLength: 200
+          title: Catalog Path
+          default: /models
+        enabled:
+          type: boolean
+          title: Enabled
+          default: true
+        scope:
+          type: string
+          enum:
+          - yard
+          - global
+          title: Scope
+          default: yard
+      additionalProperties: false
+      type: object
+      required:
+      - name
+      - base_url
+      title: RelayChannelCreate
+      description: 新建中转站通道：密钥只入参，出参一律打码。
+    RelayChannelUpdate:
+      properties:
+        name:
+          anyOf:
+          - type: string
+            maxLength: 80
+            minLength: 1
+          - type: 'null'
+          title: Name
+        kind:
+          anyOf:
+          - type: string
+            enum:
+            - official
+            - private
+          - type: 'null'
+          title: Kind
+        base_url:
+          anyOf:
+          - type: string
+            maxLength: 500
+            minLength: 1
+          - type: 'null'
+          title: Base Url
+        api_key:
+          anyOf:
+          - type: string
+            maxLength: 2000
+          - type: 'null'
+          title: Api Key
+        public_key:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Public Key
+        webhook_secret:
+          anyOf:
+          - type: string
+            maxLength: 2000
+          - type: 'null'
+          title: Webhook Secret
+        catalog_path:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Catalog Path
+        enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Enabled
+      additionalProperties: false
+      type: object
+      title: RelayChannelUpdate
     ReportRequest:
       properties:
         kind:
@@ -13616,6 +14888,122 @@ components:
       type: object
       title: SkillSuggest
       description: AI 技能总结请求（v1.3-B C1）：可选关注点提示，纯文本 ≤200 字。
+    SourceCreateRequest:
+      properties:
+        name:
+          type: string
+          maxLength: 80
+          minLength: 1
+          title: Name
+        kind:
+          type: string
+          enum:
+          - official
+          - private
+          title: Kind
+          default: private
+        base_url:
+          type: string
+          maxLength: 500
+          minLength: 8
+          title: Base Url
+        channel:
+          type: string
+          enum:
+          - stable
+          - beta
+          title: Channel
+          default: stable
+        public_key_b64:
+          type: string
+          maxLength: 200
+          title: Public Key B64
+          default: ''
+        key_id:
+          anyOf:
+          - type: string
+            maxLength: 32
+          - type: 'null'
+          title: Key Id
+        enabled:
+          type: boolean
+          title: Enabled
+          default: true
+        yard_id:
+          anyOf:
+          - type: string
+            maxLength: 36
+          - type: 'null'
+          title: Yard Id
+        metadata:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Metadata
+      type: object
+      required:
+      - name
+      - base_url
+      title: SourceCreateRequest
+    SourceSyncRequest:
+      properties:
+        force:
+          type: boolean
+          title: Force
+          default: false
+      type: object
+      title: SourceSyncRequest
+      description: 手动同步无参数；保留空模型以统一 OpenAPI 形状。
+    SourceUpdateRequest:
+      properties:
+        name:
+          anyOf:
+          - type: string
+            maxLength: 80
+            minLength: 1
+          - type: 'null'
+          title: Name
+        base_url:
+          anyOf:
+          - type: string
+            maxLength: 500
+            minLength: 8
+          - type: 'null'
+          title: Base Url
+        channel:
+          anyOf:
+          - type: string
+            enum:
+            - stable
+            - beta
+          - type: 'null'
+          title: Channel
+        public_key_b64:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Public Key B64
+        key_id:
+          anyOf:
+          - type: string
+            maxLength: 32
+          - type: 'null'
+          title: Key Id
+        enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Enabled
+        metadata:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Metadata
+      type: object
+      title: SourceUpdateRequest
     SsoExchangeRequest:
       properties:
         code:
@@ -13843,6 +15231,7 @@ components:
           - openai_images
           - dashscope_image
           - openai_video
+          - official_relay
           title: Provider Type
         base_url:
           type: string
@@ -13904,6 +15293,378 @@ components:
       - model_id
       - api_key
       title: SupplierCreate
+    SupplierImportBundle:
+      properties:
+        schema_version:
+          type: integer
+          maximum: 1.0
+          minimum: 1.0
+          title: Schema Version
+          default: 1
+        supplier:
+          anyOf:
+          - $ref: '#/components/schemas/SupplierImportSupplier'
+          - type: 'null'
+        models:
+          items:
+            $ref: '#/components/schemas/SupplierModelCreate'
+          type: array
+          title: Models
+        content:
+          anyOf:
+          - type: string
+            maxLength: 2000000
+          - type: 'null'
+          title: Content
+        format:
+          anyOf:
+          - type: string
+            enum:
+            - json
+            - yaml
+            - csv
+          - type: 'null'
+          title: Format
+      additionalProperties: false
+      type: object
+      title: SupplierImportBundle
+      description: '导入包：要么给结构化 ``models``，要么给 ``content`` 文本（JSON/YAML/CSV）。
+
+
+        ``api_key`` 只用于创建供应商，绝不进入任何预览/结果/审计。'
+    SupplierImportSupplier:
+      properties:
+        name:
+          anyOf:
+          - type: string
+            maxLength: 40
+          - type: 'null'
+          title: Name
+        provider_type:
+          anyOf:
+          - type: string
+            enum:
+            - deepseek
+            - qwen
+            - moonshot
+            - openai
+            - openai_compatible
+            - openai_images
+            - dashscope_image
+            - openai_video
+            - official_relay
+          - type: 'null'
+          title: Provider Type
+        base_url:
+          anyOf:
+          - type: string
+            maxLength: 500
+          - type: 'null'
+          title: Base Url
+        api_key:
+          anyOf:
+          - type: string
+            maxLength: 2000
+          - type: 'null'
+          title: Api Key
+        models:
+          anyOf:
+          - type: string
+            maxLength: 2000
+          - type: 'null'
+          title: Models
+        scope:
+          type: string
+          enum:
+          - yard
+          - global
+          title: Scope
+          default: yard
+      additionalProperties: false
+      type: object
+      title: SupplierImportSupplier
+      description: 导入时的供应商信息：``supplier_id`` 为空时据此创建（走现有加密逻辑）。
+    SupplierImportUrlBody:
+      properties:
+        url:
+          type: string
+          maxLength: 2000
+          minLength: 1
+          title: Url
+      additionalProperties: false
+      type: object
+      required:
+      - url
+      title: SupplierImportUrlBody
+      description: 按 URL 导入目录/配置文件（严格 SSRF 校验、2MB 上限、最多 3 次重定向）。
+    SupplierModelCreate:
+      properties:
+        model_key:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Model Key
+        upstream_model_id:
+          type: string
+          maxLength: 200
+          minLength: 1
+          title: Upstream Model Id
+        display_name:
+          type: string
+          maxLength: 120
+          title: Display Name
+          default: ''
+        modality:
+          type: string
+          enum:
+          - text
+          - image
+          - video
+          - audio
+          - multimodal
+          - embedding
+          - rerank
+          - asr
+          - tts
+          title: Modality
+          default: text
+        protocol:
+          type: string
+          enum:
+          - openai_chat
+          - openai_images
+          - dashscope_image
+          - openai_video
+          - anthropic
+          - gemini
+          - openai_audio
+          - openai_embedding
+          - custom
+          title: Protocol
+          default: openai_chat
+        input_modalities:
+          anyOf:
+          - items:
+              type: string
+            type: array
+            maxItems: 16
+          - type: 'null'
+          title: Input Modalities
+        output_modalities:
+          anyOf:
+          - items:
+              type: string
+            type: array
+            maxItems: 16
+          - type: 'null'
+          title: Output Modalities
+        capabilities:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Capabilities
+        context_window:
+          anyOf:
+          - type: integer
+            maximum: 100000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Context Window
+        max_output_tokens:
+          anyOf:
+          - type: integer
+            maximum: 100000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Max Output Tokens
+        endpoint_path:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Endpoint Path
+        pricing:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Pricing
+        default_params:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Default Params
+        limits_json:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Limits Json
+        status:
+          type: integer
+          maximum: 2.0
+          minimum: 1.0
+          title: Status
+          default: 1
+        source:
+          type: string
+          enum:
+          - manual
+          - import
+          - probe
+          - relay
+          - official
+          title: Source
+          default: manual
+        external_id:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: External Id
+      additionalProperties: false
+      type: object
+      required:
+      - model_key
+      - upstream_model_id
+      title: SupplierModelCreate
+      description: 新建模型：``model_key`` 供应商内唯一，``upstream_model_id`` 是上游物理名。
+    SupplierModelUpdate:
+      properties:
+        model_key:
+          anyOf:
+          - type: string
+            maxLength: 100
+            minLength: 1
+          - type: 'null'
+          title: Model Key
+        upstream_model_id:
+          anyOf:
+          - type: string
+            maxLength: 200
+            minLength: 1
+          - type: 'null'
+          title: Upstream Model Id
+        display_name:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Display Name
+        modality:
+          anyOf:
+          - type: string
+            enum:
+            - text
+            - image
+            - video
+            - audio
+            - multimodal
+            - embedding
+            - rerank
+            - asr
+            - tts
+          - type: 'null'
+          title: Modality
+        protocol:
+          anyOf:
+          - type: string
+            enum:
+            - openai_chat
+            - openai_images
+            - dashscope_image
+            - openai_video
+            - anthropic
+            - gemini
+            - openai_audio
+            - openai_embedding
+            - custom
+          - type: 'null'
+          title: Protocol
+        input_modalities:
+          anyOf:
+          - items:
+              type: string
+            type: array
+            maxItems: 16
+          - type: 'null'
+          title: Input Modalities
+        output_modalities:
+          anyOf:
+          - items:
+              type: string
+            type: array
+            maxItems: 16
+          - type: 'null'
+          title: Output Modalities
+        capabilities:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Capabilities
+        context_window:
+          anyOf:
+          - type: integer
+            maximum: 100000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Context Window
+        max_output_tokens:
+          anyOf:
+          - type: integer
+            maximum: 100000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Max Output Tokens
+        endpoint_path:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Endpoint Path
+        pricing:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Pricing
+        default_params:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Default Params
+        limits_json:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Limits Json
+        status:
+          anyOf:
+          - type: integer
+            maximum: 2.0
+            minimum: 1.0
+          - type: 'null'
+          title: Status
+      additionalProperties: false
+      type: object
+      title: SupplierModelUpdate
+      description: 更新模型：未提供的字段保持不变（``exclude_unset`` 语义）。
+    SupplierModelsBatchTestBody:
+      properties:
+        model_ids:
+          items:
+            type: string
+          type: array
+          maxItems: 50
+          title: Model Ids
+      additionalProperties: false
+      type: object
+      title: SupplierModelsBatchTestBody
     SupplierProbeModelsBody:
       properties:
         provider_type:
@@ -13959,6 +15720,7 @@ components:
           - openai_images
           - dashscope_image
           - openai_video
+          - official_relay
           title: Provider Type
         base_url:
           type: string
@@ -14004,6 +15766,7 @@ components:
             - openai_images
             - dashscope_image
             - openai_video
+            - official_relay
           - type: 'null'
           title: Provider Type
         base_url:

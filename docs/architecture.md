@@ -14,6 +14,8 @@ API 服务（FastAPI：鉴权、小院上下文、请求校验、业务服务）
           ├── Agent 运行模块（agents）
           ├── 知识库模块（knowledge） ────► 文档解析/Embedding Worker
           ├── 工具注册与权限模块（tools）
+          ├── 市场/技能/文档模块（market / docs）
+          ├── 官方技能与插件库模块（library） ──► 官方发布源（签名清单）
           ├── 专家审核与进化模块（evolution）
           ├── 农业领域模块（agriculture，分阶段）
           └── 政策领域模块（policy，P1 桩）
@@ -35,6 +37,8 @@ API 服务（FastAPI：鉴权、小院上下文、请求校验、业务服务）
 | tasks | core、数据库层、agents 公共接口 | 前端代码、具体政策抓取器 |
 | agents | core、llm、tools、knowledge 的接口 | 绕过业务服务直接访问任意表 |
 | llm | core、配置 | 领域业务规则 |
+| market / docs | core、llm、tools、knowledge 接口 | 绕过业务服务直接访问任意表 |
+| library | core、market、plugins、文件存储 | 执行包内任意脚本（包只声明、不执行） |
 | knowledge | core、文件存储、数据库 | 不受限跨小院检索 |
 | tools | core、业务服务接口 | 不受控任意代码/任意 SQL |
 | evolution | core、knowledge、agents | 自动修改生产源代码 |
@@ -52,6 +56,9 @@ API 服务（FastAPI：鉴权、小院上下文、请求校验、业务服务）
 - **工具风险分级**：`read_only / draft / write_reversible / external_side_effect`；R3 级必须人工确认。
 - **受控自进化**：反馈 → 候选知识/Skill → 评测 → 专家审核 → 版本化发布/回滚；禁止自动改生产代码。
 - **模型解耦**：业务只依赖 `LLMProvider` 协议；首版提供 `fake`（开发/CI）与 `openai_compatible` 两种实现。
+- **供应商/模型分层（v3.36）**：`suppliers` 只描述渠道（地址、密钥、优先级），`supplier_models` 承载同渠道下的多模型（模态/协议/能力/单价/上下文）。绑定优先指向 `supplier_model_id`，解析链再回落模型名、供应商默认模型与旧 `model_id`。
+- **官方中转站预留（v3.36）**：`relay_channels` 描述官方或私有 OpenAI 兼容中转站，`catalog_path` 拉取模型目录并同步为 `source=relay` 的 `supplier_models`；官方试用/购买走 `official_plans/entitlements/orders`，支付回调按 `event_id` 幂等，适配器默认关闭，不配置即不启用。
+- **官方技能/插件库（v3.36）**：发布者用 Ed25519 签名清单，客户端校验清单与 `.kjxpack` SHA-256 后安装；插件包只声明、不执行脚本；同步支持 ETag/单调序号、撤销、固定版本与离线回退。
 
 ## 部署形态
 

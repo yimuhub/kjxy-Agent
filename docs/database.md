@@ -31,6 +31,16 @@
 | yard_member_grants | 负责人逐人敏感授权 | yard_id、user_id、grants_json、updated_by；唯一 (yard_id,user_id) |
 | yard_join_requests | 自助注册/加入申请 | yard_id、user_id、kind、status、reviewed_by、reject_reason |
 | market_items | 市场条目缓存 | item_key（唯一）、item_type、source、code、definition_json、manifest_json、metadata_json、verified、status |
+| supplier_models | 供应商下的多模型（v3.36） | supplier_id、model_key（供应商内唯一）、upstream_model_id、display_name、modality、protocol、input/output_modalities、capabilities、context_window、max_output_tokens、endpoint_path、pricing、default_params、limits_json、status、source、external_id、last_test_at、test_ok、latency_ms、last_error |
+| relay_channels | 官方/私有 API 中转站（v3.36） | yard_id（空=平台）、name、kind（official/private）、base_url、api_key_enc、public_key、webhook_secret_enc、catalog_path、enabled、status、last_sync_at、last_error、metadata_json |
+| official_plans | 官方通道套餐 | model_key、name、billing_unit、price、currency、trial_tokens、trial_days、active、metadata_json |
+| official_entitlements | 官方权益（试用/购买） | yard_id、user_id、plan_id、model_key、source（trial/order）、status、quota_total、quota_used、starts_at、expires_at、external_ref |
+| official_orders | 官方购买订单 | yard_id、user_id、plan_id、amount、currency、status、external_order_id、payment_url、idempotency_key、paid_at |
+| official_webhook_events | 支付回调幂等 | event_id、event_type、payload_digest、received_at、processed_at |
+| library_sources | 官方技能/插件库源（v3.36） | yard_id（空=平台官方源）、name、kind（official/private）、base_url、channel、public_key_b64、key_id、enabled、etag、sequence、status、last_checked_at、last_sync_at、last_error、metadata_json |
+| library_items | 库条目清单镜像 | source_id、item_key、item_type、code、name、version、min/max_app_version、description、category、risk_level、license、author、sha256、size_bytes、download_url、manifest_json、status、sequence、published_at；唯一 (source_id,item_key,version) |
+| library_installs | 本机安装台账 | yard_id、source_id、item_key、item_type、installed_version、previous_version、package_sha256、skill_id、plugin_id、auto_update、pinned、installed_at；唯一 (yard_id,item_key) |
+| library_sync_runs | 同步运行记录 | source_id、yard_id、status（ok/error/skipped）、started_at、finished_at、added/updated/removed、error |
 
 ## 索引与完整性
 

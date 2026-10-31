@@ -226,19 +226,40 @@ test.describe('增长与服务技能包（v3.26）', () => {
     })
     expect(search.ok()).toBeTruthy()
     const body = await search.json()
-    const codes = (body.data.items as { code: string; item_key: string }[]).map(i => i.code)
-    const growthCodes = codes.filter(code => code.startsWith('growth_'))
+    // 内置技能总数 12 农技 + 12 增长 + 11 办公/PPT + 28 正式写作 = 63；
+    // 单次接口最多返回 50 条，分组数量用带查询词的分页检索核对。
+    expect(body.data.total).toBe(63)
+
+    async function builtinCodes(query: string): Promise<string[]> {
+      const res = await request.post('/api/v1/market/items/search', {
+        headers: auth(token),
+        data: { source: 'builtin', item_type: 'skill', query, limit: 50 },
+      })
+      expect(res.ok()).toBeTruthy()
+      return ((await res.json()).data.items as { code: string }[]).map(i => i.code)
+    }
+
+    const growthCodes = await builtinCodes('growth_')
     expect(growthCodes).toHaveLength(12)
     expect(growthCodes).toEqual(
       expect.arrayContaining(['growth_poster_prompt', 'growth_poster_render', 'growth_event_plan']),
     )
-    // 3.36 起内置技能：12 农技 + 12 增长 + 11 办公/PPT + 28 正式写作 = 63
-    expect(codes.filter(code => code.startsWith('office_'))).toHaveLength(11)
-    const formalCodes = codes.filter(code =>
-      /^(gov_|grant_|tender_|bid_|formal_|exec_|policy_|meeting_)/.test(code),
+    // 办公/PPT 11 项
+    expect((await builtinCodes('office_')).filter(code => code.startsWith('office_'))).toHaveLength(
+      11,
     )
+    // 正式写作 28 项，按四组前缀分别核对：公文 10 + 申报 7 + 招投标 7 + 通用 4
+    const formalCodes = [
+      ...(await builtinCodes('gov_')),
+      ...(await builtinCodes('grant_')),
+      ...(await builtinCodes('tender_')),
+      ...(await builtinCodes('bid_')),
+      ...(await builtinCodes('formal_')),
+      ...(await builtinCodes('exec_')),
+      ...(await builtinCodes('policy_interpretation')),
+      ...(await builtinCodes('meeting_')),
+    ]
     expect(formalCodes).toHaveLength(28)
-    expect(body.data.total).toBe(63)
 
     await login(page, 'admin', 'admin123')
     await page.goto('/library')

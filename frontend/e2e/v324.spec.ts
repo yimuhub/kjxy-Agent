@@ -9,6 +9,16 @@ import { login } from './helpers'
 test.describe('权限与千人千面（v3.24）', () => {
   test('角色与权限：权限点全中文，受保护权限保存前二次确认', async ({ page }) => {
     await login(page, 'admin', 'admin123')
+    // 自定义角色上限 20 个：清掉历史运行留下的 e27_perm_*，避免跨轮次累积把这一轮挤爆
+    const token = await page.evaluate(() => localStorage.getItem('ky_token'))
+    const headers = { Authorization: `Bearer ${token}` }
+    const res = await page.request.get('/api/v1/yards/current/roles', { headers })
+    const existing = ((await res.json()).data?.roles ?? []) as Array<{ code?: string }>
+    for (const row of existing) {
+      if (typeof row.code === 'string' && row.code.startsWith('e27_perm_')) {
+        await page.request.delete(`/api/v1/yards/current/roles/${row.code}`, { headers })
+      }
+    }
     await page.goto('/settings?tab=roles')
 
     const card = page.getByText('角色与权限').first()
@@ -30,6 +40,7 @@ test.describe('权限与千人千面（v3.24）', () => {
     await expect(confirm).toContainText('查看敏感数据')
     await confirm.getByRole('button', { name: '确认保存' }).click()
     await expect(page.getByText('已创建').first()).toBeVisible()
+    await page.request.delete(`/api/v1/yards/current/roles/${code}`, { headers })
   })
 
   test('成员管理：逐人授权弹窗可保存并即时生效', async ({ page }) => {
