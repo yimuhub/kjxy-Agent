@@ -66,8 +66,16 @@
         </div>
       </div>
 
+      <!-- 会话建好前不渲染输入区：避免用户抢在锁定会话落地前发送，落到未锁定的临时会话 -->
+      <div
+        v-if="sessionBusy"
+        v-loading="true"
+        element-loading-text="正在准备对话…"
+        class="use-preparing"
+      />
       <!-- 独立 scope 的对话实例：支持单智能体对话与多智能体群聊 -->
       <ChatPanel
+        v-else
         :store="store"
         :panel-id="panelId"
         :label="dialogTitle"
@@ -76,6 +84,7 @@
         :empty-sub="emptySub"
         :mentionable="isMultiGroup"
         :groupable="isMultiGroup"
+        :locked-label="isMultiGroup ? '' : props.agent.display_name"
         placeholder="输入问题，Enter 发送，Shift+Enter 换行；群聊支持输入 @ 点名特定智能体"
         max-width="100%"
         @card-published="emit('card-published')"
@@ -150,7 +159,7 @@
           '结合本小院最新知识库，为我们制定一份本周农事与防灾协同方案',
         ]
       : [
-          `「${props.agent.display_name}」能帮我做什么？`,
+          '介绍一下你的能力和你最擅长的场景',
           '结合本小院资料给个建议',
         ],
   )
@@ -198,6 +207,19 @@
           `与「${props.agent.display_name}」的对话`,
         )
         store.activeId = session.id
+        // 让本实例也知道会话被锁定：发送时带同一个 target_code，界面显示绑定提示
+        if (!store.sessions.some(s => s.id === session.id)) {
+          const now = new Date().toISOString()
+          store.sessions.unshift({
+            id: session.id,
+            title: session.title,
+            target: session.target,
+            target_code: session.target_code,
+            target_name: session.target_name,
+            created_at: session.created_at || now,
+            updated_at: session.updated_at || now,
+          })
+        }
       }
     } catch (e) {
       const { code, message } = extractErrorMessage(e)
@@ -214,6 +236,11 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+  }
+
+  .use-preparing {
+    flex: 1;
+    min-height: 260px;
   }
 
   .use-head {

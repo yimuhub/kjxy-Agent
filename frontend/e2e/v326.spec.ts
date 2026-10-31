@@ -232,7 +232,13 @@ test.describe('增长与服务技能包（v3.26）', () => {
     expect(growthCodes).toEqual(
       expect.arrayContaining(['growth_poster_prompt', 'growth_poster_render', 'growth_event_plan']),
     )
-    expect(body.data.total).toBe(24)
+    // 3.36 起内置技能：12 农技 + 12 增长 + 11 办公/PPT + 28 正式写作 = 63
+    expect(codes.filter(code => code.startsWith('office_'))).toHaveLength(11)
+    const formalCodes = codes.filter(code =>
+      /^(gov_|grant_|tender_|bid_|formal_|exec_|policy_|meeting_)/.test(code),
+    )
+    expect(formalCodes).toHaveLength(28)
+    expect(body.data.total).toBe(63)
 
     await login(page, 'admin', 'admin123')
     await page.goto('/library')

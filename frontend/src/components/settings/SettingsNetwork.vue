@@ -11,7 +11,7 @@
         type="error"
         :closable="false"
         show-icon
-        title="本地部署形态：当前设备无互联网连接"
+        title="当前设备无互联网连接"
         :description="OFFLINE_SEARCH_TIP"
       />
       <el-alert
@@ -20,8 +20,8 @@
         type="warning"
         :closable="false"
         show-icon
-        :title="DEGRADED_SEARCH_TIP"
-        description="联网检索已自动切换到可用搜索源；本地 Skill 管理与离线功能不受影响。"
+        :title="status.reason || DEGRADED_SEARCH_TIP"
+        description="系统会自动尝试其余搜索源；本地 Skill 管理与离线功能不受影响。"
       />
       <el-alert
         v-else-if="!status"
@@ -108,7 +108,9 @@
                   {{ o.label }}
                 </el-checkbox>
               </el-checkbox-group>
-              <span class="note note-block">免密钥，零配置可用；可单独关闭</span>
+              <span class="note note-block">
+                免密钥、零配置；靠前勾选的源优先尝试，失败自动顺延
+              </span>
             </div>
           </el-form-item>
           <el-form-item
@@ -176,6 +178,31 @@
         </el-form>
 
         <div
+          v-if="status?.sources?.length"
+          class="source-diagnostics"
+        >
+          <div class="diag-title">首选源诊断</div>
+          <div
+            v-for="item in status.sources"
+            :key="item.code"
+            class="diag-row"
+          >
+            <el-tag
+              size="small"
+              :type="item.ok ? 'success' : 'danger'"
+              effect="plain"
+            >
+              {{ item.ok ? '可用' : '不可用' }}
+            </el-tag>
+            <span class="diag-label">{{ item.label }}</span>
+            <span class="diag-reason">{{ item.reason }}</span>
+          </div>
+          <div class="diag-note">
+            实际搜索会自动尝试其余已启用源；需要端到端验证请点「测试连接」。
+          </div>
+        </div>
+
+        <div
           v-if="testResult"
           class="test-result"
         >
@@ -216,10 +243,28 @@
   const testResult = ref<{ ok: boolean; title: string; desc: string } | null>(null)
 
   const BUILTIN_SOURCE_OPTIONS: { label: string; value: BuiltinSearchSource }[] = [
-    { label: '必应', value: 'bing' },
+    { label: 'Brave 网页版', value: 'brave_web' },
+    { label: '百度', value: 'baidu' },
     { label: '搜狗', value: 'sogou' },
     { label: '360 搜索', value: 'so360' },
+    { label: '必应新闻', value: 'bing_news' },
+    { label: '必应网页', value: 'bing' },
+    { label: '谷歌新闻', value: 'google_news' },
+    { label: 'DuckDuckGo', value: 'duckduckgo' },
   ]
+
+  const PROVIDER_LABELS: Record<string, string> = {
+    auto: '自动',
+    brave_web: 'Brave 网页版',
+    baidu: '百度',
+    sogou: '搜狗',
+    so360: '360 搜索',
+    bing: '必应',
+    duckduckgo: 'DuckDuckGo',
+    searxng: 'SearXNG',
+    tavily: 'Tavily',
+    brave: 'Brave API',
+  }
 
   const search = reactive({
     enabled: true,
@@ -227,7 +272,7 @@
     searxng_url: '',
     daily_limit: 500,
     timeout_seconds: 8,
-    builtin_sources: ['bing', 'sogou', 'so360'] as BuiltinSearchSource[],
+    builtin_sources: ['brave_web', 'baidu', 'sogou', 'so360', 'bing_news', 'google_news'] as BuiltinSearchSource[],
     tavily_configured: false,
     brave_configured: false,
   })
@@ -301,7 +346,7 @@
       const res = await searchApi.test()
       testResult.value = {
         ok: true,
-        title: `「${res.provider}」连通成功`,
+        title: `「${PROVIDER_LABELS[res.provider] ?? res.provider}」连通成功`,
         desc: `返回 ${res.result_count} 条结果，耗时 ${res.latency_ms} ms。`,
       }
     } catch (e) {
@@ -363,5 +408,35 @@
   }
   .test-result {
     margin-top: 12px;
+  }
+  .source-diagnostics {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--ds-border, #ebeef5);
+  }
+  .diag-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ds-text-2);
+    margin-bottom: 8px;
+  }
+  .diag-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 26px;
+    font-size: 12px;
+  }
+  .diag-label {
+    width: 96px;
+    color: var(--ds-text-2);
+  }
+  .diag-reason {
+    color: var(--ds-text-3);
+  }
+  .diag-note {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--ds-text-3);
   }
 </style>

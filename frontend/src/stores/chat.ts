@@ -192,6 +192,23 @@ function buildChatStore(scope: string) {
 
     const activeSession = computed(() => sessions.value.find(s => s.id === activeId.value) ?? null)
 
+    /** 会话级锁定：与指定助手/班组单独对话时，整轮只由它回答 */
+    const sessionLocked = computed(() => {
+      const s = activeSession.value
+      return Boolean(
+        s &&
+          !s.participant_count &&
+          (s.target === 'agent' || s.target === 'team') &&
+          (s.target_code || '').trim(),
+      )
+    })
+    /** 锁定对象的展示名（后端下发；老数据回落 code） */
+    const sessionLockedName = computed(() => {
+      const s = activeSession.value
+      if (!s || !sessionLocked.value) return ''
+      return s.target_name || s.target_code || ''
+    })
+
     /**
      * 列表真正渲染的那份：按当前筛选过滤，再排成「置顶恒在最前（置顶时间倒序），
      * 其余最近更新在前」。
@@ -279,8 +296,10 @@ function buildChatStore(scope: string) {
 
     /** 本轮要带上的发送附加字段（单聊且未点名时全为空，请求体保持原样） */
     function currentExtras() {
+      // 锁定会话每轮都带同一执行对象：即便后端还没升级，也不会被自动路由带走
+      const lockedCode = sessionLocked.value ? activeSession.value?.target_code ?? null : null
       return {
-        target_code: mention.value ? mentionTargetCode(mention.value) : null,
+        target_code: lockedCode || (mention.value ? mentionTargetCode(mention.value) : null),
         policy: isGroup.value ? groupPolicy.value : null,
       }
     }
@@ -367,6 +386,8 @@ function buildChatStore(scope: string) {
       attachments.value = []
       streamError.value = ''
       resetRoundView()
+      const picked = sessions.value.find(s => s.id === id)
+      if (picked?.target === 'agent' || picked?.target === 'team') clearMention()
       await loadMessages()
       await loadParticipants()
       await clearUnread(id)
@@ -1201,6 +1222,8 @@ function buildChatStore(scope: string) {
       clearQuotaBlock,
       activeSession,
       activeTitle,
+      sessionLocked,
+      sessionLockedName,
       /* 点名与群聊：全部按实例隔离，弹出面板与主对话互不污染 */
       mentionCandidates,
       mentionLoading,

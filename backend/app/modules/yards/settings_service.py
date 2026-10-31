@@ -31,8 +31,15 @@ DEFAULTS: dict[str, dict[str, Any]] = {
     "search": {
         "enabled": True,
         "provider": "auto",  # auto | searxng | tavily | brave（旧值照常可用）
-        "builtin_sources": ["bing", "sogou", "so360"],  # 免密钥内置源及其优先顺序
-        "searxng_url": "http://127.0.0.1:8888",
+        "builtin_sources": [
+            "brave_web",
+            "baidu",
+            "sogou",
+            "so360",
+            "bing_news",
+            "google_news",
+        ],  # 免密钥内置源及其优先顺序（bing/duckduckgo 可选，默认关闭）
+        "searxng_url": "",
         "tavily_api_key": "",
         "brave_api_key": "",
         "daily_limit": 500,
@@ -128,7 +135,19 @@ DEFAULTS: dict[str, dict[str, Any]] = {
 REGISTRATION_MODES = {"closed", "approval", "open"}
 SEARCH_PROVIDERS = {"auto", "searxng", "tavily", "brave"}
 #: 免密钥内置搜索源（与 app.modules.search.providers_builtin 的实现保持一致）
-BUILTIN_SEARCH_SOURCES = ("bing", "sogou", "so360")
+BUILTIN_SEARCH_SOURCES = (
+    "brave_web",
+    "baidu",
+    "sogou",
+    "so360",
+    "bing_news",
+    "bing",
+    "google_news",
+    "duckduckgo",
+)
+#: v3.33 之前零配置写入的旧默认值：仅当两项都未被改动时才整体升级
+LEGACY_SEARXNG_URLS = {"http://127.0.0.1:8888", "http://localhost:8888"}
+LEGACY_BUILTIN_SOURCES = ["bing", "sogou", "so360"]
 SI_PRESETS = {"daily", "hours12", "hours6", "days3", "weekly", "monthly", "custom"}
 SI_UNITS = {"hours", "days", "months"}
 SI_SCOPES = {"yard", "per_member"}
@@ -157,11 +176,23 @@ def _row(db: Session, yard_id: str, key: str) -> YardSettings | None:
     )
 
 
+def _upgrade_search_defaults(merged: dict[str, Any], stored: dict[str, Any]) -> None:
+    """把「完全没动过」的旧搜索默认值升级到 v3.33，避免继续打不存在的本机 SearXNG。"""
+    if stored.get("builtin_sources") != LEGACY_BUILTIN_SOURCES:
+        return
+    if str(stored.get("searxng_url") or "").strip() not in LEGACY_SEARXNG_URLS:
+        return
+    merged["builtin_sources"] = list(DEFAULTS["search"]["builtin_sources"])
+    merged["searxng_url"] = ""
+
+
 def get_setting(db: Session, yard_id: str, key: str) -> dict[str, Any]:
     merged = deepcopy(DEFAULTS.get(key, {}))
     row = _row(db, yard_id, key)
     if row is not None and isinstance(row.value_json, dict):
         merged.update(row.value_json)
+        if key == "search":
+            _upgrade_search_defaults(merged, row.value_json)
     return merged
 
 

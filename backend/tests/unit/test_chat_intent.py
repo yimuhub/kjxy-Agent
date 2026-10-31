@@ -238,3 +238,49 @@ def test_capability_noun_wins_over_plan_noun():
 
 def test_unrelated_request_is_not_plan():
     assert intent.detect("地里今天需要做什么").kind == intent.INTENT_QA
+
+
+# ---------------------------------------------------------------------------
+# 自我能力咨询（v3.33.1）：问"你能干啥"绝不能触发建能力
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "「农业助手」能帮我做什么？",
+        "这个助手能帮我做什么？",
+        "给我看看你的能力",
+        "给我看看你的技能",
+        "你都能干啥",
+        "你都能干些啥",
+        "你能干些什么",
+        "说说你的技能",
+        "给我讲讲你的技能",
+        "你都会哪些能力",
+        "我想了解你的能力",
+        "介绍一下你的技能",
+    ],
+)
+def test_agent_self_inquiry_is_qa(text):
+    got = intent.detect(text)
+    assert got.kind == intent.INTENT_QA, text
+    assert got.is_action is False
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("我需要一个助手", intent.INTENT_CREATE),
+        ("给我一个助手", intent.INTENT_CREATE),
+        ("给我来一个助手", intent.INTENT_CREATE),
+        ("帮我弄个病虫害助手", intent.INTENT_CREATE),
+        ("帮我做一个病虫害助手", intent.INTENT_CREATE),
+        ("我需要一个技能", intent.INTENT_SKILL),
+        ("给我一个技能包", intent.INTENT_SKILL),
+        ("来一个病虫害技能", intent.INTENT_SKILL),
+    ],
+)
+def test_request_with_measure_word_still_creates(text, expected):
+    """带量词的请求式仍是指令；收紧的只是裸"帮我/给我"+名词。"""
+    assert intent.detect(text).kind == expected

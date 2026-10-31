@@ -7,9 +7,12 @@
 生产环境必须通过环境变量/安全流程重置这些默认口令。
 """
 
+import hmac
+import os
 import uuid
 from datetime import UTC, datetime, timedelta
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import WEAK_PLATFORM_ADMIN_USERNAMES, settings
@@ -38,6 +41,7 @@ from app.modules.auth.schemas import (
 from app.modules.yards import authz as yard_authz
 from app.modules.yards import repository as yard_repo
 from app.modules.yards import settings_service as yard_settings
+from app.modules.yards.models import Yard
 from app.modules.yards.permissions import ALL_PERMISSIONS, default_role_permissions
 from app.modules.yards.signup import (
     ensure_contact_unique,
@@ -315,6 +319,39 @@ def issue_login_response(
         roles=roles,
         yards=yards,
     )
+
+
+def desktop_bootstrap(db: Session, token: str, *, request_id: str = "") -> LoginResponseData:
+    """桌面壳引导登录：用壳注入的令牌换本机负责人的登录态。
+
+    安全边界：
+    - 令牌只存在于 sidecar 进程环境（由壳生成并随每次启动注入），不落库；
+    - 路由层限制只允许 127.0.0.1/::1 调用，令牌比较用恒定时间；
+    - 只签发给本机数据目录里第一个小院的负责人，不提供用户名/密码入口。
+
+    这样安装后双击即用，不再要求用户去读 desktop-login.txt。
+    """
+    expected = os.environ.get("TECHYARD_DESKTOP_BOOTSTRAP", "").strip()
+    if not expected:
+        raise AppError("DESKTOP_DISABLED", "桌面引导登录未启用。", http_status=404)
+    if not token or not hmac.compare_digest(token, expected):
+        raise AppError("INVALID_BOOTSTRAP_TOKEN", "桌面启动凭证无效。", http_status=401)
+
+    yard = db.scalar(select(Yard).where(Yard.owner_user_id.is_not(None)).limit(1))
+    if yard is None or not yard.owner_user_id:
+        raise AppError(
+            "DESKTOP_NOT_READY",
+            "本机数据尚未初始化完成，请稍候或重启应用。",
+            http_status=503,
+        )
+    user = repo.get_by_id(db, yard.owner_user_id)
+    if user is None or user.status != "active":
+        raise AppError(
+            "DESKTOP_NOT_READY",
+            "本机负责人账号不可用，请重启应用或重置本地数据。",
+            http_status=503,
+        )
+    return issue_login_response(db, user, yard.id, request_id=request_id, method="desktop")
 
 
 def refresh(db: Session, refresh_token: str, *, request_id: str) -> RefreshResponseData:

@@ -1,0 +1,23 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "engine-remote",
+  "description": "主窗体加载本机引擎页面（127.0.0.1:18700-18710）时，仅放行导出保存与打开麦克风设置两条命令",
+  "local": false,
+  "windows": ["main"],
+  "remote": {
+    "urls": [
+      "http://127.0.0.1:18700/*",
+      "http://127.0.0.1:18701/*",
+      "http://127.0.0.1:18702/*",
+      "http://127.0.0.1:18703/*",
+      "http://127.0.0.1:18704/*",
+      "http://127.0.0.1:18705/*",
+      "http://127.0.0.1:18706/*",
+      "http://127.0.0.1:18707/*",
+      "http://127.0.0.1:18708/*",
+      "http://127.0.0.1:18709/*",
+      "http://127.0.0.1:18710/*"
+    ]
+  },
+  "permissions": ["allow-save-export", "allow-open-mic-settings"]
+}

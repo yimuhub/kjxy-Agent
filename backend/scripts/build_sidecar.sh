@@ -50,7 +50,7 @@ fi
 # 分隔符：mac/linux 用 ':'，windows 用 ';'
 SEP=":"; [ "$OS_TAG" = "windows" ] && SEP=";"
 
-rm -rf "build/${NAME}" "dist/${NAME}" "dist/${NAME}.spec"
+rm -rf "build/${NAME}" "dist/${NAME}" "dist/${NAME}.spec" "${NAME}.spec"
 
 "$PY" -m PyInstaller \
   --onefile \
@@ -69,6 +69,10 @@ rm -rf "build/${NAME}" "dist/${NAME}" "dist/${NAME}.spec"
   --collect-all uvicorn \
   --collect-all sqlalchemy \
   --collect-all cryptography \
+  --collect-all celery \
+  --collect-all kombu \
+  --collect-all vine \
+  --collect-all billiard \
   --collect-submodules email_validator \
   --collect-all sherpa_onnx \
   --collect-all sherpa_onnx_core \

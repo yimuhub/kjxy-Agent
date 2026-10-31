@@ -21,6 +21,7 @@ from app.core.security import create_access_token
 from app.modules.agents import supervisor
 from app.modules.agents.supervisor import ROUTED_LABEL_UNKNOWN, ROUTED_TONE_UNKNOWN
 from app.modules.chat import group
+from app.modules.chat import service as chat_service
 from app.modules.chat import stream as chat_stream
 from app.modules.chat.models import ChatMessage
 from app.modules.chat.service import ROUTED_LOCAL, message_out
@@ -75,6 +76,17 @@ def _tid(yard: Any) -> str:
 
 def _mk_session(client, yard, user_id: str = "u-men") -> str:
     resp = client.post(CHAT, json={}, headers=_hdr(user_id, _tid(yard)))
+    assert resp.status_code == 200, resp.text
+    return resp.json()["data"]["id"]
+
+
+def _mk_bound_session(client, yard, agent_id: str, user_id: str = "u-men") -> str:
+    """建一个「与该助手单独对话」的会话：target/target_code 是会话级锁定。"""
+    resp = client.post(
+        CHAT,
+        json={"title": "单独对话", "target": "agent", "target_code": agent_id},
+        headers=_hdr(user_id, _tid(yard)),
+    )
     assert resp.status_code == 200, resp.text
     return resp.json()["data"]["id"]
 
@@ -218,6 +230,16 @@ def test_create_intent_wins_over_mention(client, yard):
     assert msg["routed_by"] == ROUTED_LOCAL
     assert msg["payload"]["type"] == "capability"  # 卡片照旧下发
     assert msg["routed_label"] == supervisor.routed_label(ROUTED_LOCAL)
+
+
+def test_agent_self_inquiry_never_creates_capability(client, yard):
+    """ "「某助手」能帮我做什么？" 是咨询，不是建能力——曾因"助手+帮我"误建同名智能体。"""
+    _publish(client, yard, "men_self", "自述助手", "负责介绍自己的能力")
+    sid = _mk_session(client, yard)
+    data = _send(client, yard, sid, "「自述助手」能帮我做什么？")
+    msg = data["assistant_message"]
+    assert msg["routed_by"] != ROUTED_LOCAL
+    assert msg["payload"] is None
 
 
 def test_install_intent_wins_over_mention(client, yard):
@@ -412,3 +434,81 @@ def test_failed_row_still_badgeable():
     out = message_out(ChatMessage(role="assistant", status="failed", error_code="NOT_FOUND"))
     assert out["routed_label"] == ""
     assert out["routed_tone"] == ""
+
+
+# ---------------------------------------------------------------------------
+# 会话级锁定：与某个助手单独对话时，整轮只由它回答
+# ---------------------------------------------------------------------------
+
+
+def test_bound_session_stays_on_bound_agent(client, yard):
+    """会话 target=agent + target_code → 普通问答不再进入总控自动路由。"""
+    soil = _publish(client, yard, "bound_soil", "绑定土肥师", "负责土壤肥力与施肥方案")
+    _publish(client, yard, "bound_pest", "绑定病虫管家", "负责病虫害识别与防治")
+    sid = _mk_bound_session(client, yard, soil)
+    data = _send(client, yard, sid, "叶片背面有白粉怎么办")
+    msg = data["assistant_message"]
+    assert msg["routed_by"] == "bound"
+    assert msg["choice"]["id"] == soil
+
+
+def test_bound_session_ignores_message_level_override(client, yard):
+    """锁定会话里即使单条消息带了别的 target_code，也不能改道。"""
+    soil = _publish(client, yard, "bound_soil2", "绑定土肥师二号", "负责土壤肥力与施肥方案")
+    pest = _publish(client, yard, "bound_pest2", "绑定病虫管家二号", "负责病虫害识别与防治")
+    sid = _mk_bound_session(client, yard, soil)
+    data = _send(client, yard, sid, "帮我看看虫害", target_code=pest)
+    msg = data["assistant_message"]
+    assert msg["routed_by"] == "bound"
+    assert msg["choice"]["id"] == soil
+
+
+def test_bound_session_skips_global_intent_chains(client, yard):
+    """锁定会话不走方案/创建助手等全局链路：整轮仍由绑定助手回答。"""
+    aid = _publish(client, yard, "bound_qa", "绑定问答助手", "负责日常问答")
+    sid = _mk_bound_session(client, yard, aid)
+
+    plan = _send(client, yard, sid, "写一份小麦赤霉病的防治方案")
+    pmsg = plan["assistant_message"]
+    assert pmsg["routed_by"] == "bound"
+    assert pmsg["choice"]["id"] == aid
+    assert pmsg["payload"] is None  # 不再产出方案卡
+
+    create = _send(client, yard, sid, "创建一个「农机维修问答」助手")
+    cmsg = create["assistant_message"]
+    assert cmsg["routed_by"] == "bound"
+    assert cmsg["choice"]["id"] == aid
+    assert cmsg["payload"] is None  # 不再产出能力草稿卡
+
+
+def test_bound_session_carries_previous_turns(client, yard, monkeypatch):
+    """锁定会话把本会话此前几轮带给助手，避免每轮都像第一次见面。"""
+    aid = _publish(client, yard, "bound_ctx", "绑定上下文档手", "负责连续对话")
+    sid = _mk_bound_session(client, yard, aid)
+    seen: list[str] = []
+
+    async def fake_directed(db, *, ctx, question, target, prefer_team=False):
+        seen.append(question)
+        return {
+            "choice": {"kind": "agent", "id": aid, "code": "bound_ctx", "name": "绑定上下文档手"},
+            "routed_by": "bound",
+            "reason": "",
+            "result": {
+                "answer": f"第 {len(seen)} 轮回答",
+                "token_usage": {
+                    "input_tokens": 1,
+                    "output_tokens": 1,
+                    "total_tokens": 2,
+                },
+            },
+        }
+
+    monkeypatch.setattr(chat_service.supervisor, "ask_directed", fake_directed)
+    _send(client, yard, sid, "第一句话")
+    _send(client, yard, sid, "第二句话")
+    assert "【本会话此前的对话" not in seen[0]
+    assert "【本会话此前的对话" in seen[1]
+    assert "第一句话" in seen[1]
+    assert "第 1 轮回答" in seen[1]
+    # 当前轮不重复塞进历史
+    assert seen[1].count("第二句话") == 1

@@ -1,5 +1,7 @@
 /** CSV 导出工具：UTF-8 BOM + 标准转义，Excel 直接双击可读。 */
 
+import { saveBlobOrDownload } from './download'
+
 export type CsvCell = string | number | null | undefined
 
 export interface CsvSection {
@@ -28,15 +30,7 @@ export function downloadCsvSections(filename: string, sections: CsvSection[]): v
 
 export function downloadCsv(filename: string, content: string): void {
   const blob = new Blob([`\ufeff${content}`], { type: 'text/csv;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = filename
-  link.style.display = 'none'
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  URL.revokeObjectURL(url)
+  void saveBlobOrDownload(filename, blob)
 }
 
 export function todayStamp(): string {

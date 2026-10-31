@@ -20,6 +20,12 @@ class LoginRequest(BaseModel):
     )
 
 
+class DesktopBootstrapRequest(BaseModel):
+    """桌面壳引导登录：令牌由壳注入子进程环境，仅回环地址可调用。"""
+
+    token: str = Field(..., min_length=16, max_length=256)
+
+
 class YardBrief(BaseModel):
     yard_id: str
     yard_name: str

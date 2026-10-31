@@ -399,7 +399,7 @@ def create_session(
         created_by=created_by,
         title=clean,
         target=target or "auto",
-        target_code=(target_code or None) if target == "agent" else None,
+        target_code=(target_code or None) if target in {"agent", "team"} else None,
     )
     db.add(session)
     db.flush()
@@ -1055,6 +1055,178 @@ def _ensure_generate_permission(db: Session, ctx: YardContext) -> None:
         )
 
 
+#: 会话绑定的最近对话注入上限（条数 / 字符数）
+CHAT_HISTORY_LIMIT = 8
+CHAT_HISTORY_MAX_CHARS = 3000
+
+
+def session_binding(session: ChatSession | None) -> tuple[str, str] | None:
+    """会话级执行对象：``target=agent/team`` 且有 ``target_code`` 才算锁定。
+
+    这是「与某个助手单独对话」的硬边界：锁定后每轮都直达该对象，
+    不再进入总控自动路由，也不允许被单条消息的 ``target_code`` 改道。
+    """
+    if session is None:
+        return None
+    target = (getattr(session, "target", None) or "auto").strip().lower()
+    code = (getattr(session, "target_code", None) or "").strip()
+    if target in {"agent", "team"} and code:
+        return target, code
+    return None
+
+
+def _recent_conversation(
+    db: Session,
+    session_id: str,
+    current: str,
+    *,
+    limit: int = CHAT_HISTORY_LIMIT,
+    max_chars: int = CHAT_HISTORY_MAX_CHARS,
+) -> str:
+    """把本会话最近几轮对话压成一段上下文，供锁定助手承接前文。
+
+    当前轮的用户消息在调用前已落库，取数时跳过最新一条，避免原样重复。
+    """
+    rows = list(
+        db.scalars(
+            select(ChatMessage)
+            .where(ChatMessage.session_id == session_id)
+            .order_by(ChatMessage.seq.desc())
+            .limit(limit + 1)
+        )
+    )
+    if (
+        rows
+        and rows[0].role == ROLE_USER
+        and (rows[0].content or "").strip() == (current or "").strip()
+    ):
+        rows = rows[1:]
+    lines: list[str] = []
+    for row in reversed(rows):
+        if row.role == ROLE_ASSISTANT and row.status != MSG_OK:
+            # 失败/中止的回答不进入上下文，避免把「服务暂时不可用」当成事实
+            continue
+        text = " ".join((row.content or "").split())
+        if not text:
+            continue
+        prefix = "用户" if row.role == ROLE_USER else "助手"
+        lines.append(f"{prefix}：{text[:600]}")
+    block = "\n".join(lines)
+    if not block:
+        return ""
+    if len(block) > max_chars:
+        block = block[-max_chars:]
+    return "【本会话此前的对话（仅用于承接上下文）】\n" + block
+
+
+async def _run_bound_turn(
+    db: Session,
+    *,
+    ctx: YardContext,
+    session_id: str,
+    content: str,
+    attachments: list[ChatAttachment],
+    binding: tuple[str, str],
+    on_step: StepCallback | None,
+) -> dict[str, Any]:
+    """锁定会话的一轮执行：直达绑定对象，只带本会话历史与附件上下文。"""
+    kind, target = binding
+    label = "班组" if kind == "team" else "助手"
+    context_parts: list[str] = []
+    if attachments:
+        if on_step:
+            on_step(PHASE_READING, f"正在阅读 {len(attachments)} 个附件", STEP_RUNNING)
+        context_parts.append(attachments_service.build_attachment_context(attachments))
+        ready = sum(1 for a in attachments if a.status == "ready")
+        if on_step:
+            on_step(
+                PHASE_READING,
+                f"已读取 {len(attachments)} 个附件（{ready} 个可解析）",
+                STEP_DONE,
+            )
+    history = _recent_conversation(db, session_id, content)
+    if history:
+        context_parts.append(history)
+    context = "\n\n".join(part for part in context_parts if part)
+    question = f"{content}\n\n{context}" if context else content
+
+    # 锁定助手同样要能用办公技能产出文档：在定向执行前先识别文档意图。
+    intent = intent_service.detect(content)
+    if intent.kind == intent_service.INTENT_DOC:
+        from app.modules.chat import document as document_service
+
+        agent = None
+        if kind == "agent":
+            agent = declarative.get_published_by_code(
+                db, yard_id=ctx.yard_id, agent_code=target, user_id=ctx.user_id
+            )
+        agent_name = str(getattr(agent, "name", "") or "") if agent else ""
+        chosen_name = agent_name or (target if kind == "agent" else "")
+        if on_step:
+            on_step(PHASE_GENERATING, "正在整理文档内容", STEP_RUNNING)
+        card, note, doc_usage = await document_service.generate_document_from_chat(
+            db,
+            ctx=ctx,
+            session_id=session_id,
+            request_text=content,
+            context=context,
+            agent_name=chosen_name,
+            agent_persona=str(getattr(agent, "persona_prompt", "") or "") if agent else "",
+            agent_bound_skills=list(getattr(agent, "bound_skills", None) or []) if agent else [],
+        )
+        if on_step:
+            on_step(PHASE_GENERATING, f"文档已生成：{card['filename']}", STEP_DONE)
+        return {
+            "content": note,
+            "routed_by": "bound",
+            "choice": {
+                "kind": kind,
+                "id": str(getattr(agent, "id", "") or target),
+                "name": chosen_name or "文档生成",
+            },
+            "reason": f"会话已绑定：{chosen_name or target}（文档生成）",
+            "payload": card,
+            "citations": [],
+            "token_usage": doc_usage,
+        }
+
+    if on_step:
+        on_step(PHASE_ROUTING, f"本会话已绑定{label}「{target}」，直接执行", STEP_RUNNING)
+    data = await supervisor.ask_directed(
+        db,
+        ctx=ctx,
+        question=question,
+        target=target,
+        prefer_team=kind == "team",
+    )
+    result = dict(data.get("result") or {})
+    choice = dict(data.get("choice") or {})
+    chosen_name = str(choice.get("name") or target)
+    if on_step:
+        on_step(PHASE_ROUTING, f"已由「{chosen_name}」回答（会话绑定）", STEP_DONE)
+
+    answer_text = str(result.get("answer") or "")
+    token_usage = result.get("token_usage")
+    if not isinstance(token_usage, dict):
+        in_tok = estimate_token_count(question)
+        out_tok = estimate_token_count(answer_text)
+        token_usage = {
+            "input_tokens": in_tok,
+            "output_tokens": out_tok,
+            "total_tokens": in_tok + out_tok,
+            "estimated": True,
+        }
+    return {
+        "content": answer_text,
+        "routed_by": str(data.get("routed_by") or "bound"),
+        "choice": choice,
+        "reason": str(data.get("reason") or f"会话已绑定：{chosen_name}"),
+        "payload": None,
+        "citations": citations_from_result(result),
+        "token_usage": token_usage,
+    }
+
+
 async def execute_turn(
     db: Session,
     *,
@@ -1064,8 +1236,22 @@ async def execute_turn(
     attachments: list[ChatAttachment],
     on_step: StepCallback | None = None,
     target_code: str | None = None,
+    session: ChatSession | None = None,
 ) -> dict[str, Any]:
     """执行一轮对话，返回 {content, routed_by, choice, reason, payload, token_usage}。"""
+    # 会话级锁定优先于一切自动分流：与某个助手/班组单独对话时，整轮只由它回答。
+    binding = session_binding(session)
+    if binding is not None:
+        return await _run_bound_turn(
+            db,
+            ctx=ctx,
+            session_id=session_id,
+            content=content,
+            attachments=attachments,
+            binding=binding,
+            on_step=on_step,
+        )
+
     intent = intent_service.detect(content)
 
     if intent.kind == intent_service.INTENT_CREATE:
@@ -1270,19 +1456,33 @@ async def execute_turn(
                 on_step(PHASE_READING, f"已读取 {len(attachments)} 个附件", STEP_DONE)
         if on_step:
             on_step(PHASE_GENERATING, "正在整理文档内容", STEP_RUNNING)
+        agent = (
+            declarative.get_published_by_code(
+                db, yard_id=ctx.yard_id, agent_code=target_code, user_id=ctx.user_id
+            )
+            if target_code
+            else None
+        )
         card, note, doc_usage = await document_service.generate_document_from_chat(
             db,
             ctx=ctx,
             session_id=session_id,
             request_text=content,
             context=doc_context,
+            agent_name=str(getattr(agent, "name", "") or "") if agent else "",
+            agent_persona=str(getattr(agent, "persona_prompt", "") or "") if agent else "",
+            agent_bound_skills=(list(getattr(agent, "bound_skills", None) or []) if agent else []),
         )
         if on_step:
             on_step(PHASE_GENERATING, f"文档已生成：{card['filename']}", STEP_DONE)
         return {
             "content": note,
             "routed_by": ROUTED_LOCAL,
-            "choice": {"kind": "agent", "id": "", "name": "文档生成"},
+            "choice": {
+                "kind": "agent",
+                "id": str(getattr(agent, "id", "") or ""),
+                "name": str(getattr(agent, "name", "") or "") or "文档生成",
+            },
             "reason": intent.reason,
             "payload": card,
             "token_usage": doc_usage,
@@ -1415,6 +1615,7 @@ async def run_and_persist(
             attachments=attachments,
             on_step=_cb,
             target_code=target_code,
+            session=session,
         )
     except AppError as e:
         steps.fail(PHASE_GENERATING, e.message)

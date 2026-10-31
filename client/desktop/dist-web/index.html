@@ -1,76 +1,18 @@
 <!doctype html>
 <html lang="zh-CN">
-  <head><meta charset="utf-8" /><title>科技小院 · 占位页</title></head>
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0b1020" />
+    <meta name="description" content="农业科技小院的多智能体工作台：对话、知识库、台账、诊断与工单闭环" />
+    <title>科技小院 · 多智能体平台</title>
+    <script type="module" crossorigin src="/assets/index-cSHydno-.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/vue-vendor-CmZ17GxZ.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-CfYGy8AZ.css">
+  </head>
   <body>
-    <h1>这里是前端构建产物的占位页</h1>
-    <p>
-      正式使用请先构建前端并拷贝进来：<br />
-      <code>cd ../../frontend && npm ci && npm run build && cp -r dist/* ../client/desktop/dist-web/</code>
-    </p>
-    <p>桌面壳启动后会把本目录交给本地引擎托管（http://127.0.0.1:&lt;port&gt;/）。</p>
-
-    <!-- 版本条：壳内可手动检查更新（Rust command: check_for_updates / download_and_install）；
-         静默检查与提示条注入逻辑在 src-tauri/src/lib.rs，这里只是交互入口。 -->
-    <div
-      id="update-bar"
-      style="position:fixed;left:0;right:0;bottom:0;display:flex;gap:12px;align-items:center;justify-content:center;padding:10px 16px;background:#1c2430;color:#e6edf3;font:13px -apple-system,'PingFang SC','Microsoft YaHei',sans-serif"
-    >
-      <span id="ver">版本加载中…</span>
-      <button
-        id="check-btn"
-        style="background:#4c9aff;color:#fff;border:0;border-radius:6px;padding:6px 14px;font:inherit;cursor:pointer"
-      >检查更新</button>
-      <span id="update-status" style="color:#9aa7b4"></span>
-    </div>
-    <script>
-      (function () {
-        var btn = document.getElementById('check-btn');
-        var ver = document.getElementById('ver');
-        var status = document.getElementById('update-status');
-        var tauri = window.__TAURI__; // 需 tauri.conf.json app.withGlobalTauri = true
-        var hasBridge = !!(tauri && tauri.core && tauri.core.invoke);
-        if (!hasBridge) {
-          ver.textContent = '版本 v0.1.0';
-          btn.disabled = true;
-          btn.style.opacity = '0.5';
-          status.textContent = '检查更新仅在桌面壳内可用';
-          return;
-        }
-        tauri.core
-          .invoke('get_app_version')
-          .then(function (v) { ver.textContent = '版本 v' + v; })
-          .catch(function () { ver.textContent = '版本 v0.1.0'; });
-        btn.addEventListener('click', function () {
-          if (btn.dataset.ready === '1') {
-            status.textContent = '正在下载更新，完成后自动重启…';
-            tauri.core.invoke('download_and_install').catch(function (e) {
-              status.textContent = '升级失败：' + e;
-            });
-            return;
-          }
-          status.textContent = '检查中…';
-          tauri.core
-            .invoke('check_for_updates')
-            .then(function (info) {
-              if (info) {
-                status.textContent = '发现新版本 v' + info.version + '，再点一次立即升级';
-                btn.textContent = '立即升级';
-                btn.dataset.ready = '1';
-              } else {
-                status.textContent = '已是最新版本';
-              }
-            })
-            .catch(function (e) { status.textContent = '检查失败：' + e; });
-        });
-        // 后台 30 秒静默检查命中时也点亮按钮
-        if (tauri.event && tauri.event.listen) {
-          tauri.event.listen('app:update-available', function (ev) {
-            status.textContent = '发现新版本 v' + (ev.payload && ev.payload.version);
-            btn.textContent = '立即升级';
-            btn.dataset.ready = '1';
-          });
-        }
-      })();
-    </script>
+    <div id="app"></div>
   </body>
 </html>

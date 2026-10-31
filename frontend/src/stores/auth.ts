@@ -146,6 +146,12 @@ export const useAuthStore = defineStore('auth', () => {
     clear()
   }
 
+  /** 桌面壳静默登录：仅安装包启动时调用，失败则回落到普通登录页 */
+  async function bootstrapDesktop(token: string) {
+    const res = await authApi.desktopBootstrap(token)
+    adoptLogin(res)
+  }
+
   return {
     token,
     user,
@@ -162,6 +168,7 @@ export const useAuthStore = defineStore('auth', () => {
     isYardAdmin,
     login,
     adoptLogin,
+    bootstrapDesktop,
     fetchMe,
     fetchYard,
     logout,

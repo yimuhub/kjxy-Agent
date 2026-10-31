@@ -17,6 +17,7 @@ from app.modules.auth import service
 from app.modules.auth.schemas import (
     ChangePasswordRequest,
     ChangePasswordResponseData,
+    DesktopBootstrapRequest,
     LoginRequest,
     LoginResponseData,
     LogoutRequest,
@@ -110,6 +111,21 @@ def login(req: LoginRequest, request: Request, db=Depends(get_db_session)):
     _login_limiter.reset(key)
     if yard_limiter is not None:
         yard_limiter.reset(yard_key)
+    return ok(data.model_dump(), request)
+
+
+@router.post("/auth/desktop-bootstrap")  # 公开接口：仅回环 + 壳注入令牌
+def desktop_bootstrap(
+    req: DesktopBootstrapRequest,
+    request: Request,
+    db=Depends(get_db_session),
+):
+    """桌面安装包双击启动时的静默登录；服务器部署下环境变量缺失直接 404。"""
+    if _client_ip(request) not in {"127.0.0.1", "::1", "localhost", "testclient"}:
+        raise AppError("FORBIDDEN", "该接口仅允许本机调用。", http_status=403)
+    data: LoginResponseData = service.desktop_bootstrap(
+        db, req.token, request_id=_request_id(request)
+    )
     return ok(data.model_dump(), request)
 
 

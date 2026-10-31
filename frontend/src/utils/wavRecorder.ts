@@ -26,6 +26,28 @@ export function canRecord(): boolean {
   return Boolean(media && typeof media.getUserMedia === 'function' && audioContextCtor())
 }
 
+export type MicFailure = 'unsupported' | 'denied' | 'missing' | 'busy' | 'unknown'
+
+/** 把 getUserMedia 的异常拆成可分别引导的类型：权限拒绝要教用户去系统设置，其余照常提示 */
+export function classifyMicError(err: unknown): MicFailure {
+  if ((err as Error | undefined)?.message === 'UNSUPPORTED') return 'unsupported'
+  const name = (err as { name?: string } | undefined)?.name ?? ''
+  if (name === 'NotAllowedError' || name === 'SecurityError' || name === 'PermissionDeniedError') {
+    return 'denied'
+  }
+  if (
+    name === 'NotFoundError' ||
+    name === 'DevicesNotFoundError' ||
+    name === 'OverconstrainedError'
+  ) {
+    return 'missing'
+  }
+  if (name === 'NotReadableError' || name === 'TrackStartError' || name === 'AbortError') {
+    return 'busy'
+  }
+  return 'unknown'
+}
+
 /** 多相平均降采样：取每个输出样本覆盖的输入窗口平均值，避免直接抽取造成的混叠 */
 export function downsample(input: Float32Array, inRate: number, outRate: number): Float32Array {
   if (outRate >= inRate) return input

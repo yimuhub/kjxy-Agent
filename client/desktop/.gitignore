@@ -8,6 +8,9 @@ src-tauri/binaries/*
 !src-tauri/binaries/.gitkeep
 src-tauri/frontend-dist/*
 !src-tauri/frontend-dist/.gitkeep
+# 内置语音模型：构建脚本下载，禁止提交大文件
+src-tauri/asr-model/*
+!src-tauri/asr-model/README.md
 # Rust 构建产物
 src-tauri/target/
 src-tauri/gen/schemas/

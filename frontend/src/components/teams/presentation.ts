@@ -1,4 +1,5 @@
 import type { TeamRun, TeamRunStatus, TeamSchedule } from '@/api/modules'
+import { saveBlobOrDownload } from '../../utils/download.ts'
 
 export function isRunActive(status: TeamRunStatus): boolean {
   return status === 'queued' || status === 'running'
@@ -63,17 +64,7 @@ export function teamDocumentFilename(name: string | null, runId: string, format:
   return `${safeName}.${format}`
 }
 
-/** 使用已鉴权请求返回的 Blob，下载结束释放临时 URL。 */
+/** 使用已鉴权请求返回的 Blob：桌面端写下载目录，浏览器端释放临时 URL。 */
 export function saveDocumentBlob(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  try {
-    anchor.href = url
-    anchor.download = filename
-    document.body.appendChild(anchor)
-    anchor.click()
-  } finally {
-    anchor.remove()
-    setTimeout(() => URL.revokeObjectURL(url), 1000)
-  }
+  void saveBlobOrDownload(filename, blob)
 }

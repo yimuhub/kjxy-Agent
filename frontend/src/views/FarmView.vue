@@ -770,6 +770,7 @@
   import FarmAgentPanel from '@/components/farm/FarmAgentPanel.vue'
   import { installOfflineQueue, writeWithQueue } from '@/offline/queue'
   import { formatDateTime as formatTime } from '@/utils/format'
+  import { saveBlobOrDownload } from '@/utils/download'
 
   const KIND_OPTIONS = [
     { value: 'sowing', label: '播种/移栽' },
@@ -1173,12 +1174,7 @@
   function downloadReport() {
     if (!report.value) return
     const blob = new Blob([report.value.content_md], { type: 'text/markdown;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${report.value.title}.md`
-    a.click()
-    URL.revokeObjectURL(url)
+    void saveBlobOrDownload(`${report.value.title}.md`, blob)
   }
 
   /** ---- 对外分享（v3.12）：只读快照，可撤销 ---- */

@@ -28,10 +28,12 @@ dist/techyard-sidecar-<os>，作为 Tauri sidecar 由 Rust 壳拉起。
 from __future__ import annotations
 
 import argparse
+import base64
 import contextlib
 import itertools
 import os
 import secrets
+import shutil
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -121,6 +123,18 @@ def _apply_env_contract(data_dir: Path, port: int) -> None:
         with contextlib.suppress(OSError):  # Windows 无 POSIX 权限语义
             secret_file.chmod(0o600)
     os.environ["APP_SECRET_KEY"] = secret_file.read_text(encoding="utf-8").strip()
+    # 供应商 API Key 加密主密钥：桌面模式必须自带一份并持久化，
+    # 否则模型中心/首启向导读取供应商列表会 500（服务器部署由 .env 提供）。
+    if not os.environ.get("SUPPLIER_KEY_SECRET", "").strip():
+        supplier_file = data_dir / "supplier.key"
+        if supplier_file.exists():
+            supplier_secret = supplier_file.read_text(encoding="utf-8").strip()
+        else:
+            supplier_secret = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode()
+            supplier_file.write_text(supplier_secret, encoding="utf-8")
+            with contextlib.suppress(OSError):
+                supplier_file.chmod(0o600)
+        os.environ["SUPPLIER_KEY_SECRET"] = supplier_secret
 
 
 # ---------------------------------------------------------------------------
@@ -207,6 +221,41 @@ def seed_if_empty(data_dir: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# 内置语音模型：安装包随带，首启复制到可写数据目录
+# ---------------------------------------------------------------------------
+
+
+def install_bundled_asr() -> None:
+    """把安装包里的语音模型复制到 ASR_MODEL_DIR（只复制校验标记变化过的模型）。
+
+    模型放在 .app 资源目录里是只读的，且用户之后可能下载高精度模型，
+    所以统一复制到数据目录；copy 一次后后续启动直接命中，升级也不会重下。
+    """
+    source_raw = os.environ.get("BUNDLED_ASR_DIR", "").strip()
+    target_raw = os.environ.get("ASR_MODEL_DIR", "").strip()
+    if not source_raw or not target_raw:
+        return
+    source = Path(source_raw)
+    target = Path(target_raw)
+    if not source.is_dir():
+        return
+    target.mkdir(parents=True, exist_ok=True)
+    for model_dir in sorted(source.iterdir()):
+        marker = model_dir / ".verified.json"
+        if not model_dir.is_dir() or not marker.is_file():
+            continue
+        dest = target / model_dir.name
+        dest_marker = dest / ".verified.json"
+        try:
+            if dest_marker.is_file() and dest_marker.read_bytes() == marker.read_bytes():
+                continue
+            shutil.copytree(model_dir, dest, dirs_exist_ok=True)
+            print(f"[standalone] 已安装内置语音模型：{model_dir.name} -> {dest}")
+        except OSError as exc:
+            print(f"[standalone] 内置语音模型复制失败（可稍后在设置页下载）：{exc}")
+
+
+# ---------------------------------------------------------------------------
 # 前端静态挂载 + 启动
 # ---------------------------------------------------------------------------
 
@@ -276,6 +325,7 @@ def main() -> None:
 
     run_migrations()
     seed_if_empty(data_dir)
+    install_bundled_asr()
 
     # 此处 import 才创建 Settings：上面必须已把所有环境变量就位
     import uvicorn

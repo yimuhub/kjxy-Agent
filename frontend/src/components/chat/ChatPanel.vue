@@ -469,7 +469,16 @@
         </span>
       </div>
       <div
-        v-if="groupable && !qaMode"
+        v-if="lockNote"
+        class="lock-note"
+        :style="{ maxWidth }"
+        role="status"
+      >
+        <el-icon><Lock /></el-icon>
+        <span>{{ lockNote }}</span>
+      </div>
+      <div
+        v-if="groupable && !qaMode && !locked"
         class="group-band"
         :style="{ maxWidth }"
       >
@@ -488,7 +497,7 @@
 
       <!-- 本轮点名提示条：比把 @ 文本硬塞进正文更好回收 -->
       <div
-        v-if="mentionable && !qaMode && store.mention"
+        v-if="mentionable && !qaMode && !locked && store.mention"
         class="mention-bar"
         :style="{ maxWidth }"
         role="status"
@@ -511,7 +520,7 @@
 
       <!-- 模式切换（v3.13）：通用对话自动路由助手；知识问答只依据知识库且必带引用 -->
       <div
-        v-if="qaToggle"
+        v-if="qaToggle && !locked"
         class="qa-bar"
         :style="{ maxWidth }"
       >
@@ -831,7 +840,8 @@
   import type { TeamDefinition } from '@/api/modules'
   import type { MemberRoundRow } from '@/stores/chat'
   import type { ChatStoreInstance } from '@/stores/chat'
-  import { canRecord, WavRecorder } from '@/utils/wavRecorder'
+  import { canRecord, classifyMicError, WavRecorder } from '@/utils/wavRecorder'
+  import { saveBlobOrDownload } from '@/utils/download'
 
   /** 路由来源徽章（仅作老数据兜底：后端下发 routed_label 后不再走这里） */
   const ROUTED_META: Record<
@@ -889,6 +899,8 @@
       qaToggle?: boolean
       /** 当前是否知识问答模式（v-model:qa-mode） */
       qaMode?: boolean
+      /** 弹窗式单助手对话：store 里没有会话列表时用它显示绑定对象 */
+      lockedLabel?: string
     }>(),
     {
       panelId: 'main',
@@ -908,6 +920,7 @@
       groupable: false,
       qaToggle: false,
       qaMode: false,
+      lockedLabel: '',
     },
   )
 
@@ -1012,6 +1025,31 @@
   )
 
   const showAvatar = computed(() => props.groupable)
+
+  /** 本面板是否锁定在单个助手/班组：锁定后不再提供 @ 点名、加成员与知识问答切换 */
+  const lockNote = computed(() => {
+    const s = props.store.activeSession
+    if (s?.participant_count) return ''
+    const name = s?.target_name || props.lockedLabel || s?.target_code
+    if (s?.target === 'agent' && (s.target_code || props.lockedLabel)) {
+      return `本会话已绑定「${name}」，仅由该助手使用其绑定技能回答`
+    }
+    if (s?.target === 'team' && s.target_code) {
+      return '本会话已绑定指定班组，仅由该班组回答'
+    }
+    if (props.lockedLabel) return `本会话已绑定「${props.lockedLabel}」，仅由该助手回答`
+    return ''
+  })
+  const locked = computed(() => Boolean(lockNote.value))
+
+  watch(
+    locked,
+    value => {
+      if (value && props.qaMode) setQaMode(false)
+    },
+    { immediate: true },
+  )
+
   const blockedReason = computed(() => props.store.sendBlockReason)
   const placeholderText = computed(() =>
     props.qaMode
@@ -1022,6 +1060,7 @@
   function setQaMode(value: boolean) {
     if (props.qaMode === value) return
     if (props.store.sending) return
+    if (locked.value) return
     mentionOpen.value = false
     emit('update:qaMode', value)
   }
@@ -1283,6 +1322,48 @@
     recordTimer = undefined
   }
 
+  function desktopInvoke(cmd: string): Promise<unknown> | null {
+    const invoke = (
+      window as unknown as { __TAURI_INTERNALS__?: { invoke?: (name: string) => Promise<unknown> } }
+    ).__TAURI_INTERNALS__?.invoke
+    return invoke ? invoke(cmd) : null
+  }
+
+  /** 权限被拒时给出可执行下一步：桌面端直接拉起系统「麦克风」隐私页 */
+  async function handleMicFailure(err: unknown) {
+    const failure = classifyMicError(err)
+    if (failure === 'denied') {
+      const desktop = Boolean(
+        (window as unknown as { __TAURI_INTERNALS__?: { invoke?: unknown } }).__TAURI_INTERNALS__
+          ?.invoke,
+      )
+      try {
+        await ElMessageBox.confirm(
+          desktop
+            ? '麦克风权限被拒绝。请在「系统设置 → 隐私与安全性 → 麦克风」中勾选「科技小院」，然后重新录音。'
+            : '麦克风权限被拒绝。请在浏览器地址栏的站点权限中允许麦克风后重试。',
+          '需要麦克风权限',
+          {
+            confirmButtonText: desktop ? '打开系统设置' : '知道了',
+            cancelButtonText: '改用文字',
+            type: 'warning',
+          },
+        )
+        if (desktop) await desktopInvoke('open_mic_settings')
+      } catch {
+        /* 用户选择继续用文字输入 */
+      }
+      return
+    }
+    const text: Record<string, string> = {
+      unsupported: '当前环境不支持录音，请改用文字输入',
+      missing: '没有检测到可用麦克风，请检查设备后重试',
+      busy: '麦克风正被其他应用占用，请关闭占用程序后重试',
+      unknown: '无法访问麦克风，请在系统设置中允许后重试',
+    }
+    ElMessage.warning(text[failure] ?? text.unknown)
+  }
+
   async function onToggleRecord() {
     if (recording.value) {
       finishRecord()
@@ -1297,11 +1378,7 @@
       await instance.start(finishRecord)
     } catch (err) {
       instance.abort()
-      ElMessage.warning(
-        (err as Error)?.message === 'UNSUPPORTED'
-          ? '当前环境不支持录音，请改用文字输入'
-          : '无法访问麦克风，请在系统或浏览器设置中允许后重试',
-      )
+      await handleMicFailure(err)
       return
     }
     recorder = instance
@@ -1399,14 +1476,7 @@
     downloadingId.value = card.attachment_id
     try {
       const blob = await chatApi.downloadDocument(card.session_id, card.attachment_id)
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = card.filename
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+      await saveBlobOrDownload(card.filename, blob)
     } catch {
       ElMessage.error('下载失败，请稍后重试')
     } finally {
@@ -1503,7 +1573,7 @@
    * 按 selectionStart 取而不是正则匹配整串——用户在中间插入 @ 也要能点名。
    */
   function syncMentionFrom(el: HTMLTextAreaElement) {
-    if (!props.mentionable || props.qaMode) return
+    if (!props.mentionable || props.qaMode || locked.value) return
     const caret = el.selectionStart ?? el.value.length
     const before = el.value.slice(0, caret)
     if (!/(^|\s)@[^@\s]*$/.test(before)) {
@@ -1559,14 +1629,14 @@
     // named 策略没点名：按钮已置灰，键盘 Enter 这条路也要拦下并说明原因
     if (blockedReason.value) return
     mentionOpen.value = false
-    if (props.qaMode && props.store.attachments.length) {
+    if (props.qaMode && !locked.value && props.store.attachments.length) {
       ElMessage.warning('知识问答模式不支持附件，请先移除附件或切回通用对话')
       return
     }
     // 发送失败保留草稿便于重发；成功才清空。
     // 一轮对话的收尾（改标题、刷会话列表）是异步的，可能在回答已上屏之后才结束；
     // 期间用户新打的字不能被这一轮的收尾清掉，故只在草稿没被动过时清空。
-    const ok = props.qaMode
+    const ok = props.qaMode && !locked.value
       ? await props.store.sendQa(text, qaTopK.value)
       : await props.store.send(text)
     if (ok && draft.value === raw) draft.value = ''
@@ -1576,7 +1646,7 @@
 
   onMounted(() => {
     scrollToBottom()
-    if (props.mentionable) void props.store.loadMentionCandidates()
+    if (props.mentionable && !locked.value) void props.store.loadMentionCandidates()
   })
 
   defineExpose({
@@ -1976,6 +2046,22 @@
     flex-direction: column;
     gap: 8px;
     min-width: 0;
+  }
+
+  /* 锁定会话提示条：明确本会话不会再自动换助手 */
+  .lock-note {
+    margin: 0 auto 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    width: fit-content;
+    max-width: 100%;
+    font-size: 12px;
+    color: var(--ds-text-2);
+    background: color-mix(in srgb, var(--ds-accent) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--ds-accent) 30%, transparent);
+    border-radius: var(--ds-radius-pill);
   }
 
   /* 本轮点名提示条：一键移除，正文里不留 @ 文本 */

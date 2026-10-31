@@ -16,7 +16,7 @@
 use std::fs;
 use std::io::Read;
 use std::net::TcpListener;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
@@ -35,6 +35,24 @@ const HEALTH_TIMEOUT_SECS: u64 = 90;
 struct EngineState {
     child: Mutex<Option<CommandChild>>,
     port: Mutex<Option<u16>>,
+}
+
+/// 结束引擎进程树：PyInstaller onefile 会派生一个子进程，只杀父进程会留下监听端口。
+fn stop_engine(child: CommandChild) {
+    let pid = child.pid().to_string();
+    #[cfg(unix)]
+    {
+        let _ = std::process::Command::new("pkill")
+            .args(["-TERM", "-P", &pid])
+            .status();
+    }
+    #[cfg(windows)]
+    {
+        let _ = std::process::Command::new("taskkill")
+            .args(["/PID", &pid, "/T", "/F"])
+            .status();
+    }
+    let _ = child.kill();
 }
 
 /// 启动后静默检查更新的延迟：不抢启动体验（引擎拉起/splash 优先）
@@ -114,6 +132,15 @@ struct ClientConfig {
 
 /// 与 standalone.py 保持一致的数据目录（壳显式传 TECHYARD_DATA_DIR，不赌默认值）
 fn data_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    // 测试/冒烟脚本可显式指定独立数据目录，避免污染真实用户数据
+    if let Ok(raw) = std::env::var("TECHYARD_DATA_DIR") {
+        let trimmed = raw.trim().to_string();
+        if !trimmed.is_empty() {
+            let dir = PathBuf::from(trimmed);
+            fs::create_dir_all(&dir).map_err(|e| format!("创建数据目录失败：{e}"))?;
+            return Ok(dir);
+        }
+    }
     let base = dirs::data_dir().ok_or("无法解析系统数据目录")?;
     let dir = base.join("科技小院");
     fs::create_dir_all(&dir).map_err(|e| format!("创建数据目录失败：{e}"))?;
@@ -174,6 +201,44 @@ fn port_free(port: u16) -> bool {
     TcpListener::bind(("127.0.0.1", port)).is_ok()
 }
 
+/// 桌面引导登录令牌：持久化在数据目录，随 sidecar 环境注入，前端用 URL hash 换登录态。
+/// 与 APP_SECRET_KEY 分开，避免 JWT 主密钥出现在窗口地址里。
+fn ensure_bootstrap_token(dir: &PathBuf) -> Result<String, String> {
+    let path = dir.join("desktop-bootstrap.token");
+    if let Ok(existing) = fs::read_to_string(&path) {
+        let trimmed = existing.trim().to_string();
+        if trimmed.len() >= 32 {
+            return Ok(trimmed);
+        }
+    }
+    let mut buf = [0u8; 32];
+    let entropy_ok = fs::File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut buf))
+        .is_ok();
+    if !entropy_ok {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut h = DefaultHasher::new();
+        (std::time::SystemTime::now(), std::process::id(), 0xb007u64).hash(&mut h);
+        let v = h.finish();
+        for i in 0..32 {
+            buf[i] = (v >> (i % 8 * 8)) as u8;
+        }
+    }
+    let token = buf.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    fs::write(&path, &token).map_err(|e| format!("写 desktop-bootstrap.token 失败：{e}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
+    }
+    Ok(token)
+}
+
+fn engine_url(port: u16, token: &str) -> String {
+    format!("http://127.0.0.1:{port}/#desktop_token={token}")
+}
+
 fn health_ok(port: u16) -> bool {
     let url = format!("http://127.0.0.1:{port}/health/ready");
     reqwest::blocking::Client::builder()
@@ -192,10 +257,16 @@ const SPLASH_HTML: &str = r#"data:text/html;charset=utf-8,<html><head><meta name
 
 fn spawn_sidecar(app: &tauri::AppHandle, state: &EngineState, dir: &PathBuf, port: u16) -> Result<(), String> {
     let secret = ensure_secret(dir)?;
+    let bootstrap = ensure_bootstrap_token(dir)?;
     let frontend_dist = app
         .path()
         .resource_dir()
         .map(|r| r.join("frontend-dist"))
+        .unwrap_or_default();
+    let bundled_asr = app
+        .path()
+        .resource_dir()
+        .map(|r| r.join("asr-model"))
         .unwrap_or_default();
     let sidecar = app
         .shell()
@@ -204,39 +275,203 @@ fn spawn_sidecar(app: &tauri::AppHandle, state: &EngineState, dir: &PathBuf, por
     // 语音模型目录固定在数据目录下：与安装位置解耦，升级/重装客户端不必重下模型
     let asr_dir = dir.join("models").join("asr");
     let _ = fs::create_dir_all(&asr_dir);
-    let (_rx, child) = sidecar
+    let (rx, child) = sidecar
         .envs([
             ("TECHYARD_DATA_DIR", dir.to_string_lossy().to_string()),
             ("TECHYARD_PORT", port.to_string()),
             ("APP_SECRET_KEY", secret),
+            ("TECHYARD_DESKTOP_BOOTSTRAP", bootstrap),
+            ("BUNDLED_ASR_DIR", bundled_asr.to_string_lossy().to_string()),
             ("FRONTEND_DIST", frontend_dist.to_string_lossy().to_string()),
             ("ASR_MODEL_DIR", asr_dir.to_string_lossy().to_string()),
         ])
         .spawn()
         .map_err(|e| format!("启动本地引擎失败：{e}"))?;
+    // 引擎输出落盘（用户可一键导出诊断）；同时把管道读空，避免长时间运行被写满阻塞
+    let mut rx = rx;
+    let log_path = dir.join("logs").join("engine.log");
+    if let Some(parent) = log_path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    if fs::metadata(&log_path).map(|m| m.len() > 10 * 1024 * 1024).unwrap_or(false) {
+        let _ = fs::rename(&log_path, dir.join("logs").join("engine.log.1"));
+    }
+    thread::spawn(move || {
+        use std::io::Write;
+        let mut log = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+            .ok();
+        while let Some(event) = rx.blocking_recv() {
+            if let tauri_plugin_shell::process::CommandEvent::Stdout(bytes)
+            | tauri_plugin_shell::process::CommandEvent::Stderr(bytes) = event
+            {
+                if let Some(file) = log.as_mut() {
+                    let _ = writeln!(file, "{}", String::from_utf8_lossy(&bytes));
+                    let _ = file.flush();
+                }
+            }
+        }
+    });
     *state.child.lock().unwrap() = Some(child);
     *state.port.lock().unwrap() = Some(port);
     Ok(())
+}
+
+/// 导出文件名安全化：只保留文件名部分，去掉路径分隔符与控制字符。
+fn safe_export_name(raw: &str) -> String {
+    let normalized = raw.replace('\\', "/");
+    let base = normalized.rsplit('/').next().unwrap_or("").trim();
+    let mut out = String::new();
+    for ch in base.chars() {
+        if ch.is_control() || matches!(ch, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
+            out.push('_');
+        } else {
+            out.push(ch);
+        }
+    }
+    let cleaned = out.trim().trim_matches('.').trim();
+    if cleaned.is_empty() {
+        "导出文件".to_string()
+    } else {
+        cleaned.to_string()
+    }
+}
+
+/// 下载目录内重名自动加序号，绝不覆盖用户已有文件。
+fn unique_export_path(dir: &Path, filename: &str) -> PathBuf {
+    let candidate = dir.join(filename);
+    if !candidate.exists() {
+        return candidate;
+    }
+    let path = Path::new(filename);
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("导出文件");
+    let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+    for index in 1..=999 {
+        let name = if ext.is_empty() {
+            format!("{stem} ({index})")
+        } else {
+            format!("{stem} ({index}).{ext}")
+        };
+        let next = dir.join(name);
+        if !next.exists() {
+            return next;
+        }
+    }
+    candidate
+}
+
+/// 前端导出统一入口：Blob → base64 → 写入用户「下载」目录，返回绝对路径。
+#[tauri::command]
+fn save_export(
+    app: tauri::AppHandle,
+    filename: String,
+    data_base64: String,
+) -> Result<String, String> {
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+    let bytes = STANDARD
+        .decode(data_base64.as_bytes())
+        .map_err(|e| format!("文件内容解码失败：{e}"))?;
+    let dir = app
+        .path()
+        .download_dir()
+        .map_err(|e| format!("找不到下载目录：{e}"))?;
+    fs::create_dir_all(&dir).map_err(|e| format!("创建下载目录失败：{e}"))?;
+    let path = unique_export_path(&dir, &safe_export_name(&filename));
+    fs::write(&path, bytes).map_err(|e| format!("写入下载文件失败：{e}"))?;
+    Ok(path.display().to_string())
+}
+
+/// 打开系统「麦克风」隐私设置页；仅在 macOS 有效，其他平台返回提示。
+#[tauri::command]
+fn open_mic_settings() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
+            .spawn()
+            .map_err(|e| format!("打开系统设置失败：{e}"))?;
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("请在系统设置中手动允许麦克风权限".to_string())
+    }
 }
 
 fn open_main_window(app: &tauri::AppHandle, url: &str) -> Result<(), String> {
     let parsed: tauri::Url = url.parse().map_err(|_| format!("非法 URL：{url}"))?;
     WebviewWindowBuilder::new(app, "main", WebviewUrl::External(parsed))
         .title("科技小院")
+        .decorations(true)
+        .resizable(true)
         .inner_size(1280.0, 820.0)
         .min_inner_size(980.0, 640.0)
+        .on_permission_request(|_, kind| match kind {
+            tauri::webview::PermissionKind::Microphone => tauri::webview::PermissionResponse::Allow,
+            _ => tauri::webview::PermissionResponse::Default,
+        })
+        .on_download(|webview, event| {
+            match event {
+                tauri::webview::DownloadEvent::Requested { destination, .. } => {
+                    if let Some(name) = destination.file_name().and_then(|s| s.to_str()) {
+                        let safe = safe_export_name(name);
+                        *destination = destination.with_file_name(safe);
+                    }
+                }
+                tauri::webview::DownloadEvent::Finished {
+                    url,
+                    path,
+                    success,
+                } => {
+                    let _ = webview.emit(
+                        "desktop-download-finished",
+                        serde_json::json!({
+                            "url": url.to_string(),
+                            "path": path.map(|p| p.display().to_string()),
+                            "success": success,
+                        }),
+                    );
+                }
+                _ => {}
+            }
+            true
+        })
         .build()
-        .map(|_| ())
+        .map(|win| {
+            let _ = win.set_focus();
+        })
         .map_err(|e| e.to_string())
+}
+
+/// 启动失败：原生对话框说明原因，关闭后退出；5 分钟兜底退出，避免无窗口僵死。
+fn report_fatal(app: &tauri::AppHandle, msg: String) {
+    use tauri_plugin_dialog::DialogExt;
+    eprintln!("[startup] {msg}");
+    let handle = app.clone();
+    app.dialog()
+        .message(msg)
+        .title("启动失败")
+        .show(move |_| {
+            handle.exit(1);
+        });
+    let watchdog = app.clone();
+    thread::spawn(move || {
+        thread::sleep(Duration::from_secs(300));
+        watchdog.exit(1);
+    });
 }
 
 /// 拉起或接管本地引擎；成功返回后窗口已指向引擎页面。失败返回人类可读原因。
 fn start_local(app: &tauri::AppHandle, state: &EngineState, dir: &PathBuf) -> Result<(), String> {
+    let bootstrap = ensure_bootstrap_token(dir)?;
     // 1) 先探已有引擎（AO 同款复用，避免重复拉起/关窗再开报错）
     for p in PORT_RANGE.clone() {
         if !port_free(p) && health_ok(p) {
             *state.port.lock().unwrap() = Some(p);
-            return open_main_window(app, &format!("http://127.0.0.1:{p}/"));
+            return open_main_window(app, &engine_url(p, &bootstrap));
         }
     }
     // 2) 找空闲端口并拉 sidecar
@@ -270,12 +505,16 @@ fn start_local(app: &tauri::AppHandle, state: &EngineState, dir: &PathBuf) -> Re
         let deadline = std::time::Instant::now() + Duration::from_secs(HEALTH_TIMEOUT_SECS);
         while std::time::Instant::now() < deadline {
             if health_ok(port) {
-                // tauri 2 有 window.navigate()；此处用 eval 兼容实现，失败再降级重建窗口
-                let target = format!("http://127.0.0.1:{port}/");
-                let _ = win.eval(&format!("window.location.href='{target}'"));
-                let _ = win.set_focus();
-                let _ = handle.emit_to("splash", "go", target.clone());
-                // TODO-COMPILE: 若 eval 被 CSP/协议限制，改用 WebviewWindow::navigate(Url) 重建主窗
+                let target = engine_url(port, &bootstrap);
+                // 引擎就绪后开正式主窗（带标题栏/红绿灯/可缩放），再关掉无边框过渡页。
+                // 不能把过渡页直接导航成主界面，否则会一直是无边框小窗。
+                if let Err(e) = open_main_window(&handle, &target) {
+                    use tauri_plugin_dialog::DialogExt;
+                    let msg = format!("打开主界面失败：{e}");
+                    handle.dialog().message(msg).title("启动失败").show(|_| {});
+                    return;
+                }
+                let _ = win.close();
                 return;
             }
             thread::sleep(Duration::from_millis(800));
@@ -345,7 +584,7 @@ async fn download_and_install(app: tauri::AppHandle) -> Result<(), String> {
         .map_err(|e| format!("下载更新失败：{e}"))?;
     // 2) 安装前先级联关闭引擎 sidecar：安装成功可能直接替换/退出进程，未必走 run() 清理
     if let Some(child) = app.state::<EngineState>().child.lock().unwrap().take() {
-        let _ = child.kill();
+        stop_engine(child);
     }
     let _ = app.emit("app:update-installing", ());
     // 3) 安装是重阻塞活：Windows 由安装器接管并自行退出；macOS/Linux 需手动重启新进程
@@ -369,6 +608,13 @@ async fn download_and_install(app: tauri::AppHandle) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // 必须最先注册：第二次启动直接聚焦已有窗口
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(win) = app.get_webview_window("main") {
+                let _ = win.unminimize();
+                let _ = win.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -383,22 +629,31 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_app_version,
             check_for_updates,
-            download_and_install
+            download_and_install,
+            save_export,
+            open_mic_settings
         ])
         .setup(|app| {
             let handle = app.handle().clone();
             let state = app.state::<EngineState>();
-            let dir = data_dir(&handle)?;
+            let dir = match data_dir(&handle) {
+                Ok(dir) => dir,
+                Err(e) => {
+                    report_fatal(&handle, e);
+                    return Ok(());
+                }
+            };
             let cfg = client_config(&dir);
-            if cfg.mode == "remote" && !cfg.url.is_empty() {
+            // 启动失败不能把 Err 抛回 Tauri（会在 Objective-C 回调里 panic），
+            // 改成原生对话框提示，用户关闭后正常退出。
+            let started = if cfg.mode == "remote" && !cfg.url.is_empty() {
                 // 连接服务器模式：不拉引擎，直接开窗（与移动/鸿蒙壳同一体验）
-                open_main_window(&handle, &cfg.url)?;
+                open_main_window(&handle, &cfg.url)
             } else {
-                start_local(&handle, &state, &dir).map_err(|e| {
-                    use tauri_plugin_dialog::DialogExt;
-                    handle.dialog().message(e.clone()).title("启动失败").show(|_| {});
-                    e
-                })?;
+                start_local(&handle, &state, &dir)
+            };
+            if let Err(e) = started {
+                report_fatal(&handle, e);
             }
             // 升级静默检查（30 秒后）：本地/远程模式都跑，与启动路径解耦
             spawn_update_watcher(handle.clone());
@@ -407,11 +662,45 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("构建 Tauri 应用失败")
         .run(|app, event| {
-            // 级联退出：壳关闭时带走引擎 sidecar（SIGTERM；短等待后系统回收）
-            if let tauri::RunEvent::ExitRequested { .. } = event {
+            // 级联退出：关窗/⌘Q/系统退出都要带走引擎进程树（含 PyInstaller 子进程）
+            if matches!(
+                event,
+                tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
+            ) {
                 if let Some(child) = app.state::<EngineState>().child.lock().unwrap().take() {
-                    let _ = child.kill();
+                    stop_engine(child);
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod export_tests {
+    use super::*;
+
+    #[test]
+    fn export_name_strips_paths_and_controls() {
+        assert_eq!(safe_export_name("../../etc/passwd"), "passwd");
+        assert_eq!(safe_export_name("a/b\\c.txt"), "c.txt");
+        assert_eq!(safe_export_name(".."), "导出文件");
+        assert_eq!(safe_export_name("报告?.md"), "报告_.md");
+        assert_eq!(safe_export_name("  "), "导出文件");
+    }
+
+    #[test]
+    fn export_path_never_overwrites() {
+        let dir = std::env::temp_dir().join(format!("kjxy-export-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("a.md"), b"x").unwrap();
+
+        let second = unique_export_path(&dir, "a.md");
+        assert_eq!(second.file_name().unwrap().to_str().unwrap(), "a (1).md");
+        fs::write(&second, b"y").unwrap();
+
+        let third = unique_export_path(&dir, "a.md");
+        assert_eq!(third.file_name().unwrap().to_str().unwrap(), "a (2).md");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

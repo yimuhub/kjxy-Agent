@@ -27,6 +27,8 @@ from app.modules.search.providers import (
 )
 from app.modules.search.providers_builtin import (
     BUILTIN_SOURCE_CODES,
+    BUILTIN_SOURCE_LABELS,
+    BUILTIN_TIMEOUT_SECONDS,
     create_builtin_provider,
     reset_runtime_state,
 )
@@ -35,12 +37,16 @@ from app.modules.yards.settings_service import get_setting
 log = get_logger(__name__)
 
 CACHE_TTL_SECONDS = 600
-STATUS_TTL_SECONDS = 60
-STATUS_PROBE_TIMEOUT_SECONDS = 2.5
+#: 状态探测会真实访问搜索引擎；拉长到 2 分钟，避免状态页自己把源刷进反爬
+STATUS_TTL_SECONDS = 120
+#: 单个内置源探测不得短于真实请求（否则注定超时），并留出解析余量
+STATUS_PROBE_TIMEOUT_SECONDS = BUILTIN_TIMEOUT_SECONDS + 2.0
+#: 整条降级链总时限：避免 5 个源各 8s 串行把一次搜索拖到 40s+
+SEARCH_TOTAL_TIMEOUT_SECONDS = 20.0
 #: 公网连通性探测：任一 URL 返回 <500 即视为有网，单次超时 2s
 INTERNET_PROBE_TIMEOUT_SECONDS = 2.0
 INTERNET_PROBE_URLS = ("https://www.baidu.com", "https://cn.bing.com")
-#: 内置源状态探测用真实查询，要求解析出 ≥1 条结果
+#: 内置源状态探测用真实查询，要求解析出 ≥1 条相关结果
 STATUS_PROBE_QUERY = "农业"
 
 #: 进程内缓存 / 配额
@@ -243,9 +249,19 @@ async def search_web(
         )
 
     failures: list[dict[str, str]] = []
+    deadline = time.monotonic() + SEARCH_TOTAL_TIMEOUT_SECONDS
     for provider in chain:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            failures.append({"provider": provider.code, "message": "总耗时超限，已跳过"})
+            break
         try:
-            hits = await provider.search(q, count=limit_count, lang=language)
+            hits = await asyncio.wait_for(
+                provider.search(q, count=limit_count, lang=language), timeout=remaining
+            )
+        except TimeoutError:
+            failures.append({"provider": provider.code, "message": "请求超时"})
+            continue
         except AppError as e:
             failures.append({"provider": provider.code, "message": e.message})
             continue
@@ -269,9 +285,9 @@ async def search_web(
     log.warning("all search providers failed for yard=%s: %s", yard_id, failures)
     internet = await _probe_internet()
     message = (
-        "当前设备无网络连接，暂时无法联网搜索。"
+        "当前设备无互联网连接，暂时无法联网搜索。"
         if not internet
-        else "联网受限：所有搜索源暂不可用，请稍后重试。"
+        else "联网正常，但免费搜索源暂不可用（可能被反爬限制），请稍后重试。"
     )
     raise AppError(
         "SEARCH_PROVIDER_UNAVAILABLE",
@@ -291,13 +307,32 @@ async def search_web(
 # ---------------------------------------------------------------------------
 
 
-def _status(mode: str, provider: str, reason: str, internet: bool) -> dict[str, Any]:
+_PROVIDER_LABELS: dict[str, str] = {
+    "searxng": "SearXNG",
+    "tavily": "Tavily",
+    "brave": "Brave Search",
+    **BUILTIN_SOURCE_LABELS,
+}
+
+
+def _provider_label(code: str) -> str:
+    return _PROVIDER_LABELS.get(code, code)
+
+
+def _status(
+    mode: str,
+    provider: str,
+    reason: str,
+    internet: bool,
+    sources: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     return {
         "mode": mode,
         "provider": provider,
         "internet": internet,
         "checked_at": _now_iso(),
         "reason": reason,
+        "sources": sources or [],
     }
 
 
@@ -315,43 +350,61 @@ async def _probe_internet() -> bool:
     return False
 
 
-async def _probe_searxng(provider: SearxngProvider) -> bool:
+async def _probe_searxng(provider: SearxngProvider) -> tuple[bool, str]:
     if not provider.base_url:
-        return False
+        return False, "未配置地址"
     async with _client(STATUS_PROBE_TIMEOUT_SECONDS) as client:
         resp = await client.get(f"{provider.base_url}/")
-    return resp.status_code < 500
+    if resp.status_code < 500:
+        return True, f"可达（HTTP {resp.status_code}）"
+    return False, f"服务异常（HTTP {resp.status_code}）"
 
 
-async def _probe_tavily(provider: TavilyProvider) -> bool:
+async def _probe_tavily(provider: TavilyProvider) -> tuple[bool, str]:
     headers = {"Authorization": f"Bearer {provider.api_key}"}
     async with _client(STATUS_PROBE_TIMEOUT_SECONDS) as client:
         resp = await client.get("https://api.tavily.com/", headers=headers)
     # 401/403 也说明 API 可达；只看服务端是否 5xx
-    return resp.status_code < 500
+    if resp.status_code < 500:
+        return True, f"可达（HTTP {resp.status_code}）"
+    return False, f"服务异常（HTTP {resp.status_code}）"
 
 
-async def _probe_brave(provider: BraveProvider) -> bool:
+async def _probe_brave(provider: BraveProvider) -> tuple[bool, str]:
     headers = {"X-Subscription-Token": provider.api_key}
     async with _client(STATUS_PROBE_TIMEOUT_SECONDS) as client:
         resp = await client.get("https://api.search.brave.com/", headers=headers)
-    return resp.status_code < 500
+    if resp.status_code < 500:
+        return True, f"可达（HTTP {resp.status_code}）"
+    return False, f"服务异常（HTTP {resp.status_code}）"
 
 
-async def _probe_builtin(provider: SearchProvider) -> bool:
-    """内置源探测：发真实查询并要求解析出 ≥1 条结果（整体超时 2.5s）。"""
+async def _probe_builtin(provider: SearchProvider) -> tuple[bool, str]:
+    """内置源探测：真实查询一次并要求解析出 ≥1 条相关结果。"""
+    probe = getattr(provider, "probe", None)
     try:
-        hits = await asyncio.wait_for(
-            provider.search(STATUS_PROBE_QUERY, count=1, lang="zh-CN"),
-            STATUS_PROBE_TIMEOUT_SECONDS,
-        )
-    except Exception as e:  # 超时 / 不可用 / 0 条结果都视作不可用
+        if callable(probe):
+            hits = await asyncio.wait_for(probe(STATUS_PROBE_QUERY), STATUS_PROBE_TIMEOUT_SECONDS)
+        else:
+            hits = await asyncio.wait_for(
+                provider.search(STATUS_PROBE_QUERY, count=1, lang="zh-CN"),
+                STATUS_PROBE_TIMEOUT_SECONDS,
+            )
+    except TimeoutError:
+        return False, "探测超时"
+    except AppError as e:
+        log.info("search probe failed provider=%s: %s", provider.code, e.message)
+        reason = str(e.details.get("reason") or e.message) if e.details else e.message
+        return False, reason
+    except Exception as e:
         log.info("search probe failed provider=%s: %s", provider.code, e)
-        return False
-    return len(hits) > 0
+        return False, "探测失败"
+    if hits:
+        return True, f"可用（{len(hits)} 条相关结果）"
+    return False, "未找到相关结果"
 
 
-async def _probe_provider(provider: SearchProvider) -> bool:
+async def _probe_provider(provider: SearchProvider) -> tuple[bool, str]:
     try:
         if provider.code in BUILTIN_SOURCE_CODES:
             return await _probe_builtin(provider)
@@ -361,10 +414,10 @@ async def _probe_provider(provider: SearchProvider) -> bool:
             return await _probe_tavily(provider)
         if isinstance(provider, BraveProvider):
             return await _probe_brave(provider)
-        return False
+        return False, "未知供应商"
     except Exception as e:  # 任何网络异常都视作不可达
         log.info("search probe failed provider=%s: %s", provider.code, e)
-        return False
+        return False, "探测失败"
 
 
 async def _check_network(db: Session, yard_id: str) -> dict[str, Any]:
@@ -381,19 +434,28 @@ async def _check_network(db: Session, yard_id: str) -> dict[str, Any]:
             return _status("offline", "", "当前无网络连接，且未启用任何搜索源。", False)
         return _status("degraded", "", "未启用任何搜索源。", True)
 
-    for index, provider in enumerate(chain):
-        if await _probe_provider(provider):
-            if index == 0:
-                return _status("online", provider.code, "搜索源可用。", internet)
-            return _status(
-                "degraded",
-                provider.code,
-                f"{primary} 不可用，已降级到 {provider.code}。",
-                internet,
-            )
+    # 只探测首选源：每多探一个源就多一次真实请求，状态页自己会把免费源刷进反爬。
+    # 真实搜索仍是完整降级链，用户点「测试连接」可得到端到端结果。
+    ok, reason = await _probe_provider(chain[0])
+    entries = [
+        {
+            "code": chain[0].code,
+            "label": _provider_label(chain[0].code),
+            "ok": ok,
+            "reason": reason,
+        }
+    ]
+    if ok:
+        return _status("online", chain[0].code, "首选搜索源可用。", internet, entries)
     if not internet:
-        return _status("offline", primary, "当前无网络连接，搜索源不可达。", False)
-    return _status("degraded", primary, "联网受限：所有搜索源暂不可用。", True)
+        return _status("offline", primary, "当前设备无互联网连接，搜索源不可达。", False, entries)
+    return _status(
+        "degraded",
+        primary,
+        f"{_provider_label(primary)} 暂时不可用（{reason}）；实际搜索会自动尝试其余源。",
+        True,
+        entries,
+    )
 
 
 async def network_status(db: Session, yard_id: str) -> dict[str, Any]:

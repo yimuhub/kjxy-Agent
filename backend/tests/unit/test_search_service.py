@@ -22,17 +22,21 @@ BASE_SETTINGS = {
     "timeout_seconds": 3,
 }
 
-BING_OK_HTML = (
-    "<html><body><ol id='b_results'>"
-    "<li class='b_algo'><h2><a href='https://example.com/bing1'>必应结果</a></h2>"
-    "<div class='b_caption'><p>必应摘要</p></div></li>"
-    "</ol></body></html>"
+BRAVE_OK_HTML = (
+    "<html><body>"
+    '<div class="snippet" data-type="web"><div class="result-content">'
+    '<a href="https://example.com/brave1">'
+    '<div class="title search-snippet-title">水稻稻瘟病防治</div></a>'
+    '<div class="generic-snippet"><div class="content">综合防治摘要</div></div>'
+    "</div></div></body></html>"
 )
 
-SOGOU_OK_HTML = (
-    "<html><body><div class='vrwrap'>"
-    "<h3><a href='https://example.com/sogou1'>搜狗结果</a></h3>"
-    "<div class='str-text-info'>搜狗摘要</div></div></body></html>"
+BAIDU_OK_HTML = (
+    "<html><body>"
+    '<div class="c-result" data-log=\'{"mu":"https://example.com/baidu1"}\'>'
+    '<div class="c-title">水稻稻瘟病防治</div>'
+    '<div class="c-abstract">百度摘要</div></div>'
+    "</body></html>"
 )
 
 
@@ -55,7 +59,7 @@ def _use_settings(monkeypatch, **overrides) -> dict:
 
 
 def _auto_settings(monkeypatch, **overrides) -> dict:
-    overrides.setdefault("builtin_sources", ["bing", "sogou", "so360"])
+    overrides.setdefault("builtin_sources", ["brave_web", "baidu"])
     return _use_settings(monkeypatch, provider="auto", **overrides)
 
 
@@ -120,34 +124,34 @@ def test_select_providers_disabled(monkeypatch):
 def test_select_providers_auto_prefers_builtin_sources(monkeypatch):
     _auto_settings(monkeypatch)
     primary, chain = service.select_providers(None, YARD)
-    assert primary == "bing"
-    assert [p.code for p in chain] == ["bing", "sogou", "so360", "searxng"]
+    assert primary == "brave_web"
+    assert [p.code for p in chain] == ["brave_web", "baidu", "searxng"]
 
 
 def test_select_providers_auto_follows_builtin_order_subset(monkeypatch):
-    _auto_settings(monkeypatch, builtin_sources=["so360", "bing"])
+    _auto_settings(monkeypatch, builtin_sources=["so360", "brave_web"])
     primary, chain = service.select_providers(None, YARD)
     assert primary == "so360"
-    assert [p.code for p in chain] == ["so360", "bing", "searxng"]
+    assert [p.code for p in chain] == ["so360", "brave_web", "searxng"]
 
 
 def test_select_providers_auto_skips_searxng_without_url(monkeypatch):
     _auto_settings(monkeypatch, searxng_url="")
     primary, chain = service.select_providers(None, YARD)
-    assert primary == "bing"
-    assert [p.code for p in chain] == ["bing", "sogou", "so360"]
+    assert primary == "brave_web"
+    assert [p.code for p in chain] == ["brave_web", "baidu"]
 
 
 def test_select_providers_explicit_provider_then_builtin(monkeypatch):
     _use_settings(
         monkeypatch,
         provider="searxng",
-        builtin_sources=["bing"],
+        builtin_sources=["brave_web"],
         tavily_api_key="t-key",
     )
     primary, chain = service.select_providers(None, YARD)
     assert primary == "searxng"
-    assert [p.code for p in chain] == ["searxng", "bing", "tavily"]
+    assert [p.code for p in chain] == ["searxng", "brave_web", "tavily"]
 
 
 def test_select_providers_no_duplicates(monkeypatch):
@@ -167,8 +171,15 @@ def test_select_providers_zero_config_defaults(monkeypatch):
     cfg = dict(settings_service.DEFAULTS["search"])
     monkeypatch.setattr(service, "get_setting", lambda db, yard_id, key: dict(cfg))
     primary, chain = service.select_providers(None, YARD)
-    assert primary == "bing"
-    assert [p.code for p in chain] == ["bing", "sogou", "so360", "searxng"]
+    assert primary == "brave_web"
+    assert [p.code for p in chain] == [
+        "brave_web",
+        "baidu",
+        "sogou",
+        "so360",
+        "bing_news",
+        "google_news",
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -238,46 +249,46 @@ async def test_search_web_auto_uses_builtin_first(monkeypatch):
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen["url"] = str(request.url)
-        return httpx.Response(200, text=BING_OK_HTML)
+        return httpx.Response(200, text=BRAVE_OK_HTML)
 
     service.set_test_transport(httpx.MockTransport(handler))
-    data = await service.search_web(None, YARD, "农业", count=3)
+    data = await service.search_web(None, YARD, "水稻稻瘟病防治", count=3)
 
-    assert seen["url"].startswith("https://cn.bing.com/search")
-    assert data["provider"] == "bing"
+    assert seen["url"].startswith("https://search.brave.com/search")
+    assert data["provider"] == "brave_web"
     assert data["results"] == [
         {
-            "title": "必应结果",
-            "url": "https://example.com/bing1",
-            "snippet": "必应摘要",
-            "source": "bing",
+            "title": "水稻稻瘟病防治",
+            "url": "https://example.com/brave1",
+            "snippet": "综合防治摘要",
+            "source": "brave_web",
             "published": None,
         }
     ]
 
 
 async def test_search_web_auto_falls_back_to_next_builtin(monkeypatch):
-    _auto_settings(monkeypatch, builtin_sources=["bing", "sogou"])
+    _auto_settings(monkeypatch, builtin_sources=["brave_web", "baidu"])
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if "cn.bing.com" in str(request.url):
+        if "search.brave.com" in str(request.url):
             return httpx.Response(503)
-        if "sogou.com" in str(request.url):
-            return httpx.Response(200, text=SOGOU_OK_HTML)
+        if "m.baidu.com" in str(request.url):
+            return httpx.Response(200, text=BAIDU_OK_HTML)
         return httpx.Response(500)
 
     service.set_test_transport(httpx.MockTransport(handler))
-    data = await service.search_web(None, YARD, "小麦", count=1)
+    data = await service.search_web(None, YARD, "水稻稻瘟病防治", count=1)
 
-    assert data["provider"] == "sogou"
-    assert data["results"][0]["url"] == "https://example.com/sogou1"
+    assert data["provider"] == "baidu"
+    assert data["results"][0]["url"] == "https://example.com/baidu1"
 
 
 async def test_search_web_auto_all_builtin_fail_falls_back_to_searxng(monkeypatch):
-    _auto_settings(monkeypatch, builtin_sources=["bing"])
+    _auto_settings(monkeypatch, builtin_sources=["brave_web"])
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if "cn.bing.com" in str(request.url):
+        if "search.brave.com" in str(request.url):
             return httpx.Response(503)
         return httpx.Response(
             200,
@@ -305,8 +316,8 @@ async def test_search_web_all_fail_details_include_internet_and_sources(monkeypa
     assert exc.value.http_status == 503
     details = exc.value.details
     assert details["internet"] is False  # MockTransport 全部 500 → 视为无网
-    assert details["sources"] == ["bing", "sogou", "so360", "searxng"]
-    assert details["primary"] == "bing"
+    assert details["sources"] == ["brave_web", "baidu", "searxng"]
+    assert details["primary"] == "brave_web"
     assert [f["provider"] for f in details["failures"]] == details["sources"]
 
 
@@ -322,7 +333,7 @@ async def test_search_web_all_fail_with_internet_message(monkeypatch):
     service.set_test_transport(httpx.MockTransport(handler))
     with pytest.raises(AppError) as exc:
         await service.search_web(None, YARD, "全失败", count=2)
-    assert "联网受限" in exc.value.message
+    assert "联网正常" in exc.value.message
     assert exc.value.details["internet"] is True
 
 
@@ -374,14 +385,17 @@ async def test_search_web_no_provider_raises_503(monkeypatch):
 
 async def test_network_status_online_with_builtin(monkeypatch):
     _auto_settings(monkeypatch)
+    monkeypatch.setattr(service, "STATUS_PROBE_QUERY", "水稻稻瘟病防治")
     service.set_test_transport(
-        httpx.MockTransport(lambda request: httpx.Response(200, text=BING_OK_HTML))
+        httpx.MockTransport(lambda request: httpx.Response(200, text=BRAVE_OK_HTML))
     )
     data = await service.network_status(None, YARD)
     assert data["mode"] == "online"
-    assert data["provider"] == "bing"
+    assert data["provider"] == "brave_web"
     assert data["internet"] is True
     assert data["checked_at"].endswith("Z")
+    assert [entry["code"] for entry in data["sources"]] == ["brave_web"]
+    assert data["sources"][0]["ok"] is True
 
 
 async def test_network_status_online_with_searxng(monkeypatch):
@@ -392,34 +406,40 @@ async def test_network_status_online_with_searxng(monkeypatch):
     assert data["provider"] == "searxng"
 
 
-async def test_network_status_degraded_to_next_builtin(monkeypatch):
-    _auto_settings(monkeypatch, builtin_sources=["bing", "sogou"])
+async def test_network_status_degraded_when_primary_unavailable(monkeypatch):
+    _auto_settings(monkeypatch, builtin_sources=["brave_web", "baidu"])
+    monkeypatch.setattr(service, "STATUS_PROBE_QUERY", "水稻稻瘟病防治")
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if "cn.bing.com/search" in str(request.url):
+        if "search.brave.com" in str(request.url):
             return httpx.Response(503)
-        return httpx.Response(200, text=SOGOU_OK_HTML)
+        return httpx.Response(200, text=BAIDU_OK_HTML)
 
     service.set_test_transport(httpx.MockTransport(handler))
     data = await service.network_status(None, YARD)
     assert data["mode"] == "degraded"
-    assert data["provider"] == "sogou"
+    assert data["provider"] == "brave_web"
     assert data["internet"] is True
-    assert "已降级" in data["reason"]
+    assert "暂时不可用" in data["reason"]
+    assert "其余源" in data["reason"]
+    # 只探测首选源，避免状态页把多个免费源刷进反爬
+    assert [entry["code"] for entry in data["sources"]] == ["brave_web"]
+    assert data["sources"][0]["ok"] is False
 
 
-async def test_network_status_degraded(monkeypatch):
-    _use_settings(monkeypatch, provider="searxng", tavily_api_key="t-key")
+async def test_network_status_degraded_when_primary_unreachable(monkeypatch):
+    _use_settings(monkeypatch, provider="searxng")
 
     def handler(request: httpx.Request) -> httpx.Response:
         if "searx.local" in str(request.url):
             return httpx.Response(503)
-        return httpx.Response(401)  # API 可达但未授权，仍算可达
+        return httpx.Response(200)
 
     service.set_test_transport(httpx.MockTransport(handler))
     data = await service.network_status(None, YARD)
     assert data["mode"] == "degraded"
-    assert data["provider"] == "tavily"
+    assert data["provider"] == "searxng"
+    assert data["sources"][0]["reason"].startswith("服务异常")
 
 
 async def test_network_status_degraded_when_all_sources_fail(monkeypatch):
@@ -436,8 +456,8 @@ async def test_network_status_degraded_when_all_sources_fail(monkeypatch):
     data = await service.network_status(None, YARD)
     assert data["mode"] == "degraded"
     assert data["internet"] is True
-    assert "联网受限" in data["reason"]
-    assert "所有搜索源" in data["reason"]
+    assert "暂时不可用" in data["reason"]
+    assert all(entry["ok"] is False for entry in data["sources"])
 
 
 async def test_network_status_degraded_when_chain_empty(monkeypatch):
@@ -455,7 +475,7 @@ async def test_network_status_offline_never_raises(monkeypatch):
     data = await service.network_status(None, YARD)
     assert data["mode"] == "offline"
     assert data["internet"] is False
-    assert "无网络" in data["reason"]
+    assert "无互联网连接" in data["reason"]
 
 
 async def test_network_status_offline_when_sources_unreachable(monkeypatch):

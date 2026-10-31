@@ -135,7 +135,10 @@ def _online_candidates(db: Any, yard_id: str) -> list[dict[str, Any]]:
             continue
         seen.add(supplier_id)
         try:
-            provider = build_provider_from_supplier(head.supplier, model_override=head.model_name)
+            build_kwargs: dict[str, Any] = {"model_override": head.model_name}
+            if head.supplier_model is not None:
+                build_kwargs["model_row"] = head.supplier_model
+            provider = build_provider_from_supplier(head.supplier, **build_kwargs)
         except Exception as e:
             log.warning("ASR 在线通道构建失败 supplier=%s err=%s", supplier_id, e)
             continue

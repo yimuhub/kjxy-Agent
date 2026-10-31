@@ -61,6 +61,14 @@
 
       <el-tab-pane
         lazy
+        label="技能与插件"
+        name="skills"
+      >
+        <SettingsOfficialLibrary />
+      </el-tab-pane>
+
+      <el-tab-pane
+        lazy
         label="语音转写"
         name="asr"
       >
@@ -511,6 +519,7 @@ import SettingsRegistration from '@/components/settings/SettingsRegistration.vue
 import SettingsNetwork from '@/components/settings/SettingsNetwork.vue'
 import SettingsSkillLab from '@/components/settings/SettingsSkillLab.vue'
   import SettingsAgentGenerate from '@/components/settings/SettingsAgentGenerate.vue'
+import SettingsOfficialLibrary from '@/components/settings/SettingsOfficialLibrary.vue'
 import SettingsAsr from '@/components/settings/SettingsAsr.vue'
 import SettingsSelfImprove from '@/components/settings/SettingsSelfImprove.vue'
 import SettingsDeviceAnalysis from '@/components/settings/SettingsDeviceAnalysis.vue'
@@ -536,6 +545,7 @@ const TAB_NAMES = [
   'menu',
   'registration',
   'network',
+  'skills',
   'asr',
   'self_improve',
   'device_analysis',

@@ -156,9 +156,15 @@ def signup_yard(
     repo.add_membership(db, yard_id=yard.id, user_id=user.id, role="yard_owner")
     from app.modules.growth.skills import ensure_growth_skills
     from app.modules.market.agri_skills import ensure_builtin_skills
+    from app.modules.market.formal_writing_skills import ensure_formal_writing_skills
+    from app.modules.market.office_skills import ensure_office_skills
 
     ensure_builtin_skills(db, yard_id=yard.id, actor_id=user.id, request_id=f"signup:{client_ip}")
     ensure_growth_skills(db, yard_id=yard.id, actor_id=user.id, request_id=f"signup:{client_ip}")
+    ensure_office_skills(db, yard_id=yard.id, actor_id=user.id, request_id=f"signup:{client_ip}")
+    ensure_formal_writing_skills(
+        db, yard_id=yard.id, actor_id=user.id, request_id=f"signup:{client_ip}"
+    )
     log_audit(
         db,
         yard_id=yard.id,
