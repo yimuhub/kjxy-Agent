@@ -109,9 +109,9 @@
             <template #default="{ row }">
               <el-tag
                 size="small"
-                :type="statusMeta(row).type"
+                :type="statusMeta(row as LibrarySource).type"
               >
-                {{ statusMeta(row).label }}
+                {{ statusMeta(row as LibrarySource).label }}
               </el-tag>
             </template>
           </el-table-column>
