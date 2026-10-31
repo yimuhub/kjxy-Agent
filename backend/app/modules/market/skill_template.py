@@ -137,6 +137,8 @@ class SkillSpec(_StrictModel):
         "content",
         "service",
         "aftersales",
+        # v3.35：办公文档技能（Word/Excel/PPT/周报/数据整理/审校）
+        "office",
     ]
     summary: str = Field(min_length=1, max_length=300)
     when_to_use: str = Field(min_length=1, max_length=500)

@@ -307,8 +307,13 @@ def get_item(db: Session, item_key: str) -> MarketItem | dict | None:
         return row
     # 未落库的内置种子按需补种，保证详情/安装可用
     if item_key.startswith("builtin:"):
+        from app.modules.market.formal_writing_skills import seed_formal_writing_skills
+        from app.modules.market.office_skills import seed_office_skills
+
         seed_builtin(db)
         seed_growth_skills(db)
+        seed_office_skills(db)
+        seed_formal_writing_skills(db)
         return db.query(MarketItem).filter(MarketItem.item_key == item_key).first()
     return None
 

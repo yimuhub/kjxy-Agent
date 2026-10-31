@@ -98,14 +98,19 @@ def generate_document(
     session_id: str,
     fmt: str,
     raw_model: dict[str, Any],
+    render_bytes: bytes | None = None,
 ) -> ChatAttachment:
-    """生成文档并落为会话附件（不入消息表，由调用方决定是否发卡片）。"""
+    """生成文档并落为会话附件（不入消息表，由调用方决定是否发卡片）。
+
+    ``render_bytes`` 供 PPT 的 DeckPlan 链路使用：文件由版式渲染器产出，
+    快照仍是文本版 DocModel，因此预览与下载各走各的正确路径。
+    """
     chat_service.get_session(db, yard_id=ctx.yard_id, created_by=ctx.user_id, session_id=session_id)
     model = parse_model(raw_model)
     fmt = normalize_format(fmt)
     ext, mime, renderer = _RENDERERS[fmt]
     try:
-        data = renderer(model)
+        data = render_bytes if render_bytes is not None else renderer(model)
     except Exception as e:  # noqa: BLE001 —— 渲染失败统一 500 但保留原因摘要
         log.warning("文档渲染失败 fmt=%s title=%s: %s", fmt, model.title, e)
         raise AppError(

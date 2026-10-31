@@ -224,9 +224,13 @@ def _ensure_demo_owner(db) -> None:
             row.role = "yard_admin"
     from app.modules.growth.skills import ensure_growth_skills
     from app.modules.market.agri_skills import ensure_builtin_skills
+    from app.modules.market.formal_writing_skills import ensure_formal_writing_skills
+    from app.modules.market.office_skills import ensure_office_skills
 
     ensure_builtin_skills(db, yard_id=yard.id, actor_id=admin.id, request_id="seed")
     ensure_growth_skills(db, yard_id=yard.id, actor_id=admin.id, request_id="seed")
+    ensure_office_skills(db, yard_id=yard.id, actor_id=admin.id, request_id="seed")
+    ensure_formal_writing_skills(db, yard_id=yard.id, actor_id=admin.id, request_id="seed")
     _ensure_demo_growth_doc(db, yard_id=yard.id, actor_id=admin.id)
     ensure_demo_roster(db, yard)
     db.commit()
@@ -277,9 +281,15 @@ def seed(random_passwords: bool = False) -> None:
         # 内置农业技能：直接出现在「专家审核 → Skill 管理」
         from app.modules.growth.skills import ensure_growth_skills
         from app.modules.market.agri_skills import ensure_builtin_skills
+        from app.modules.market.formal_writing_skills import ensure_formal_writing_skills
+        from app.modules.market.office_skills import ensure_office_skills
 
         ensure_builtin_skills(db, yard_id=yard.id, actor_id=users["admin"].id, request_id="seed")
         ensure_growth_skills(db, yard_id=yard.id, actor_id=users["admin"].id, request_id="seed")
+        ensure_office_skills(db, yard_id=yard.id, actor_id=users["admin"].id, request_id="seed")
+        ensure_formal_writing_skills(
+            db, yard_id=yard.id, actor_id=users["admin"].id, request_id="seed"
+        )
 
         # 演示知识文档（直接写入 ready 状态，免去解析流程）
         chunk_count = _add_demo_doc(

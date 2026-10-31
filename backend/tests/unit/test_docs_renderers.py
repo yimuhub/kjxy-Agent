@@ -13,6 +13,7 @@ from app.modules.docs.model import parse_model
 from app.modules.docs.preview import to_preview_html
 from app.modules.docs.service import format_from_text, normalize_format
 from docx import Document
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from openpyxl import load_workbook
 from pptx import Presentation
 
@@ -90,6 +91,41 @@ def test_pdf_has_magic_and_reasonable_size(model):
     data = render_pdf.to_pdf(model)
     assert data.startswith(b"%PDF")
     assert len(data) > 1000
+
+
+def test_docx_uses_chinese_typography(model):
+    doc = Document(io.BytesIO(render_docx.to_docx(model)))
+    section = doc.sections[0]
+    assert section.left_margin.cm == pytest.approx(2.54, abs=0.01)
+    assert section.top_margin.cm == pytest.approx(2.54, abs=0.01)
+    assert doc.styles["Normal"].font.name == "宋体"
+    assert doc.paragraphs[0].alignment == WD_ALIGN_PARAGRAPH.CENTER
+
+
+def test_xlsx_coerces_numbers_and_freezes_header():
+    raw = {
+        "title": "泵站台账",
+        "blocks": [
+            {
+                "type": "table",
+                "header": ["设备", "压力(MPa)", "占比"],
+                "rows": [["一号泵", "0.6", "35%"]],
+            }
+        ],
+    }
+    ws = load_workbook(io.BytesIO(render_xlsx.to_xlsx(parse_model(raw)))).active
+    header_row = next(
+        row[0].row for row in ws.iter_rows() if row and row[0].value == "设备"
+    )
+    assert ws.cell(header_row + 1, 2).value == 0.6
+    assert ws.cell(header_row + 1, 3).value == 0.35
+    assert ws.freeze_panes == f"A{header_row + 1}"
+
+
+def test_pptx_is_widescreen(model):
+    prs = Presentation(io.BytesIO(render_pptx.to_pptx(model)))
+    assert round(prs.slide_width / 914400, 3) == 13.333
+    assert round(prs.slide_height / 914400, 3) == 7.5
 
 
 def test_preview_escapes_user_content():

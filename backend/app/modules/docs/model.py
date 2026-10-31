@@ -23,6 +23,10 @@ MAX_TITLE = 100
 
 BlockType = Literal["heading", "paragraph", "bullets", "numbered", "table", "code", "pagebreak"]
 
+#: Word 版式：general=原有通用排版（默认，旧请求兼容）；其余为正式写作专用版式
+DocStyle = Literal["general", "official_cn", "grant", "tender", "brief"]
+DOC_STYLES: tuple[str, ...] = ("general", "official_cn", "grant", "tender", "brief")
+
 
 class DocBlock(BaseModel):
     """单个内容块。字段按类型取用，未用字段保持空值。"""
@@ -68,6 +72,8 @@ class DocModel(BaseModel):
     title: str = Field(min_length=1, max_length=MAX_TITLE)
     subject: str = Field(default="", max_length=MAX_TITLE)
     author: str = Field(default="", max_length=MAX_TITLE)
+    #: Word 版式（仅影响 docx 渲染；其余格式忽略）。默认 general 保持旧行为。
+    doc_style: DocStyle = "general"
     blocks: list[DocBlock] = Field(min_length=1, max_length=MAX_BLOCKS)
 
 

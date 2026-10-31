@@ -1,11 +1,12 @@
-"""内置技能种子的通用落库逻辑（农业、增长/服务域共用）。
+"""内置技能种子的通用落库逻辑（农业、增长/服务域、办公域共用）。
 
-两个产出方：
+三个产出方：
 - ``market/agri_skills.py``：12 项农技技能；
-- ``growth/skills.py``：营销 6 项 + 活动 4 项。
+- ``growth/skills.py``：营销 6 项 + 活动 4 项；
+- ``market/office_skills.py``：Word/Excel/PPT 等 6 项办公技能。
 
-两者条目结构一致（``MarketItem`` 字段 + ``definition_json``），因此落库与
-「新小院铺技能」只保留一份实现，避免两处漂移。
+三者条目结构一致（``MarketItem`` 字段 + ``definition_json``），因此落库与
+「新小院铺技能」只保留一份实现，避免多处漂移。
 """
 
 from __future__ import annotations
