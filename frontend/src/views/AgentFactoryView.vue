@@ -4,7 +4,7 @@
       Agent 工厂
     </h2>
     <p class="sub">
-      描述你的行业与场景，平台自动规划一支互补的助手团队；逐张确认后一键装配（生成结果全部先进草稿，发布由你点击——符合审核红线）。
+      描述你的行业与场景，平台先解析画像、按需检索公开资料，再规划 3-6 个互补角色组成工作流；逐张确认后一键装配（生成结果全部先进草稿，发布由你点击——符合审核红线）。
     </p>
 
     <!-- 生成区 -->
@@ -67,7 +67,31 @@
         <h3 class="bp-title">
           能力蓝图（{{ blueprint.agents.length }} 个角色 · {{ generatedByLabel(blueprint.generated_by) }}）
         </h3>
-        <span class="note">已选 {{ selectedCodes.length }} / {{ blueprint.agents.length }}</span>
+        <div class="bp-meta">
+          <el-tooltip
+            v-if="blueprint.research?.used"
+            :content="researchTooltip"
+            placement="top"
+          >
+            <el-tag size="small" type="success" effect="plain">
+              联网情报 {{ blueprint.research.sources?.length || 0 }} 条
+            </el-tag>
+          </el-tooltip>
+          <el-tag v-else size="small" type="info" effect="plain" class="research-off">
+            {{ blueprint.research?.reason || '未联网' }}
+          </el-tag>
+          <span class="note">已选 {{ selectedCodes.length }} / {{ blueprint.agents.length }}</span>
+        </div>
+      </div>
+      <div v-if="workflowStages.length" class="wf-band">
+        <span class="wf-label">工作流</span>
+        <template v-for="(s, si) in workflowStages" :key="s.key">
+          <span class="wf-stage">
+            <span class="wf-stage-name">{{ s.label }}</span>
+            <span class="wf-roles">{{ stageRoleNames(s.roles).join('、') }}</span>
+          </span>
+          <span v-if="si < workflowStages.length - 1" class="wf-arrow">→</span>
+        </template>
       </div>
       <el-checkbox-group v-model="selectedCodes">
         <el-row :gutter="16">
@@ -86,10 +110,27 @@
               </div>
               <div class="role-tags">
                 <el-tag
+                  v-if="a.stage"
+                  size="small"
+                  :type="stageType(a.stage)"
+                  effect="dark"
+                >
+                  {{ stageLabel(a.stage) }}
+                </el-tag>
+                <el-tag
                   size="small"
                   :type="a.risk_level === 'low' ? 'success' : 'warning'"
                 >
                   {{ a.risk_level === 'low' ? '低风险·可自发布' : '高风险·需平台审核' }}
+                </el-tag>
+                <el-tag
+                  v-for="code in a.suggested_skills || []"
+                  :key="code"
+                  size="small"
+                  type="info"
+                  effect="plain"
+                >
+                  {{ skillLabel(code) }}
                 </el-tag>
                 <el-tag
                   v-if="a.knowledge_coverage > 0"
@@ -145,7 +186,7 @@
             placeholder="班组成员名（默认＝行业名＋班组）"
             style="width: 240px"
           />
-          <span class="note">成员按蓝图顺序接力，末位审核类角色自动担任审核员</span>
+          <span class="note">成员按工作流阶段接力，审核阶段角色自动担任审核员</span>
         </div>
         <el-button
           type="primary"
@@ -192,6 +233,19 @@
         <el-table-column label="角色" width="70">
           <template #default="{ row }">
             {{ row.role_count ?? '—' }}
+          </template>
+        </el-table-column>
+        <el-table-column label="情报" width="90">
+          <template #default="{ row }">
+            <el-tag
+              v-if="row.research_used"
+              size="small"
+              type="success"
+              effect="plain"
+            >
+              {{ row.research_sources }} 条
+            </el-tag>
+            <span v-else>—</span>
           </template>
         </el-table-column>
         <el-table-column label="知识缺口" width="90">
@@ -363,6 +417,94 @@ function generatedByLabel(g: string | null): string {
   if (g === 'heuristic') return '规则兜底'
   return '—'
 }
+
+/* ---------- 阶段与情报展示 ---------- */
+type StageTagType = 'primary' | 'success' | 'warning' | 'info' | 'danger'
+const STAGE_META: Record<string, { label: string; type: StageTagType }> = {
+  analysis: { label: '分析取证', type: 'primary' },
+  plan: { label: '方案设计', type: 'success' },
+  execution: { label: '执行落地', type: 'warning' },
+  delivery: { label: '交付汇总', type: 'info' },
+  review: { label: '审核把关', type: 'danger' },
+}
+function stageLabel(stage?: string): string {
+  return stage ? STAGE_META[stage]?.label ?? stage : ''
+}
+function stageType(stage?: string): StageTagType {
+  return stage ? STAGE_META[stage]?.type ?? 'info' : 'info'
+}
+
+const OFFICE_SKILL_LABELS: Record<string, string> = {
+  office_word_report: 'Word 排版',
+  office_excel_table: 'Excel 表格',
+  office_ppt_deck: 'PPT 演示',
+  office_weekly_report: '周报月报',
+  office_data_clean: '数据整理',
+  office_doc_review: '文档审校',
+  // PPT 出片链路（叙事 → 版式 → 图表 → 质检 → 模板）
+  office_ppt_storyline: '叙事线',
+  office_ppt_design: '版式设计',
+  office_ppt_chart: '图表设计',
+  office_ppt_review: '演示质检',
+  office_ppt_template: '模板出片',
+  // 党政机关公文
+  gov_notice: '通知',
+  gov_request: '请示',
+  gov_report: '报告',
+  gov_letter: '函',
+  gov_minutes: '纪要',
+  gov_work_plan: '工作方案',
+  gov_summary: '工作总结',
+  gov_reply: '批复答复',
+  gov_speech: '讲话稿',
+  gov_briefing: '信息简报',
+  // 科研项目申报与验收
+  grant_project_application: '项目申报',
+  grant_tech_program: '科技项目',
+  grant_subsidy: '补贴申请',
+  grant_honor: '荣誉资质',
+  grant_midterm: '中期检查',
+  grant_acceptance: '结题验收',
+  grant_budget: '预算说明',
+  // 招投标
+  tender_document: '招标文件',
+  bid_document: '投标文件',
+  bid_response_matrix: '评分响应',
+  bid_technical: '技术方案',
+  bid_commercial: '商务响应',
+  bid_risk_review: '废标审查',
+  bid_clarification: '澄清函',
+  // 长文与会议材料
+  formal_longform: '正式长文',
+  exec_brief: '一页纸简报',
+  policy_interpretation: '政策解读',
+  meeting_pack: '会议材料包',
+}
+
+/** 未知 code 原样回显，避免新技能上线前标签空白 */
+function skillLabel(code: string): string {
+  return OFFICE_SKILL_LABELS[code] ?? code
+}
+
+const workflowStages = computed(() => blueprint.value?.workflow?.stages ?? [])
+
+function stageRoleNames(codes: string[]): string[] {
+  const names = new Map(
+    (blueprint.value?.agents ?? []).map(a => [a.agent_code, a.name.replace(/（.*）$/, '')]),
+  )
+  return codes.map(code => names.get(code) ?? code)
+}
+
+const researchTooltip = computed(() => {
+  const research = blueprint.value?.research
+  if (!research?.used) return ''
+  const head = `来源：${research.provider || '免费搜索源'}；查询：${(research.queries ?? []).join(' / ')}`
+  const items = (research.sources ?? [])
+    .slice(0, 5)
+    .map(s => s.title || s.url)
+    .join('\n')
+  return items ? `${head}\n${items}` : head
+})
 
 /* ---------- 列表与详情 ---------- */
 async function loadRuns() {
@@ -545,7 +687,54 @@ onUnmounted(stopWatch)
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   margin: 8px 0 12px;
+  flex-wrap: wrap;
+}
+.bp-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.research-off {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wf-band {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  border-radius: 8px;
+  background: var(--ds-bg-2);
+  font-size: 12px;
+}
+.wf-label {
+  font-weight: 600;
+  color: var(--ds-text-1);
+}
+.wf-stage {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--ds-bg-1);
+  border: 1px solid var(--ds-border);
+}
+.wf-stage-name {
+  font-weight: 600;
+  color: var(--ds-text-1);
+}
+.wf-roles {
+  color: var(--ds-text-2);
+}
+.wf-arrow {
+  color: var(--ds-text-3);
 }
 .bp-title {
   margin: 0;

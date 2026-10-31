@@ -200,9 +200,48 @@ DOMAIN_SYNONYMS: dict[str, tuple[str, ...]] = {
     "收购": ("收购", "市场", "询价"),
     "补贴": ("政策", "申报"),
     "惠农": ("政策", "申报"),
-    "台账": ("记录", "可追溯"),
+    "台账": ("记录", "可追溯", "表格", "excel"),
     "巡田": ("田间", "记录"),
     "农时": ("农事", "日历"),
+    # 办公域：用户说 Excel/PPT/Word，技能名可能是「台账」「演示文稿」「排版」
+    "excel": ("表格", "台账", "数据", "工作表"),
+    "xlsx": ("excel", "表格", "台账"),
+    "表格": ("excel", "台账", "数据表"),
+    "ppt": ("幻灯片", "演示文稿", "汇报", "演示"),
+    "幻灯片": ("ppt", "演示文稿", "汇报"),
+    "演示文稿": ("ppt", "幻灯片", "汇报"),
+    "word": ("文档", "排版", "报告", "公文"),
+    "docx": ("word", "文档", "排版"),
+    "文档": ("排版", "报告", "word", "公文"),
+    "排版": ("文档", "word", "公文", "格式"),
+    "周报": ("总结", "汇报", "报告", "简报"),
+    "月报": ("总结", "汇报", "报告", "简报"),
+    "数据整理": ("清洗", "统计", "表格", "去重"),
+    "审校": ("校对", "格式检查", "润色", "定稿"),
+    # 正式写作域：用户说的是文种，技能名可能是「××写作」「项目申报书」
+    "公文": ("通知", "请示", "批复", "报告", "函", "纪要", "正式文件", "发文"),
+    "通知": ("公文", "发文", "告知", "部署"),
+    "请示": ("公文", "报批", "审批", "申请批准"),
+    "报告": ("公文", "工作报告", "情况报告", "汇报材料"),
+    "函": ("公文", "公函", "复函", "商洽", "征询"),
+    "纪要": ("会议纪要", "议定事项", "会议记录"),
+    "方案": ("工作方案", "实施方案", "行动计划", "任务分工"),
+    "总结": ("工作总结", "年度总结", "复盘", "述职"),
+    "讲话稿": ("发言稿", "致辞", "讲话", "发言"),
+    "申报": ("申报书", "项目申报", "立项", "专项资金", "补贴"),
+    "专项资金": ("补贴", "财政资金", "资金申请", "预算说明"),
+    "补贴": ("专项资金", "财政资金", "补助", "申报"),
+    "可研": ("可行性研究", "项目申报", "立项"),
+    "中期检查": ("中期报告", "进度检查", "阶段检查", "申报"),
+    "验收": ("结题", "验收报告", "绩效评价", "申报"),
+    "招标": ("招标文件", "采购文件", "评标", "招投标"),
+    "投标": ("投标文件", "标书", "技术标", "商务标"),
+    "标书": ("投标文件", "投标", "总装", "评分响应"),
+    "评分响应": ("评分点", "对照表", "评分索引", "逐条响应"),
+    "废标": ("符合性", "否决项", "风险审查", "投标"),
+    "澄清": ("质疑", "答疑", "澄清函", "招投标"),
+    "政策解读": ("政策", "解读", "适用条件", "申报指引"),
+    "简报": ("信息简报", "情况专报", "一页纸", "汇报要点"),
 }
 
 
@@ -592,6 +631,18 @@ async def generate_agent(
     if not web_enabled:
         offline = True
 
+    from app.modules.market import formal_writing_skills, office_skills
+
+    if office_skills.is_office_request(text):
+        office_skills.ensure_office_skills(
+            db, yard_id=ctx.yard_id, actor_id=ctx.user_id, request_id=ctx.request_id
+        )
+    # 公文/申报/招投标请求：技能未铺齐时先补齐，再列可绑定技能，避免「有需求没技能」。
+    formal_request = formal_writing_skills.is_formal_request(text)
+    if formal_request:
+        formal_writing_skills.ensure_formal_writing_skills(
+            db, yard_id=ctx.yard_id, actor_id=ctx.user_id, request_id=ctx.request_id
+        )
     extensions = bindable.list_bindable_extensions(db, ctx.yard_id)
     tools = _tool_snapshot()
     _emit(on_stage, STAGE_DESIGNING, "正在按固定框架设计职责与工作流", 0.35)
@@ -601,6 +652,26 @@ async def generate_agent(
 
     _emit(on_stage, STAGE_MATCHING, "正在匹配本院已有技能", 0.7)
     needs = _need_list(spec, text)
+    # 办公需求显式补需求项：一条 need 只绑一个最佳技能，因此按技能逐个提出
+    if office_skills.is_office_request(text):
+        for code in office_skills.match_office_skill_codes(text, limit=2):
+            needs.append(
+                {
+                    "need": f"办公技能：{code}",
+                    "keywords": office_skills.need_keywords(code),
+                    "reason": "识别到办公文档需求，自动关联办公技能",
+                }
+            )
+    # 正式写作需求同理：公文/申报/招投标/正式长文逐条提 need，命中即自动绑定
+    if formal_request:
+        for code in formal_writing_skills.match_formal_skill_codes(text, limit=2):
+            needs.append(
+                {
+                    "need": f"正式写作技能：{code}",
+                    "keywords": formal_writing_skills.need_keywords(code),
+                    "reason": "识别到公文/申报/招投标需求，自动关联正式写作技能",
+                }
+            )
     matched, requirements = match_skills(extensions, needs)
 
     _emit(on_stage, STAGE_PERSISTING, "正在保存草稿", 0.9)

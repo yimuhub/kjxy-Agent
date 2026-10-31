@@ -135,7 +135,11 @@ def is_review_role(*texts: str) -> bool:
 
 
 def members_from_blueprint(items: list[dict[str, Any]], ok_codes: set[str]) -> list[dict[str, Any]]:
+    from app.modules.agents import factory_frameworks as ff
+
     ordered = [i for i in items if str(i.get("agent_code")) in ok_codes and i.get("agent_id")]
+    # 蓝图已按阶段排序；这里再稳定排一次，防止历史蓝图缺 stage 时审核角色夹在中间
+    ordered.sort(key=lambda it: ff.STAGE_ORDER.get(str(it.get("stage") or ""), 50))
     members: list[dict[str, Any]] = []
     for idx, it in enumerate(ordered):
         goal = str(it.get("description") or "").strip()
@@ -152,7 +156,7 @@ def members_from_blueprint(items: list[dict[str, Any]], ok_codes: set[str]) -> l
         )
     if members:
         last = ordered[-1]
-        if is_review_role(
+        if str(last.get("stage") or "") == ff.STAGE_REVIEW or is_review_role(
             str(last.get("name") or ""),
             str(last.get("description") or ""),
             str(last.get("persona_prompt") or ""),

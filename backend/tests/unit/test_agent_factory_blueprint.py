@@ -109,7 +109,7 @@ def test_parse_blueprint_backfills_question_placeholder():
 
 def test_heuristic_blueprint_fields_complete_and_deterministic():
     items = heuristic_blueprint("果园农机服务，覆盖修剪与采摘环节", focus="侧重农机服务")
-    assert len(items) == 4
+    assert 3 <= len(items) <= 6
     codes = []
     for item in items:
         for field in (
@@ -122,6 +122,7 @@ def test_heuristic_blueprint_fields_complete_and_deterministic():
             "allowed_tools",
             "knowledge_scopes",
             "suggested_questions",
+            "stage",
         ):
             assert item[field] is not None and item[field] != [], field
         assert CODE_RE.match(item["agent_code"]), item["agent_code"]
@@ -129,11 +130,14 @@ def test_heuristic_blueprint_fields_complete_and_deterministic():
         assert item["allowed_tools"] == [DEFAULT_BLUEPRINT_TOOL]
         assert item["knowledge_scopes"] == DEFAULT_KNOWLEDGE_SCOPES
         assert len(item["suggested_questions"]) == 5
-        # persona 按行业描述与侧重方向定制（兜底不是通用模板）
-        assert "果园农机服务" in item["persona_prompt"]
+        # persona 按行业画像与侧重方向定制（兜底不是通用模板）
+        assert "果园" in item["persona_prompt"]
         assert "侧重农机服务" in item["persona_prompt"]
         codes.append(item["agent_code"])
-    assert len(set(codes)) == 4
+    assert len(set(codes)) == len(items)
+    # 工作流：审核阶段唯一且恒在最后
+    assert items[-1]["stage"] == "review"
+    assert sum(1 for i in items if i["stage"] == "review") == 1
     # 确定性：同输入两次产物一致（可测试、可复现）
     assert heuristic_blueprint("果园农机服务，覆盖修剪与采摘环节", "侧重农机服务") == items
 

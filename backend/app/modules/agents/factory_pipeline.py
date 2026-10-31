@@ -94,21 +94,45 @@ def _resolve_blueprint_items(
     industry_brief: str,
     focus: str | None,
     request_id: str,
-) -> tuple[list[dict[str, Any]], str]:
-    """planning 阶段：LLM 蓝图优先，解析/调用失败落启发式；返回 (角色列表, 来源)。
+) -> tuple[list[dict[str, Any]], str, dict[str, Any]]:
+    """planning 阶段：联网情报 → LLM 蓝图 → 失败落框架选角；返回(角色, 来源, 情报)。
 
-    工厂 run 纳入 agent_run_steps 同表 checkpoint（P0 内核）：LLM 蓝图调用
-    落一行 llm_call 步（ok/error），供 GET steps 与 SSE 步骤流统一观察。
+    工厂 run 纳入 agent_run_steps 同表 checkpoint（P0 内核）：情报检索落一行
+    tool_call 步（ok/skipped），LLM 蓝图调用落一行 llm_call 步（ok/error），
+    供 GET steps 与 SSE 步骤流统一观察。
     """
     import time
 
+    from app.modules.agents import factory_research as fr
     from app.modules.agents import run_steps as rs
     from app.modules.llm.schemas import ChatMessage, LLMMetadata, LLMRequest
     from app.modules.llm.service import complete_with_logging
 
+    # -- 情报阶段：短查询、限时降级，失败只记 skipped 不阻塞蓝图 ----------
+    research_started = time.perf_counter()
+    research = fr.run_research(db, run.yard_id, industry_brief, focus)
+    research_body = fr.research_text(research)
+    rs.record_step(
+        db,
+        yard_id=run.yard_id,
+        run_id=run.id,
+        step_type=rs.STEP_TOOL,
+        status=rs.STEP_OK if research.get("used") else rs.STEP_SKIPPED,
+        tool_code="web.search",
+        input_json={"stage": "research", "queries": research.get("queries") or []},
+        output_json={
+            "used": bool(research.get("used")),
+            "provider": research.get("provider") or "",
+            "sources": len(research.get("sources") or []),
+            "reason": research.get("reason") or "",
+        },
+        duration_ms=int((time.perf_counter() - research_started) * 1000),
+        commit=False,
+    )
+
     started = time.perf_counter()
     try:
-        messages = fb.build_blueprint_messages(industry_brief, focus)
+        messages = fb.build_blueprint_messages(industry_brief, focus, research_body)
         request = LLMRequest(
             messages=[ChatMessage(role=m["role"], content=m["content"]) for m in messages],
             metadata=LLMMetadata(
@@ -156,14 +180,19 @@ def _resolve_blueprint_items(
             error_text=f"{type(e).__name__}: {e}",
             commit=False,
         )
-        items = fb.heuristic_blueprint(industry_brief, focus)
+        items = fb.heuristic_blueprint(
+            industry_brief,
+            focus,
+            research_text=research_body,
+            research_hits=len(research.get("sources") or []),
+        )
         generated_by = GENERATED_BY_HEURISTIC
         log.info(
             "factory run %s: LLM blueprint unavailable (%s), heuristic fallback used",
             run.id[:8],
             e,
         )
-    return fb.finalize_codes(items, task_id or run.id), generated_by
+    return fb.finalize_codes(items, task_id or run.id), generated_by, research
 
 
 def _probe_coverage(
@@ -195,10 +224,61 @@ def _probe_coverage(
     return coverage, probes
 
 
+def _office_bound_skills(
+    db: Session, *, yard_id: str, item: dict[str, Any], actor_id: str, request_id: str
+) -> list[str]:
+    """按角色建议/角色语义解析办公与正式写作技能绑定（skill:<id>）。
+
+    两条来源：
+    1. 蓝图 ``suggested_skills`` 里的办公 code（office_*）与正式写作 code（gov_*/
+       grant_*/tender_*/bid_*/formal_*）；
+    2. 建议缺失时按角色名称/描述/框架做关键词匹配。
+    技能未铺齐时先 ensure 再解析；没有任何办公/写作特征时返回空列表。
+    """
+    from app.modules.market import formal_writing_skills as formal
+    from app.modules.market import office_skills as office
+
+    suggested = [str(code) for code in (item.get("suggested_skills") or [])]
+    codes = [code for code in suggested if code in office.OFFICE_SKILL_CODES]
+    formal_codes = [code for code in suggested if code in formal.FORMAL_SKILL_CODES]
+    blob = " ".join(
+        [
+            str(item.get("name") or ""),
+            str(item.get("description") or ""),
+            str(item.get("framework") or ""),
+        ]
+    )
+    if not codes:
+        codes = office.match_office_skill_codes(blob, limit=2)
+    if not formal_codes:
+        formal_codes = formal.match_formal_skill_codes(blob, limit=2)
+    if not codes and not formal_codes:
+        return []
+
+    ids = office.office_skill_ids(db, yard_id) if codes else {}
+    if codes and any(code not in ids for code in codes):
+        office.ensure_office_skills(db, yard_id=yard_id, actor_id=actor_id, request_id=request_id)
+        ids = office.office_skill_ids(db, yard_id)
+    formal_ids = formal.formal_skill_ids(db, yard_id) if formal_codes else {}
+    if formal_codes and any(code not in formal_ids for code in formal_codes):
+        formal.ensure_formal_writing_skills(
+            db, yard_id=yard_id, actor_id=actor_id, request_id=request_id
+        )
+        formal_ids = formal.formal_skill_ids(db, yard_id)
+
+    bound = [f"skill:{ids[code]}" for code in codes if code in ids]
+    bound += [f"skill:{formal_ids[code]}" for code in formal_codes if code in formal_ids]
+    # 去重保序：办公与正式写作 code 不会重名，但同一 id 历史数据可能重复
+    return list(dict.fromkeys(bound))
+
+
 def _create_draft(
     db: Session, *, run: FactoryRun, item: dict[str, Any], actor_id: str, request_id: str
 ) -> declarative.YardAgent:
     """蓝图角色 → YardAgent 草稿（created_from=factory；同码冲突自动升版本重试）。"""
+    bound_skills = _office_bound_skills(
+        db, yard_id=run.yard_id, item=item, actor_id=actor_id, request_id=request_id
+    )
     last_error: AppError | None = None
     for patch in range(3):
         req = DeclarativeAgentCreate(
@@ -210,6 +290,7 @@ def _create_draft(
             task_prompt_template=str(item["task_prompt_template"]),
             allowed_tools=list(item.get("allowed_tools") or []),
             knowledge_scopes=list(item.get("knowledge_scopes") or []),
+            bound_skills=list(bound_skills),
             created_from="factory",
         )
         try:
@@ -263,11 +344,11 @@ def run_agent_factory(input_data: dict[str, Any], context: dict[str, Any]) -> di
             run,
             task_id,
             "planning",
-            "工厂开始规划 Agent 蓝图（LLM 优先，失败落内置启发式）。",
+            "工厂开始解析画像、按需检索公开资料并规划多角色工作流" "（LLM 优先，失败落框架选角）。",
             progress=0.1,
             run_status=STATUS_PLANNING,
         )
-        items, generated_by = _resolve_blueprint_items(
+        items, generated_by, research = _resolve_blueprint_items(
             db,
             run=run,
             task_id=task_id,
@@ -275,15 +356,20 @@ def run_agent_factory(input_data: dict[str, Any], context: dict[str, Any]) -> di
             focus=focus,
             request_id=request_id,
         )
-        payload = fb.build_blueprint_payload(industry_brief, focus, generated_by, items)
+        payload = fb.build_blueprint_payload(industry_brief, focus, generated_by, items, research)
         run.blueprint_json = payload
         run.generated_by = generated_by
+        research_note = (
+            f"联网情报 {len(research.get('sources') or [])} 条"
+            if research.get("used")
+            else "未启用联网情报"
+        )
         _milestone(
             db,
             run,
             task_id,
             "blueprint_ready",
-            f"蓝图就绪：{len(items)} 个角色（来源 {generated_by}）。",
+            f"蓝图就绪：{len(items)} 个角色（来源 {generated_by}，{research_note}）。",
             progress=0.35,
         )
 
@@ -312,7 +398,9 @@ def run_agent_factory(input_data: dict[str, Any], context: dict[str, Any]) -> di
         db.commit()  # 草稿与蓝图更新同事务提交（失败整体回滚，不留半成品）
 
         # -- 里程碑 3：completed（蓝图回写收口）------------------------------
-        run.blueprint_json = fb.build_blueprint_payload(industry_brief, focus, generated_by, items)
+        run.blueprint_json = fb.build_blueprint_payload(
+            industry_brief, focus, generated_by, items, research
+        )
         needs_kb = sum(1 for i in items if i.get("needs_knowledge"))
         # checkpoint：工厂 run 的 final 步（与 completed 里程碑同事务提交）
         from app.modules.agents import run_steps as rs
@@ -353,6 +441,8 @@ def run_agent_factory(input_data: dict[str, Any], context: dict[str, Any]) -> di
                 "generated_by": generated_by,
                 "role_count": len(items),
                 "needs_knowledge": needs_kb,
+                "research_used": bool(research.get("used")),
+                "research_sources": len(research.get("sources") or []),
             },
         )
         db.commit()
@@ -361,6 +451,8 @@ def run_agent_factory(input_data: dict[str, Any], context: dict[str, Any]) -> di
             "generated_by": generated_by,
             "role_count": len(items),
             "needs_knowledge_count": needs_kb,
+            "research_used": bool(research.get("used")),
+            "research_sources": len(research.get("sources") or []),
             "agents": [
                 {
                     "agent_code": i["agent_code"],

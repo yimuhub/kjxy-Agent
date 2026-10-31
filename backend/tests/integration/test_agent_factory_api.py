@@ -178,7 +178,17 @@ def test_generate_completes_blueprint_milestones_and_audit(api_client, session_f
     assert bp["schema"] == "agent_factory_blueprint.v1"
     assert bp["focus"] == FOCUS
     agents = bp["agents"]
-    assert len(agents) == 4  # 启发式标准四角色
+    assert 3 <= len(agents) <= 6  # 框架选角：按描述组合 3-6 个角色
+    # 工作流与阶段：审核唯一且最后，阶段顺序稳定
+    assert bp["workflow"]["mode"] == "sequential"
+    assert [s["key"] for s in bp["workflow"]["stages"]] == sorted(
+        [s["key"] for s in bp["workflow"]["stages"]],
+        key=["analysis", "plan", "execution", "delivery", "review"].index,
+    )
+    assert agents[-1]["stage"] == "review"
+    # 测试环境默认关闭联网情报：必须诚实标注未启用，而不是伪报
+    assert bp["research"]["used"] is False
+    assert bp["research"]["reason"]
     for item in agents:
         for field in (
             "agent_code",
@@ -426,6 +436,43 @@ def test_generate_validation_and_gate(api_client, yard):
     assert forbidden.status_code == 403
 
 
+def test_research_flows_into_blueprint_and_steps(api_client, yard, monkeypatch):
+    """联网情报成功时：落库可溯源来源、增强 persona、步骤流留痕。"""
+    monkeypatch.delenv("FACTORY_RESEARCH_DISABLED", raising=False)
+
+    async def fake_search(db, yard_id, query, count=5, lang="zh-CN"):
+        return {
+            "query": query,
+            "provider": "bing",
+            "results": [
+                {
+                    "title": "果园小型农机选型指南",
+                    "url": "https://example.com/machine",
+                    "snippet": "按果园坡度与行距选型",
+                    "source": "bing",
+                    "published": None,
+                }
+            ],
+        }
+
+    monkeypatch.setattr("app.modules.search.service.search_web", fake_search)
+    run_id, _ = _completed_run(api_client, yard)
+    data = _run_detail(api_client, run_id, yard)
+    bp = data["blueprint_json"]
+    assert bp["research"]["used"] is True
+    assert bp["research"]["provider"] == "bing"
+    assert bp["research"]["sources"][0]["url"] == "https://example.com/machine"
+    assert any("近期行业公开资料" in a["persona_prompt"] for a in bp["agents"])
+
+    steps = api_client.get(
+        f"/api/v1/agents/declarative/runs/{run_id}/steps", headers=_hdr(yard_id=yard.id)
+    )
+    assert steps.status_code == 200
+    tool_steps = [s for s in steps.json()["data"]["steps"] if s["step_type"] == "tool_call"]
+    assert tool_steps and tool_steps[0]["tool_code"] == "web.search"
+    assert tool_steps[0]["status"] == "ok"
+
+
 def test_list_runs_summary_shape(api_client, session_factory, yard):
     _, _ = _completed_run(api_client, yard)
     listed = api_client.get("/api/v1/agents/factory/runs", headers=_hdr(yard_id=yard.id))
@@ -435,8 +482,10 @@ def test_list_runs_summary_shape(api_client, session_factory, yard):
     row = runs[0]
     assert "blueprint_json" not in row
     assert row["status"] == "completed"
-    assert row["role_count"] == 4
-    assert row["needs_knowledge_count"] == 4
+    assert 3 <= row["role_count"] <= 6
+    assert row["needs_knowledge_count"] == row["role_count"]
+    assert row["research_used"] is False
+    assert row["research_sources"] == 0
     assert row["industry_brief"] == BRIEF
 
 

@@ -116,10 +116,13 @@ def _iso(dt: Any) -> str | None:
 
 
 def _run_summary(run: FactoryRun) -> dict[str, Any]:
-    """列表用摘要：不内联完整蓝图，附角色/缺口计数。"""
+    """列表用摘要：不内联完整蓝图，附角色/缺口/情报计数。"""
     bp = run.blueprint_json if isinstance(run.blueprint_json, dict) else None
     agents = bp.get("agents") if bp else None
     agents = agents if isinstance(agents, list) else []
+    research = bp.get("research") if bp else None
+    research = research if isinstance(research, dict) else {}
+    sources = research.get("sources")
     return {
         "id": run.id,
         "status": run.status,
@@ -136,6 +139,8 @@ def _run_summary(run: FactoryRun) -> dict[str, Any]:
             if agents
             else None
         ),
+        "research_used": bool(research.get("used")),
+        "research_sources": len(sources) if isinstance(sources, list) else 0,
     }
 
 

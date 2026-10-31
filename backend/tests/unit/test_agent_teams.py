@@ -289,3 +289,34 @@ def test_members_from_blueprint_last_not_reviewer_no_critic():
     ]
     members = service.members_from_blueprint(items, ok_codes={"b1", "b2"})
     assert all(m["is_critic"] is False for m in members)
+
+
+def test_members_from_blueprint_orders_by_stage_and_marks_review_critic():
+    # 故意打乱：审核在前、执行在后；即使名称不含“审核”，stage=review 也判 critic
+    items = [
+        {
+            "agent_code": "r",
+            "name": "质检把关",
+            "description": "复核",
+            "stage": "review",
+            "agent_id": "i3",
+        },
+        {
+            "agent_code": "e",
+            "name": "田间执行",
+            "description": "落地",
+            "stage": "execution",
+            "agent_id": "i2",
+        },
+        {
+            "agent_code": "a",
+            "name": "需求分析",
+            "description": "取证",
+            "stage": "analysis",
+            "agent_id": "i1",
+        },
+    ]
+    members = service.members_from_blueprint(items, ok_codes={"r", "e", "a"})
+    assert [m["agent_id"] for m in members] == ["i1", "i2", "i3"]
+    assert members[-1]["is_critic"] is True
+    assert all(m["is_critic"] is False for m in members[:-1])
