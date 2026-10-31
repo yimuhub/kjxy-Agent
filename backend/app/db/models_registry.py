@@ -56,9 +56,24 @@ from app.modules.farm.models import (  # noqa: F401
     WorkOrderEvent,
 )
 from app.modules.knowledge.models import KnowledgeChunk, KnowledgeDocument  # noqa: F401
+from app.modules.library.models import (  # noqa: F401
+    LibraryInstall,
+    LibraryItem,
+    LibrarySource,
+    LibrarySyncRun,
+)
 from app.modules.llm.binding_models import LLMBinding  # noqa: F401
 from app.modules.llm.models import LLMCall, LLMTrace  # noqa: F401
-from app.modules.llm.supplier_models import Supplier, YardActiveSupplier  # noqa: F401
+from app.modules.llm.supplier_models import (  # noqa: F401
+    OfficialEntitlement,
+    OfficialOrder,
+    OfficialPlan,
+    OfficialWebhookEvent,
+    RelayChannel,
+    Supplier,
+    SupplierModel,
+    YardActiveSupplier,
+)
 from app.modules.market.models import MarketItem  # noqa: F401
 from app.modules.mcp.models import McpServer  # noqa: F401
 from app.modules.pairing.models import PairCode, PairDevice  # noqa: F401

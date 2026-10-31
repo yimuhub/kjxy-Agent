@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.32.0
+  version: 3.35.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -57,6 +57,31 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/LoginRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/auth/desktop-bootstrap:
+    post:
+      tags:
+      - v1
+      summary: Desktop Bootstrap
+      description: 桌面安装包双击启动时的静默登录；服务器部署下环境变量缺失直接 404。
+      operationId: desktop_bootstrap_api_v1_auth_desktop_bootstrap_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DesktopBootstrapRequest'
         required: true
       responses:
         '200':
@@ -11276,6 +11301,18 @@ components:
           title: Notes
       type: object
       title: CycleUpdate
+    DesktopBootstrapRequest:
+      properties:
+        token:
+          type: string
+          maxLength: 256
+          minLength: 16
+          title: Token
+      type: object
+      required:
+      - token
+      title: DesktopBootstrapRequest
+      description: 桌面壳引导登录：令牌由壳注入子进程环境，仅回环地址可调用。
     DeviceCreate:
       properties:
         name:

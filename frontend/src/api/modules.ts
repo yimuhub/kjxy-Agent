@@ -86,6 +86,10 @@ export const authApi = {
   me(): Promise<MeResponse> {
     return unwrap(api.get<ApiResponse<MeResponse>>('/auth/me'))
   },
+  /** 桌面安装包启动时的静默登录（令牌仅由本机壳注入） */
+  desktopBootstrap(token: string): Promise<LoginResponse> {
+    return unwrap(api.post<ApiResponse<LoginResponse>>('/auth/desktop-bootstrap', { token }))
+  },
 }
 
 // ---------- 小院 ----------
@@ -1242,6 +1246,12 @@ export interface DeclarativeAgentUpdate {
 export interface AgentChatSession {
   id: string
   title: string
+  /** 会话锁定对象：建会话时就固定，后续消息不再自动路由 */
+  target?: 'auto' | 'agent' | 'team'
+  target_code?: string | null
+  target_name?: string | null
+  created_at?: string
+  updated_at?: string
 }
 
 /** 只用于「重名/降级」判定的静默请求：错误由页面按码分流，不抢全局 toast */
@@ -1343,6 +1353,8 @@ export interface FactoryRunSummary {
   updated_at: string | null
   role_count: number | null
   needs_knowledge_count: number | null
+  research_used?: boolean
+  research_sources?: number
 }
 
 /** 蓝图内单个角色（blueprint_json.agents 元素） */
@@ -1362,6 +1374,29 @@ export interface FactoryBlueprintAgent {
   smoke_questions: string[]
   risk_level: 'low' | 'high'
   status: string
+  /** 工作流阶段：analysis / plan / execution / delivery / review */
+  stage?: string
+  framework?: string
+  /** 建议自动绑定的办公技能 code */
+  suggested_skills?: string[]
+}
+
+/** 蓝图工作流：按阶段排序的接力顺序 */
+export interface FactoryWorkflow {
+  mode: string
+  handoff: string
+  stages: Array<{ key: string; label: string; roles: string[] }>
+}
+
+/** 联网情报（used=false 时 reason 说明降级原因） */
+export interface FactoryResearch {
+  used: boolean
+  reason?: string
+  queries?: string[]
+  provider?: string
+  sources?: Array<{ title: string; url: string; snippet: string; source: string }>
+  summary?: string
+  fetched_at?: string | null
 }
 
 /** 蓝图（schema: agent_factory_blueprint.v1） */
@@ -1371,6 +1406,8 @@ export interface FactoryBlueprint {
   focus: string | null
   generated_by: string
   role_count: number
+  workflow?: FactoryWorkflow
+  research?: FactoryResearch
   agents: FactoryBlueprintAgent[]
 }
 

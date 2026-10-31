@@ -66,12 +66,53 @@ def _startup_wiring() -> None:
         try:
             seed_builtin_tools(db)
             seed_growth_tools(db)
+            from app.modules.market.formal_writing_skills import (
+                bind_formal_skills_to_agents,
+                ensure_formal_writing_skills_for_all_yards,
+                seed_formal_writing_skills,
+            )
+            from app.modules.market.office_skills import (
+                bind_office_skills_to_office_agents,
+                ensure_office_skills_for_all_yards,
+                seed_office_skills,
+            )
+
+            seed_office_skills(db)
+            seed_formal_writing_skills(db)
+            ensure_office_skills_for_all_yards(db)
+            ensure_formal_writing_skills_for_all_yards(db)
+            bind_office_skills_to_office_agents(db)
+            bind_formal_skills_to_agents(db)
             db.commit()
         except Exception as e:
             db.rollback()
             log.warning("seed builtin tools failed: %s", e)
         finally:
             db.close()
+
+        # 官方技能库同步放到后台线程：没有配置源时立即返回，断网/超时都不阻塞启动
+        def _sync_official_library() -> None:
+            from app.db.session import SessionLocal
+            from app.modules.library.service import run_due_library_syncs
+
+            lib_db = SessionLocal()
+            try:
+                run_due_library_syncs(lib_db)
+            except Exception as e:  # noqa: BLE001 —— 库同步失败不得影响主流程
+                lib_db.rollback()
+                log.warning("official library sync failed: %s", e)
+            finally:
+                lib_db.close()
+
+        try:
+            import threading
+
+            threading.Thread(
+                target=_sync_official_library, name="official-library-sync", daemon=True
+            ).start()
+        except Exception as e:
+            log.warning("official library sync scheduler start failed: %s", e)
+
         register_knowledge_search_tool()
         register_workorder_tool()
         register_sensor_query_tool()
@@ -102,7 +143,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="科技小院多智能体平台", version="3.32.0", lifespan=lifespan)
+    app = FastAPI(title="科技小院多智能体平台", version="3.35.0", lifespan=lifespan)
     app.add_middleware(RequestIDMiddleware)
     app.add_exception_handler(AppError, app_error_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)

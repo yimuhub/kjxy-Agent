@@ -24,3 +24,8 @@ alembic_version/
 data/
 *.db
 *.sqlite3
+
+# 打包中间产物
+build/
+backend/build/
+backend/*.spec

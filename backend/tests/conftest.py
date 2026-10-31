@@ -41,6 +41,7 @@ os.environ["LOCAL_STORAGE_PATH"] = str(_TEST_STORAGE_DIR)
 os.environ["TASK_ENQUEUE_TIMEOUT_SECONDS"] = "0.5"
 os.environ["WORKER_SYNC_FALLBACK"] = "false"
 os.environ["BOT_MANAGER_DISABLED"] = "1"  # 测试永不真起机器人长连接
+os.environ["FACTORY_RESEARCH_DISABLED"] = "1"  # 工厂联网情报默认关闭，防测试打公网
 
 # 供应商密钥加解密需要 Fernet 主密钥；不依赖某个测试模块先设置（曾导致
 # 机器人类测试单独运行时因环境变量缺失而失败，属于测试顺序耦合）。

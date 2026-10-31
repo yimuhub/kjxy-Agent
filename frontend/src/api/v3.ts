@@ -154,8 +154,16 @@ export interface RegistrationRequest {
 /** v3.1：搜索供应商新增 auto（自动，默认）；builtin_sources 为免密钥内置源 */
 export type SearchProvider = 'auto' | 'searxng' | 'tavily' | 'brave'
 
-/** v3.1：免密钥内置搜索源（零配置可用，可单独关闭） */
-export type BuiltinSearchSource = 'bing' | 'sogou' | 'so360'
+/** v3.33：免密钥内置搜索源（零配置可用，可单独关闭） */
+export type BuiltinSearchSource =
+  | 'brave_web'
+  | 'baidu'
+  | 'sogou'
+  | 'so360'
+  | 'bing_news'
+  | 'bing'
+  | 'google_news'
+  | 'duckduckgo'
 
 export interface YardSettingsBundle {
   registration: {
@@ -440,6 +448,8 @@ export interface SearchStatus {
   provider: string
   checked_at: string
   reason: string
+  /** v3.33：逐源诊断（code/名称/是否可用/原因） */
+  sources?: { code: string; label: string; ok: boolean; reason: string }[]
   /** 当前首选供应商（配置项） */
   supplier?: string
   quota?: SearchQuota

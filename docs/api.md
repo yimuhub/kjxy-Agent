@@ -95,7 +95,12 @@ v3.2 行为变化：
 | GET | /agents/bindable-extensions | 登录（小院上下文） | 编辑弹窗「扩展技能 / 扩展插件」候选聚合（含来源、风险、可见性、被引用数） |
 
 v3.1 行为变化：`/search/status` 新增 `internet` 字段；搜索设置 `provider` 支持 `auto`
-（默认）与 `builtin_sources`（bing/sogou/so360 子集）。`/agents/declarative` 创建与更新
+（默认）与 `builtin_sources`（内置源子集）。
+
+v3.33 搜索可用性：`/search/status` 新增 `sources` 逐源诊断（code/名称/是否可用/原因）；
+内置源改为 `brave_web`、`baidu`、`sogou`、`so360`、`bing_news`、`google_news`，
+可选 `bing`（网页 RSS）与 `duckduckgo`；默认不再
+指向不存在的本机 SearXNG（旧零配置会被自动升级）。`/agents/declarative` 创建与更新
 会对 `bound_skills` 逐项校验，未知编码返回 422。
 
 ## 接口一览（v3.0 新增）

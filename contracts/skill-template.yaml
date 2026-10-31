@@ -35,6 +35,7 @@ version: 1.0.0
 #   water_fertilizer  水肥管理（灌溉/施肥）
 #   machinery         农机（作业调度/机具）
 #   market            市场行情（价格/供销）
+#   office            办公文档（Word/Excel/PPT/周报/数据整理/审校）
 #   other             其他
 category: pest_control
 
