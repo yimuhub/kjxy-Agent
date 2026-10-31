@@ -44,8 +44,30 @@
           </template>
         </el-table-column>
         <el-table-column
-          prop="model_id"
           label="模型"
+          min-width="210"
+        >
+          <template #default="{ row }">
+            <div
+              v-if="statOf((row as LlmSupplier).id)"
+              class="model-stats"
+            >
+              <span class="model-count">{{ statOf((row as LlmSupplier).id)?.count }}</span>
+              <ModalityTag
+                v-for="m in statOf((row as LlmSupplier).id)?.modalities ?? []"
+                :key="m"
+                :modality="m"
+              />
+            </div>
+            <span
+              v-else
+              class="note"
+            >—</span>
+          </template>
+        </el-table-column>
+        <el-table-column
+          prop="model_id"
+          label="默认模型"
           width="160"
           show-overflow-tooltip
         />
@@ -121,9 +143,17 @@
         </el-table-column>
         <el-table-column
           label="操作"
-          min-width="300"
+          min-width="360"
         >
           <template #default="{ row }">
+            <el-button
+              size="small"
+              type="primary"
+              plain
+              @click="openModels(row as LlmSupplier)"
+            >
+              模型
+            </el-button>
             <el-button
               v-if="!row.readonly"
               size="small"
@@ -413,6 +443,12 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <SupplierModelsDrawer
+      v-model="modelsDrawerVisible"
+      :supplier="modelsSupplier"
+      @changed="onModelsChanged"
+    />
   </el-card>
 </template>
 
@@ -424,13 +460,21 @@
   import { extractErrorMessage } from '@/api/client'
   import { llmSupplierApi } from '@/api/modules'
   import type { LlmProviderTemplate, LlmSupplier, LlmTestResult } from '@/api/modules'
+  import { supplierModelApi } from '@/api/modelChannels'
+  import type { SupplierModel } from '@/api/modelChannels'
   import AsyncState from '@/components/AsyncState.vue'
+  import ModalityTag from '@/components/settings/ModalityTag.vue'
+  import SupplierModelsDrawer from '@/components/settings/SupplierModelsDrawer.vue'
   import { classifyError, type ViewState } from '@/utils/status'
 
   const emit = defineEmits<{ changed: [] }>()
 
   const suppliers = ref<LlmSupplier[]>([])
   const supplierState = ref<ViewState>('loading')
+  /** 供应商 id → 模型数量与主要模态（接口未就绪时为空，不影响供应商列表） */
+  const modelStats = ref<Record<string, { count: number; modalities: string[] }>>({})
+  const modelsDrawerVisible = ref(false)
+  const modelsSupplier = ref<LlmSupplier | null>(null)
   const templates = ref<LlmProviderTemplate[]>([])
   const dialogVisible = ref(false)
   const editingId = ref<string | null>(null)
@@ -531,7 +575,65 @@
     } catch (e) {
       supplierState.value = classifyError(e)
     }
+    await loadModelStats()
     emit('changed')
+  }
+
+  /** 拉取每个供应商的模型数与主要模态；单个失败只留空，不拖垮供应商列表 */
+  async function loadModelStats() {
+    if (!suppliers.value.length) {
+      modelStats.value = {}
+      return
+    }
+    const entries = await Promise.all(
+      suppliers.value.map(async supplier => {
+        try {
+          const models = await supplierModelApi.list(supplier.id)
+          return [supplier.id, summarizeModels(models)] as const
+        } catch {
+          return [supplier.id, null] as const
+        }
+      }),
+    )
+    const next: Record<string, { count: number; modalities: string[] }> = {}
+    entries.forEach(([id, stat]) => {
+      if (stat) next[id] = stat
+    })
+    modelStats.value = next
+  }
+
+  function summarizeModels(models: SupplierModel[]): { count: number; modalities: string[] } {
+    const modalities: string[] = []
+    for (const model of models) {
+      const key = modelModality(model)
+      if (key && !modalities.includes(key)) modalities.push(key)
+    }
+    return { count: models.length, modalities: modalities.slice(0, 3) }
+  }
+
+  function modelModality(model: SupplierModel): string {
+    if (model.modality) return model.modality
+    const all = Array.from(
+      new Set(
+        [...(model.input_modalities ?? []), ...(model.output_modalities ?? [])].filter(Boolean),
+      ),
+    )
+    if (all.length > 1) return 'multimodal'
+    return all[0] || ''
+  }
+
+  function statOf(id?: string): { count: number; modalities: string[] } | undefined {
+    if (!id) return undefined
+    return modelStats.value[id]
+  }
+
+  function openModels(row: LlmSupplier): void {
+    modelsSupplier.value = row
+    modelsDrawerVisible.value = true
+  }
+
+  async function onModelsChanged(): Promise<void> {
+    await loadSuppliers()
   }
 
   async function loadTemplates() {
@@ -781,6 +883,17 @@
   }
   .test-result {
     margin-top: 12px;
+  }
+  .model-stats {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .model-count {
+    font-weight: 600;
+    color: var(--ds-text-1);
+    margin-right: 2px;
   }
   .model-picker {
     display: flex;

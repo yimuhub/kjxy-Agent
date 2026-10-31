@@ -28,7 +28,7 @@ from app.modules.llm.capabilities import (
     capability_payload,
 )
 from app.modules.llm.provider import invalidate_supplier_cache
-from app.modules.llm.supplier_models import Supplier
+from app.modules.llm.supplier_models import Supplier, SupplierModel
 
 router = APIRouter(tags=["llm-bindings"])
 
@@ -54,6 +54,11 @@ def _enrich(db: Session, rows) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for row in rows:
         supplier = db.get(Supplier, row.supplier_id)
+        model_row = (
+            db.get(SupplierModel, row.supplier_model_id)
+            if getattr(row, "supplier_model_id", None)
+            else None
+        )
         payload = {
             "id": row.id,
             "yard_id": row.yard_id,
@@ -64,6 +69,9 @@ def _enrich(db: Session, rows) -> list[dict[str, Any]]:
             "provider_type": supplier.provider_type if supplier else "",
             "model_id": supplier.model_id if supplier else "",
             "model_name": row.model_name,
+            "supplier_model_id": getattr(row, "supplier_model_id", None),
+            "model_key": model_row.model_key if model_row else None,
+            "modality": model_row.modality if model_row else None,
             "priority": row.priority,
             "enabled": bool(row.enabled),
             # 可用性：停用/熔断的供应商标「不可用」，避免界面把绑定当成真的在用
@@ -149,9 +157,21 @@ def _visual_head(db: Session, summary: dict[str, Any], purpose: str) -> dict[str
     if head is None or not head.get("supplier_id"):
         return None
     supplier = db.get(Supplier, head["supplier_id"])
-    if supplier is None or supplier.provider_type not in allowed:
+    if supplier is None:
         return None
-    return head
+    if supplier.provider_type in allowed:
+        return head
+    # v3.33：中转站/官方供应商按模型行协议提供视觉能力
+    supports_protocol = (
+        db.query(SupplierModel)
+        .filter(
+            SupplierModel.supplier_id == supplier.id,
+            SupplierModel.status == 1,
+            SupplierModel.protocol.in_(sorted(allowed)),
+        )
+        .first()
+    )
+    return head if supports_protocol is not None else None
 
 
 def _agent_model_row(
@@ -299,14 +319,34 @@ def _ensure_visual_suppliers(db: Session, purpose: str, entries: list[Any]) -> N
         supplier = db.get(Supplier, entry.supplier_id)
         if supplier is None:
             continue  # 可见性/存在性由 replace_bindings 统一报错
-        if supplier.provider_type not in allowed:
-            raise AppError(
-                "INVALID_REQUEST",
-                f"{capability_label(purpose)}只能绑定对应类型的供应商"
-                f"（可选：{'、'.join(sorted(allowed))}），"
-                f"「{supplier.name}」是 {supplier.provider_type}，不能用于该能力。",
-                http_status=400,
+        if supplier.provider_type in allowed:
+            continue
+        # v3.33：中转站/官方供应商的视觉能力由模型行 protocol 决定
+        model_row = (
+            db.get(SupplierModel, entry.supplier_model_id)
+            if getattr(entry, "supplier_model_id", None)
+            else None
+        )
+        if model_row is not None and model_row.protocol in allowed:
+            continue
+        has_protocol_model = (
+            db.query(SupplierModel)
+            .filter(
+                SupplierModel.supplier_id == supplier.id,
+                SupplierModel.status == 1,
+                SupplierModel.protocol.in_(sorted(allowed)),
             )
+            .first()
+        )
+        if has_protocol_model is not None:
+            continue
+        raise AppError(
+            "INVALID_REQUEST",
+            f"{capability_label(purpose)}只能绑定对应类型的供应商或模型"
+            f"（可选：{'、'.join(sorted(allowed))}），"
+            f"「{supplier.name}」是 {supplier.provider_type}，不能用于该能力。",
+            http_status=400,
+        )
 
 
 @router.put("/bindings")

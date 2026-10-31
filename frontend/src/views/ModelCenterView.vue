@@ -103,6 +103,20 @@
       </el-tab-pane>
 
       <el-tab-pane
+        label="官方中转站"
+        name="relay"
+      >
+        <RelayChannels @changed="loadSuppliers" />
+      </el-tab-pane>
+
+      <el-tab-pane
+        label="官方模型"
+        name="official"
+      >
+        <OfficialModels />
+      </el-tab-pane>
+
+      <el-tab-pane
         label="全局默认与兜底"
         name="global"
       >
@@ -241,6 +255,8 @@
   import ModelSuppliers from '@/components/settings/ModelSuppliers.vue'
   import AgentModelSettings from '@/components/settings/AgentModelSettings.vue'
   import ModelBindings from '@/components/settings/ModelBindings.vue'
+  import RelayChannels from '@/components/settings/RelayChannels.vue'
+  import OfficialModels from '@/components/settings/OfficialModels.vue'
   import type { LlmStatus } from '@/types/api'
 
   const activeTab = ref('suppliers')

@@ -17,6 +17,8 @@ class BindingEntry(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     supplier_id: str = Field(min_length=1, max_length=64)
+    # v3.33：优先按模型行绑定（供应商下多模型）；仍保留 model_name 兼容旧前端
+    supplier_model_id: str | None = Field(default=None, max_length=36)
     model_name: str | None = Field(default=None, max_length=100, description="覆盖上游物理模型名")
     priority: int = Field(default=0, ge=-1000, le=1000, description="越大越优先")
     enabled: bool = True
@@ -42,6 +44,10 @@ class BindingOut(BaseModel):
     provider_type: str = ""
     model_id: str = ""
     model_name: str | None = None
+    # v3.33：模型行绑定与展示字段（旧绑定为空，保持兼容）
+    supplier_model_id: str | None = None
+    model_key: str | None = None
+    modality: str | None = None
     priority: int
     enabled: bool
     created_at: str

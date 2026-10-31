@@ -39,6 +39,10 @@ class LLMBinding(Base, TimestampMixin):
     supplier_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("suppliers.id", ondelete="CASCADE"), nullable=False
     )
+    # v3.33：优先绑定到模型行（同一供应商下多模型）；为空时回落到 model_name
+    supplier_model_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("supplier_models.id", ondelete="SET NULL"), nullable=True
+    )
     # 覆盖上游物理模型名；空 = 沿用供应商自身 model_id
     model_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

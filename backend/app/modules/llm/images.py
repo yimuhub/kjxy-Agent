@@ -363,27 +363,47 @@ class DashScopeImageProvider:
         return ImageAsset(data=resp.content, mime=sniff_mime(resp.content))
 
 
-def build_image_provider(supplier, *, model_override: str | None = None) -> ImagesProvider:  # noqa: ANN001 - 入参是 ORM 行，避免循环导入
-    """按供应商行构建图像 Provider；chat 类供应商在这里一律拒绝。"""
+def build_image_provider(
+    supplier,  # noqa: ANN001 - 入参是 ORM 行，避免循环导入
+    *,
+    model_override: str | None = None,
+    model_row=None,  # noqa: ANN001 - SupplierModel 行；按 protocol 选择适配器
+) -> ImagesProvider:
+    """按供应商行/模型行构建图像 Provider；chat 类供应商在这里一律拒绝。
+
+    v3.33：中转站/官方供应商的 ``provider_type`` 统一是 ``official_relay``，
+    真正的协议在 ``supplier_models.protocol`` 上；有模型行时以模型协议为准，
+    没有模型行时保持旧行为（按 ``supplier.provider_type`` 判断）。
+    """
     from app.modules.llm.supplier_crypto import decrypt_api_key
 
     provider_type = str(getattr(supplier, "provider_type", "") or "")
-    if provider_type not in IMAGE_PROVIDER_TYPES:
+    model_protocol = str(getattr(model_row, "protocol", "") or "")
+    if model_protocol in IMAGE_PROVIDER_TYPES:
+        image_protocol = model_protocol
+    elif provider_type in IMAGE_PROVIDER_TYPES:
+        image_protocol = provider_type
+    else:
         raise AppError(
             "IMAGE_NOT_CONFIGURED",
             f"供应商 {provider_type or '未知'} 不提供图像生成能力。",
             http_status=503,
-            details={"provider_type": provider_type},
+            details={"provider_type": provider_type, "protocol": model_protocol or None},
         )
+    model = (
+        str(getattr(model_row, "upstream_model_id", "") or "").strip()
+        or (model_override or "").strip()
+        or supplier.model_id
+    )
     api_key = decrypt_api_key(supplier.api_key_enc)
     try:
         kwargs = {
             "base_url": supplier.base_url,
             "api_key": api_key,
-            "model": (model_override or "").strip() or supplier.model_id,
+            "model": model,
             "provider_label": f"supplier:{supplier.name}"[:50],
         }
-        if provider_type == "dashscope_image":
+        if image_protocol == "dashscope_image":
             return DashScopeImageProvider(**kwargs)
         return OpenAIImagesProvider(**kwargs)
     finally:
@@ -397,7 +417,7 @@ def resolve_image_provider(
     agent_code: str | None = None,
     bound_supplier_id: str | None = None,
 ) -> tuple[ImagesProvider, str] | None:
-    """沿 3.25 绑定链找**图像类**供应商；链上全是 chat 供应商时按可见性+优先级回落。
+    """沿 3.25 绑定链找**图像类**供应商/模型；链上全是 chat 供应商时按可见性+优先级回落。
 
     返回 ``(provider, 命中层级)``；一个可用的图像供应商都没有时返回 ``None``
     （调用方据此降级模板渲染并如实告知，而不是报错卡死）。
@@ -405,7 +425,7 @@ def resolve_image_provider(
     from sqlalchemy import or_
 
     from app.modules.llm import binding_service
-    from app.modules.llm.supplier_models import Supplier
+    from app.modules.llm.supplier_models import Supplier, SupplierModel
 
     chain = binding_service.resolve_chain(
         db,
@@ -417,12 +437,23 @@ def resolve_image_provider(
     seen: set[str] = set()
     for candidate in chain:
         row = candidate.supplier
-        if getattr(row, "provider_type", "") not in IMAGE_PROVIDER_TYPES:
+        model_row = candidate.supplier_model
+        model_protocol = str(getattr(model_row, "protocol", "") or "")
+        is_image = (
+            getattr(row, "provider_type", "") in IMAGE_PROVIDER_TYPES
+            or model_protocol in IMAGE_PROVIDER_TYPES
+        )
+        if not is_image:
             continue
         if row.id in seen:
             continue
         seen.add(row.id)
-        return build_image_provider(row, model_override=candidate.model_name), candidate.level
+        return (
+            build_image_provider(
+                row, model_override=candidate.model_name, model_row=model_row
+            ),
+            candidate.level,
+        )
 
     row = (
         db.query(Supplier)
@@ -434,9 +465,27 @@ def resolve_image_provider(
         .order_by(Supplier.priority.desc(), Supplier.created_at.asc())
         .first()
     )
-    if row is None:
+    if row is not None:
+        return build_image_provider(row), "image_supplier_priority"
+    # v3.33：中转站/官方供应商没有图像 provider_type，只能按模型行的 protocol 找
+    model_row = (
+        db.query(SupplierModel)
+        .join(Supplier, Supplier.id == SupplierModel.supplier_id)
+        .filter(
+            Supplier.status == 1,
+            SupplierModel.status == 1,
+            SupplierModel.protocol.in_(sorted(IMAGE_PROVIDER_TYPES)),
+            or_(Supplier.yard_id == yard_id, Supplier.yard_id.is_(None)),
+        )
+        .order_by(Supplier.priority.desc(), SupplierModel.created_at.asc())
+        .first()
+    )
+    if model_row is None:
         return None
-    return build_image_provider(row), "image_supplier_priority"
+    supplier = db.get(Supplier, model_row.supplier_id)
+    if supplier is None:  # pragma: no cover - FK 保证存在
+        return None
+    return build_image_provider(supplier, model_row=model_row), "image_model_priority"
 
 
 __all__ = [

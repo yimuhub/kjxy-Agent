@@ -25,8 +25,9 @@ class LLMProvider(Protocol):
     async def complete(self, request: LLMRequest) -> LLMResponse: ...
 
 
-# (yard_id, supplier_id, 模型覆盖) -> Provider 实例
-_provider_cache: dict[tuple[str, str, str], LLMProvider] = {}
+# (yard_id, supplier_id, 模型覆盖, 模型行 id) -> Provider 实例
+# v3.33：缓存键带上模型行/实际模型名，避免同一供应商的多模型互相串缓存
+_provider_cache: dict[tuple[str, str, str, str], LLMProvider] = {}
 _cache_lock = threading.Lock()
 
 # 调用方注入的解析上下文：(yard_id, db_session, 绑定供应商 id, 能力码, 助手编码)
@@ -82,17 +83,22 @@ def _legacy_provider() -> LLMProvider:
 
 
 def _cached_supplier_provider(
-    yard_id: str, supplier, model_override: str | None = None
+    yard_id: str,
+    supplier,
+    model_override: str | None = None,
+    model_row=None,
 ) -> LLMProvider:
     from app.modules.llm import supplier_service
 
-    cache_key = (yard_id, supplier.id, (model_override or "").strip())
+    model_key = getattr(model_row, "id", "") or ""
+    cache_key = (yard_id, supplier.id, (model_override or "").strip(), model_key)
     with _cache_lock:
         inst = _provider_cache.get(cache_key)
     if inst is None:
-        inst = supplier_service.build_provider_from_supplier(
-            supplier, model_override=cache_key[2] or None
-        )
+        build_kwargs: dict[str, object] = {"model_override": cache_key[2] or None}
+        if model_row is not None:
+            build_kwargs["model_row"] = model_row
+        inst = supplier_service.build_provider_from_supplier(supplier, **build_kwargs)
         with _cache_lock:
             _provider_cache[cache_key] = inst
     return inst
@@ -118,7 +124,12 @@ def get_provider_candidates() -> list[tuple[LLMProvider, str]]:
         )
         if chain:
             return [
-                (_cached_supplier_provider(yard_id, c.supplier, c.model_name), c.level)
+                (
+                    _cached_supplier_provider(
+                        yard_id, c.supplier, c.model_name, c.supplier_model
+                    ),
+                    c.level,
+                )
                 for c in chain
             ]
         return [(_legacy_provider(), LEVEL_SETTINGS)]

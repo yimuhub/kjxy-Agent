@@ -29,7 +29,7 @@ from app.modules.llm.binding_models import (
 )
 from app.modules.llm.binding_schemas import BindingEntry, BindingsReplace
 from app.modules.llm.capabilities import capability_label, is_known_purpose
-from app.modules.llm.supplier_models import Supplier
+from app.modules.llm.supplier_models import Supplier, SupplierModel
 from app.modules.llm.supplier_schemas import STATUS_ENABLED
 
 #: 解析档位（前端「这次会用谁」按此顺序展示，值同时用于审计与提示）
@@ -68,11 +68,17 @@ LEVEL_ORDER: tuple[str, ...] = (
 
 @dataclass(frozen=True)
 class Candidate:
-    """解析链上的一档候选：供应商行 + 可选模型覆盖 + 命中层级。"""
+    """解析链上的一档候选：供应商行 + 可选模型覆盖 + 命中层级。
+
+    v3.33 起 ``supplier_model`` 是真正命中的模型行（可为空 = 旧行为沿用
+    ``supplier.model_id``）；``model_name`` 始终是**提交给上游的物理模型名**，
+    保持旧调用方读取该字段的兼容性。
+    """
 
     supplier: Supplier
     model_name: str | None
     level: str
+    supplier_model: SupplierModel | None = None
 
 
 class ScopeRef:
@@ -201,11 +207,20 @@ def _write_row(
     *,
     default_priority: int,
 ) -> LLMBinding:
+    if entry.supplier_model_id:
+        model_row = db.get(SupplierModel, entry.supplier_model_id)
+        if model_row is None or model_row.supplier_id != supplier.id:
+            raise AppError(
+                "INVALID_REQUEST",
+                "所选模型不属于该供应商，请刷新模型列表后重新选择。",
+                http_status=400,
+            )
     row = LLMBinding(
         yard_id=yard_id,
         scope_type=scope_type,
         scope_key=scope_key,
         supplier_id=supplier.id,
+        supplier_model_id=entry.supplier_model_id or None,
         model_name=(entry.model_name or "").strip() or None,
         priority=entry.priority if entry.priority else default_priority,
         enabled=entry.enabled,
@@ -266,11 +281,52 @@ def _append(
     yard_id: str | None,
 ) -> None:
     """按顺序追加可用供应商（同供应商只入链一次，先命中者优先）。"""
-    for supplier, model_name in rows:
+    for supplier, model_name, model_row in rows:
         if supplier is None or supplier.id in seen:
             continue
         seen.add(supplier.id)
-        chain.append(Candidate(supplier=supplier, model_name=model_name, level=level))
+        if model_row is not None and model_row.upstream_model_id:
+            model_name = model_row.upstream_model_id
+        chain.append(
+            Candidate(
+                supplier=supplier,
+                model_name=model_name,
+                level=level,
+                supplier_model=model_row,
+            )
+        )
+
+
+def _default_model_row(db: Session, supplier: Supplier | None) -> SupplierModel | None:
+    """供应商未显式绑模型时：按 default_model_id → 默认模型行（启用态）。"""
+    if supplier is None:
+        return None
+    from app.modules.llm import supplier_service
+
+    return supplier_service.resolve_model_row(db, supplier)
+
+
+def _binding_row(
+    db: Session, supplier: Supplier | None, binding: LLMBinding
+) -> tuple[Supplier | None, str | None, SupplierModel | None]:
+    """一条绑定 → (供应商, 上游模型名, 模型行)。
+
+    优先 ``supplier_model_id``；其次 ``model_name`` 匹配 supplier_models 的
+    upstream_model_id/model_key；最后供应商默认模型；再落到 suppliers.model_id。
+    """
+    if supplier is None:
+        return None, None, None
+    from app.modules.llm import supplier_service
+
+    model_row = supplier_service.resolve_model_row(
+        db,
+        supplier,
+        supplier_model_id=getattr(binding, "supplier_model_id", None),
+        model_name=binding.model_name,
+    )
+    if model_row is not None:
+        return supplier, model_row.upstream_model_id, model_row
+    return supplier, (binding.model_name or "").strip() or None, None
 
 
 def resolve_chain(
@@ -289,12 +345,18 @@ def resolve_chain(
 
     if bound_supplier_id:
         row = _usable(db, yard_id, bound_supplier_id)
-        _append(chain, seen, [(row, None)], LEVEL_AGENT_BOUND, yard_id=yard_id)
+        _append(
+            chain,
+            seen,
+            [(row, None, _default_model_row(db, row))],
+            LEVEL_AGENT_BOUND,
+            yard_id=yard_id,
+        )
 
     if agent_code:
         for platform_level in (False, True):
             rows = [
-                (_usable(db, yard_id, b.supplier_id), b.model_name)
+                _binding_row(db, _usable(db, yard_id, b.supplier_id), b)
                 for b in _bindings_of(
                     db, yard_id, SCOPE_AGENT, agent_code, platform_level=platform_level
                 )
@@ -304,7 +366,7 @@ def resolve_chain(
     if purpose:
         for platform_level in (False, True):
             rows = [
-                (_usable(db, yard_id, b.supplier_id), b.model_name)
+                _binding_row(db, _usable(db, yard_id, b.supplier_id), b)
                 for b in _bindings_of(
                     db, yard_id, SCOPE_PURPOSE, purpose, platform_level=platform_level
                 )
@@ -313,7 +375,7 @@ def resolve_chain(
 
     for platform_level in (False, True):
         rows = [
-            (_usable(db, yard_id, b.supplier_id), b.model_name)
+            _binding_row(db, _usable(db, yard_id, b.supplier_id), b)
             for b in _bindings_of(db, yard_id, SCOPE_GLOBAL, "", platform_level=platform_level)
         ]
         _append(
@@ -328,10 +390,16 @@ def resolve_chain(
         active_id = supplier_service.get_active_supplier_id(db, yard_id)
         if active_id:
             row = _usable(db, yard_id, active_id)
-            _append(chain, seen, [(row, None)], LEVEL_YARD_ACTIVE, yard_id=yard_id)
+            _append(
+                chain,
+                seen,
+                [(row, None, _default_model_row(db, row))],
+                LEVEL_YARD_ACTIVE,
+                yard_id=yard_id,
+            )
         # 平台供应商按 priority 兜底：取启用态里优先级最高的若干个
         priority_rows = [
-            (s, None)
+            (s, None, _default_model_row(db, s))
             for s in db.query(Supplier)
             .filter(Supplier.yard_id.is_(None), Supplier.status == STATUS_ENABLED)
             .order_by(Supplier.priority.desc(), Supplier.created_at.asc())
@@ -366,6 +434,8 @@ def resolution_summary(
             "supplier_id": c.supplier.id,
             "supplier_name": c.supplier.name,
             "model_name": c.model_name or c.supplier.model_id,
+            "model_key": getattr(c.supplier_model, "model_key", None),
+            "modality": getattr(c.supplier_model, "modality", None),
             "usable": True,
         }
         for c in chain
@@ -378,6 +448,7 @@ def resolution_summary(
         "candidate_supplier_ids": [c.supplier.id for c in chain],
         "resolved_supplier_id": head.supplier.id if head else None,
         "resolved_model": (head.model_name or head.supplier.model_id) if head else None,
+        "resolved_model_key": getattr(head.supplier_model, "model_key", None) if head else None,
         "resolved_level": LEVEL_LABELS.get(head.level, head.level)
         if head
         else LEVEL_LABELS[LEVEL_SETTINGS],
@@ -389,6 +460,11 @@ def _hop_reason(candidate: Candidate, purpose: str | None) -> str:
     label = LEVEL_LABELS.get(candidate.level, candidate.level)
     if candidate.level == LEVEL_PURPOSE_BINDING and purpose:
         return f"{label}：{capability_label(purpose)} 的主用/兜底供应商"
+    if candidate.supplier_model is not None:
+        return (
+            f"{label}：指定模型 {candidate.supplier_model.model_key}"
+            f"（{candidate.supplier_model.upstream_model_id}）"
+        )
     if candidate.model_name:
         return f"{label}：指定模型 {candidate.model_name}"
     return f"{label}：沿用供应商默认模型 {candidate.supplier.model_id}"

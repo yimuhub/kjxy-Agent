@@ -8,7 +8,7 @@
 返回的 Key 一律打码，绝不返回明文。
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.deps import CurrentUser, get_db_session, require_roles
@@ -20,6 +20,13 @@ from app.modules.llm.supplier_schemas import (
     ProviderTemplate,
     SetActiveBody,
     SupplierCreate,
+    SupplierImportBundle,
+    SupplierImportUrlBody,
+    SupplierModelCreate,
+    SupplierModelOut,
+    SupplierModelsBatchTestBody,
+    SupplierModelTestResult,
+    SupplierModelUpdate,
     SupplierOut,
     SupplierProbeModelsBody,
     SupplierTestBody,
@@ -274,3 +281,287 @@ def list_provider_templates(
     """预置模板：base_url + 默认 model_id，不含 Key。"""
     templates: list[ProviderTemplate] = supplier_service.get_provider_templates()
     return ok([t.model_dump() for t in templates])
+
+
+# ---------- 供应商多模型目录（v3.33） ----------
+
+
+def _model_meta(out: SupplierModelOut) -> dict:
+    """模型审计 metadata：只放标识与模态，绝不含密钥/单价明细之外的敏感材料。"""
+    return {
+        "model_id": out.id,
+        "model_key": out.model_key,
+        "modality": out.modality,
+        "protocol": out.protocol,
+    }
+
+
+def _import_response(result, dry_run: bool):
+    """dry_run 返回预览（不落库），正式导入返回计数结果。"""
+    payload = result.model_dump()
+    payload["dry_run"] = dry_run
+    return ok(payload)
+
+
+@router.post("/providers/import", response_model=None)
+def import_provider_bundle(
+    payload: SupplierImportBundle,
+    dry_run: int = Query(default=0, ge=0, le=1),
+    ctx=Depends(_actor),
+    db=Depends(get_db_session),
+    _key=Depends(_key_configured_dep),
+):
+    """导入「新供应商 + 多模型」：dry_run=1 只预览分类，不写库。"""
+    user, is_platform_admin = ctx
+    try:
+        result = supplier_service.import_models(
+            db,
+            user.yard_id,
+            None,
+            payload,
+            dry_run=bool(dry_run),
+            is_platform_admin=is_platform_admin,
+        )
+        if not dry_run:
+            supplier_id = getattr(result, "supplier_id", None)
+            _audit(
+                db,
+                user,
+                "supplier_model_import",
+                supplier_id,
+                {
+                    "created": getattr(result, "created", 0),
+                    "updated": getattr(result, "updated", 0),
+                    "skipped": getattr(result, "skipped", 0),
+                },
+            )
+            db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return _import_response(result, bool(dry_run))
+
+
+@router.post("/providers/{supplier_id}/models/import", response_model=None)
+def import_supplier_models(
+    supplier_id: str,
+    payload: SupplierImportBundle,
+    dry_run: int = Query(default=0, ge=0, le=1),
+    ctx=Depends(_actor),
+    db=Depends(get_db_session),
+    _key=Depends(_key_configured_dep),
+):
+    """向既有供应商导入多模型（JSON/YAML/CSV 文本同样走 content 字段）。"""
+    user, is_platform_admin = ctx
+    try:
+        result = supplier_service.import_models(
+            db,
+            user.yard_id,
+            supplier_id,
+            payload,
+            dry_run=bool(dry_run),
+            is_platform_admin=is_platform_admin,
+        )
+        if not dry_run:
+            _audit(
+                db,
+                user,
+                "supplier_model_import",
+                supplier_id,
+                {
+                    "created": getattr(result, "created", 0),
+                    "updated": getattr(result, "updated", 0),
+                    "skipped": getattr(result, "skipped", 0),
+                },
+            )
+            db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return _import_response(result, bool(dry_run))
+
+
+@router.post("/providers/{supplier_id}/models/import-url", response_model=None)
+async def import_supplier_models_from_url(
+    supplier_id: str,
+    payload: SupplierImportUrlBody,
+    dry_run: int = Query(default=0, ge=0, le=1),
+    ctx=Depends(_actor),
+    db=Depends(get_db_session),
+    _key=Depends(_key_configured_dep),
+):
+    """按 URL 拉取目录导入：http(s) only、2MB 上限、最多 3 次重定向（每跳 SSRF 校验）。"""
+    user, is_platform_admin = ctx
+    text = await supplier_service.fetch_import_text(payload.url)
+    bundle = SupplierImportBundle(content=text)
+    try:
+        result = supplier_service.import_models(
+            db,
+            user.yard_id,
+            supplier_id,
+            bundle,
+            dry_run=bool(dry_run),
+            is_platform_admin=is_platform_admin,
+        )
+        if not dry_run:
+            _audit(
+                db,
+                user,
+                "supplier_model_import_url",
+                supplier_id,
+                {
+                    "created": getattr(result, "created", 0),
+                    "updated": getattr(result, "updated", 0),
+                    "skipped": getattr(result, "skipped", 0),
+                },
+            )
+            db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return _import_response(result, bool(dry_run))
+
+
+@router.get("/providers/{supplier_id}/models", response_model=None)
+def list_supplier_models(
+    supplier_id: str,
+    ctx=Depends(_actor),
+    db=Depends(get_db_session),
+    _key=Depends(_key_configured_dep),
+):
+    user, is_platform_admin = ctx
+    items = supplier_service.list_supplier_models(
+        db, user.yard_id, supplier_id, is_platform_admin=is_platform_admin
+    )
+    return ok([item.model_dump() for item in items])
+
+
+@router.post("/providers/{supplier_id}/models", response_model=None)
+def create_supplier_model(
+    supplier_id: str,
+    payload: SupplierModelCreate,
+    ctx=Depends(_actor),
+    db=Depends(get_db_session),
+    _key=Depends(_key_configured_dep),
+):
+    user, is_platform_admin = ctx
+    try:
+        out = supplier_service.create_supplier_model(
+            db, user.yard_id, supplier_id, payload, is_platform_admin=is_platform_admin
+        )
+        _audit(db, user, "supplier_model_create", supplier_id, _model_meta(out))
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return ok(out.model_dump())
+
+
+@router.patch("/providers/{supplier_id}/models/{model_id}", response_model=None)
+def update_supplier_model(
+    supplier_id: str,
+    model_id: str,
+    payload: SupplierModelUpdate,
+    ctx=Depends(_actor),
+    db=Depends(get_db_session),
+    _key=Depends(_key_configured_dep),
+):
+    user, is_platform_admin = ctx
+    try:
+        out = supplier_service.update_supplier_model(
+            db, user.yard_id, supplier_id, model_id, payload, is_platform_admin=is_platform_admin
+        )
+        _audit(db, user, "supplier_model_update", supplier_id, _model_meta(out))
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return ok(out.model_dump())
+
+
+@router.delete("/providers/{supplier_id}/models/{model_id}", response_model=None)
+def delete_supplier_model(
+    supplier_id: str,
+    model_id: str,
+    ctx=Depends(_actor),
+    db=Depends(get_db_session),
+    _key=Depends(_key_configured_dep),
+):
+    user, is_platform_admin = ctx
+    try:
+        # 先取一行用于审计展示；删除本身会再次做归属校验
+        row = supplier_service.get_supplier_model(db, supplier_id, model_id)
+        supplier_service.delete_supplier_model(
+            db, user.yard_id, supplier_id, model_id, is_platform_admin=is_platform_admin
+        )
+        _audit(
+            db,
+            user,
+            "supplier_model_delete",
+            supplier_id,
+            {"model_id": model_id, "model_key": row.model_key},
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return ok({"deleted": model_id})
+
+
+@router.post("/providers/{supplier_id}/models/{model_id}/test", response_model=None)
+async def test_supplier_model(
+    supplier_id: str,
+    model_id: str,
+    ctx=Depends(_actor),
+    db=Depends(get_db_session),
+    _key=Depends(_key_configured_dep),
+):
+    user, is_platform_admin = ctx
+    try:
+        result: SupplierModelTestResult = await supplier_service.test_supplier_model(
+            db, user.yard_id, supplier_id, model_id, is_platform_admin=is_platform_admin
+        )
+        _audit(
+            db,
+            user,
+            "supplier_model_test",
+            supplier_id,
+            {"model_id": model_id, "ok": result.ok, "latency_ms": result.latency_ms},
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return ok(result.model_dump())
+
+
+@router.post("/providers/{supplier_id}/models/batch-test", response_model=None)
+async def batch_test_supplier_models(
+    supplier_id: str,
+    payload: SupplierModelsBatchTestBody | None = None,
+    ctx=Depends(_actor),
+    db=Depends(get_db_session),
+    _key=Depends(_key_configured_dep),
+):
+    user, is_platform_admin = ctx
+    model_ids = payload.model_ids if payload else None
+    try:
+        results = await supplier_service.test_supplier_models_batch(
+            db,
+            user.yard_id,
+            supplier_id,
+            model_ids,
+            is_platform_admin=is_platform_admin,
+        )
+        _audit(
+            db,
+            user,
+            "supplier_model_batch_test",
+            supplier_id,
+            {"count": len(results), "ok": sum(1 for r in results if r.get("ok"))},
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return ok(results)
