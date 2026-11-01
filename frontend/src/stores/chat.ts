@@ -110,6 +110,8 @@ export interface CommanderRunView {
   /** 计划载荷里是否真的带过 preview（没带时由设置 preview_plan 兜底，不写进消息载荷） */
   previewKnown: boolean
   planFallback: boolean
+  /** 降级原因：clarify_disabled / parse_failed / llm_error；空串表示未降级 */
+  planFallbackReason: string
   subtasks: CommanderSubtask[]
   status: CommanderRunStatus
   /** 已开始执行（用户点过「开始执行」或后端直接自动执行） */
@@ -141,6 +143,7 @@ function emptyCommanderRun(runId: string): CommanderRunView {
     preview: true,
     previewKnown: false,
     planFallback: false,
+    planFallbackReason: '',
     subtasks: [],
     status: 'preview',
     started: false,
@@ -966,6 +969,7 @@ function buildChatStore(scope: string) {
           tokens: item.tokens,
         })),
         plan_fallback: view.planFallback,
+        plan_fallback_reason: view.planFallbackReason,
       }
       // 帧里没带过 preview 就不写死：由设置 preview_plan 在卡片侧兜底
       if (view.previewKnown) payload.preview = view.preview && !view.started
@@ -1077,6 +1081,10 @@ function buildChatStore(scope: string) {
         goal: String(frame.goal ?? previous.goal ?? ''),
         planFallback:
           typeof frame.plan_fallback === 'boolean' ? frame.plan_fallback : previous.planFallback,
+        planFallbackReason:
+          typeof frame.plan_fallback_reason === 'string'
+            ? frame.plan_fallback_reason
+            : previous.planFallbackReason,
         subtasks,
         preview,
         previewKnown,
@@ -1164,6 +1172,10 @@ function buildChatStore(scope: string) {
         latencyMs: Number.isFinite(latency) ? latency : previous.latencyMs,
         planFallback:
           typeof frame.plan_fallback === 'boolean' ? frame.plan_fallback : previous.planFallback,
+        planFallbackReason:
+          typeof frame.plan_fallback_reason === 'string'
+            ? frame.plan_fallback_reason
+            : previous.planFallbackReason,
         summaryReceived: true,
         started: true,
         status: previous.status === 'cancelled' ? 'cancelled' : status,
@@ -1200,6 +1212,10 @@ function buildChatStore(scope: string) {
         latencyMs: Number.isFinite(latency) ? latency : previous.latencyMs,
         planFallback:
           typeof run.plan_fallback === 'boolean' ? run.plan_fallback : previous.planFallback,
+        planFallbackReason:
+          typeof run.plan_fallback_reason === 'string'
+            ? run.plan_fallback_reason
+            : previous.planFallbackReason,
       })
       if (!isCommanderRunActive(run.status)) stopCommanderPoll(runId)
     }

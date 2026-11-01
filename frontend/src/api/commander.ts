@@ -207,6 +207,8 @@ export interface CommanderRun {
   tokens_total?: number
   latency_ms?: number
   plan_fallback?: boolean
+  /** 降级原因：clarify_disabled / parse_failed / llm_error；空串表示未降级 */
+  plan_fallback_reason?: string
   subtasks?: CommanderSubtask[]
 }
 
@@ -252,6 +254,8 @@ export interface CommanderPlanPayload {
   goal: string
   subtasks: CommanderPlanSubtask[]
   plan_fallback?: boolean
+  /** 降级原因：clarify_disabled / parse_failed / llm_error；空串表示未降级 */
+  plan_fallback_reason?: string
   /** 后端未来可能下发；当前实现缺省时由设置 preview_plan 兜底 */
   preview?: boolean
   status?: CommanderRunStatus
@@ -278,6 +282,8 @@ export interface CommanderSummaryPayload {
   effective_parallel?: number
   latency_ms?: number
   plan_fallback?: boolean
+  /** 降级原因：clarify_disabled / parse_failed / llm_error；空串表示未降级 */
+  plan_fallback_reason?: string
   subtasks?: CommanderSubtask[]
 }
 
@@ -294,6 +300,8 @@ export interface CommanderPlanFrame {
   run_id: string
   goal?: string
   plan_fallback?: boolean
+  /** 降级原因：clarify_disabled / parse_failed / llm_error；空串表示未降级 */
+  plan_fallback_reason?: string
   preview?: boolean
   status?: CommanderRunStatus
   degraded?: boolean
@@ -334,6 +342,8 @@ export interface CommanderSummaryFrame {
   effective_parallel?: number
   latency_ms?: number
   plan_fallback?: boolean
+  /** 降级原因：clarify_disabled / parse_failed / llm_error；空串表示未降级 */
+  plan_fallback_reason?: string
   subtasks?: CommanderSubtask[]
 }
 

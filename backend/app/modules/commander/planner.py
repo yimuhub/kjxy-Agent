@@ -175,12 +175,21 @@ def normalize_plan(
 
 
 def fallback_plan(
-    user_content: str, *, goal: str | None = None, deliverable: str | None = None
+    user_content: str,
+    *,
+    goal: str | None = None,
+    deliverable: str | None = None,
+    reason: str = "parse_failed",
 ) -> dict[str, Any]:
     """规划失败时的单子任务计划：交给一个可用 Agent 直答，并如实标注 fallback。
 
     用户明确要文件（PPT/Word/Excel/PDF）时，兜底任务直接写成交付任务，避免
     「模型没规划出来 → 只回一段大纲」再次发生。
+
+    ``reason`` 记录降级的真实原因，供界面区分文案：
+    - ``llm_error``：规划模型调用失败或超时；
+    - ``parse_failed``：模型有输出但不是可用的 JSON 计划；
+    - ``clarify_disabled``：模型想先澄清、但澄清开关关闭，按最合理假设直接开跑。
     """
     text = (user_content or "").strip()
     task: dict[str, Any] = {
@@ -198,6 +207,7 @@ def fallback_plan(
         "assumptions": [],
         "merge_notes": "",
         "fallback": True,
+        "fallback_reason": reason,
         "subtasks": [task],
         "clarify": [],
     }
@@ -351,8 +361,12 @@ async def request_plan(
     max_subtasks: int,
     settings: dict[str, Any],
     deliverable: str | None = None,
-) -> tuple[dict[str, Any] | None, dict[str, int], bool]:
-    """调用规划模型；返回 (原始 JSON, token 用量, 是否走了修复调用)。"""
+) -> tuple[dict[str, Any] | None, dict[str, int], bool, str | None]:
+    """调用规划模型；返回 (原始 JSON, token 用量, 是否走了修复调用, 失败原因)。
+
+    失败原因仅在计划不可用时返回：``llm_error``（模型调用失败）或
+    ``parse_failed``（输出无法修复成 JSON）；正常返回时第四项为 None。
+    """
     task_id = f"cmd-plan-{uuid.uuid4().hex[:10]}"
     messages = [
         ChatMessage(role="system", content=_system_prompt()),
@@ -375,19 +389,19 @@ async def request_plan(
         )
     except Exception as exc:  # noqa: BLE001 - 规划失败必须可降级，不向上抛
         log.warning("commander plan llm failed (fallback): %s", exc)
-        return None, usage, False
+        return None, usage, False, "llm_error"
     usage["input_tokens"] += int(resp.input_tokens or 0)
     usage["output_tokens"] += int(resp.output_tokens or 0)
     data = parse_json_object(resp.content or "")
     if data is not None:
-        return data, usage, False
+        return data, usage, False, None
 
     repaired, repair_usage = await repair_json(
         db, ctx=ctx, raw=resp.content or "", settings=settings
     )
     usage["input_tokens"] += repair_usage["input_tokens"]
     usage["output_tokens"] += repair_usage["output_tokens"]
-    return repaired, usage, True
+    return repaired, usage, True, None if repaired is not None else "parse_failed"
 
 
 async def repair_json(

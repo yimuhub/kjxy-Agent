@@ -244,6 +244,8 @@ def run_out(run: CommanderRun, subtasks: list[CommanderSubtask]) -> dict[str, An
         "latency_ms": int(run.latency_ms or 0),
         "created_at": _iso(run.created_at),
         "plan_fallback": bool((run.plan_json or {}).get("fallback")),
+        # 降级原因：clarify_disabled / parse_failed / llm_error；空串表示没有降级
+        "plan_fallback_reason": str((run.plan_json or {}).get("fallback_reason") or ""),
         "clarify": list((run.plan_json or {}).get("clarify") or []),
         "subtasks": [subtask_out(st) for st in subtasks],
     }
@@ -278,6 +280,7 @@ def plan_message_payload(
         "max_parallel": int(run.max_parallel or 1),
         "effective_parallel": int(run.effective_parallel or run.max_parallel or 1),
         "plan_fallback": bool((run.plan_json or {}).get("fallback")),
+        "plan_fallback_reason": str((run.plan_json or {}).get("fallback_reason") or ""),
         "clarify": list((run.plan_json or {}).get("clarify") or []),
         "token_usage": {
             "input_tokens": 0,
@@ -383,7 +386,7 @@ async def create_plan_run(
     catalog_agents = planner.visible_published_agents(db, yard_id=ctx.yard_id, user_id=ctx.user_id)
     max_subtasks = int(settings["max_subtasks"])
     required_fmt = deliverables.detect(text)
-    raw_plan, usage, repaired = await planner.request_plan(
+    raw_plan, usage, repaired, plan_error = await planner.request_plan(
         db,
         ctx=ctx,
         user_content=text,
@@ -439,18 +442,21 @@ async def create_plan_run(
             _safe_commit(db)
             return run
         # 澄清关闭：忽略模型给的 clarify，退回单任务直答（与规划失败同口径）
-        plan = planner.fallback_plan(text, deliverable=required_fmt)
+        plan = planner.fallback_plan(text, deliverable=required_fmt, reason="clarify_disabled")
         plan["clarify"] = []
         plan_fallback = True
     else:
         plan_fallback = plan is None
         if plan is None:
             log.warning(
-                "commander plan unusable, fallback applied: deliverable=%s raw=%s",
+                "commander plan unusable, fallback applied: deliverable=%s reason=%s raw=%s",
                 required_fmt,
+                plan_error or "parse_failed",
                 str(raw_plan)[:400],
             )
-            plan = planner.fallback_plan(text, deliverable=required_fmt)
+            plan = planner.fallback_plan(
+                text, deliverable=required_fmt, reason=plan_error or "parse_failed"
+            )
     plan["plan_repaired"] = repaired
 
     # 用户要文件但计划没覆盖时补齐交付子任务：宁可由指挥官确定性出文件，

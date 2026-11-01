@@ -160,6 +160,8 @@ async def test_create_plan_run_falls_back_to_single_task(db_session, yard, ctx, 
     assert run.status == "queued"
     assert run.plan_json["fallback"] is True
     assert run.plan_json["deliverable"] == {"format": "pptx", "label": "PPT 演示文稿"}
+    # 模型输出不是 JSON → 降级原因必须是 parse_failed（界面据此区分文案）
+    assert run.plan_json["fallback_reason"] == "parse_failed"
     assert len(subtasks) == 1
     assert subtasks[0].title == "生成PPT交付物"
     assert subtasks[0].agent_source == "commander"
@@ -317,6 +319,7 @@ async def test_create_plan_run_ignores_clarify_when_disabled(db_session, yard, c
     _run, subtasks = commander_service.get_run(db_session, yard.id, run.id)
     assert run.status == "queued"
     assert run.plan_json["fallback"] is True
+    assert run.plan_json["fallback_reason"] == "clarify_disabled"
     assert run.plan_json["clarify"] == []
     assert len(subtasks) == 1
     assert subtasks[0].title == "完成用户请求"
@@ -368,3 +371,33 @@ async def test_full_control_snapshot_and_clarify_suppressed(db_session, yard, ct
     assert len(subtasks) == 1
     assert subtasks[0].agent_source == "commander"
     assert commander_service._run_ctx(run).approval_mode == "full"
+
+
+@pytest.mark.asyncio
+async def test_create_plan_run_marks_llm_error_reason(db_session, yard, ctx, monkeypatch):
+    """规划模型调用失败 → 降级原因是 llm_error，且 run 仍可执行（不是整体失败）。"""
+    commander_settings.update_settings(
+        db_session,
+        yard_id=yard.id,
+        payload={"auto_create_agent": False},
+        actor_id="u-cmd",
+        request_id="req-cmd",
+    )
+    db_session.commit()
+
+    async def boom(*_args, **_kwargs):
+        raise RuntimeError("upstream 503")
+
+    monkeypatch.setattr(planner, "complete_with_logging", boom)
+    run = await commander_service.create_plan_run(
+        db_session, ctx=ctx, session_id="s-cmd", user_content="帮我规划一下春耕"
+    )
+    _run, subtasks = commander_service.get_run(db_session, yard.id, run.id)
+    assert run.status == "queued"
+    assert run.plan_json["fallback"] is True
+    assert run.plan_json["fallback_reason"] == "llm_error"
+    assert len(subtasks) == 1
+    # 接口回包必须带上原因，否则界面只能退回「未能拆分任务」这类模糊文案
+    out = commander_service.run_out(run, subtasks)
+    assert out["plan_fallback"] is True
+    assert out["plan_fallback_reason"] == "llm_error"
