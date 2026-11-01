@@ -42,12 +42,15 @@ CREATED_FROM_TEMPLATE = "template"
 CREATED_FROM_CHAT = "chat"
 #: 一句话生成智能体（agent_builder.py，v3.5）：编码带 gen_ 前缀
 CREATED_FROM_GENERATED = "generated"
+#: 指挥官拆解任务时自动创建（v3.38，默认草稿态）；与「一句话生成」区分来源展示
+CREATED_FROM_COMMANDER = "commander"
 VALID_CREATED_FROM = (
     CREATED_FROM_MANUAL,
     CREATED_FROM_FACTORY,
     CREATED_FROM_TEMPLATE,
     CREATED_FROM_CHAT,
     CREATED_FROM_GENERATED,
+    CREATED_FROM_COMMANDER,
 )
 
 

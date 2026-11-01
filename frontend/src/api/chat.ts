@@ -60,6 +60,8 @@ export interface SessionPatch {
   archived?: boolean
   unread?: boolean
   approval_mode?: ChatApprovalMode
+  /** 执行模式：切换指挥官后写回会话，左侧列表据此显示徽章（避免反向依赖 commander.ts） */
+  execution_mode?: 'standard' | 'commander'
 }
 
 /** 批量动作（与后端 BATCH_ACTIONS 同口径） */
@@ -250,6 +252,8 @@ export interface ChatSession {
   unread?: boolean
   /** 本会话的高风险工具授权模式（后端会按角色静默降级，取回来的就是生效值） */
   approval_mode?: ChatApprovalMode
+  /** 本会话的执行模式：standard=普通路由；commander=指挥官编排（v3.38） */
+  execution_mode?: 'standard' | 'commander'
   /** 分支来源：从哪个会话的哪条回答拉出来的（原会话不受影响） */
   parent_session_id?: string | null
   parent_message_id?: string | null

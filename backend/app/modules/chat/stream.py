@@ -80,12 +80,17 @@ async def _run_chat_stream(
     attachment_ids: list[str],
     user_message: dict[str, Any],
     target_code: str | None = None,
+    execution_mode: str | None = None,
 ) -> AsyncIterator[str]:
     """执行一轮对话并按帧协议下发。"""
     queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
 
     def _notify(steps: list[dict[str, Any]]) -> None:
         queue.put_nowait(("step", {"steps": steps}))
+
+    def _on_commander(event: str, payload: dict[str, Any]) -> None:
+        # 指挥官三帧直接复用事件名：commander-plan / subtask-status / commander-summary
+        queue.put_nowait((event, payload))
 
     recorder = StepRecorder(notify=_notify)
 
@@ -106,6 +111,8 @@ async def _run_chat_stream(
                 attachments=attachments,
                 recorder=recorder,
                 target_code=target_code,
+                execution_mode=execution_mode,
+                on_commander_event=_on_commander,
             )
             db.flush()  # 落库并回填主键（message_out 需要 id）
             # 在会话关闭前把 ORM 对象转成普通字典：会话一关，ORM 对象即脱管
@@ -138,6 +145,8 @@ async def _run_chat_stream(
                 continue
             if kind == "step":
                 yield _frame("step", payload)
+            elif kind in ("commander-plan", "subtask-status", "commander-summary"):
+                yield _frame(kind, payload)
             elif kind == "result":
                 card = payload.get("payload")
                 if card:
@@ -212,6 +221,7 @@ def build_stream_response(
     attachment_ids: list[str],
     user_message: dict[str, Any],
     target_code: str | None = None,
+    execution_mode: str | None = None,
 ) -> StreamingResponse:
     """构建对话 SSE 响应（只传纯数据：请求级 Session 此刻已不可用）。"""
     return StreamingResponse(
@@ -222,6 +232,7 @@ def build_stream_response(
             attachment_ids=attachment_ids,
             user_message=user_message,
             target_code=target_code,
+            execution_mode=execution_mode,
         ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},

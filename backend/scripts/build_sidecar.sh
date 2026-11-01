@@ -27,6 +27,10 @@
 # 8. sherpa-onnx（v3.30 本机语音转写）：sherpa_onnx 是 ctypes 包，原生库在
 #    sherpa_onnx_core 里，靠动态查找加载 → 两个包都 collect-all；
 #    模型文件**不打进安装包**（首次使用按需下载到用户数据目录）。
+# 9. python-pptx / python-docx（v3.38 P0）：默认模板是包内数据文件
+#    （pptx/templates/notesMaster.xml、docx/templates/default.docx），
+#    PyInstaller 静态分析不收 → 两个包都 collect-all，否则新建文档即报
+#    "缺少模板资源"。
 # ────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -76,6 +80,8 @@ rm -rf "build/${NAME}" "dist/${NAME}" "dist/${NAME}.spec" "${NAME}.spec"
   --collect-submodules email_validator \
   --collect-all sherpa_onnx \
   --collect-all sherpa_onnx_core \
+  --collect-all pptx \
+  --collect-all docx \
   --hidden-import app.main \
   --hidden-import app.db.models_registry \
   --hidden-import app.db.seed \

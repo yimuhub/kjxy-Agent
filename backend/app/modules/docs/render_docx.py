@@ -33,6 +33,7 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 
+from app.core.errors import AppError
 from app.modules.docs.model import DocBlock, DocModel
 
 #: 字体回退链：首个是默认写入的 eastAsia 名，其后为同族替代字体。
@@ -650,21 +651,35 @@ def _render_formal(doc, model: DocModel, style: str, profile: _Profile) -> None:
     _add_page_number(doc, labeled=profile.labeled_page, font_size=9)
 
 
+#: 桌面安装包漏收 python-docx 模板资源（docx/templates/default.docx）时的人话提示
+_RENDER_UNAVAILABLE = "文档渲染组件不可用（安装包可能缺少模板资源），请更新到最新版本。"
+
+
 def to_docx(model: DocModel) -> bytes:
     """DocModel → docx 字节流；按 ``model.doc_style`` 分派版式。"""
-    style = str(getattr(model, "doc_style", "general") or "general")
-    if style not in _STYLES:
-        style = "general"
-    doc = Document()
-    _setup_section(doc, style)
-    _set_props(doc, model)
-    if style == "general":
-        _render_general(doc, model)
-    else:
-        _render_formal(doc, model, style, _STYLES[style])
-    buf = io.BytesIO()
-    doc.save(buf)
-    return buf.getvalue()
+    try:
+        style = str(getattr(model, "doc_style", "general") or "general")
+        if style not in _STYLES:
+            style = "general"
+        doc = Document()
+        _setup_section(doc, style)
+        _set_props(doc, model)
+        if style == "general":
+            _render_general(doc, model)
+        else:
+            _render_formal(doc, model, style, _STYLES[style])
+        buf = io.BytesIO()
+        doc.save(buf)
+        return buf.getvalue()
+    except AppError:
+        raise
+    except Exception as e:  # noqa: BLE001 —— 渲染组件缺失统一转可读错误
+        raise AppError(
+            "DOC_RENDER_FAILED",
+            _RENDER_UNAVAILABLE,
+            http_status=503,
+            details={"component": "docx"},
+        ) from e
 
 
 __all__ = ["FONT_STACKS", "to_docx"]

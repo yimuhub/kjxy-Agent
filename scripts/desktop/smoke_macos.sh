@@ -58,6 +58,19 @@ test -d "$APP/Contents/Resources/asr-model" || { echo "缺少内置语音模型"
 echo "== 复制到临时目录并启动（独立数据目录）=="
 cp -R "$APP" "$WORK/科技小院.app"
 xattr -dr com.apple.quarantine "$WORK/科技小院.app" 2>/dev/null || true
+
+echo "== 校验办公文档渲染资源（pptx/docx 模板随包）=="
+SIDECAR="$WORK/科技小院.app/Contents/MacOS/techyard-sidecar"
+[[ -x "$SIDECAR" ]] || { echo "缺少 sidecar 可执行文件" >&2; exit 1; }
+SELFCHECK_LOG="$WORK/docs-selfcheck.log"
+if ! "$SIDECAR" --docs-selfcheck >"$SELFCHECK_LOG" 2>&1; then
+  echo "❌ pptx/docx 自检失败（模板资源可能漏打包）；日志：" >&2
+  tail -20 "$SELFCHECK_LOG" >&2
+  exit 1
+fi
+grep -q "selfcheck.pptx ok" "$SELFCHECK_LOG" || { echo "pptx 自检未产出文件" >&2; exit 1; }
+grep -q "selfcheck.docx ok" "$SELFCHECK_LOG" || { echo "docx 自检未产出文件" >&2; exit 1; }
+echo "   pptx/docx 生成成功"
 BIN="$(find "$WORK/科技小院.app/Contents/MacOS" -maxdepth 1 -type f -perm -111 ! -name 'techyard-sidecar*' | head -1)"
 if [[ -z "$BIN" ]]; then
   echo "找不到应用主程序（Contents/MacOS）" >&2

@@ -19,6 +19,7 @@ from app.modules.bots.router import router as bots_router
 from app.modules.chat.router import media_router as chat_media_router
 from app.modules.chat.router import mention_router as chat_mention_router
 from app.modules.chat.router import router as chat_router
+from app.modules.commander.router import router as commander_router
 from app.modules.devices.router import router as devices_router
 from app.modules.evolution.router import router as evolution_router
 from app.modules.farm.agent_router import router as farm_agent_router
@@ -88,6 +89,7 @@ router.include_router(mcp_router)  # /settings/mcp-servers（W5a MCP 工具服�
 router.include_router(chat_router)  # /chat/sessions（对话模式：会话+消息，执行复用 supervisor）
 router.include_router(chat_mention_router)  # /chat/mention-candidates（@ 点名候选集合资源）
 router.include_router(chat_media_router)  # /chat/transcribe（语音转写，v3.11）
+router.include_router(commander_router)  # /commander/runs（指挥官编排：执行/重试/取消）
 router.include_router(asr_router)  # /asr/*（语音转写状态/本机模型/测试，v3.30）
 router.include_router(quota_router)  # /quota/*（分级额度策略、申请与审批，v3.32）
 router.include_router(pairing_router)  # /pairing（手机扫码配对：建码/交换/设备台账）

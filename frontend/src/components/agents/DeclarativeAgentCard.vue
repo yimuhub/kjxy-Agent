@@ -62,6 +62,19 @@
             私有
           </el-tag>
         </el-tooltip>
+        <el-tooltip
+          v-if="agent.created_from === 'commander'"
+          content="由指挥官拆解任务时自动创建"
+          placement="top"
+        >
+          <el-tag
+            size="small"
+            type="success"
+            effect="plain"
+          >
+            AI 创建
+          </el-tag>
+        </el-tooltip>
         <el-tag
           size="small"
           :type="daStatusType(agent.status)"

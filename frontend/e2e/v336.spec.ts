@@ -26,7 +26,9 @@ test.describe('模型多渠道与官方通道（v3.36）', () => {
     const modelButton = page.getByRole('button', { name: /^模型$/ }).first()
     if (await modelButton.count()) {
       await modelButton.click()
-      await expect(page.getByText('供应商模型', { exact: false })).toBeVisible()
+      // 只认弹窗标题：页面上还有「还没有可用的视频模型：在供应商模型里…」的说明文案，
+      // 用宽松 hasText 会撞 strict mode（v3.37 视觉卡片新增的提示）
+      await expect(page.getByText(/^供应商模型\s*·/).first()).toBeVisible()
     }
   })
 })

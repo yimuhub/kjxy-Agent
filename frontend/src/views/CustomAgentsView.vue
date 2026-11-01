@@ -344,10 +344,18 @@
 
         <el-table-column
           label="来源"
-          width="76"
+          width="92"
         >
           <template #default="{ row }">
-            {{ daFromLabel(row.created_from) }}
+            <el-tag
+              v-if="row.created_from === 'commander'"
+              size="small"
+              type="success"
+              effect="plain"
+            >
+              AI 创建
+            </el-tag>
+            <span v-else>{{ daFromLabel(row.created_from) }}</span>
           </template>
         </el-table-column>
 
@@ -1139,7 +1147,7 @@
     )
   }
   function daFromLabel(f: string) {
-    return { manual: '手工', template: '模板', factory: '工厂', chat: '对话', market: '市场', generated: '一句话生成' }[f] || f
+    return { manual: '手工', template: '模板', factory: '工厂', chat: '对话', market: '市场', generated: '一句话生成', commander: 'AI 创建' }[f] || f
   }
   function daRowClass({ row }: { row: DeclarativeAgent }): string {
     return row.id === daFocusId.value ? 'is-focus-row' : ''

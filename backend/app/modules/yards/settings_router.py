@@ -62,6 +62,8 @@ SETTINGS_PERMISSIONS: dict[str, str] = {
     "menu": "menu:manage",
     # 语音转写模式影响全小院的音频去向（本机/在线），按管理型设置处理
     "asr": "settings:manage",
+    # 指挥官编排（并发/预算/自动建 Agent）属于管理型设置
+    "commander": "settings:manage",
 }
 
 
@@ -141,6 +143,21 @@ def get_settings(
     )
 
 
+@router.get("/yards/current/settings/{key}")
+def get_setting(
+    key: str,
+    request: Request,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+):
+    """单项设置：返回「默认值 + 已存值」的完整对象（指挥官设置页直接渲染）。"""
+    permission = SETTINGS_PERMISSIONS.get(key)
+    if permission is None:
+        raise AppError("INVALID_REQUEST", f"未知设置项：{key}", http_status=400)
+    _require(db, user, permission)
+    return ok(settings_service.get_setting(db, _yard_id(user), key), request)
+
+
 @router.put("/yards/current/settings/{key}")
 def update_setting(
     key: str,
@@ -160,6 +177,20 @@ def update_setting(
         and not _is_owner(db, user)
     ):
         raise AppError("FORBIDDEN", "只有小院负责人可以设置管理员为默认角色。", http_status=403)
+    commander_enabling_publish = False
+    if key == "commander":
+        current = settings_service.get_setting(db, yard_id, "commander")
+        if (
+            payload.get("auto_publish_agent") is True
+            and current.get("auto_publish_agent") is not True
+        ):
+            if not _is_owner(db, user):
+                raise AppError(
+                    "PROTECTED_CONFIRM_REQUIRED",
+                    "开启「自动发布新助手」需小院负责人确认。",
+                    http_status=403,
+                )
+            commander_enabling_publish = True
     if key == "self_improve":
         confirm = payload.pop("confirm_auto_publish", False)
         if payload.get("auto_publish") is True and not confirm:
@@ -177,6 +208,18 @@ def update_setting(
         actor_id=user.user_id,
         request_id=_request_id(request),
     )
+    if commander_enabling_publish:
+        log_audit(
+            db,
+            yard_id=yard_id,
+            actor_id=user.user_id,
+            action="commander_auto_publish_enabled",
+            resource_type="yard_settings",
+            resource_id="commander",
+            result="success",
+            request_id=_request_id(request),
+            metadata={"auto_publish_agent": True},
+        )
     db.commit()
     if key == "self_improve":
         # 设置变更即时对齐定时任务（创建/暂停/重排期）

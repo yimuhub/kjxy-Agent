@@ -145,7 +145,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="科技小院多智能体平台", version="3.37.0", lifespan=lifespan)
+    app = FastAPI(title="科技小院多智能体平台", version="3.40.0", lifespan=lifespan)
     app.add_middleware(RequestIDMiddleware)
     app.add_exception_handler(AppError, app_error_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)

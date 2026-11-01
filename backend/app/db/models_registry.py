@@ -28,6 +28,10 @@ from app.modules.chat.models import (  # noqa: F401
     ChatParticipant,
     ChatSession,
 )
+from app.modules.commander.models import (  # noqa: F401
+    CommanderRun,
+    CommanderSubtask,
+)
 from app.modules.devices.models import (  # noqa: F401
     Device,
     DeviceAlert,

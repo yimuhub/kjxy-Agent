@@ -56,6 +56,7 @@ _ROUTED_LABEL: dict[str, str] = {
     "group": "群聊说明",
     "qa": "知识问答",
     "plan": "多源方案",
+    "commander": "指挥官编排",
 }
 
 #: 徽章色调（前端按此取标签样式，词表同样只在这里维护）
@@ -68,6 +69,7 @@ _ROUTED_TONE: dict[str, str] = {
     "group": "primary",
     "qa": "primary",
     "plan": "success",
+    "commander": "primary",
     "error": "danger",
 }
 

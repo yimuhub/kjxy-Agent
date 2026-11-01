@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.37.0
+  version: 3.40.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -1710,6 +1710,33 @@ paths:
       security:
       - HTTPBearer: []
   /api/v1/yards/current/settings/{key}:
+    get:
+      tags:
+      - v1
+      summary: Get Setting
+      description: 单项设置：返回「默认值 + 已存值」的完整对象（指挥官设置页直接渲染）。
+      operationId: get_setting_api_v1_yards_current_settings__key__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: key
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
     put:
       tags:
       - v1
@@ -10863,6 +10890,209 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - HTTPBearer: []
+  /api/v1/commander/stats:
+    get:
+      tags:
+      - v1
+      - commander
+      summary: Commander Stats
+      operationId: commander_stats_api_v1_commander_stats_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: days
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 30
+          title: Days
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/commander/preview:
+    post:
+      tags:
+      - v1
+      - commander
+      summary: Preview Plan
+      description: 只规划不执行：落 queued 运行与子任务，供前端计划卡预览/编辑。
+      operationId: preview_plan_api_v1_commander_preview_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PreviewRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/commander/runs/{run_id}/plan:
+    put:
+      tags:
+      - v1
+      - commander
+      summary: Edit Plan
+      operationId: edit_plan_api_v1_commander_runs__run_id__plan_put
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Run Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlanEditRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/commander/runs/{run_id}:
+    get:
+      tags:
+      - v1
+      - commander
+      summary: Get Run Detail
+      operationId: get_run_detail_api_v1_commander_runs__run_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Run Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/commander/runs/{run_id}/execute:
+    post:
+      tags:
+      - v1
+      - commander
+      summary: Execute Run
+      operationId: execute_run_api_v1_commander_runs__run_id__execute_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Run Id
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/commander/runs/{run_id}/retry:
+    post:
+      tags:
+      - v1
+      - commander
+      summary: Retry Run
+      operationId: retry_run_api_v1_commander_runs__run_id__retry_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Run Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/commander/runs/{run_id}/cancel:
+    post:
+      tags:
+      - v1
+      - commander
+      summary: Cancel Run
+      operationId: cancel_run_api_v1_commander_runs__run_id__cancel_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Run Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/asr/status:
     get:
       tags:
@@ -12925,6 +13155,12 @@ components:
             maxLength: 100
           - type: 'null'
           title: Target Code
+        execution_mode:
+          anyOf:
+          - type: string
+            maxLength: 12
+          - type: 'null'
+          title: Execution Mode
       additionalProperties: false
       type: object
       required:
@@ -13276,6 +13512,12 @@ components:
             maxLength: 100
           - type: 'null'
           title: Target Code
+        execution_mode:
+          anyOf:
+          - type: string
+            maxLength: 12
+          - type: 'null'
+          title: Execution Mode
       additionalProperties: false
       type: object
       required:
@@ -13284,13 +13526,15 @@ components:
       description: '发消息：content 为问题原文；attachment_ids 为随消息引用的附件。
 
 
-        新增三个可选字段（都不带时请求形状与历史完全一致）：
+        新增的可选字段（都不带时请求形状与历史完全一致）：
 
         - ``policy``：群聊本轮应答策略（all|named|auto）；不带即单聊；
 
         - ``target``：群聊 ``named`` 的点名对象；
 
-        - ``target_code``：@ 点名定向执行的对象（单聊与群聊通用）。'
+        - ``target_code``：@ 点名定向执行的对象（单聊与群聊通用）；
+
+        - ``execution_mode``：``standard``（默认）| ``commander``（指挥官编排）。'
     OfficialOrderCreate:
       properties:
         model_key:
@@ -13447,6 +13691,58 @@ components:
           default: true
       type: object
       title: PinRequest
+    PlanEditRequest:
+      properties:
+        subtasks:
+          items:
+            $ref: '#/components/schemas/PlanSubtaskIn'
+          type: array
+          maxItems: 12
+          minItems: 1
+          title: Subtasks
+      additionalProperties: false
+      type: object
+      required:
+      - subtasks
+      title: PlanEditRequest
+    PlanSubtaskIn:
+      properties:
+        title:
+          type: string
+          maxLength: 200
+          minLength: 1
+          title: Title
+        instruction:
+          type: string
+          maxLength: 8000
+          minLength: 1
+          title: Instruction
+        expected_output:
+          anyOf:
+          - type: string
+            maxLength: 1000
+          - type: 'null'
+          title: Expected Output
+        agent_id:
+          anyOf:
+          - type: string
+            maxLength: 36
+          - type: 'null'
+          title: Agent Id
+        depends_on:
+          anyOf:
+          - items:
+              type: integer
+            type: array
+          - type: 'null'
+          title: Depends On
+      additionalProperties: false
+      type: object
+      required:
+      - title
+      - instruction
+      title: PlanSubtaskIn
+      description: 计划卡提交的一个子任务；depends_on 按新数组位置 1-based 解释。
     PlotCreate:
       properties:
         client_op_id:
@@ -13827,6 +14123,30 @@ components:
       required:
       - prompt
       title: PosterRequest
+    PreviewRequest:
+      properties:
+        content:
+          type: string
+          maxLength: 4000
+          minLength: 1
+          title: Content
+        session_id:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Session Id
+        context:
+          type: string
+          maxLength: 8000
+          title: Context
+          default: ''
+      additionalProperties: false
+      type: object
+      required:
+      - content
+      - session_id
+      title: PreviewRequest
+      description: 只规划不执行：内容 + 会话 + 可选附件/历史上下文。
     ProfileUpdateRequest:
       properties:
         display_name:
@@ -14708,6 +15028,14 @@ components:
             maxLength: 100
           - type: 'null'
           title: Target Code
+        execution_mode:
+          anyOf:
+          - type: string
+            enum:
+            - standard
+            - commander
+          - type: 'null'
+          title: Execution Mode
       additionalProperties: false
       type: object
       title: SessionCreateRequest
@@ -14763,6 +15091,14 @@ components:
             - full
           - type: 'null'
           title: Approval Mode
+        execution_mode:
+          anyOf:
+          - type: string
+            enum:
+            - standard
+            - commander
+          - type: 'null'
+          title: Execution Mode
       additionalProperties: false
       type: object
       title: SessionUpdateRequest

@@ -225,6 +225,39 @@ def seed_if_empty(data_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+def docs_selfcheck() -> int:
+    """打包自检：生成最小 .pptx / .docx，验证模板资源已被 PyInstaller 收进包。
+
+    3.38.0 曾因漏收 ``pptx/templates/notesMaster.xml`` 导致桌面版生成 PPT 崩溃；
+    冒烟脚本调用本入口，能在挂载安装包后立刻发现同类漏收，而不必先跑一轮对话。
+    """
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="techyard-docs-") as raw:
+        out = Path(raw)
+        from pptx import Presentation
+        from pptx.util import Inches
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1))
+        box.text_frame.text = "科技小院自检"
+        prs.save(out / "selfcheck.pptx")
+
+        from docx import Document
+
+        doc = Document()
+        doc.add_paragraph("科技小院自检")
+        doc.save(out / "selfcheck.docx")
+
+        for name in ("selfcheck.pptx", "selfcheck.docx"):
+            size = (out / name).stat().st_size
+            if size <= 0:
+                raise RuntimeError(f"{name} 生成结果为空")
+            print(f"[docs-selfcheck] {name} ok ({size} bytes)")
+    return 0
+
+
 def install_bundled_asr() -> None:
     """把安装包里的语音模型复制到 ASR_MODEL_DIR（只复制校验标记变化过的模型）。
 
@@ -308,7 +341,16 @@ def main() -> None:
         action="store_true",
         help="局域网模式：绑定 0.0.0.0 并打印局域网访问地址（默认关闭，仅监听回环）",
     )
+    parser.add_argument(
+        "--docs-selfcheck",
+        action="store_true",
+        help="仅生成最小 pptx/docx 做打包资源自检，然后退出（冒烟脚本使用）",
+    )
     args, _unknown = parser.parse_known_args()
+
+    if args.docs_selfcheck:
+        docs_selfcheck()
+        return
 
     # 端口由 Rust 壳传入（TECHYARD_PORT，18700-18710 里选的空闲端口）；兼容 PORT
     raw_port = os.environ.get("TECHYARD_PORT") or os.environ.get("PORT") or "18700"

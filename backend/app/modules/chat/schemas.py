@@ -49,10 +49,11 @@ class ParticipantSetRequest(BaseModel):
 class MessageSendRequest(BaseModel):
     """发消息：content 为问题原文；attachment_ids 为随消息引用的附件。
 
-    新增三个可选字段（都不带时请求形状与历史完全一致）：
+    新增的可选字段（都不带时请求形状与历史完全一致）：
     - ``policy``：群聊本轮应答策略（all|named|auto）；不带即单聊；
     - ``target``：群聊 ``named`` 的点名对象；
-    - ``target_code``：@ 点名定向执行的对象（单聊与群聊通用）。
+    - ``target_code``：@ 点名定向执行的对象（单聊与群聊通用）；
+    - ``execution_mode``：``standard``（默认）| ``commander``（指挥官编排）。
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -62,6 +63,7 @@ class MessageSendRequest(BaseModel):
     policy: str | None = Field(default=None, max_length=10)
     target: str | None = Field(default=None, max_length=_GROUP_TARGET_CAP)
     target_code: str | None = Field(default=None, max_length=_MENTION_CAP)
+    execution_mode: str | None = Field(default=None, max_length=12)
 
     @field_validator("content")
     @classmethod
@@ -89,6 +91,16 @@ class MessageSendRequest(BaseModel):
     def _target_strip(cls, v: str | None) -> str | None:
         clean = (v or "").strip()
         return clean or None
+
+    @field_validator("execution_mode")
+    @classmethod
+    def _mode_known(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        clean = v.strip().lower()
+        if clean not in ("standard", "commander"):
+            raise ValueError("execution_mode 只能是 standard|commander")
+        return clean
 
     @model_validator(mode="after")
     def _named_needs_target(self) -> MessageSendRequest:

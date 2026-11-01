@@ -266,6 +266,10 @@
         mentionable
         groupable
         qa-toggle
+        commander-toggle
+        :commander-enabled="commanderEnabled"
+        :default-execution-mode="commanderDefaultMode"
+        :default-preview-plan="commanderPreviewPlan"
       />
     </section>
 
@@ -318,6 +322,7 @@
     Select,
   } from '@element-plus/icons-vue'
   import ChatPanel from '@/components/chat/ChatPanel.vue'
+  import { commanderApi, type ExecutionMode } from '@/api/commander'
   import { formatDateTime } from '@/utils/format'
   import type { ChatSession, SessionBatchAction } from '@/api/chat'
   import { UNTITLED, useChatStore } from '@/stores/chat'
@@ -335,6 +340,22 @@
   const store = useChatStore()
   /** 知识问答模式（v3.13）：/qa 重定向与站内切换共用同一开关 */
   const qaMode = ref(route.query.qa === '1')
+  /** 指挥官（v3.38）：总开关与默认模式来自设置页；读取失败时按可用/普通模式兜底 */
+  const commanderEnabled = ref(true)
+  const commanderDefaultMode = ref<ExecutionMode>('standard')
+  /** 计划默认先预览：后端 commander-plan 帧未带 preview 时用它兜底 */
+  const commanderPreviewPlan = ref(true)
+
+  async function loadCommanderSettings(): Promise<void> {
+    try {
+      const settings = await commanderApi.getSettings()
+      commanderEnabled.value = settings.enabled
+      commanderDefaultMode.value = settings.default_mode ? 'commander' : 'standard'
+      commanderPreviewPlan.value = settings.preview_plan
+    } catch {
+      /* 设置读取失败不阻塞对话：保留默认可用与普通模式 */
+    }
+  }
   const popupStore = useChatStore(HARNESS_SCOPE)
   const mainPanelRef = ref<InstanceType<typeof ChatPanel> | null>(null)
 
@@ -386,6 +407,7 @@
       s.target,
       s.target_name,
       s.participant_count,
+      s.execution_mode,
       s.input_tokens,
       s.output_tokens,
       s.total_tokens,
@@ -450,15 +472,19 @@
     return String(n)
   }
 
-  /** 会话类型徽章：群聊 > 锁定助手 > 班组 > 普通对话（后端 0028 下发事实，不做本地猜测） */
+  /** 会话类型徽章：群聊 > 锁定助手 > 班组 > 指挥官 > 普通对话（后端下发事实，不做本地猜测） */
   // 色调类名必须带前缀，避免与页面根容器 `.chat` 等通用类名冲突
   function sessionKind(
     s: ChatSession,
-  ): { text: string; tone: 's-kind--group' | 's-kind--agent' | 's-kind--team' | 's-kind--chat' } {
+  ): {
+    text: string
+    tone: 's-kind--group' | 's-kind--agent' | 's-kind--team' | 's-kind--commander' | 's-kind--chat'
+  } {
     if ((s.participant_count ?? 0) > 0)
       return { text: `群聊 ${s.participant_count}`, tone: 's-kind--group' }
     if (s.target === 'agent') return { text: s.target_name || '智能体', tone: 's-kind--agent' }
     if (s.target === 'team') return { text: '班组', tone: 's-kind--team' }
+    if (s.execution_mode === 'commander') return { text: '指挥官', tone: 's-kind--commander' }
     return { text: '对话', tone: 's-kind--chat' }
   }
 
@@ -642,6 +668,7 @@
   )
 
   onMounted(async () => {
+    void loadCommanderSettings()
     await store.fetchSessions().catch(() => undefined)
     const targetSid = route.query.session_id
     if (typeof targetSid === 'string' && targetSid) {
@@ -760,6 +787,12 @@
     color: var(--ds-success);
     border-color: color-mix(in srgb, var(--ds-success) 40%, transparent);
     background: color-mix(in srgb, var(--ds-success) 12%, transparent);
+  }
+  /* 指挥官：与「某个智能体」的靛蓝区分开，用主题的青色调 */
+  .s-kind--commander {
+    color: var(--ds-accent-2);
+    border-color: color-mix(in srgb, var(--ds-accent-2) 45%, transparent);
+    background: color-mix(in srgb, var(--ds-accent-2) 12%, transparent);
   }
   .s-kind--chat {
     color: var(--ds-text-3);

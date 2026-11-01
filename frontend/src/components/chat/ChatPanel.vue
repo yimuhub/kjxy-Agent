@@ -104,6 +104,7 @@
             />
             <!-- 纯文本 pre-wrap；方案正文是 Markdown 成稿，用无脚本安全渲染器分节显示 -->
             <div
+              v-if="!shouldHideCommanderBubble(row.m)"
               class="bubble"
               :class="row.m.role"
             >
@@ -164,6 +165,25 @@
               :exporting="planExportingId === row.m.id"
               @export="exportPlan(row.m)"
               @escalate="openEscalate(row.m)"
+            />
+            <!-- 指挥官：计划卡（预览可执行）/ 运行汇总卡 -->
+            <CommanderPlanCard
+              v-else-if="isCommanderPlanMessage(row.m)"
+              :plan="commanderPlanOf(row.m)"
+              :run="store.commanderRun(commanderRunIdOf(row.m))"
+              :has-summary="commanderSummaryExists(commanderRunIdOf(row.m))"
+              :default-preview="defaultPreviewPlan"
+              @execute="onCommanderExecute"
+              @retry="onCommanderRetry"
+              @cancel="onCommanderCancel"
+              @plan-updated="onCommanderPlanUpdated"
+            />
+            <CommanderRunCard
+              v-else-if="isCommanderSummaryMessage(row.m)"
+              :summary="commanderSummaryOf(row.m)"
+              :run="store.commanderRun(commanderRunIdOf(row.m))"
+              @retry="onCommanderRetry"
+              @cancel="onCommanderCancel"
             />
             <!-- 高风险操作待批准：给出审批单号与去批准入口，不含糊地说「已经做了」 -->
             <div
@@ -495,6 +515,26 @@
         />
       </div>
 
+      <!-- 执行模式（v3.38）：普通=自动路由单个助手；指挥官=拆分目标并派给多个助手 -->
+      <div
+        v-if="commanderVisible"
+        class="commander-bar"
+        :style="{ maxWidth }"
+      >
+        <el-segmented
+          :model-value="executionMode"
+          :options="EXECUTION_MODE_OPTIONS"
+          size="small"
+          :disabled="store.sending"
+          aria-label="执行模式"
+          @change="setExecutionMode"
+        />
+        <span
+          v-if="executionMode === 'commander'"
+          class="commander-hint"
+        >一句话说清目标即可：会自己拆任务、找助手、调工具，做完直接交成品</span>
+      </div>
+
       <!-- 本轮点名提示条：比把 @ 文本硬塞进正文更好回收 -->
       <div
         v-if="mentionable && !qaMode && !locked && store.mention"
@@ -808,6 +848,8 @@
   import type { QuotaBlockInfo } from '@/api/quota'
   import ChatSteps from '@/components/chat/ChatSteps.vue'
   import { safeHttpUrl } from '@/components/teams/presentation'
+  import CommanderPlanCard from '@/components/chat/CommanderPlanCard.vue'
+  import CommanderRunCard from '@/components/chat/CommanderRunCard.vue'
   import PluginCard from '@/components/chat/PluginCard.vue'
   import PlanCard from '@/components/chat/PlanCard.vue'
   import SafeMarkdown from '@/components/teams/SafeMarkdown.vue'
@@ -838,6 +880,13 @@
     RoutedTone,
   } from '@/api/chat'
   import type { TeamDefinition } from '@/api/modules'
+  import type {
+    CommanderMessagePayload,
+    CommanderPlanPayload,
+    CommanderRun,
+    CommanderSummaryPayload,
+    ExecutionMode,
+  } from '@/api/commander'
   import type { MemberRoundRow } from '@/stores/chat'
   import type { ChatStoreInstance } from '@/stores/chat'
   import { canRecord, classifyMicError, WavRecorder } from '@/utils/wavRecorder'
@@ -899,6 +948,14 @@
       qaToggle?: boolean
       /** 当前是否知识问答模式（v-model:qa-mode） */
       qaMode?: boolean
+      /** 显示「普通 / 指挥官」执行模式切换（v3.38） */
+      commanderToggle?: boolean
+      /** 指挥官总开关：关闭后不显示模式切换 */
+      commanderEnabled?: boolean
+      /** 新会话默认执行模式（来自指挥官设置 default_mode） */
+      defaultExecutionMode?: ExecutionMode
+      /** 计划默认先预览（来自指挥官设置 preview_plan；帧未带 preview 时兜底） */
+      defaultPreviewPlan?: boolean
       /** 弹窗式单助手对话：store 里没有会话列表时用它显示绑定对象 */
       lockedLabel?: string
     }>(),
@@ -920,6 +977,10 @@
       groupable: false,
       qaToggle: false,
       qaMode: false,
+      commanderToggle: false,
+      commanderEnabled: true,
+      defaultExecutionMode: 'standard',
+      defaultPreviewPlan: true,
       lockedLabel: '',
     },
   )
@@ -948,6 +1009,21 @@
   const router = useRouter()
   /** 知识问答模式的检索条数（1–20，默认 5；只在问答模式生效） */
   const qaTopK = ref(5)
+  /** 执行模式：普通 / 指挥官；按会话记在 localStorage，刷新后仍保持 */
+  const EXECUTION_MODE_OPTIONS: { label: string; value: ExecutionMode }[] = [
+    { label: '普通', value: 'standard' },
+    { label: '指挥官', value: 'commander' },
+  ]
+  const executionMode = ref<ExecutionMode>(props.defaultExecutionMode)
+  const COMMANDER_DRAFT_KEY = 'commander-mode-draft'
+
+  function commanderModeKey(sessionId: string): string {
+    return `commander-mode-${sessionId}`
+  }
+
+  function isExecutionModeValue(value: string | null): value is ExecutionMode {
+    return value === 'standard' || value === 'commander'
+  }
   /** 刚复制过的消息 id（按钮短暂显示「已复制」） */
   const copiedId = ref('')
   /**
@@ -1011,8 +1087,8 @@
   }
 
   /** 消息行：徽章/署名一次算好，模板里不做重复查找 */
-  const messageRows = computed(() =>
-    props.store.messages.map(m => {
+  const messageRows = computed(() => {
+    const rows = props.store.messages.map(m => {
       const signer = signerOf(m)
       const hasBadge = m.role === 'assistant' && !!(m.routed_by || m.routed_label)
       return {
@@ -1021,8 +1097,25 @@
         avatar: avatarOf(m, signer),
         badge: hasBadge ? routedBadge(m) : null,
       }
-    }),
-  )
+    })
+    /*
+     * 同一 run 重试后历史里会有多条 commander_summary：只保留最后一条，
+     * 否则每次重试都会在消息流里堆一张旧汇总卡。
+     */
+    const lastSummary = new Map<string, number>()
+    rows.forEach((row, index) => {
+      const payload = commanderPayloadOf(row.m)
+      if (payload?.type !== 'commander_summary') return
+      const runId = payload.run_id || payload.id || ''
+      if (runId) lastSummary.set(runId, index)
+    })
+    return rows.filter((row, index) => {
+      const payload = commanderPayloadOf(row.m)
+      if (payload?.type !== 'commander_summary') return true
+      const runId = payload.run_id || payload.id || ''
+      return !runId || lastSummary.get(runId) === index
+    })
+  })
 
   const showAvatar = computed(() => props.groupable)
 
@@ -1049,6 +1142,76 @@
     },
     { immediate: true },
   )
+
+  /**
+   * 执行模式切换的可见性：只在单聊、非班组、未锁定助手的会话出现。
+   * 群聊（participants>0）和锁定会话各有自己的路由语义，混进指挥官会互相打架。
+   */
+  const commanderVisible = computed(() => {
+    if (!props.commanderToggle || !props.commanderEnabled) return false
+    if (props.qaMode || locked.value) return false
+    if ((props.store.activeSession?.participant_count ?? 0) > 0) return false
+    if (props.store.sessionLocked || props.store.isGroup) return false
+    return props.store.activeSession?.target !== 'team'
+  })
+
+  /**
+   * 会话模式持久化：优先读本会话的 commander-mode-{sessionId}；
+   * 尚无会话时先记在 draft 键上，建好会话后搬过去，避免「刚切好的模式被默认值冲掉」。
+   */
+  watch(
+    [() => props.store.activeId, () => props.defaultExecutionMode],
+    ([sessionId, defaultMode]) => {
+      if (!sessionId) {
+        const draft = localStorage.getItem(COMMANDER_DRAFT_KEY)
+        executionMode.value = isExecutionModeValue(draft) ? draft : defaultMode
+        return
+      }
+      const saved = localStorage.getItem(commanderModeKey(sessionId))
+      if (isExecutionModeValue(saved)) {
+        executionMode.value = saved
+        return
+      }
+      const draft = localStorage.getItem(COMMANDER_DRAFT_KEY)
+      if (isExecutionModeValue(draft)) {
+        executionMode.value = draft
+        localStorage.setItem(commanderModeKey(sessionId), draft)
+        localStorage.removeItem(COMMANDER_DRAFT_KEY)
+        return
+      }
+      // 本机没记过就信服务端：换设备/清缓存后仍回到会话真实模式
+      const savedOnServer = props.store.activeSession?.execution_mode ?? null
+      if (isExecutionModeValue(savedOnServer)) {
+        executionMode.value = savedOnServer
+        return
+      }
+      executionMode.value = defaultMode
+    },
+    { immediate: true },
+  )
+
+  async function setExecutionMode(value: string | number | boolean): Promise<void> {
+    if (props.store.sending) return
+    const mode: ExecutionMode = value === 'commander' ? 'commander' : 'standard'
+    executionMode.value = mode
+    const sessionId = props.store.activeId
+    localStorage.setItem(
+      sessionId ? commanderModeKey(sessionId) : COMMANDER_DRAFT_KEY,
+      mode,
+    )
+    if (!sessionId) return
+    /*
+     * 写回会话（PATCH execution_mode）：左侧会话列表的「指挥官」徽章读的是服务端事实，
+     * 只记 localStorage 时刷新后行上仍显示「对话」。失败不阻断输入——本机已记住，
+     * 下一条消息仍会带 execution_mode，下次切换/发送自然纠正。
+     */
+    try {
+      await props.store.patchSession(sessionId, { execution_mode: mode })
+      await props.store.fetchSessions()
+    } catch {
+      /* 统一 client 已提示；模式切换本身不因写回失败而回滚 */
+    }
+  }
 
   const blockedReason = computed(() => props.store.sendBlockReason)
   const placeholderText = computed(() =>
@@ -1489,6 +1652,100 @@
     return m.role === 'assistant' && m.payload?.type === 'plan'
   }
 
+  /** ---- 指挥官（v3.38）：计划/汇总载荷与两张卡片的入口 ---- */
+  function commanderPayloadOf(m: ChatMessage): CommanderMessagePayload | null {
+    if (m.role !== 'assistant') return null
+    const payload = m.payload as unknown as { type?: string } | null
+    if (payload?.type === 'commander_plan' || payload?.type === 'commander_summary') {
+      return m.payload as unknown as CommanderMessagePayload
+    }
+    return null
+  }
+
+  function isCommanderMessage(m: ChatMessage): boolean {
+    return commanderPayloadOf(m) !== null
+  }
+
+  /**
+   * 指挥官卡片已经承载了目标/汇总，正文气泡只在它还有额外信息时保留：
+   * 汇总卡自己渲染 answer；计划卡在正文等于 goal 或为空时不再重复一遍。
+   * 如果后端在计划里放了澄清问题等额外文字，仍按普通气泡显示，绝不吞掉。
+   */
+  function shouldHideCommanderBubble(m: ChatMessage): boolean {
+    if (!isCommanderMessage(m)) return false
+    const payload = commanderPayloadOf(m)
+    if (!payload) return false
+    if (payload.type === 'commander_summary') return true
+    const content = (m.content ?? '').trim()
+    return !content || content === (payload.goal ?? '').trim()
+  }
+
+  function isCommanderPlanMessage(m: ChatMessage): boolean {
+    return commanderPayloadOf(m)?.type === 'commander_plan'
+  }
+
+  function isCommanderSummaryMessage(m: ChatMessage): boolean {
+    return commanderPayloadOf(m)?.type === 'commander_summary'
+  }
+
+  function commanderPlanOf(m: ChatMessage): CommanderPlanPayload {
+    return m.payload as unknown as CommanderPlanPayload
+  }
+
+  function commanderSummaryOf(m: ChatMessage): CommanderSummaryPayload {
+    return m.payload as unknown as CommanderSummaryPayload
+  }
+
+  function commanderRunIdOf(m: ChatMessage): string {
+    const payload = commanderPayloadOf(m)
+    if (!payload) return ''
+    if (payload.type === 'commander_summary') return payload.run_id || payload.id || ''
+    return payload.run_id || ''
+  }
+
+  /** 同一 run 已经有一条汇总消息时，计划卡不再内嵌一份运行卡，避免两张大卡重复 */
+  function commanderSummaryExists(runId: string): boolean {
+    if (!runId) return false
+    return props.store.messages.some(message => {
+      const payload = commanderPayloadOf(message)
+      return (
+        payload?.type === 'commander_summary' &&
+        (payload.run_id || payload.id || '') === runId
+      )
+    })
+  }
+
+  function onCommanderExecute(runId: string): void {
+    void props.store.executeCommanderRun(runId)
+  }
+
+  function onCommanderRetry(runId: string): void {
+    void props.store.retryCommanderRun(runId)
+  }
+
+  /** 计划编辑保存成功：后端回包写回 store，卡片随即展示新的子任务顺序 */
+  function onCommanderPlanUpdated(runId: string, run: CommanderRun): void {
+    props.store.applyCommanderPlanUpdate(runId, run)
+  }
+
+  /** 取消会保留已完成结果，所以显式确认一次，避免误触把未开始的子任务砍掉 */
+  async function onCommanderCancel(runId: string): Promise<void> {
+    try {
+      await ElMessageBox.confirm(
+        '取消后未开始的子任务将不再执行，已完成的结果会保留并照常汇总。',
+        '取消运行',
+        {
+          type: 'warning',
+          confirmButtonText: '取消运行',
+          cancelButtonText: '继续等待',
+        },
+      )
+    } catch {
+      return
+    }
+    await props.store.cancelCommanderRun(runId)
+  }
+
   /** 方案对应的原始需求：往上找最近一条用户消息（转会诊要带着它跑班组） */
   function questionOf(m: ChatMessage): string {
     const rows = props.store.messages
@@ -1561,7 +1818,8 @@
   }
 
   /** 卡片发布成功：把新状态回写到消息载荷，刷新后仍然一致 */
-  function onCardPublished(messageId: string, status: string) {    const msg = props.store.messages.find(m => m.id === messageId)
+  function onCardPublished(messageId: string, status: string) {
+    const msg = props.store.messages.find(m => m.id === messageId)
     if (msg?.payload && msg.payload.type === 'capability') {
       msg.payload.status = status
     }
@@ -1636,9 +1894,13 @@
     // 发送失败保留草稿便于重发；成功才清空。
     // 一轮对话的收尾（改标题、刷会话列表）是异步的，可能在回答已上屏之后才结束；
     // 期间用户新打的字不能被这一轮的收尾清掉，故只在草稿没被动过时清空。
+    // execution_mode 在可见时显式下发（含 standard），否则切回普通后会被会话默认值带回指挥官。
+    const commanderExtras = commanderVisible.value
+      ? { execution_mode: executionMode.value }
+      : {}
     const ok = props.qaMode && !locked.value
       ? await props.store.sendQa(text, qaTopK.value)
-      : await props.store.send(text)
+      : await props.store.send(text, commanderExtras)
     if (ok && draft.value === raw) draft.value = ''
     scrollToBottom()
     emit('sent', ok)
@@ -2148,6 +2410,19 @@
     color: #fff;
   }
   .qa-hint {
+    color: var(--ds-text-3);
+  }
+  /* 执行模式切换：普通 / 指挥官，只影响单聊且未锁定助手的会话 */
+  .commander-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin: 0 auto 8px;
+    font-size: 12px;
+    color: var(--ds-text-3);
+  }
+  .commander-hint {
     color: var(--ds-text-3);
   }
   .qa-topk {

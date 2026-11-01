@@ -500,6 +500,7 @@ v3.37 起通道判别以**模型模态**为兜底：通用 OpenAI 兼容供应�
 - **PPT 专项技能**：`office_ppt_storyline`（叙事）、`office_ppt_design`（视觉）、`office_ppt_chart`（图表）、`office_ppt_review`（质检）、`office_ppt_template`（模板替换），与 `office_ppt_deck` 组合使用。
 - **正式写作技能 28 项**：公文 10（通知/请示/报告/函/纪要/工作计划/总结/批复/讲话稿/简报）、申报 7（项目申报/科技计划/补贴/荣誉/中期/验收/预算）、招投标 7（招标文件/投标文件/响应矩阵/技术标/商务标/风险审查/澄清答复）、通用 4（长篇正式文/高管简报/政策解读/会议包），新小院注册即铺并自动建议绑定。
 - **Word 公文版式**：`DocModel.doc_style=official_cn|grant|tender|brief`，A4、版心与页边距、仿宋/黑体/楷体东亚字体、标题分级、页码页脚、封面与目录；由绑定技能或需求意图自动选择。
+- **渲染健壮性（v3.38）**：模型输出的 `DeckPlan` 先做形状修复（`None/字符串/对象` 归一为列表或文本，不改版式枚举与必填标题）再严格校验；`python-pptx`/`python-docx` 模板资源随 sidecar 打包（`build_sidecar.sh --collect-all pptx/docx`）；渲染组件缺失抛 `DOC_RENDER_FAILED`（503），对话链路降级为可下载的 Markdown 大纲而不是「服务暂时不可用」。
 
 ## 视觉能力与助手专属模型（v3.37）
 
@@ -526,6 +527,99 @@ v3.37 起通道判别以**模型模态**为兜底：通用 OpenAI 兼容供应�
 - `dashscope_video`：百炼原生异步任务（`X-DashScope-Async` + `/api/v1/tasks/{id}`），成功取 `output.video_url`。
 - **连通判定 = 任务受理**：供应商返回 `task_id` 即认为通道可用，轮询超时也返回 `task_id` 与 `accepted=true`，不把「还在生成」误报为失败。
 - 内置工具 `video.generate`（`external_side_effect`，需审批；超时 240 秒，默认最多等待 120 秒）按助手编码解析视频供应商，返回 `{ok, accepted, url, task_id, model, provider, latency_ms, message}`。
+
+## 指挥官编排（v3.38 起，v3.40 自主补救）
+
+对话里的「指挥官」是一个主 Agent：理解自然语言目标 → 拆成带依赖的子任务 → 从本小院已发布助手里选兵（找不到合适助手时自动创建，默认草稿态）→ 受控并发执行 → 汇总成一条回答。会话可单独选择执行模式，普通对话零变化。
+
+### 设置（`yard_settings.key="commander"`）
+
+`GET /yards/current/settings` 返回完整对象；`PUT /yards/current/settings/commander` 部分更新（未知字段 400，类型严格）。权限点 `settings:manage`。
+
+| 字段 | 默认 | 说明 |
+|---|---|---|
+| `enabled` | `true` | 关闭后请求 commander 一律降级 standard，运行入口 403 `COMMANDER_DISABLED` |
+| `display_name` / `emoji` | `指挥官` / `🧭` | 自定义展示名与图标 |
+| `default_mode` | `false` | 新会话默认进入指挥官模式（默认关，小问题不必付多 Agent 成本） |
+| `max_parallel` | `3` | 同时执行子任务数上限（1–10，前端给 3/5/8/10/自定义） |
+| `fallback_parallel` | `2` | 上游不支持高并发时降级到的并发数（最低 1） |
+| `max_subtasks` | `6` | 单次计划子任务上限（2–12） |
+| `subtask_timeout_seconds` | `180` | 单个子任务超时 |
+| `run_timeout_seconds` | `600` | 整轮运行总超时 |
+| `preview_plan` | `false` | 默认计划生成即执行；开启后先出计划卡等确认 |
+| `clarify_enabled` | `false` | 默认先按最合理假设开跑；开启后目标过于笼统（缺对象/交付物/范围）时先问 1–2 个问题。会话为「完全控制」时始终不问 |
+| `auto_create_agent` | `true` | 无匹配助手时自动创建（**始终草稿态**，ADR-0005） |
+| `daily_agent_limit` | `10` | 每小院每天自动创建助手上限（1–50），超出后回退最接近的已有助手 |
+| `auto_remediate` | `true` | 子任务失败后自主补救：重试 → 换助手 → 新建助手 → 指挥官带工具亲自执行，全程不向用户提问 |
+| `remediate_rounds` | `5` | 单个子任务最多自主尝试轮数（1–10）；轮尽才报告能力缺口与原因 |
+| `auto_publish_agent` | `false` | 自动创建的助手是否直接发布；开启属受控动作并写审计 |
+| `critic_enabled` | `false` | 汇总前额外质检（预留） |
+| `token_budget` | `120000` | 单轮运行 token 预算 |
+| `supplier_id` / `supplier_model_id` | `null` | 规划/汇总模型绑定；空 = 跟随模型中心全局默认 |
+
+### 会话执行模式
+
+| 位置 | 字段 | 说明 |
+|---|---|---|
+| `POST /chat/sessions` | `execution_mode: standard\|commander` | 不带则按 `default_mode` 决定 |
+| `PATCH /chat/sessions/{id}` | `execution_mode` | 手动切换；指挥官被关闭时服务端降级 `standard` 并在响应中返回真实值 |
+| `POST /chat/sessions/{id}/messages` | `execution_mode` | 随本轮消息指定；落库到会话 |
+| 会话对象 | `execution_mode` | 列表与详情均返回 |
+| 消息路由 | `routed_by="commander"`、`choice.kind="commander"` | 历史回放可辨认 |
+
+群聊 `policy` 优先：同一请求带 `policy` 仍走群聊编排，指挥官不介入。锁定助手/班组会话（`target_code`）也不进指挥官。
+
+### 流式帧（`POST /chat/sessions/{id}/messages/stream`）
+
+在既有 `chat-init / step / message / card / error / chat-end` 之外新增三帧：
+
+| 帧 | 数据 | 时机 |
+|---|---|---|
+| `commander-plan` | `{run_id, goal, subtasks[], max_parallel, effective_parallel, degraded, plan_fallback}` | 计划生成后（预览模式下即这一轮的最终卡） |
+| `subtask-status` | 单个子任务 `{id, seq, title, agent_name, status, attempts, remediation[], tokens, output_excerpt, error_code, artifacts}` | 子任务每次状态变化（含换助手/建助手/自执行的补救） |
+| `commander-summary` | `{run_id, answer, artifacts[], failed[], tokens_total, degraded}` | 全部子任务收口后，随后仍有正式 `message` 帧 |
+
+消息载荷类型：`commander_plan`（计划卡，含「开始执行」）与 `commander_summary`（汇总卡，含产物与失败清单）。
+
+### 运行管理接口
+
+| 接口 | 说明 |
+|---|---|
+| `POST /commander/preview` | 只规划不执行：`{content, session_id, context?}` → `{run, clarify[]}`；落 queued 运行供预览/编辑 |
+| `GET /commander/runs/{run_id}` | 运行详情 + 子任务列表（越权/不存在 404 `COMMANDER_RUN_NOT_FOUND`） |
+| `PUT /commander/runs/{run_id}/plan` | 计划卡编辑（仅 queued）：整表提交子任务 `{title,instruction,expected_output?,agent_id?,depends_on?[]}`，返回重排后的 run；非 queued 409 `COMMANDER_RUN_STATE`，助手不可见/不可用 400 `INVALID_REQUEST` |
+| `POST /commander/runs/{run_id}/execute` | 启动排队中的运行（202，后台执行并把汇总写成一条助手消息） |
+| `POST /commander/runs/{run_id}/retry` | 重置失败/跳过的子任务为 pending，运行回到 queued |
+| `POST /commander/runs/{run_id}/cancel` | 取消：pending → skipped，已完成保留 |
+| `GET /commander/stats?days=30` | 运行指标：运行/子任务成功与失败数、计划成功率与 fallback 率、平均并发、降级次数、自动创建助手数、P50/P90/最大耗时 |
+
+计划编辑语义：`depends_on` 按**提交数组的新位置（1-based）**解释，只保留指向更早位置的项；删除即从数组移除，顺序即新执行顺序。`agent_id=null` 表示「指挥官代执行」；可选助手须为已发布且当前用户可见，或本轮指挥官生成的草稿。
+
+运行详情/子任务字段新增：`approval_mode`（创建时快照的会话授权模式）与 `remediation`（自主补救轨迹 `[{round, action, agent_name, code, message}]`，`action` 取 `retry|alt_agent|new_agent|self`）。
+
+### 自主补救（v3.40）
+
+- 子任务失败后不向用户提问，按顺序自救：原执行者重试（仅瞬时错误）→ 换用关键词相关的其他已发布助手 → 新建专用助手（受 `auto_create_agent` 与每日上限约束）→ 指挥官用临时执行器（绑定全部已注册工具）亲自完成；换人/建人都不可用时，剩余轮数继续交给指挥官亲自尝试。
+- 总尝试次数由 `remediate_rounds` 限制（默认 5）；轮尽仍失败时子任务记为 `COMMANDER_CAPABILITY_GAP`，`output_excerpt` 用自然语言说明「已尝试几轮、用了哪些办法、失败原因、这是能力缺口而不是缺信息」，汇总卡与失败清单直接展示该说明；全部失败且均为能力缺口时运行级 `error_code` 也是该值。
+- 风险闸拦截 `TOOL_RISK_BLOCKED` 时立即停止补救（换人无意义），提示把会话权限切到「完全控制」；配额/鉴权类硬错误同样不再放大成本。
+- **完全控制继承**：运行创建时把会话 `approval_mode` 快照到 `commander_runs.approval_mode`，执行器按快照重建上下文；`full` 会话里子任务的高风险工具直接执行、不再逐次审批（仅对具备升级角色的成员生效，且每次写 `tool_risk_auto_approved` 审计），`clarify_enabled` 与 `preview_plan` 也被忽略——完全控制 = 不问、不等确认。
+- **成品反馈迭代**：指挥官重规划时自动带上最近 6 条会话消息（总长 ≤2500 字，含上一版产物标题），「第 3 页排版不好」这类反馈会被理解为对上一版成品的修改，而不是新任务。
+
+### 选兵与澄清
+
+- 选兵顺序：计划里显式 `agent_code` → 规则打分（关键词 + 近 30 天成功率/频次 + 当前负载）→ 前 8 个候选交小模型重排（用途码 `commander_match`，置信度 <0.6 视为「无合适」）→ 近 90 天指挥官创建的同意图草稿复用 → 自动创建（受开关与每日上限约束）→ 最接近候选/指挥官代执行。
+- 澄清：规划模型判定信息不足时只回 `clarify`（≤2 个问题），不建子任务；消息以普通助手文本返回，用户回答后重新规划。该运行状态为 `cancelled`、`error_code=COMMANDER_NEEDS_INPUT`，不计入运行指标。
+
+### 审计与观测
+
+- 审计事件：`commander_plan_created`、`commander_plan_edited`、`commander_run_started`、`commander_run_finished`、`commander_run_cancelled`、`commander_degraded`、`commander_subtask_remediated`、`commander_agent_created`、`commander_agent_published`、`commander_subtask_retried`。
+- 指标来自 `GET /commander/stats`（只读聚合，不新增表）；设置页「指挥官」顶部展示近 30 天运行概况。
+
+### 权限与安全
+
+- 调度权不等于越权：每个子任务都以原发起人的角色快照重建上下文，助手可见性/知识库边界与普通对话一致；工具授权按运行创建时的会话模式快照执行——`ask` 仍需人工批准，`auto` 复用本会话已批参数指纹，`full`（完全控制，仅升级角色）直接执行并逐次写审计；指挥官调度不会额外放大权限。
+- 自动创建的助手默认**草稿**，本轮可直接使用；是否发布由 `auto_publish_agent` 决定（默认关），开启与自动发布均写审计 `commander_auto_publish_enabled` / `commander_agent_published`。
+- 正文、密钥、上游错误原文不写入计划/子任务存证；子任务只存截断后的 `output_excerpt` 与产物引用。
 
 ## 任务状态机
 

@@ -76,6 +76,8 @@ class ChatSession(Base, TimestampMixin):
     unread: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # 本会话的工具授权模式（见 VALID_APPROVAL_MODES）
     approval_mode: Mapped[str] = mapped_column(String(12), nullable=False, default=APPROVAL_ASK)
+    # 本会话的执行模式：standard=普通单助手；commander=指挥官拆解+多 Agent 并行（0058）
+    execution_mode: Mapped[str] = mapped_column(String(12), nullable=False, default="standard")
     # 分支来源：从哪个会话的哪条回答拉出来的（原会话不受影响）
     parent_session_id: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
     parent_message_id: Mapped[str | None] = mapped_column(String(36), nullable=True)

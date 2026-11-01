@@ -33,6 +33,7 @@ from pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE, PP_ALIGN
 from pptx.oxml.ns import qn
 from pptx.util import Inches, Pt
 
+from app.core.errors import AppError
 from app.modules.docs.deck_plan import DeckPlan, DeckSlide, plan_from_doc_model
 from app.modules.docs.deck_theme import DeckTheme, get_theme
 from app.modules.docs.model import DocModel
@@ -1199,9 +1200,26 @@ _BUILDERS: dict[str, _BuildFn] = {
 # 对外入口
 # --------------------------------------------------------------------------- #
 
+#: 桌面安装包漏收 python-pptx 模板资源时，用户看到的人话提示
+_RENDER_UNAVAILABLE = "文档渲染组件不可用（安装包可能缺少模板资源），请更新到最新版本。"
 
-def build_presentation(plan: DeckPlan) -> Any:
-    """把 DeckPlan 渲染成 Presentation 对象（质检直接检查几何用）。"""
+
+def _render_failed(_exc: Exception) -> AppError:
+    """把渲染期的 OSError / 第三方异常统一成可读的 503。
+
+    典型场景：PyInstaller 未收集 ``pptx/templates/notesMaster.xml``，
+    新建 Presentation 时抛 FileNotFoundError；不包装会被上层兜底成
+    INTERNAL_ERROR「服务暂时不可用」。
+    """
+    return AppError(
+        "DOC_RENDER_FAILED",
+        _RENDER_UNAVAILABLE,
+        http_status=503,
+        details={"component": "pptx"},
+    )
+
+
+def _build_presentation(plan: DeckPlan) -> Any:
     prs = Presentation()
     prs.slide_width = Inches(SLIDE_W)
     prs.slide_height = Inches(SLIDE_H)
@@ -1213,16 +1231,31 @@ def build_presentation(plan: DeckPlan) -> Any:
     return prs
 
 
+def build_presentation(plan: DeckPlan) -> Any:
+    """把 DeckPlan 渲染成 Presentation 对象（质检直接检查几何用）。"""
+    try:
+        return _build_presentation(plan)
+    except AppError:
+        raise
+    except Exception as e:  # noqa: BLE001 —— 渲染组件缺失统一转可读错误
+        raise _render_failed(e) from e
+
+
 def to_pptx_plan(plan: DeckPlan, path: str | Path | None = None) -> bytes:
     """DeckPlan → .pptx 字节；给出 path 时同时落盘。"""
-    prs = build_presentation(plan)
-    buf = io.BytesIO()
-    prs.save(buf)
-    data = buf.getvalue()
-    if path is not None:
-        Path(path).parent.mkdir(parents=True, exist_ok=True)
-        Path(path).write_bytes(data)
-    return data
+    try:
+        prs = build_presentation(plan)
+        buf = io.BytesIO()
+        prs.save(buf)
+        data = buf.getvalue()
+        if path is not None:
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
+            Path(path).write_bytes(data)
+        return data
+    except AppError:
+        raise
+    except Exception as e:  # noqa: BLE001 —— 渲染组件缺失统一转可读错误
+        raise _render_failed(e) from e
 
 
 def to_pptx(

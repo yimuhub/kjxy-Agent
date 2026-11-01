@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
 from app.modules.audit.service import log_audit
+from app.modules.commander.settings import DEFAULT_SETTINGS as COMMANDER_DEFAULTS
 from app.modules.yards.models import YardSettings
 from app.modules.yards.permissions import ASSIGNABLE_ROLES
 
@@ -117,6 +118,8 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "legacy_calls_mode": "warn",
         "default_grant_days": 7,
     },
+    # 指挥官（v3.38）：编排开关、并发、预算、自动建 Agent 与模型绑定
+    "commander": deepcopy(COMMANDER_DEFAULTS),
     # 工作台视图：默认模式 + 按角色的默认视图 + 共享预设（成员仍可在本地 DIY）
     "menu": {
         "default_mode": "standard",  # minimal | standard | full
@@ -451,6 +454,10 @@ def _validate(key: str, value: dict[str, Any], merged: dict[str, Any]) -> None:
             raise AppError("INVALID_REQUEST", "语音转写模式不合法。", http_status=400)
         if get_model(str(merged.get("local_model_id") or "")) is None:
             raise AppError("INVALID_REQUEST", "未知的本机转写模型。", http_status=400)
+    elif key == "commander":
+        from app.modules.commander.settings import validate_settings
+
+        validate_settings(merged)
     elif key == "menu":
         _validate_menu(merged)
     else:

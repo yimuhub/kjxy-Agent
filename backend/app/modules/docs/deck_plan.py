@@ -16,6 +16,7 @@ DeckPlan 把「讲什么 + 用什么版式」显式建模，好处是：
 
 from __future__ import annotations
 
+import copy
 import json
 import re
 from typing import Any, Literal
@@ -365,8 +366,12 @@ def _validation_details(error: ValidationError) -> list[dict[str, Any]]:
     return details
 
 
-def parse_deck_plan(raw: str | dict[str, Any]) -> DeckPlan:
-    """解析模型输出的 DeckPlan（字符串或 dict）；不合法统一抛 422。"""
+def deck_plan_payload(raw: str | dict[str, Any]) -> dict[str, Any]:
+    """把模型输出（文本或字典）解成待校验的 payload；只做 JSON 提取，不做 schema 校验。
+
+    拆出来供对话链路在严格校验前先做形状修复（``repair_deck_plan``），
+    避免「字段形状不对」被当成「内容不合法」直接降级成模板。
+    """
     payload = _extract_payload(raw) if isinstance(raw, str) else raw
     if not isinstance(payload, dict):
         raise AppError(
@@ -375,6 +380,12 @@ def parse_deck_plan(raw: str | dict[str, Any]) -> DeckPlan:
             http_status=422,
             details={"errors": [{"loc": "json", "message": "顶层不是对象"}]},
         )
+    return payload
+
+
+def parse_deck_plan(raw: str | dict[str, Any]) -> DeckPlan:
+    """解析模型输出的 DeckPlan（字符串或 dict）；不合法统一抛 422。"""
+    payload = deck_plan_payload(raw)
     try:
         return DeckPlan.model_validate(payload)
     except ValidationError as e:
@@ -385,6 +396,234 @@ def parse_deck_plan(raw: str | dict[str, Any]) -> DeckPlan:
             http_status=422,
             details={"errors": errors[:5]},
         ) from e
+
+
+# --------------------------------------------------------------------------- #
+# 形状修复：只修「字段形状」，不放松硬约束
+# --------------------------------------------------------------------------- #
+
+#: 计划级文本字段（数字会被转成字符串）
+_PLAN_TEXT_FIELDS: tuple[str, ...] = ("theme", "title", "subtitle", "audience", "storyline")
+#: 页面级文本字段
+_SLIDE_TEXT_FIELDS: tuple[str, ...] = ("title", "key_message", "notes", "source")
+#: 页面级字符串列表字段
+_SLIDE_TEXT_LIST_FIELDS: tuple[str, ...] = ("bullets",)
+#: 页面级对象列表字段（columns/kpis/timeline/process 的元素是对象）
+_SLIDE_OBJECT_LIST_FIELDS: tuple[str, ...] = ("columns", "kpis", "timeline", "process")
+
+
+def _repair_text(value: Any, path: str, fields: list[str]) -> Any:
+    """文本字段：数字转字符串、null 归空串。
+
+    null 归空串不会放松「必填标题」：空标题在严格校验里仍会失败并触发降级。
+    """
+    if value is None:
+        fields.append(path)
+        return ""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int | float):
+        fields.append(path)
+        return str(value)
+    return value
+
+
+def _repair_list(value: Any, path: str, fields: list[str]) -> list[Any]:
+    """列表字段：null→[]、字符串→[字符串]、对象→[对象]，其余标量包成单元素列表。"""
+    if isinstance(value, list):
+        return value
+    fields.append(path)
+    if value is None:
+        return []
+    return [value]
+
+
+def _repair_text_list(value: Any, path: str, fields: list[str]) -> list[Any]:
+    """字符串列表：先修列表形状，再逐个把数字转成字符串。"""
+    items = _repair_list(value, path, fields)
+    return [_repair_text(item, f"{path}[{index}]", fields) for index, item in enumerate(items)]
+
+
+def _repair_rows(value: Any, path: str, fields: list[str]) -> list[Any]:
+    """表格行：外层按列表修形状，每行再按字符串列表修一遍。"""
+    rows = _repair_list(value, path, fields)
+    return [_repair_text_list(row, f"{path}[{index}]", fields) for index, row in enumerate(rows)]
+
+
+def _repair_column(raw: Any, path: str, fields: list[str]) -> Any:
+    if not isinstance(raw, dict):
+        return raw
+    item = dict(raw)
+    if "title" in item:
+        item["title"] = _repair_text(item["title"], f"{path}.title", fields)
+    if "items" in item:
+        item["items"] = _repair_text_list(item["items"], f"{path}.items", fields)
+    return item
+
+
+def _repair_kpi(raw: Any, path: str, fields: list[str]) -> Any:
+    if not isinstance(raw, dict):
+        return raw
+    item = dict(raw)
+    for key in ("value", "unit", "label"):
+        if key in item:
+            item[key] = _repair_text(item[key], f"{path}.{key}", fields)
+    return item
+
+
+def _repair_timeline_item(raw: Any, path: str, fields: list[str]) -> Any:
+    if not isinstance(raw, dict):
+        return raw
+    item = dict(raw)
+    for key in ("time", "title", "text"):
+        if key in item:
+            item[key] = _repair_text(item[key], f"{path}.{key}", fields)
+    return item
+
+
+def _repair_process_item(raw: Any, path: str, fields: list[str]) -> Any:
+    if not isinstance(raw, dict):
+        return raw
+    item = dict(raw)
+    for key in ("step", "title", "text"):
+        if key in item:
+            item[key] = _repair_text(item[key], f"{path}.{key}", fields)
+    return item
+
+
+def _repair_chart(raw: Any, path: str, fields: list[str]) -> Any:
+    if not isinstance(raw, dict):
+        return raw
+    item = dict(raw)
+    if "categories" in item:
+        item["categories"] = _repair_text_list(item["categories"], f"{path}.categories", fields)
+    if "series" in item:
+        series = _repair_list(item["series"], f"{path}.series", fields)
+        repaired_series: list[Any] = []
+        for index, entry in enumerate(series):
+            series_path = f"{path}.series[{index}]"
+            if not isinstance(entry, dict):
+                repaired_series.append(entry)
+                continue
+            one = dict(entry)
+            if "name" in one:
+                one["name"] = _repair_text(one["name"], f"{series_path}.name", fields)
+            if "values" in one:
+                one["values"] = _repair_list(one["values"], f"{series_path}.values", fields)
+            repaired_series.append(one)
+        item["series"] = repaired_series
+    for key in ("unit", "source"):
+        if key in item:
+            item[key] = _repair_text(item[key], f"{path}.{key}", fields)
+    return item
+
+
+def _repair_table(raw: Any, path: str, fields: list[str]) -> Any:
+    if not isinstance(raw, dict):
+        return raw
+    item = dict(raw)
+    if "columns" in item:
+        item["columns"] = _repair_text_list(item["columns"], f"{path}.columns", fields)
+    if "rows" in item:
+        item["rows"] = _repair_rows(item["rows"], f"{path}.rows", fields)
+    if "source" in item:
+        item["source"] = _repair_text(item["source"], f"{path}.source", fields)
+    return item
+
+
+def _repair_comparison(raw: Any, path: str, fields: list[str]) -> Any:
+    if not isinstance(raw, dict):
+        return raw
+    item = dict(raw)
+    for key in ("left_title", "right_title"):
+        if key in item:
+            item[key] = _repair_text(item[key], f"{path}.{key}", fields)
+    for key in ("left_items", "right_items"):
+        if key in item:
+            item[key] = _repair_text_list(item[key], f"{path}.{key}", fields)
+    return item
+
+
+def _repair_image(raw: Any, path: str, fields: list[str]) -> Any:
+    if not isinstance(raw, dict):
+        return raw
+    item = dict(raw)
+    for key in ("slot", "prompt", "alt"):
+        if key in item:
+            item[key] = _repair_text(item[key], f"{path}.{key}", fields)
+    return item
+
+
+def _repair_slide(raw: Any, path: str, fields: list[str]) -> Any:
+    if not isinstance(raw, dict):
+        return raw
+    slide = dict(raw)
+    for key in _SLIDE_TEXT_FIELDS:
+        if key in slide:
+            slide[key] = _repair_text(slide[key], f"{path}.{key}", fields)
+    for key in _SLIDE_TEXT_LIST_FIELDS:
+        if key in slide:
+            slide[key] = _repair_text_list(slide[key], f"{path}.{key}", fields)
+    for key in _SLIDE_OBJECT_LIST_FIELDS:
+        if key not in slide:
+            continue
+        items = _repair_list(slide[key], f"{path}.{key}", fields)
+        if key == "columns":
+            slide[key] = [
+                _repair_column(item, f"{path}.{key}[{index}]", fields)
+                for index, item in enumerate(items)
+            ]
+        elif key == "kpis":
+            slide[key] = [
+                _repair_kpi(item, f"{path}.{key}[{index}]", fields)
+                for index, item in enumerate(items)
+            ]
+        elif key == "timeline":
+            slide[key] = [
+                _repair_timeline_item(item, f"{path}.{key}[{index}]", fields)
+                for index, item in enumerate(items)
+            ]
+        else:
+            slide[key] = [
+                _repair_process_item(item, f"{path}.{key}[{index}]", fields)
+                for index, item in enumerate(items)
+            ]
+    if "chart" in slide:
+        slide["chart"] = _repair_chart(slide["chart"], f"{path}.chart", fields)
+    if "table" in slide:
+        slide["table"] = _repair_table(slide["table"], f"{path}.table", fields)
+    if "comparison" in slide:
+        slide["comparison"] = _repair_comparison(slide["comparison"], f"{path}.comparison", fields)
+    if "image" in slide:
+        slide["image"] = _repair_image(slide["image"], f"{path}.image", fields)
+    return slide
+
+
+def repair_deck_plan(raw: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    """在严格校验前修复模型输出的「字段形状」，返回 (修复后的计划, 修复字段路径)。
+
+    只做低风险归一，避免把「能用的计划」误判成非法：
+
+    - 约定为列表的字段（bullets/columns/kpis/timeline/process 及其嵌套的
+      categories/series/values/rows/items 等）：null→[]、字符串→[字符串]、
+      对象→[对象]；
+    - 文本字段（标题/要点/备注/数值标签等）收到数字时转成字符串，null 归空串。
+
+    刻意**不**做：截断页数、改写版式枚举、补默认标题、丢弃未知字段、修正表格
+    行列对齐。页数上限、版式枚举、必填标题、每页一种版式等仍是硬约束，修复后
+    仍不合法就照旧降级。
+    """
+    plan = copy.deepcopy(raw) if isinstance(raw, dict) else {}
+    fields: list[str] = []
+    for key in _PLAN_TEXT_FIELDS:
+        if key in plan:
+            plan[key] = _repair_text(plan[key], key, fields)
+    if "slides" in plan:
+        slides = _repair_list(plan["slides"], "slides", fields)
+        plan["slides"] = [
+            _repair_slide(slide, f"slides.{index}", fields) for index, slide in enumerate(slides)
+        ]
+    return plan, fields
 
 
 # --------------------------------------------------------------------------- #
@@ -650,8 +889,10 @@ __all__ = [
     "DeckTable",
     "DeckTimelineItem",
     "deck_plan_json_schema",
+    "deck_plan_payload",
     "doc_model_from_plan",
     "guess_theme",
     "parse_deck_plan",
     "plan_from_doc_model",
+    "repair_deck_plan",
 ]

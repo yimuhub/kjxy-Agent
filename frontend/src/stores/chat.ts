@@ -9,6 +9,23 @@ import {
   mentionTargetCode,
   normalizeMemberStatus,
 } from '@/api/chat'
+import {
+  COMMANDER_SSE_EVENTS,
+  commanderApi,
+  type CommanderArtifact,
+  type CommanderFailedItem,
+  type CommanderPlanFrame,
+  type CommanderPlanPayload,
+  type CommanderPlanSubtask,
+  type CommanderRun,
+  type CommanderRunStatus,
+  type CommanderSubtask,
+  type CommanderSubtaskStatus,
+  type CommanderSubtaskStatusFrame,
+  type CommanderSummaryFrame,
+  type CommanderSummaryPayload,
+  type ExecutionMode,
+} from '@/api/commander'
 import type {
   ChatApprovalMode,
   ChatAttachment,
@@ -82,6 +99,141 @@ export interface PluginCardOpState {
   error: string
 }
 
+/** 发送附加字段：既有 target_code/policy 之外，指挥官模式再带一个 execution_mode */
+type CommanderSendExtras = SendMessageExtras & { execution_mode?: ExecutionMode }
+
+/** 指挥官一次运行的前端视图（计划预览 → 执行中 → 汇总） */
+export interface CommanderRunView {
+  runId: string
+  goal: string
+  preview: boolean
+  /** 计划载荷里是否真的带过 preview（没带时由设置 preview_plan 兜底，不写进消息载荷） */
+  previewKnown: boolean
+  planFallback: boolean
+  subtasks: CommanderSubtask[]
+  status: CommanderRunStatus
+  /** 已开始执行（用户点过「开始执行」或后端直接自动执行） */
+  started: boolean
+  maxParallel: number
+  effectiveParallel: number
+  degraded: boolean
+  tokensTotal: number
+  latencyMs: number | null
+  answer: string
+  artifacts: CommanderArtifact[]
+  failed: CommanderFailedItem[]
+  /** 已收到 commander-summary 帧 */
+  summaryReceived: boolean
+  /** 执行/重试请求在途 */
+  busy: boolean
+  error: string
+}
+
+/** 运行仍在推进：只有 queued/running 需要继续轮询 */
+function isCommanderRunActive(status: CommanderRunStatus | undefined): boolean {
+  return status === 'queued' || status === 'running'
+}
+
+function emptyCommanderRun(runId: string): CommanderRunView {
+  return {
+    runId,
+    goal: '',
+    preview: true,
+    previewKnown: false,
+    planFallback: false,
+    subtasks: [],
+    status: 'preview',
+    started: false,
+    maxParallel: 0,
+    effectiveParallel: 0,
+    degraded: false,
+    tokensTotal: 0,
+    latencyMs: null,
+    answer: '',
+    artifacts: [],
+    failed: [],
+    summaryReceived: false,
+    busy: false,
+    error: '',
+  }
+}
+
+function normalizeSubtaskStatus(status: unknown): CommanderSubtaskStatus {
+  const text = String(status ?? '').trim().toLowerCase()
+  if (!text) return 'pending'
+  if (['running', 'in_progress', 'started'].includes(text)) return 'running'
+  if (['ok', 'done', 'completed', 'success', 'finished'].includes(text)) return 'ok'
+  if (['error', 'failed', 'failure'].includes(text)) return 'error'
+  if (['skipped', 'skip', 'cancelled', 'canceled'].includes(text)) return 'skipped'
+  return text
+}
+
+function normalizePlanSubtask(raw: CommanderPlanSubtask, index: number): CommanderSubtask {
+  const id = String(raw.id ?? '').trim() || `t${index + 1}`
+  return {
+    id,
+    seq: Number.isFinite(Number(raw.seq)) ? Number(raw.seq) : index + 1,
+    title: String(raw.title ?? ''),
+    instruction: raw.instruction ? String(raw.instruction) : undefined,
+    expected_output: raw.expected_output ? String(raw.expected_output) : undefined,
+    agent_id: raw.agent_id,
+    agent_name: String(raw.agent_name ?? ''),
+    agent_code: String(raw.agent_code ?? ''),
+    depends_on: Array.isArray(raw.depends_on) ? raw.depends_on.map(String) : [],
+    status: normalizeSubtaskStatus(raw.status),
+    tokens: Number(raw.tokens ?? 0),
+  }
+}
+
+function normalizeRunSubtask(raw: CommanderSubtask, index: number): CommanderSubtask {
+  const id = String(raw.id ?? '').trim() || `t${index + 1}`
+  return {
+    ...raw,
+    id,
+    seq: Number.isFinite(Number(raw.seq)) ? Number(raw.seq) : index + 1,
+    title: String(raw.title ?? ''),
+    agent_name: String(raw.agent_name ?? ''),
+    agent_code: String(raw.agent_code ?? ''),
+    depends_on: Array.isArray(raw.depends_on) ? raw.depends_on.map(String) : [],
+    status: normalizeSubtaskStatus(raw.status),
+    tokens: Number(raw.tokens ?? 0),
+  }
+}
+
+/** 合并子任务：按 id 覆盖，保留详情里已有但帧里没有的字段（指令/产物等） */
+function mergeCommanderSubtasks(
+  current: CommanderSubtask[],
+  incoming: CommanderSubtask[],
+): CommanderSubtask[] {
+  const map = new Map(current.map(item => [item.id, item]))
+  for (const item of incoming) {
+    const previous = map.get(item.id)
+    map.set(item.id, {
+      ...previous,
+      ...item,
+      // 空标题/空助手名不覆盖已有值：subtask-status 帧只带状态
+      title: item.title || previous?.title || '',
+      agent_name: item.agent_name || previous?.agent_name || '',
+      agent_code: item.agent_code || previous?.agent_code || '',
+      depends_on: item.depends_on?.length ? item.depends_on : previous?.depends_on ?? [],
+    })
+  }
+  return [...map.values()].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))
+}
+
+function commanderRunIdOfMessage(message: ChatMessage): string {
+  const payload = message.payload as unknown as {
+    type?: string
+    run_id?: string
+    id?: string
+  } | null
+  if (payload && (payload.type === 'commander_plan' || payload.type === 'commander_summary')) {
+    // 汇总消息历史上只带 id（run_out 的原字段），计划消息带 run_id，两种都要认
+    return String(payload.run_id || payload.id || '')
+  }
+  return ''
+}
+
 /** 成员行的稳定 key：agent_id 优先，退化到 id/code（后端事件按 agent_id 对齐） */
 function participantKey(p: ChatParticipant): string {
   return p.agent_id || p.id || p.agent_code || ''
@@ -149,6 +301,14 @@ function buildChatStore(scope: string) {
     const liveMembers = ref<Record<string, MemberRoundRow>>({})
     /** 本轮是否已收尾：收尾后仍无事件的成员才能判定为「未回答」 */
     const roundDone = ref(false)
+
+    /**
+     * 指挥官运行视图：按 run_id 存。
+     * 计划帧/子任务帧/汇总帧都只更新这一份状态，消息里只保留 payload 锚点，
+     * 因此同一 run 不会因为多帧到达而重复插入消息。
+     */
+    const commanderRuns = ref<Record<string, CommanderRunView>>({})
+    const commanderTimers = new Map<string, ReturnType<typeof setInterval>>()
 
     /**
      * 轮次序号：每一轮 send 自增。
@@ -295,7 +455,7 @@ function buildChatStore(scope: string) {
     })
 
     /** 本轮要带上的发送附加字段（单聊且未点名时全为空，请求体保持原样） */
-    function currentExtras() {
+    function currentExtras(): CommanderSendExtras {
       // 锁定会话每轮都带同一执行对象：即便后端还没升级，也不会被自动路由带走
       const lockedCode = sessionLocked.value ? activeSession.value?.target_code ?? null : null
       return {
@@ -494,11 +654,18 @@ function buildChatStore(scope: string) {
       if (patch.pinned !== undefined) optimistic.pinned = patch.pinned
       if (patch.archived !== undefined) optimistic.archived = patch.archived
       if (patch.unread !== undefined) optimistic.unread = patch.unread
+      if (patch.execution_mode !== undefined) optimistic.execution_mode = patch.execution_mode
       const snapshot = row && Object.keys(optimistic).length ? { ...row } : null
       if (row && snapshot) Object.assign(row, optimistic)
       try {
         const next = await chatApi.updateSession(id, patch)
-        if (next) mergeSessionRow(next)
+        if (next) {
+          // 老后端回包里可能不带 execution_mode：用刚提交的模式补齐，避免列表徽章闪回去
+          if (patch.execution_mode !== undefined && !next.execution_mode) {
+            next.execution_mode = patch.execution_mode
+          }
+          mergeSessionRow(next)
+        }
         return next
       } catch (err) {
         if (row && snapshot) Object.assign(row, snapshot)
@@ -765,6 +932,465 @@ function buildChatStore(scope: string) {
       liveMembers.value = { ...liveMembers.value, [key]: row }
     }
 
+    /* ---------------- 指挥官（v3.38）：计划 / 子任务状态 / 汇总 ---------------- */
+
+    /** 读取某次运行的前端视图（没有则返回 null，由卡片用消息载荷兜底渲染） */
+    function commanderRun(runId: string): CommanderRunView | null {
+      if (!runId) return null
+      return commanderRuns.value[runId] ?? null
+    }
+
+    function patchCommanderRun(runId: string, patch: Partial<CommanderRunView>): CommanderRunView {
+      const previous = commanderRuns.value[runId] ?? emptyCommanderRun(runId)
+      const next = { ...previous, ...patch }
+      commanderRuns.value = { ...commanderRuns.value, [runId]: next }
+      return next
+    }
+
+    function commanderPlanPayload(view: CommanderRunView): CommanderPlanPayload {
+      const payload: CommanderPlanPayload = {
+        type: 'commander_plan',
+        run_id: view.runId,
+        goal: view.goal,
+        subtasks: view.subtasks.map(item => ({
+          id: item.id,
+          seq: item.seq,
+          title: item.title,
+          instruction: item.instruction,
+          expected_output: item.expected_output,
+          agent_id: item.agent_id,
+          agent_name: item.agent_name,
+          agent_code: item.agent_code,
+          depends_on: item.depends_on,
+          status: item.status,
+          tokens: item.tokens,
+        })),
+        plan_fallback: view.planFallback,
+      }
+      // 帧里没带过 preview 就不写死：由设置 preview_plan 在卡片侧兜底
+      if (view.previewKnown) payload.preview = view.preview && !view.started
+      return payload
+    }
+
+    function commanderSummaryPayload(view: CommanderRunView): CommanderSummaryPayload {
+      return {
+        type: 'commander_summary',
+        run_id: view.runId,
+        id: view.runId,
+        answer: view.answer,
+        artifacts: view.artifacts,
+        failed: view.failed,
+        tokens_total: view.tokensTotal,
+        degraded: view.degraded,
+        max_parallel: view.maxParallel,
+        effective_parallel: view.effectiveParallel,
+        latency_ms: view.latencyMs ?? undefined,
+        subtasks: view.subtasks,
+      }
+    }
+
+    function commanderMessageIndex(runId: string): number {
+      return messages.value.findIndex(message => commanderRunIdOfMessage(message) === runId)
+    }
+
+    /**
+     * 计划帧先到：放一张本地占位卡承载计划，等 message 帧带回正式消息时原地替换，
+     * 这样计划卡在流式过程中就能看到，且不会因为「帧 + 消息」各插一条而重复。
+     */
+    function ensureCommanderPlanMessage(runId: string): void {
+      const view = commanderRuns.value[runId]
+      if (!view) return
+      const payload = commanderPlanPayload(view)
+      const index = commanderMessageIndex(runId)
+      if (index >= 0) {
+        const message = messages.value[index]
+        const existing = message.payload as unknown as { type?: string } | null
+        // 已经收到汇总卡时不再被迟到的计划帧覆盖
+        if (existing?.type !== 'commander_summary') {
+          message.payload = payload as unknown as ChatCard
+        }
+        return
+      }
+      messages.value.push({
+        id: `local-commander-plan-${runId}`,
+        role: 'assistant',
+        content: '',
+        routed_label: '指挥官编排',
+        routed_tone: 'primary',
+        payload: payload as unknown as ChatCard,
+        created_at: new Date().toISOString(),
+      })
+    }
+
+    /** 汇总帧先于 message 帧到达时，也保证有一张可读的最终卡 */
+    function ensureCommanderSummaryMessage(runId: string): void {
+      const view = commanderRuns.value[runId]
+      if (!view) return
+      const payload = commanderSummaryPayload(view)
+      const index = commanderMessageIndex(runId)
+      if (index >= 0) {
+        const message = messages.value[index]
+        const existing = message.payload as unknown as { type?: string } | null
+        if (existing?.type === 'commander_summary') {
+          message.payload = payload as unknown as ChatCard
+        }
+        // 计划卡仍在时由计划卡内嵌的运行视图展示汇总，不再额外插一条
+        return
+      }
+      messages.value.push({
+        id: `local-commander-summary-${runId}`,
+        role: 'assistant',
+        content: '',
+        routed_label: '指挥官编排',
+        routed_tone: 'primary',
+        payload: payload as unknown as ChatCard,
+        created_at: new Date().toISOString(),
+      })
+    }
+
+    function applyCommanderPlan(frame: CommanderPlanFrame): void {
+      const runId = String(frame.run_id ?? '').trim()
+      if (!runId) return
+      const previous = commanderRuns.value[runId] ?? emptyCommanderRun(runId)
+      const subtasks = mergeCommanderSubtasks(
+        previous.subtasks,
+        (frame.subtasks ?? []).map((item, index) => normalizePlanSubtask(item, index)),
+      )
+      const previewKnown =
+        typeof frame.preview === 'boolean' ? true : previous.previewKnown
+      const preview = typeof frame.preview === 'boolean' ? frame.preview : previous.preview
+      const frameStatus = String(frame.status ?? '')
+      // 自动执行模式下 execute_run 会再发一帧 status=running 的计划帧；据此收起「开始执行」
+      const startedByStatus =
+        Boolean(frameStatus) && frameStatus !== 'queued' && frameStatus !== 'preview'
+      const started = previous.started || preview === false || startedByStatus
+      const nextStatus: CommanderRunStatus = started
+        ? isCommanderRunActive(previous.status) ||
+          previous.status === 'preview' ||
+          previous.status === 'queued'
+          ? 'running'
+          : previous.status
+        : frameStatus || 'preview'
+      const maxParallel = Number(frame.max_parallel)
+      const effectiveParallel = Number(frame.effective_parallel)
+      patchCommanderRun(runId, {
+        goal: String(frame.goal ?? previous.goal ?? ''),
+        planFallback:
+          typeof frame.plan_fallback === 'boolean' ? frame.plan_fallback : previous.planFallback,
+        subtasks,
+        preview,
+        previewKnown,
+        started,
+        status: nextStatus,
+        maxParallel: Number.isFinite(maxParallel) ? maxParallel : previous.maxParallel,
+        effectiveParallel: Number.isFinite(effectiveParallel)
+          ? effectiveParallel
+          : previous.effectiveParallel,
+        degraded: typeof frame.degraded === 'boolean' ? frame.degraded : previous.degraded,
+      })
+      ensureCommanderPlanMessage(runId)
+      if (started) startCommanderPoll(runId)
+    }
+
+    function applyCommanderSubtaskStatus(frame: CommanderSubtaskStatusFrame): void {
+      const runId = String(frame.run_id ?? '').trim()
+      const subtaskId = String(frame.subtask_id || frame.id || '').trim()
+      if (!runId || !subtaskId) return
+      const previous = commanderRuns.value[runId] ?? emptyCommanderRun(runId)
+      // 帧里通常带完整 subtask_out（title/agent/depends_on/时间戳），缺字段由 merge 保留旧值
+      const incoming = normalizeRunSubtask(
+        {
+          ...(frame as unknown as CommanderSubtask),
+          id: subtaskId,
+          status: normalizeSubtaskStatus(frame.status),
+          tokens: Number(frame.tokens ?? 0),
+        },
+        previous.subtasks.length,
+      )
+      const subtasks = mergeCommanderSubtasks(previous.subtasks, [incoming])
+      const nextStatus =
+        previous.status === 'preview' || previous.status === 'queued' || !previous.status
+          ? 'running'
+          : previous.status
+      patchCommanderRun(runId, { subtasks, started: true, status: nextStatus })
+      ensureCommanderPlanMessage(runId)
+      startCommanderPoll(runId)
+    }
+
+    function applyCommanderSummary(frame: CommanderSummaryFrame): void {
+      const runId = String(frame.run_id ?? frame.id ?? '').trim()
+      if (!runId) return
+      const previous = commanderRuns.value[runId] ?? emptyCommanderRun(runId)
+      const failed = Array.isArray(frame.failed)
+        ? frame.failed.map(item => ({
+            id: item.id ? String(item.id) : undefined,
+            seq: Number.isFinite(Number(item.seq)) ? Number(item.seq) : undefined,
+            title: item.title ? String(item.title) : undefined,
+            reason: item.reason ? String(item.reason) : undefined,
+          }))
+        : previous.failed
+      const subtasks = Array.isArray(frame.subtasks)
+        ? mergeCommanderSubtasks(
+            previous.subtasks,
+            frame.subtasks.map((item, index) => normalizeRunSubtask(item, index)),
+          )
+        : previous.subtasks
+      const total = Number(frame.tokens_total)
+      const maxParallel = Number(frame.max_parallel)
+      const effectiveParallel = Number(frame.effective_parallel)
+      const latency = Number(frame.latency_ms)
+      // 后端 run_out 会随 summary 一起下发 status；没有再按失败数推导
+      const derivedStatus: CommanderRunStatus =
+        failed.length && failed.length >= subtasks.length && subtasks.length
+          ? 'failed'
+          : failed.length
+            ? 'partial'
+            : 'completed'
+      const status: CommanderRunStatus = frame.status
+        ? String(frame.status)
+        : derivedStatus
+      patchCommanderRun(runId, {
+        answer: String(frame.answer ?? previous.answer ?? ''),
+        artifacts: Array.isArray(frame.artifacts) ? frame.artifacts : previous.artifacts,
+        failed,
+        subtasks,
+        tokensTotal: Number.isFinite(total) ? total : previous.tokensTotal,
+        degraded:
+          typeof frame.degraded === 'boolean' ? frame.degraded : previous.degraded,
+        maxParallel: Number.isFinite(maxParallel) ? maxParallel : previous.maxParallel,
+        effectiveParallel: Number.isFinite(effectiveParallel)
+          ? effectiveParallel
+          : previous.effectiveParallel,
+        latencyMs: Number.isFinite(latency) ? latency : previous.latencyMs,
+        planFallback:
+          typeof frame.plan_fallback === 'boolean' ? frame.plan_fallback : previous.planFallback,
+        summaryReceived: true,
+        started: true,
+        status: previous.status === 'cancelled' ? 'cancelled' : status,
+      })
+      stopCommanderPoll(runId)
+      ensureCommanderSummaryMessage(runId)
+    }
+
+    /** 运行详情回包 → 前端视图（子任务按 id 合并，保留帧里没有的指令/产物） */    function applyCommanderRun(run: CommanderRun): void {
+      const runId = String(run.id ?? '').trim()
+      if (!runId) return
+      const previous = commanderRuns.value[runId] ?? emptyCommanderRun(runId)
+      const subtasks = Array.isArray(run.subtasks)
+        ? mergeCommanderSubtasks(
+            previous.subtasks,
+            run.subtasks.map((item, index) => normalizeRunSubtask(item, index)),
+          )
+        : previous.subtasks
+      const maxParallel = Number(run.max_parallel)
+      const effectiveParallel = Number(run.effective_parallel)
+      const tokensTotal = Number(run.tokens_total)
+      const latency = Number(run.latency_ms)
+      patchCommanderRun(runId, {
+        goal: run.goal ? String(run.goal) : previous.goal,
+        status: run.status ? String(run.status) : previous.status,
+        started: true,
+        subtasks,
+        maxParallel: Number.isFinite(maxParallel) ? maxParallel : previous.maxParallel,
+        effectiveParallel: Number.isFinite(effectiveParallel)
+          ? effectiveParallel
+          : previous.effectiveParallel,
+        degraded: typeof run.degraded === 'boolean' ? run.degraded : previous.degraded,
+        tokensTotal: Number.isFinite(tokensTotal) ? tokensTotal : previous.tokensTotal,
+        latencyMs: Number.isFinite(latency) ? latency : previous.latencyMs,
+        planFallback:
+          typeof run.plan_fallback === 'boolean' ? run.plan_fallback : previous.planFallback,
+      })
+      if (!isCommanderRunActive(run.status)) stopCommanderPoll(runId)
+    }
+
+    /**
+     * 计划编辑保存后的回包：整表替换子任务（顺序调整、删除必须生效，不能走按 id 合并），
+     * 保持「未开始」的预览态不变——这是保存前才允许编辑的唯一场景。
+     */
+    function applyCommanderPlanUpdate(runId: string, run: CommanderRun): void {
+      const id = String(runId || run.id || '').trim()
+      if (!id) return
+      const previous = commanderRuns.value[id] ?? emptyCommanderRun(id)
+      const subtasks = Array.isArray(run.subtasks)
+        ? run.subtasks.map((item, index) => ({
+            ...normalizeRunSubtask(item, index),
+            seq: index + 1,
+          }))
+        : previous.subtasks
+      const maxParallel = Number(run.max_parallel)
+      patchCommanderRun(id, {
+        goal: run.goal ? String(run.goal) : previous.goal,
+        subtasks,
+        maxParallel: Number.isFinite(maxParallel) ? maxParallel : previous.maxParallel,
+      })
+      ensureCommanderPlanMessage(id)
+    }
+
+
+    function stopCommanderPoll(runId: string): void {
+      const timer = commanderTimers.get(runId)
+      if (timer) clearInterval(timer)
+      commanderTimers.delete(runId)
+    }
+
+    /**
+     * 1.5s 轮询运行详情，直到 status 不再是 queued/running。
+     * 连续失败 5 次就停，避免后端未就绪时把控制台刷满；界面保留最后一次状态。
+     */
+    function startCommanderPoll(runId: string): void {
+      if (!runId || commanderTimers.has(runId)) return
+      const sessionId = activeId.value
+      let inFlight = false
+      let failures = 0
+      const refreshMessages = (): void => {
+        if (!sessionId || activeId.value !== sessionId) return
+        // 用户正在发新一轮时不要把乐观气泡读没了
+        if (sending.value) return
+        if (commanderRuns.value[runId]?.summaryReceived) return
+        void loadMessages().catch(() => undefined)
+      }
+      const tick = async (): Promise<void> => {
+        if (inFlight) return
+        inFlight = true
+        try {
+          const run = await commanderApi.getRun(runId)
+          failures = 0
+          if (run) applyCommanderRun(run)
+          const status = run?.status ?? commanderRuns.value[runId]?.status
+          if (!isCommanderRunActive(status)) {
+            stopCommanderPoll(runId)
+            /*
+             * 预览后点「开始执行」时本轮 SSE 已经结束，后台汇总会另写一条 assistant 消息；
+             * 状态到终态后延迟回读一次消息，才能拿到最终答复与产物。
+             * 两次延迟覆盖后台「先置终态、再落消息」的窗口。
+             */
+            if (!commanderRuns.value[runId]?.summaryReceived) {
+              window.setTimeout(refreshMessages, 800)
+              window.setTimeout(refreshMessages, 2200)
+            }
+          }
+        } catch {
+          failures += 1
+          if (failures >= 5) {
+            patchCommanderRun(runId, { error: '运行状态刷新失败，请稍后重试' })
+            stopCommanderPoll(runId)
+          }
+        } finally {
+          inFlight = false
+        }
+      }
+      void tick()
+      commanderTimers.set(
+        runId,
+        setInterval(() => {
+          void tick()
+        }, 1500),
+      )
+    }
+
+    /** 开始执行预览计划：立即置为运行中并启动轮询 */
+    async function executeCommanderRun(runId: string): Promise<boolean> {
+      if (!runId) return false
+      const previous = commanderRuns.value[runId] ?? emptyCommanderRun(runId)
+      if (previous.busy) return false
+      patchCommanderRun(runId, { busy: true, error: '', started: true, status: 'running' })
+      try {
+        await commanderApi.executeRun(runId)
+        patchCommanderRun(runId, { busy: false, preview: false })
+        startCommanderPoll(runId)
+        return true
+      } catch (err) {
+        const { code, message } = extractErrorMessage(err)
+        /*
+         * 409 说明这次运行早已不是 queued（刷新后的历史计划再点「开始执行」很常见），
+         * 不当成失败：回读运行详情，把卡片切到真实状态并按需继续轮询。
+         */
+        if (code === 'COMMANDER_RUN_STATE' || code === 'COMMANDER_RUN_BUSY') {
+          try {
+            const run = await commanderApi.getRun(runId)
+            patchCommanderRun(runId, { busy: false, preview: false })
+            if (run) {
+              applyCommanderRun(run)
+              if (isCommanderRunActive(run.status)) startCommanderPoll(runId)
+              return true
+            }
+          } catch {
+            /* 回读也失败时落到下方统一错误 */
+          }
+        }
+        patchCommanderRun(runId, {
+          busy: false,
+          status: previous.status,
+          started: previous.started,
+          preview: previous.preview,
+          error: message || '启动执行失败',
+        })
+        return false
+      }
+    }
+
+    /** 重试失败/跳过的子任务：清掉上一次的汇总提示，重新进入运行中 */
+    async function retryCommanderRun(runId: string): Promise<boolean> {
+      if (!runId) return false
+      const previous = commanderRuns.value[runId] ?? emptyCommanderRun(runId)
+      if (previous.busy) return false
+      patchCommanderRun(runId, {
+        busy: true,
+        error: '',
+        started: true,
+        preview: false,
+        status: 'running',
+        summaryReceived: false,
+        failed: [],
+      })
+      try {
+        const run = await commanderApi.retryRun(runId)
+        if (run) applyCommanderRun(run)
+        /*
+         * 后端 retry 只把失败/跳过的子任务重置并把运行置回 queued，
+         * 真正开跑仍走 execute（与首次「开始执行」同一入口）。
+         */
+        await commanderApi.executeRun(runId)
+        patchCommanderRun(runId, { busy: false, status: 'running' })
+        startCommanderPoll(runId)
+        return true
+      } catch (err) {
+        patchCommanderRun(runId, {
+          busy: false,
+          status: previous.status,
+          failed: previous.failed,
+          summaryReceived: previous.summaryReceived,
+          error: extractErrorMessage(err).message || '重试失败',
+        })
+        return false
+      }
+    }
+
+    /** 取消未开始的子任务；已完成结果保留，因此不抹掉已有汇总 */
+    async function cancelCommanderRun(runId: string): Promise<boolean> {
+      if (!runId) return false
+      const previous = commanderRuns.value[runId] ?? emptyCommanderRun(runId)
+      if (previous.busy) return false
+      patchCommanderRun(runId, { busy: true, error: '' })
+      try {
+        const run = await commanderApi.cancelRun(runId)
+        patchCommanderRun(runId, { busy: false })
+        if (run) applyCommanderRun(run)
+        else patchCommanderRun(runId, { status: 'cancelled' })
+        if (!isCommanderRunActive(commanderRuns.value[runId]?.status)) {
+          stopCommanderPoll(runId)
+        }
+        return true
+      } catch (err) {
+        patchCommanderRun(runId, {
+          busy: false,
+          error: extractErrorMessage(err).message || '取消失败',
+        })
+        return false
+      }
+    }
+
 
     /** 上传附件到当前会话（无会话则先建）；成功后进入待发列表 */
     async function uploadAttachment(file: File): Promise<boolean> {
@@ -893,13 +1519,16 @@ function buildChatStore(scope: string) {
       content: string,
       attachmentIds: string[],
       localId: string,
-      extras: SendMessageExtras = {},
+      extras: CommanderSendExtras = {},
     ): Promise<StreamOutcome> {
       return new Promise(resolve => {
         let handle: SseHandle | null = null
         let settled = false
         let pendingCard: ChatCard | null = null
         const seq = roundSeq
+        // execution_mode 是可选字段：保持既有请求体形状，只有指挥官/显式普通模式才带
+        const body = buildSendBody(content, attachmentIds, extras)
+        if (extras.execution_mode) body.execution_mode = extras.execution_mode
 
         const finish = (outcome: StreamOutcome) => {
           if (settled) return
@@ -917,7 +1546,7 @@ function buildChatStore(scope: string) {
         handle = openSseStream({
           url: chatApi.streamUrl(sid),
           method: 'POST',
-          body: JSON.stringify(buildSendBody(content, attachmentIds, extras)),
+          body: JSON.stringify(body),
           onFrame: frame => {
             const data = parseFrameData(frame.data)
             if (frame.event === CHAT_SSE_EVENTS.init) {
@@ -929,13 +1558,32 @@ function buildChatStore(scope: string) {
               pendingCard = (data.payload as ChatCard | undefined) ?? null
             } else if (frame.event === CHAT_SSE_EVENTS.memberEvent) {
               applyMemberEvent(data as ChatMemberEvent)
+            } else if (frame.event === COMMANDER_SSE_EVENTS.plan) {
+              applyCommanderPlan(data as unknown as CommanderPlanFrame)
+            } else if (frame.event === COMMANDER_SSE_EVENTS.subtaskStatus) {
+              applyCommanderSubtaskStatus(data as unknown as CommanderSubtaskStatusFrame)
+            } else if (frame.event === COMMANDER_SSE_EVENTS.summary) {
+              applyCommanderSummary(data as unknown as CommanderSummaryFrame)
             } else if (frame.event === CHAT_SSE_EVENTS.message) {
               const msg = asMessage(data)
               if (sid === activeId.value) {
-                messages.value.push({
-                  ...msg,
-                  payload: msg.payload ?? pendingCard,
-                })
+                const runId = commanderRunIdOfMessage(msg)
+                const index = runId ? commanderMessageIndex(runId) : -1
+                if (index >= 0) {
+                  // 同一 run 的计划占位/汇总占位原地替换，绝不重复插入消息
+                  const previous = messages.value[index]
+                  messages.value.splice(index, 1, {
+                    ...msg,
+                    content: msg.content || previous.content,
+                    created_at: msg.created_at || previous.created_at,
+                    payload: (msg.payload ?? previous.payload) as ChatCard,
+                  })
+                } else {
+                  messages.value.push({
+                    ...msg,
+                    payload: msg.payload ?? pendingCard,
+                  })
+                }
               }
             } else if (frame.event === CHAT_SSE_EVENTS.error) {
               streamError.value = String(data.message ?? '执行失败')
@@ -953,7 +1601,10 @@ function buildChatStore(scope: string) {
      * 无当前会话时先自动建会话；失败撤回乐观气泡（视图保留草稿便于重发）。
      * 返回是否发送成功，供输入区决定是否清空草稿。
      */
-    async function send(content: string): Promise<boolean> {
+    async function send(
+      content: string,
+      overrides: { execution_mode?: ExecutionMode } = {},
+    ): Promise<boolean> {
       const draft = content.trim()
       if (!draft || sending.value) return false
       // 点「新对话」到会话建好之间有个窗口：这段时间发出的消息必须等会话建好再发，
@@ -975,7 +1626,7 @@ function buildChatStore(scope: string) {
       const sentAttachments = attachments.value.slice()
       const attIds = sentAttachments.map(a => a.id)
       // 本轮的点名与策略在发送瞬间定格：发完即清，下一条回到自动路由
-      const extras = currentExtras()
+      const extras: CommanderSendExtras = { ...currentExtras(), ...overrides }
       const seq = ++roundSeq
       sending.value = true
       liveSteps.value = []
@@ -1266,6 +1917,13 @@ function buildChatStore(scope: string) {
       send,
       sendQa,
       sendViaStream,
+      /* 指挥官运行视图与动作（v3.38）：按 run_id 隔离，SSE 与轮询共同更新 */
+      commanderRuns,
+      commanderRun,
+      executeCommanderRun,
+      retryCommanderRun,
+      cancelCommanderRun,
+      applyCommanderPlanUpdate,
       /* 技能卡片：状态与动作都在实例内，多面板互不串台 */
       skillCardOp,
       installSkillFromCard,

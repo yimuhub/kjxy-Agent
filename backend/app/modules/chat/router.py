@@ -55,6 +55,8 @@ class SessionCreateRequest(BaseModel):
     title: str | None = Field(default=None, max_length=200)
     target: Literal["auto", "agent", "team"] = "auto"
     target_code: str | None = Field(default=None, max_length=100)
+    # 0058：不带则按指挥官设置里的「新会话默认模式」决定
+    execution_mode: Literal["standard", "commander"] | None = None
 
 
 class KnowledgeAskRequest(BaseModel):
@@ -80,6 +82,8 @@ class SessionUpdateRequest(BaseModel):
     archived: bool | None = None
     unread: bool | None = None
     approval_mode: Literal["ask", "auto", "full"] | None = None
+    # 0058：会话执行模式（普通 / 指挥官）；指挥官被关闭时服务端降级为 standard
+    execution_mode: Literal["standard", "commander"] | None = None
 
     @field_validator("title")
     @classmethod
@@ -194,6 +198,7 @@ def create_session(
         title=payload.title,
         target=payload.target,
         target_code=payload.target_code,
+        execution_mode=payload.execution_mode,
     )
     db.commit()
     return ok(service.session_out(db, session), request)
@@ -286,6 +291,7 @@ def update_session(
         archived=payload.archived,
         unread=payload.unread,
         approval_mode=payload.approval_mode,
+        execution_mode=payload.execution_mode,
         roles=list(ctx.roles),
         request_id=ctx.request_id,
     )
@@ -394,6 +400,7 @@ async def send_message(
         content=payload.content,
         attachment_ids=payload.attachment_ids,
         target_code=payload.target_code,
+        execution_mode=payload.execution_mode,
     )
     return ok(data, request)
 
@@ -436,6 +443,8 @@ async def send_message_stream(
     user_msg = service.persist_user_message(
         db, ctx=ctx, session=session, content=content, attachments=atts
     )
+    # 执行模式随本轮请求落库：流执行器自开短连接后会按会话上的真实值跑
+    execution_mode = service.apply_execution_mode(db, session, payload.execution_mode)
     stream_session_id = session.id
     stream_attachment_ids = [a.id for a in atts]
     db.commit()  # 发言先落库：执行失败也不丢发言痕迹
@@ -446,6 +455,7 @@ async def send_message_stream(
         attachment_ids=stream_attachment_ids,
         user_message=service.message_out(user_msg),
         target_code=payload.target_code,
+        execution_mode=execution_mode,
     )
 
 

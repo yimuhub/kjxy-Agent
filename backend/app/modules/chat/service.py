@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
@@ -32,6 +33,7 @@ from app.modules.chat import intent as intent_service
 from app.modules.chat.models import (
     APPROVAL_ASK,
     APPROVAL_ESCALATION_ROLES,
+    APPROVAL_FULL,
     MSG_FAILED,
     MSG_OK,
     ROLE_ASSISTANT,
@@ -48,9 +50,15 @@ log = get_logger(__name__)
 
 TITLE_CAP = 60
 CONTENT_CAP = 8000
+#: 指挥官重规划的会话上下文：最近几条消息 + 总字符上限，避免把整段历史塞进规划提示
+COMMANDER_HISTORY_LIMIT = 6
+COMMANDER_HISTORY_CHARS = 2500
 # 助手侧单独放宽：一份完整方案（八章 + 分步细则）常超 8000 字，按输入上限切它会静默丢章节
 ASSISTANT_CONTENT_CAP = 20000
 ROUTED_LOCAL = "local"
+
+#: 指挥官事件回调：(event, payload)，event ∈ commander-plan|subtask-status|commander-summary
+CommanderEventCallback = Callable[[str, dict[str, Any]], None]
 
 
 def _utcnow() -> datetime:
@@ -263,6 +271,8 @@ def session_out(
         "archived_at": session.archived_at.isoformat() if session.archived_at else None,
         "unread": bool(session.unread),
         "approval_mode": session.approval_mode or APPROVAL_ASK,
+        # 0058：standard=普通对话；commander=指挥官编排（前端据此切换输入区提示）
+        "execution_mode": getattr(session, "execution_mode", None) or "standard",
         "parent_session_id": session.parent_session_id,
         "parent_message_id": session.parent_message_id,
     }
@@ -383,6 +393,51 @@ def get_session(db: Session, *, yard_id: str, created_by: str, session_id: str) 
     return row
 
 
+def _commander_settings(db: Session, yard_id: str) -> dict[str, Any] | None:
+    """读指挥官设置；老库未迁移/脏值时返回 None（调用方按关闭处理）。"""
+    try:
+        from app.modules.commander import settings as commander_settings
+
+        return commander_settings.settings_for(db, yard_id)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _commander_enabled(db: Session, yard_id: str) -> bool:
+    cfg = _commander_settings(db, yard_id)
+    return bool(cfg and cfg.get("enabled"))
+
+
+def _default_execution_mode(db: Session, yard_id: str) -> str:
+    """新会话的默认执行模式：指挥官可用且设为默认时进 commander，否则 standard。
+
+    读设置失败（未迁移的老库/脏值）一律回落 standard——建会话不能因为一个
+    可选项读不出来就 500。
+    """
+    cfg = _commander_settings(db, yard_id)
+    if cfg and cfg.get("enabled") and cfg.get("default_mode"):
+        return "commander"
+    return "standard"
+
+
+def apply_execution_mode(db: Session, session: ChatSession, mode: str | None) -> str:
+    """把请求带的执行模式落到会话上并返回真实生效值。
+
+    - 只认 standard/commander（schema 已校验，这里兜底防内部调用传脏值）；
+    - 指挥官被关闭时 commander 静默降级为 standard（响应体里就是降级后的值）；
+    - 未传则沿用会话当前值；但当前值是 commander 而指挥官已被关掉时同样降级，
+      否则用户关掉开关后旧会话每次发消息都撞 403。
+    """
+    current = getattr(session, "execution_mode", None) or "standard"
+    requested = mode if mode in ("standard", "commander") else current
+    effective = requested
+    if requested == "commander" and not _commander_enabled(db, session.yard_id):
+        effective = "standard"
+    if effective != current:
+        session.execution_mode = effective
+    return effective
+
+
 def create_session(
     db: Session,
     *,
@@ -392,14 +447,21 @@ def create_session(
     request_id: str = "",
     target: str = "auto",
     target_code: str | None = None,
+    execution_mode: str | None = None,
 ) -> ChatSession:
     clean = (title or "").strip()[:200] or None
+    mode = (
+        execution_mode
+        if execution_mode in ("standard", "commander")
+        else _default_execution_mode(db, yard_id)
+    )
     session = ChatSession(
         yard_id=yard_id,
         created_by=created_by,
         title=clean,
         target=target or "auto",
         target_code=(target_code or None) if target in {"agent", "team"} else None,
+        execution_mode=mode,
     )
     db.add(session)
     db.flush()
@@ -478,6 +540,7 @@ def update_session_flags(
     archived: bool | None = None,
     unread: bool | None = None,
     approval_mode: str | None = None,
+    execution_mode: str | None = None,
     roles: tuple[str, ...] | list[str] = (),
     request_id: str = "",
 ) -> ChatSession:
@@ -523,6 +586,23 @@ def update_session_flags(
             changed["approval_mode_downgraded"] = {"from": approval_mode, "to": APPROVAL_ASK}
         session.approval_mode = requested
         changed["approval_mode"] = requested
+
+    if execution_mode is not None:
+        if execution_mode not in ("standard", "commander"):
+            raise AppError(
+                "INVALID_REQUEST",
+                f"非法的执行模式：{execution_mode}。",
+                http_status=400,
+                details={"allowed": ["standard", "commander"]},
+            )
+        requested_mode = execution_mode
+        if requested_mode == "commander" and not _commander_enabled(db, yard_id):
+            # 指挥官被关闭时不报错、降级为普通：前端误传不能让整个 PATCH 失败，
+            # 但响应必须是降级后的真实值（响应不撒谎）
+            requested_mode = "standard"
+            changed["execution_mode_downgraded"] = {"from": execution_mode, "to": "standard"}
+        session.execution_mode = requested_mode
+        changed["execution_mode"] = requested_mode
 
     if changed:
         session.updated_at = _utcnow()
@@ -681,6 +761,7 @@ def fork_session(
         target=source.target or "auto",
         target_code=source.target_code,
         approval_mode=source.approval_mode or APPROVAL_ASK,
+        execution_mode=getattr(source, "execution_mode", None) or "standard",
         parent_session_id=source.id,
         parent_message_id=anchor.id,
     )
@@ -1587,6 +1668,245 @@ def approval_card(requests: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _bridge_commander_events(
+    cb: CommanderEventCallback | None,
+    run_id: str,
+) -> Callable[[str, dict[str, Any]], None] | None:
+    """把 commander 服务的事件名（plan/subtask/summary）映射成 SSE 帧名。
+
+    服务层的 payload 是「运行/子任务对象」本身（plan/subtask 不带 run_id、
+    子任务主键叫 id），这里补齐帧契约字段，前端才能按 run_id 归档。
+    """
+    if cb is None:
+        return None
+    mapping = {
+        "plan": "commander-plan",
+        "subtask": "subtask-status",
+        "summary": "commander-summary",
+    }
+
+    def _bridge(kind: str, payload: dict[str, Any]) -> None:
+        event = mapping.get(kind)
+        if not event:
+            return
+        data = {"run_id": run_id, **payload}
+        if kind == "subtask":
+            data["subtask_id"] = str(payload.get("id") or payload.get("subtask_id") or "")
+        cb(event, data)
+
+    return _bridge
+
+
+def _commander_token_usage(tokens: int) -> dict[str, Any]:
+    total = max(0, int(tokens or 0))
+    return {
+        "input_tokens": 0,
+        "output_tokens": total,
+        "total_tokens": total,
+        "model": "commander",
+        "estimated": False,
+    }
+
+
+def _commander_history_context(db: Session, session: ChatSession, current: str) -> str:
+    """把最近几条对话压成规划上下文。
+
+    「第 3 页排版不好」这类反馈必须能对上上一版成品，否则指挥官会当成新任务重做。
+    只取最近 ``COMMANDER_HISTORY_LIMIT`` 条（排除本轮刚落的用户消息），
+    并把上一条答复里的产物标题一并带上，总长限制在 ``COMMANDER_HISTORY_CHARS``。
+    """
+    rows = list(
+        db.scalars(
+            select(ChatMessage)
+            .where(ChatMessage.session_id == session.id)
+            .order_by(ChatMessage.seq.desc())
+            .limit(COMMANDER_HISTORY_LIMIT + 1)
+        )
+    )
+    rows.reverse()
+    if rows and rows[-1].role == ROLE_USER and (rows[-1].content or "").strip() == current.strip():
+        rows.pop()
+    lines: list[str] = []
+    for msg in rows[-COMMANDER_HISTORY_LIMIT:]:
+        text = (msg.content or "").strip()
+        if not text:
+            continue
+        if msg.role == ROLE_USER:
+            label = "用户"
+        elif msg.routed_by == "commander":
+            label = "指挥官"
+        else:
+            label = "助手"
+        item = f"[{label}] {text[:600]}"
+        payload = msg.payload_json if isinstance(msg.payload_json, dict) else {}
+        artifacts = payload.get("artifacts")
+        if isinstance(artifacts, list):
+            titles = [
+                str(art.get("title") or art.get("name") or "").strip()
+                for art in artifacts
+                if isinstance(art, dict)
+            ]
+            titles = [title for title in titles if title][:5]
+            if titles:
+                item += f"\n（上一版产物：{'、'.join(titles)}）"
+        lines.append(item)
+    if not lines:
+        return ""
+    return (
+        "最近对话（用于理解用户对上一版成品的修改意见；只作上下文，不要重复交付）：\n"
+        + "\n".join(lines)
+    )[:COMMANDER_HISTORY_CHARS]
+
+
+async def _run_commander_turn(
+    db: Session,
+    *,
+    ctx: YardContext,
+    session: ChatSession,
+    content: str,
+    attachments: list[ChatAttachment],
+    steps: StepRecorder,
+    on_step: StepCallback | None,
+    on_commander_event: CommanderEventCallback | None,
+) -> dict[str, Any]:
+    """指挥官一轮：拆解计划 →（预览或）并行执行 → 汇总落库。
+
+    commander 模块全部懒导入：它是可选增强，模块自身出问题不能连普通单聊一起挂。
+    """
+    from app.modules.commander import service as commander_service
+    from app.modules.commander import settings as commander_settings
+
+    cfg = commander_settings.settings_for(db, session.yard_id)
+    display_name = str(cfg.get("display_name") or "指挥官")
+    context = attachments_service.build_attachment_context(attachments) if attachments else ""
+    history = _commander_history_context(db, session, content)
+    if history:
+        context = f"{context}\n\n{history}".strip() if context else history
+    emit = on_step or steps.emit
+
+    emit(PHASE_ROUTING, f"{display_name}正在拆解任务", STEP_RUNNING)
+    run = await commander_service.create_plan_run(
+        db, ctx=ctx, session_id=session.id, user_content=content, context=context
+    )
+    plan_json = getattr(run, "plan_json", None) or {}
+    clarify = [str(q).strip() for q in (plan_json.get("clarify") or []) if str(q).strip()]
+    # 完全控制 = 不问：连澄清也跳过，按最合理假设直接开跑；只有轮尽才回报缺口
+    if (
+        clarify
+        and cfg.get("clarify_enabled", False)
+        and (session.approval_mode or APPROVAL_ASK) != APPROVAL_FULL
+    ):
+        # 目标太笼统：先问 1–2 个问题再拆，避免拆出一堆空转子任务
+        text = f"为了把任务拆准，{display_name}需要先确认：\n" + "\n".join(
+            f"{i}. {q}" for i, q in enumerate(clarify, start=1)
+        )
+        emit(PHASE_ROUTING, f"信息不足，先确认 {len(clarify)} 个问题", STEP_DONE)
+        choice = {"kind": "commander", "id": run.id, "name": display_name}
+        plan_tokens = _commander_token_usage(run.tokens_total)
+        assistant_msg = persist_assistant_message(
+            db,
+            ctx=ctx,
+            session=session,
+            content=text,
+            routed_by="commander",
+            choice=choice,
+            reason="指挥官澄清",
+            payload=None,
+            steps=steps.steps or None,
+            token_usage=plan_tokens,
+        )
+        return {
+            "assistant_message": assistant_msg,
+            "content": text,
+            "routed_by": "commander",
+            "choice": choice,
+            "reason": "指挥官澄清",
+            "payload": None,
+            "steps": steps.steps,
+            "citations": [],
+            "token_usage": plan_tokens,
+        }
+
+    _, planned_subtasks = commander_service.get_run(db, ctx.yard_id, run.id)
+    plan = commander_service.plan_message_payload(run, planned_subtasks)
+    if on_commander_event is not None:
+        on_commander_event("commander-plan", plan)
+    count = len(plan.get("subtasks") or [])
+    emit(PHASE_ROUTING, f"计划已生成：{count} 个子任务", STEP_DONE)
+
+    choice = {"kind": "commander", "id": run.id, "name": display_name}
+    plan_tokens = _commander_token_usage(run.tokens_total)
+
+    if cfg.get("preview_plan") and (session.approval_mode or APPROVAL_ASK) != APPROVAL_FULL:
+        notice = f"已生成计划：共 {count} 个子任务，请确认后开始执行。"
+        payload = {**plan, "run_id": run.id, "status": run.status}
+        assistant_msg = persist_assistant_message(
+            db,
+            ctx=ctx,
+            session=session,
+            content=notice,
+            routed_by="commander",
+            choice=choice,
+            reason="指挥官计划待确认",
+            payload=payload,
+            steps=steps.steps or None,
+            token_usage=plan_tokens,
+        )
+        return {
+            "assistant_message": assistant_msg,
+            "content": notice,
+            "routed_by": "commander",
+            "choice": choice,
+            "reason": "指挥官计划待确认",
+            "payload": payload,
+            "steps": steps.steps,
+            "citations": [],
+            "token_usage": plan_tokens,
+        }
+
+    # create_plan_run 内部已 commit；执行器自开短连接，本会话不能持有写事务
+    emit(PHASE_GENERATING, f"{display_name}正在调度子任务并行执行", STEP_RUNNING)
+    summary = await commander_service.execute_run(
+        run.id, on_event=_bridge_commander_events(on_commander_event, run.id)
+    )
+    emit(PHASE_GENERATING, "执行完成，正在汇总", STEP_DONE)
+
+    # 执行器在另一条连接上提交，本会话必须清缓存再读，否则拿到的是计划阶段的旧状态
+    db.expire_all()
+    latest_run, latest_subtasks = commander_service.get_run(db, ctx.yard_id, run.id)
+    payload = {
+        "type": "commander_summary",
+        **commander_service.run_out(latest_run, latest_subtasks),
+        "artifacts": summary.get("artifacts") or [],
+        "failed": summary.get("failed") or [],
+    }
+    text = str(summary.get("answer") or f"{display_name}已完成本轮编排。")
+    token_usage = _commander_token_usage(summary.get("tokens_total"))
+    assistant_msg = persist_assistant_message(
+        db,
+        ctx=ctx,
+        session=session,
+        content=text,
+        routed_by="commander",
+        choice=choice,
+        reason="指挥官编排",
+        payload=payload,
+        steps=steps.steps or None,
+        token_usage=token_usage,
+    )
+    return {
+        "assistant_message": assistant_msg,
+        "content": text,
+        "routed_by": "commander",
+        "choice": choice,
+        "reason": "指挥官编排",
+        "payload": payload,
+        "steps": steps.steps,
+        "citations": [],
+        "token_usage": token_usage,
+    }
+
+
 async def run_and_persist(
     db: Session,
     *,
@@ -1597,6 +1917,8 @@ async def run_and_persist(
     on_step: StepCallback | None = None,
     recorder: StepRecorder | None = None,
     target_code: str | None = None,
+    execution_mode: str | None = None,
+    on_commander_event: CommanderEventCallback | None = None,
 ) -> dict[str, Any]:
     ctx = scoped_ctx(ctx, session)
     steps = recorder or StepRecorder()
@@ -1606,7 +1928,20 @@ async def run_and_persist(
         if on_step is not None:
             on_step(phase, detail, status)
 
+    mode = apply_execution_mode(db, session, execution_mode)
+
     try:
+        if mode == "commander" and target_code is None:
+            return await _run_commander_turn(
+                db,
+                ctx=ctx,
+                session=session,
+                content=content,
+                attachments=attachments,
+                steps=steps,
+                on_step=_cb,
+                on_commander_event=on_commander_event,
+            )
         outcome = await execute_turn(
             db,
             ctx=ctx,
@@ -1699,6 +2034,8 @@ async def send_message(
     attachment_ids: list[str] | None = None,
     on_step: StepCallback | None = None,
     target_code: str | None = None,
+    execution_mode: str | None = None,
+    on_commander_event: CommanderEventCallback | None = None,
 ) -> dict[str, Any]:
     content = (content or "").strip()[:CONTENT_CAP]
     if not content:
@@ -1720,6 +2057,8 @@ async def send_message(
         attachments=attachments,
         on_step=on_step,
         target_code=target_code,
+        execution_mode=execution_mode,
+        on_commander_event=on_commander_event,
     )
     assistant_msg = outcome["assistant_message"]
     log_audit(
