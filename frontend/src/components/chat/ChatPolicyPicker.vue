@@ -77,15 +77,15 @@
 </script>
 
 <style scoped>
+  /* 答法选择：并进会话信息行，纯文字 + 轻胶囊，不再单独成块 */
   .policy-picker {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
     gap: 8px;
-    padding: 6px 8px;
-    background: var(--ds-glass);
-    border: 1px solid var(--ds-border);
-    border-radius: var(--ds-radius-control);
+    padding: 0;
+    background: transparent;
+    border: 0;
   }
 
   .picker-label {
@@ -103,24 +103,31 @@
     color: var(--ds-text-3);
   }
 
-  .policy-picker.blocked {
-    border-color: color-mix(in srgb, var(--ds-warning) 45%, transparent);
-  }
-
   .policy-picker.blocked .picker-hint {
     color: var(--ds-warning);
   }
 
   .policy-picker :deep(.el-radio-button__inner) {
-    background: var(--ds-bg-1);
-    border-color: var(--ds-border);
-    color: var(--ds-text-2);
+    display: inline-flex;
+    align-items: center;
+    height: 24px;
+    padding: 0 9px;
+    font-size: 11.5px;
+    color: var(--ds-text-3);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 7px !important;
     box-shadow: none !important;
   }
 
+  .policy-picker :deep(.el-radio-button__inner:hover) {
+    color: var(--ds-text-1);
+    background: var(--ds-glass);
+  }
+
   .policy-picker :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
-    background: var(--ds-bg-2);
-    border-color: var(--ds-border-strong);
-    color: var(--ds-accent-text);
+    color: var(--ds-text-1);
+    background: var(--ds-glass-strong);
+    border-color: transparent;
   }
 </style>

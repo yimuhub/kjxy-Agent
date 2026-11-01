@@ -36,8 +36,8 @@ test.describe('单助手会话锁定', () => {
     // 绑定提示 + 锁定后不提供的入口
     await expect(dialog.locator('.lock-note')).toContainText('已绑定')
     await expect(dialog.locator('.lock-note')).toContainText('仅由该助手')
-    await expect(dialog.locator('.qa-bar')).toHaveCount(0)
-    await expect(dialog.locator('.group-band')).toHaveCount(0)
+    await expect(dialog.locator('.mode-group')).toHaveCount(0)
+    await expect(dialog.locator('.member-bar')).toHaveCount(0)
     await expect(dialog.locator('.mention-bar')).toHaveCount(0)
 
     await dialog.locator('textarea').fill('你能做什么？')

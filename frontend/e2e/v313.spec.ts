@@ -71,7 +71,7 @@ test.describe('问答并入对话', () => {
     await page.getByRole('button', { name: '知识问答', exact: true }).click()
     await expect(page.getByRole('spinbutton', { name: '知识库检索条数' })).toBeVisible()
     // 问答模式收敛点名与班组，避免和通用对话重复
-    await expect(page.locator('.group-band')).toHaveCount(0)
+    await expect(page.locator('.member-bar')).toHaveCount(0)
 
     await page.getByRole('textbox', { name: '对话输入' }).fill('水稻分蘖期怎么管水？')
     await page.getByRole('textbox', { name: '对话输入' }).press('Enter')

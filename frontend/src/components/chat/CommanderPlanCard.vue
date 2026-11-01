@@ -21,10 +21,10 @@
 
     <el-alert
       v-if="planFallback"
-      type="warning"
+      :type="fallbackAlertType"
       :closable="false"
       show-icon
-      title="未能拆分任务，已退化为单助手直答；结果会说明本次未能拆分的原因。"
+      :title="fallbackNote"
     />
 
     <el-alert
@@ -288,6 +288,28 @@
 
   const goal = computed(() => props.run?.goal || props.plan.goal || '')
   const planFallback = computed(() => props.run?.planFallback ?? props.plan.plan_fallback ?? false)
+  /** 降级原因：clarify_disabled（模型想澄清但开关关闭）/ parse_failed / llm_error */
+  const planFallbackReason = computed(
+    () => props.run?.planFallbackReason || props.plan.plan_fallback_reason || '',
+  )
+  /**
+   * 降级说明：这是「计划层退化成单任务」，不是任务失败——单任务照样把活干完，
+   * 所以默认用中性 info；只有运行本身失败才回到警示色，避免和结果自相矛盾。
+   */
+  const fallbackNote = computed(() => {
+    const reason = planFallbackReason.value
+    if (reason === 'clarify_disabled') {
+      return '目标里有信息没写全，已按最合理假设按单任务执行；结果不符合预期时可补充具体要求再来一次。'
+    }
+    if (reason === 'llm_error') {
+      return '本轮规划模型暂时不可用，已改为单任务直接执行；交付结果不受影响。'
+    }
+    return '本轮计划没能拆成多步，已改为单任务直接执行；交付结果不受影响。'
+  })
+  const fallbackAlertType = computed<'warning' | 'info'>(() => {
+    const status = props.run?.status ?? props.plan.status
+    return status === 'failed' ? 'warning' : 'info'
+  })
   /**
    * 后端当前的计划载荷没有 preview 字段（设置里是 preview_plan），
    * 因此优先级是：载荷 preview → 设置兜底；执行开始后由 run.started 关掉按钮。

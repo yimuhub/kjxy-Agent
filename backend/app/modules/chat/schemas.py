@@ -64,6 +64,9 @@ class MessageSendRequest(BaseModel):
     target: str | None = Field(default=None, max_length=_GROUP_TARGET_CAP)
     target_code: str | None = Field(default=None, max_length=_MENTION_CAP)
     execution_mode: str | None = Field(default=None, max_length=12)
+    #: 澄清续跑：用户在澄清表单里补充信息后回传原 run_id，
+    #: 服务端把原目标与补充内容合并后重新规划，并跳过二次追问。
+    clarify_run_id: str | None = Field(default=None, max_length=36)
 
     @field_validator("content")
     @classmethod

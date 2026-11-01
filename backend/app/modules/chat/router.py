@@ -456,6 +456,7 @@ async def send_message_stream(
         user_message=service.message_out(user_msg),
         target_code=payload.target_code,
         execution_mode=execution_mode,
+        clarify_run_id=payload.clarify_run_id,
     )
 
 

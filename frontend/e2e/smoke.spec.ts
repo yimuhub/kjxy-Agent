@@ -69,7 +69,7 @@ test.describe('认证与导航', () => {
     await expect(page.getByRole('button', { name: '通用对话', exact: true })).toBeVisible()
     await expect(page.getByRole('textbox', { name: '对话输入' })).toBeVisible()
     // 问答模式下点名/班组入口收敛，避免出现两套问答
-    await expect(page.locator('.group-band')).toHaveCount(0)
+    await expect(page.locator('.member-bar')).toHaveCount(0)
   })
 
   test('全部业务页可加载且无运行时异常', async ({ page }) => {

@@ -38,8 +38,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # 单个子任务最多自主尝试轮数；轮尽才向用户报告能力缺口
     "remediate_rounds": 5,
     "auto_publish_agent": False,
-    # 默认不问澄清：目标笼统时先按最合理假设开跑，只有轮尽才报告缺口
-    "clarify_enabled": False,
+    # 信息不足时弹表单问清楚（受众/范围/格式），而不是猜一个接着跑；
+    # 「完全控制」模式下仍不问，按最合理假设直接执行
+    "clarify_enabled": True,
     # 每小院每天自动创建助手的上限，超出后回退到最接近的已有助手
     "daily_agent_limit": 10,
     "critic_enabled": False,

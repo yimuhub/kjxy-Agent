@@ -365,8 +365,10 @@ async def test_invalid_plan_fallback_creates_single_commander_task(env, monkeypa
         db, ctx=ctx, session_id="s-exec", user_content="帮我做一份销售提案"
     )
     _run, rows = commander_service.get_run(db, yard.id, run.id)
-    assert run.plan_json["fallback"] is True
-    assert len(rows) == 1
+    # 规划不可用不再算降级：走能力计划，仍由指挥官执行
+    assert run.plan_json["fallback"] is False
+    assert run.plan_json["assumed"] is True
+    assert len(rows) >= 1
     assert rows[0].agent_source == "commander"
 
 

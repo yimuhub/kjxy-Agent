@@ -104,7 +104,7 @@ async def test_commander_turn_previews_plan_without_executing(db_session, yard, 
     run = _fake_run()
     executed: list[str] = []
 
-    async def fake_create_plan(db, *, ctx, session_id, user_content, context=""):
+    async def fake_create_plan(db, *, ctx, session_id, user_content, context="", **_kw):
         return run
 
     def fake_get_run(db, yard_id, run_id):
@@ -162,7 +162,7 @@ async def test_commander_turn_executes_and_persists_summary(db_session, yard, mo
     run = _fake_run(tokens=30)
     executed: list[str] = []
 
-    async def fake_create_plan(db, *, ctx, session_id, user_content, context=""):
+    async def fake_create_plan(db, *, ctx, session_id, user_content, context="", **_kw):
         return run
 
     def fake_get_run(db, yard_id, run_id):
@@ -235,7 +235,7 @@ async def test_commander_turn_asks_clarifying_questions(db_session, yard, monkey
     executed: list[str] = []
     events: list[tuple[str, dict]] = []
 
-    async def fake_create_plan(db, *, ctx, session_id, user_content, context=""):
+    async def fake_create_plan(db, *, ctx, session_id, user_content, context="", **_kw):
         return run
 
     async def fake_execute(run_id, on_event=None):  # pragma: no cover - 澄清不得执行
@@ -268,10 +268,14 @@ async def test_commander_turn_asks_clarifying_questions(db_session, yard, monkey
     assert executed == []
     assert events == []  # 不推计划卡，只回一条提问消息
     assert outcome["reason"] == "指挥官澄清"
-    assert outcome["payload"] is None
+    # 载荷改成可渲染的表单：前端据此弹窗，答完按原 run 续跑
+    payload = outcome["payload"]
+    assert payload["type"] == "commander_clarify"
+    assert payload["run_id"] == run.id
+    assert [q["label"] for q in payload["questions"]] == ["面向哪些经销商？", "要几页？"]
     text = outcome["assistant_message"].content
     assert "面向哪些经销商？" in text and "要几页？" in text
-    assert outcome["assistant_message"].payload_json in (None, {})
+    assert outcome["assistant_message"].payload_json["type"] == "commander_clarify"
 
 
 @pytest.mark.asyncio
@@ -285,7 +289,7 @@ async def test_commander_clarify_disabled_falls_back_to_plan(db_session, yard, m
     run = _fake_run()
     run.plan_json = {"clarify": ["要不要问？"], "subtasks": [], "fallback": True}
 
-    async def fake_create_plan(db, *, ctx, session_id, user_content, context=""):
+    async def fake_create_plan(db, *, ctx, session_id, user_content, context="", **_kw):
         return run
 
     def fake_get_run(db, yard_id, run_id):
@@ -332,7 +336,7 @@ async def test_full_control_skips_clarify_and_executes(db_session, yard, monkeyp
     run.plan_json = {"clarify": ["要几页？"], "subtasks": [], "fallback": False}
     executed: list[str] = []
 
-    async def fake_create_plan(db, *, ctx, session_id, user_content, context=""):
+    async def fake_create_plan(db, *, ctx, session_id, user_content, context="", **_kw):
         return run
 
     def fake_get_run(db, yard_id, run_id):
@@ -423,7 +427,7 @@ async def test_commander_turn_injects_recent_artifacts_for_feedback(db_session, 
     run = _fake_run()
     captured: dict[str, str] = {}
 
-    async def fake_create_plan(db, *, ctx, session_id, user_content, context=""):
+    async def fake_create_plan(db, *, ctx, session_id, user_content, context="", **_kw):
         captured["context"] = context
         return run
 

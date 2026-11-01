@@ -103,10 +103,10 @@ test.describe('对话内指挥官编排', () => {
       await page.locator('.new-btn').click()
       await expect(page.locator('.chat-empty')).toBeVisible()
 
-      const bar = page.locator('.commander-bar')
+      const bar = page.locator('.exec-seg')
       await expect(bar).toBeVisible()
       await bar.getByText('指挥官', { exact: true }).click()
-      await expect(bar).toContainText('一句话说清目标即可')
+      await expect(page.locator('.composer-caption')).toContainText('一句话说清目标即可')
 
       await page
         .locator('textarea')

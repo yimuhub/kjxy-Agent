@@ -46,6 +46,7 @@ def _agent(
     visibility: str = "public",
     created_from: str = "manual",
     created_at: datetime | None = None,
+    bound_skills: list[str] | None = None,
 ) -> YardAgent:
     row = YardAgent(
         yard_id=yard.id,
@@ -56,7 +57,7 @@ def _agent(
         persona_prompt="你是助手。",
         task_prompt_template="回答：{{question}}",
         allowed_tools=[],
-        bound_skills=[],
+        bound_skills=list(bound_skills or []),
         knowledge_scopes=[],
         status=status,
         visibility=visibility,
@@ -132,19 +133,76 @@ async def test_rule_score_hits_published_agent(db_session, yard, ctx):
 
 @pytest.mark.asyncio
 async def test_deliverable_subtask_binds_commander(db_session, yard, ctx, monkeypatch):
+    """交付任务由指挥官渲染执行，但必须先确保有对应技能的责任人。"""
+
     async def must_not_create(*_args, **_kwargs):
-        raise AssertionError("交付任务不应触发自动创建助手")
+        raise AssertionError("本用例已存在带 PPT 技能的助手，不应再创建")
 
     monkeypatch.setattr(matcher, "_create_agent", must_not_create)
+    owner = _agent(
+        db_session,
+        yard,
+        code="ppt_owner",
+        name="PPT 制作专员",
+        description="负责演示文稿制作",
+        bound_skills=["office_ppt_deck"],
+    )
+    db_session.commit()
+    subtask = _subtask("生成 PPT 文件（.pptx），作为会话附件交付")
     picks = await matcher.assign_agents(
         db_session,
         ctx=ctx,
-        subtasks=[_subtask("生成 PPT 文件（.pptx），作为会话附件交付")],
+        subtasks=[subtask],
         settings=defaults(),
         plan_fallback=False,
     )
+    # 执行者仍是指挥官（直连 doc.generate，保证成功率）
     assert picks[0]["agent_source"] == "commander"
     assert picks[0]["agent_id"] is None
+    # 责任人落到计划上，供界面展示与下次复用
+    assert subtask["owner"]["agent_id"] == owner.id
+    assert subtask["owner"]["created"] is False
+
+
+@pytest.mark.asyncio
+async def test_missing_capability_owner_is_created_with_skills(db_session, yard, ctx, monkeypatch):
+    """团队里没有能做 PPT 的人时，自动创建一个并把 PPT 技能绑上。"""
+    from app.modules.agents.models import YardAgent
+
+    async def fake_create(db, *, ctx, text, settings):
+        agent = YardAgent(
+            yard_id=ctx.yard_id,
+            agent_code="auto_ppt_maker",
+            name="PPT 制作专家",
+            description=text,
+            emoji="🧩",
+            persona_prompt="你是 PPT 制作专家。",
+            task_prompt_template="回答：{{question}}",
+            allowed_tools=[],
+            status="published",
+            visibility="public",
+            created_by=ctx.user_id,
+            created_from="commander",
+            bound_skills=[],
+        )
+        db.add(agent)
+        db.flush()
+        return agent
+
+    monkeypatch.setattr(matcher, "_create_agent", fake_create)
+    subtask = _subtask("生成 PPT 文件（.pptx），作为会话附件交付")
+    await matcher.assign_agents(
+        db_session,
+        ctx=ctx,
+        subtasks=[subtask],
+        settings=defaults(),
+        plan_fallback=False,
+    )
+    owner = subtask["owner"]
+    assert owner["created"] is True
+    assert "office_ppt_deck" in owner["skills"]
+    created = db_session.query(YardAgent).filter_by(agent_code="auto_ppt_maker").one()
+    assert "office_ppt_deck" in (created.bound_skills or [])
 
 
 @pytest.mark.asyncio
@@ -555,3 +613,18 @@ async def test_daily_limit_without_candidates_uses_commander(db_session, yard, c
     assert called["n"] == 0
     assert picks[0]["agent_source"] == "commander"
     assert picks[0]["agent_id"] is None
+
+
+def test_ensure_skills_does_not_duplicate_existing(db_session, yard):
+    """已绑定的技能不再追加，避免提示词里同一技能出现两遍。"""
+    agent = _agent(
+        db_session,
+        yard,
+        code="ppt_dup",
+        name="PPT 助手",
+        description="演示文稿",
+        bound_skills=["office_ppt_deck"],
+    )
+    added = matcher._ensure_skills(db_session, agent, ["office_ppt_deck", "office_ppt_design"])
+    assert added == ["office_ppt_design"]
+    assert agent.bound_skills == ["office_ppt_deck", "office_ppt_design"]

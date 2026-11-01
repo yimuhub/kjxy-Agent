@@ -29,7 +29,7 @@ from app.core.logging import get_logger
 from app.modules.agents import agent_builder, declarative
 from app.modules.agents.models import CREATED_FROM_COMMANDER, YardAgent
 from app.modules.audit.service import log_audit
-from app.modules.commander import deliverables
+from app.modules.commander import deliverables, feasibility
 from app.modules.commander.models import (
     SOURCE_COMMANDER,
     SOURCE_EXISTING,
@@ -504,6 +504,127 @@ async def _create_agent(
     return agent
 
 
+def _owner_by_skills(
+    db: Session, *, yard_id: str, user_id: str, skill_codes: list[str]
+) -> YardAgent | None:
+    """团队里已绑定目标技能、可见且已发布的助手（优先最近使用过的）。"""
+    if not skill_codes:
+        return None
+    wanted = set(skill_codes)
+    rows = db.scalars(
+        select(YardAgent)
+        .where(
+            YardAgent.yard_id == yard_id,
+            YardAgent.status == "published",
+            or_(YardAgent.visibility == "public", YardAgent.created_by == user_id),
+        )
+        .order_by(YardAgent.updated_at.desc())
+        .limit(REUSE_SCAN_LIMIT)
+    )
+    for agent in rows:
+        bound = {str(s) for s in (agent.bound_skills or [])}
+        if bound & wanted:
+            return agent
+    return None
+
+
+def _ensure_skills(db: Session, agent: YardAgent, codes: list[str]) -> list[str]:
+    """补齐责任人 Agent 的技能绑定；返回实际新增的技能编码。
+
+    绑定表里同时存在两种写法：``skill:<id>``（安装时的引用）与技能 code。
+    agent_builder 自动匹配绑的是前者，所以这里要先把 id 映射回 code 再判重，
+    否则同一项技能会被绑两遍，提示词里也会重复出现。
+    """
+    bound = [str(s) for s in (agent.bound_skills or [])]
+    if not codes:
+        return []
+    from sqlalchemy import select as _select
+
+    from app.modules.market.models import MarketItem
+
+    skill_refs = {item for item in bound if item.startswith("skill:")}
+    if skill_refs:
+        rows = db.execute(
+            _select(MarketItem.code, MarketItem.id).where(
+                MarketItem.yard_id == agent.yard_id, MarketItem.code.in_(codes)
+            )
+        ).all()
+        already = {code for code, item_id in rows if f"skill:{item_id}" in skill_refs}
+    else:
+        already = set()
+    added = [code for code in codes if code and code not in bound and code not in already]
+    if added:
+        agent.bound_skills = [*bound, *added]
+        db.add(agent)
+    return added
+
+
+async def _capability_owner(
+    db: Session,
+    *,
+    ctx: YardContext,
+    subtask: dict[str, Any],
+    settings: dict[str, Any],
+    created_today: int,
+) -> tuple[dict[str, Any] | None, int]:
+    """为一个能力型子任务准备常驻责任人：先复用，后创建。
+
+    责任人只负责「这件事归谁」，实际文件生成仍由指挥官直连渲染器执行——
+    这样既有明确的人负责、能沉淀复用，又不会把成功率押在某个助手会不会
+    调 ``doc.generate`` 上。
+
+    返回 (责任人摘要, 本次新增创建数)。
+    """
+    caps = feasibility.detect_capabilities(
+        " ".join(str(subtask.get(key) or "") for key in ("title", "instruction", "expected_output"))
+    )
+    skills = feasibility.skill_codes_for(caps)
+    existing = _owner_by_skills(db, yard_id=ctx.yard_id, user_id=ctx.user_id, skill_codes=skills)
+    if existing is not None:
+        return (
+            {
+                "agent_id": existing.id,
+                "agent_code": existing.agent_code,
+                "agent_name": existing.name,
+                "created": False,
+                "skills": skills,
+            },
+            0,
+        )
+
+    if not settings.get("auto_create_agent"):
+        return None, 0
+    limit = int(settings.get("daily_agent_limit") or DEFAULT_DAILY_AGENT_LIMIT)
+    if created_today >= limit:
+        log.warning("commander capability owner skipped: daily agent limit reached")
+        return None, 0
+
+    labels = [cap.label for code in caps if (cap := feasibility.capability(code)) is not None]
+    topic = "、".join(labels) or "文档交付"
+    title = str(subtask.get("title") or "").strip()
+    utterance = f"{topic}专家，负责{title or topic}：按需求产出可直接交付的成品并自检质量。"
+    agent = await _create_agent(db, ctx=ctx, text=utterance, settings=settings)
+    if agent is None:
+        return None, 0
+    added = _ensure_skills(db, agent, skills)
+    log.info(
+        "commander capability owner created: agent=%s skills=%s added=%s",
+        agent.agent_code,
+        len(skills),
+        added,
+    )
+    return (
+        {
+            "agent_id": agent.id,
+            "agent_code": agent.agent_code,
+            "agent_name": agent.name,
+            "created": True,
+            "skills": skills,
+        },
+        1,
+    )
+
+
 def _closest_pick(
     text: str,
     candidates: list[YardAgent],
@@ -527,19 +648,36 @@ async def assign_agents(
     """为每个子任务选一个执行者；返回与 subtasks 等长的绑定列表。"""
     candidates = match_candidates(db, yard_id=ctx.yard_id, user_id=ctx.user_id)
     stats = agent_stats(db, ctx.yard_id)
-    auto_create = bool(settings.get("auto_create_agent")) and not plan_fallback
+    # 兜底规划同样允许补人：降级过的计划更需要一个明确责任人，否则永远补不上能力
+    auto_create = bool(settings.get("auto_create_agent"))
     daily_limit = int(settings.get("daily_agent_limit") or DEFAULT_DAILY_AGENT_LIMIT)
     created_today = daily_created_count(db, ctx.yard_id) if auto_create else 0
     picks: list[dict[str, Any]] = []
     for subtask in subtasks:
+        # 计划里显式指定指挥官执行的（能力缺口说明、交付物渲染）不再选兵
+        if str(subtask.get("executor") or "") == "commander":
+            picks.append(_commander_pick())
+            continue
         # 文件交付任务由指挥官确定性执行（doc.generate 直连文档渲染），
-        # 不把「没有文档工具」的助手硬绑上去，也不为此浪费一次自动创建额度。
+        # 但会先确保团队里有对应技能的责任人：没有就建一个并绑定技能，
+        # 下次同类任务直接复用这个人。责任人不承担渲染，只保证「有人负责」。
         fmt = deliverables.subtask_format(subtask)
         if fmt:
+            owner, created = await _capability_owner(
+                db,
+                ctx=ctx,
+                subtask=subtask,
+                settings=settings,
+                created_today=created_today,
+            )
+            created_today += created
+            if owner is not None:
+                subtask["owner"] = owner
             log.info(
-                "commander match seq=%s deliverable=%s executor=commander",
+                "commander match seq=%s deliverable=%s executor=commander owner=%s",
                 subtask.get("seq"),
                 fmt,
+                (owner or {}).get("agent_name") or "-",
             )
             picks.append(_commander_pick())
             continue

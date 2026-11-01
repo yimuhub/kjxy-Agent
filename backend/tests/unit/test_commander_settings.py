@@ -27,7 +27,7 @@ def test_defaults_are_complete_and_stable(db_session, yard):
     assert cfg["token_budget"] == 120000
     assert cfg["supplier_id"] is None
     # v3.40：默认不问澄清、失败自主补救，一句话目标直接开跑
-    assert cfg["clarify_enabled"] is False
+    assert cfg["clarify_enabled"] is True
     assert cfg["preview_plan"] is False
     assert cfg["auto_remediate"] is True
     assert cfg["remediate_rounds"] == 5

@@ -91,6 +91,66 @@ def _str_list(raw: Any, *, limit: int = 10, cap: int = 200) -> list[str]:
     return out
 
 
+#: 澄清项允许的交互形态：单选/多选/短文本
+CLARIFY_TYPES: tuple[str, ...] = ("single", "multi", "text")
+
+
+def _clarify_item(raw: Any, *, position: int) -> dict[str, Any] | None:
+    """把模型输出的一条澄清整理成可直接渲染的表单项。
+
+    兼容三种历史写法：纯字符串、``{"question": "..."}``、结构化
+    ``{"key","label","type","options"}``。前端按 ``type`` 渲染 chips / 输入框。
+    """
+    if isinstance(raw, str):
+        question = raw.strip()
+        if not question:
+            return None
+        return {
+            "key": f"q{position}",
+            "label": question[:200],
+            "type": "text",
+            "options": [],
+            "placeholder": "直接输入你的要求",
+            "allow_custom": True,
+            "required": False,
+        }
+    if not isinstance(raw, dict):
+        return None
+    label = str(raw.get("label") or raw.get("question") or raw.get("title") or "").strip()
+    if not label:
+        return None
+    raw_type = str(raw.get("type") or "").strip().lower()
+    options = _str_list(raw.get("options"), limit=8, cap=60)
+    if raw_type not in CLARIFY_TYPES:
+        raw_type = "single" if options else "text"
+    if raw_type in ("single", "multi") and not options:
+        raw_type = "text"
+    key = str(raw.get("key") or "").strip()
+    key = re.sub(r"[^a-zA-Z0-9_]+", "_", key).strip("_")[:40] or f"q{position}"
+    return {
+        "key": key,
+        "label": label[:200],
+        "type": raw_type,
+        "options": options,
+        "placeholder": str(raw.get("placeholder") or "").strip()[:120],
+        "allow_custom": bool(raw.get("allow_custom", True)),
+        "required": bool(raw.get("required", False)),
+    }
+
+
+def _clarify_list(raw: Any, *, limit: int = 2) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for item in raw:
+        if len(out) >= limit:
+            break
+        parsed = _clarify_item(item, position=len(out) + 1)
+        if parsed is not None:
+            out.append(parsed)
+    return out
+
+
 def normalize_plan(
     data: dict[str, Any] | None,
     *,
@@ -106,7 +166,7 @@ def normalize_plan(
         return None
 
     goal = str(data.get("goal") or fallback_goal or "").strip()[:500]
-    clarify = _str_list(data.get("clarify"), limit=10, cap=200)[:2]
+    clarify = _clarify_list(data.get("clarify"), limit=2)
 
     raw_tasks = data.get("subtasks")
     if not isinstance(raw_tasks, list):
@@ -174,13 +234,107 @@ def normalize_plan(
     }
 
 
+def capability_plan(
+    user_content: str,
+    *,
+    goal: str | None = None,
+    fmt: str | None = None,
+    capabilities: list[str] | None = None,
+    reason: str = "",
+) -> dict[str, Any]:
+    """能力范围内的兜底计划：保证「有活可干」，而不是退化成单助手直答。
+
+    与 :func:`fallback_plan` 的区别是语义：这不是降级。规划模型不可用或想先追问
+    时，只要目标在系统能力范围内（文档/表格/PPT/图片/视频/检索/分析），就按
+    能力目录直接排出可执行任务：
+
+    - 有交付格式 → 「整理内容 → 生成文件」两步，附依赖关系；
+    - 无交付格式但有检索/分析 → 单任务，指令里写清输出形态；
+    - 什么都没有 → 单任务直答（``assumed=True``，界面按中性说明展示）。
+    """
+    text = (user_content or "").strip()
+    caps = list(capabilities or [])
+    subtasks: list[dict[str, Any]] = []
+    if fmt:
+        need = deliverables.clean_requirement(text) or text or "按用户需求生成"
+        subtasks.append(
+            {
+                "seq": 1,
+                "title": "梳理交付内容",
+                "instruction": (
+                    f"围绕用户目标整理可交付内容：{need}\n"
+                    "要求：结论先行、结构完整；数据缺失处标注「待补充」，不得编造数字。"
+                ),
+                "expected_output": "结构化要点（含标题、核心结论、支撑数据与下一步建议）",
+                "agent_hint": "内容整理",
+                "agent_code": "",
+                "depends_on": [],
+            }
+        )
+        subtasks.append(
+            deliverables.build_task(need, fmt, seq=2, depends_on=[1]),
+        )
+    elif "web" in caps or "analysis" in caps or "kb" in caps:
+        subtasks.append(
+            {
+                "seq": 1,
+                "title": "检索与分析",
+                "instruction": (
+                    f"围绕用户目标检索可用资料并给出结论：{text or '用户目标'}\n"
+                    "要求：先给结论，再给依据；标注来源；资料不足时明确说明缺口。"
+                ),
+                "expected_output": "可直接使用的答复（含结论、依据与建议）",
+                "agent_hint": "检索分析",
+                "agent_code": "",
+                "depends_on": [],
+            }
+        )
+    else:
+        subtasks.append(
+            {
+                "seq": 1,
+                "title": "完成用户请求",
+                "instruction": text or "完成用户请求",
+                "expected_output": "直接可用的答复与产物",
+                "agent_hint": "",
+                "agent_code": "",
+                "depends_on": [],
+            }
+        )
+
+    plan: dict[str, Any] = {
+        "goal": (goal or text or "完成用户请求")[:500],
+        "success_criteria": [],
+        "assumptions": [],
+        "merge_notes": "",
+        "fallback": False,
+        "assumed": True,
+        "assumed_reason": reason,
+        "capabilities": caps,
+        "subtasks": subtasks,
+        "clarify": [],
+    }
+    if fmt:
+        plan["deliverable"] = {"format": fmt, "label": deliverables.label(fmt)}
+    return plan
+
+
 def fallback_plan(
-    user_content: str, *, goal: str | None = None, deliverable: str | None = None
+    user_content: str,
+    *,
+    goal: str | None = None,
+    deliverable: str | None = None,
+    reason: str = "parse_failed",
 ) -> dict[str, Any]:
     """规划失败时的单子任务计划：交给一个可用 Agent 直答，并如实标注 fallback。
 
     用户明确要文件（PPT/Word/Excel/PDF）时，兜底任务直接写成交付任务，避免
     「模型没规划出来 → 只回一段大纲」再次发生。
+
+    ``reason`` 记录降级的真实原因，供界面区分文案：
+    - ``llm_error``：规划模型调用失败或超时；
+    - ``parse_failed``：模型有输出但不是可用的 JSON 计划；
+    - ``clarify_disabled``：模型想先澄清、但澄清开关关闭，按最合理假设直接开跑。
     """
     text = (user_content or "").strip()
     task: dict[str, Any] = {
@@ -198,6 +352,7 @@ def fallback_plan(
         "assumptions": [],
         "merge_notes": "",
         "fallback": True,
+        "fallback_reason": reason,
         "subtasks": [task],
         "clarify": [],
     }
@@ -247,12 +402,19 @@ def _system_prompt() -> str:
         "4. depends_on 只能填写**前面已出现**的任务 id 或 seq（1 起）；无依赖填 []；\n"
         "5. agent_code 优先从候选目录中选择；没有合适候选就留空，由选兵阶段决定是否自动创建；\n"
         "6. 子任务数量不超过 max_subtasks；\n"
-        "7. 若目标缺少对象/交付物/范围且无法做合理假设，不要拆任务，只输出 "
-        '{"clarify":["问题1","问题2"]}（最多 2 个，必须具体、可直接回答）；\n'
+        "7. 若目标缺少**必要**信息（受众/范围/交付格式/数据来源）且无法做合理假设，"
+        "不要拆任务，只输出 clarify 表单（最多 2 项），每项给出可点选的选项；\n"
+        '   字段：{"key":"英文键","label":"一句问话","type":"single|multi|text",'
+        '"options":["可选项1","可选项2"],"placeholder":"补充输入提示","required":false}；\n'
+        "   options 要覆盖 2–5 个最常见答案，让用户点一下就够；能合理假设就不要问；\n"
         "8. 用户要可下载文件（PPT/Word/Excel/PDF）时，必须有一个交付子任务："
         "instruction 明确写「调用 doc.generate 生成 .pptx 文件」，expected_output "
         "写文件格式；前面的任务负责收集/整理内容，并作为该任务的依赖；\n"
-        "9. 输出 Schema：\n"
+        "9. 文件交付、图片、视频、联网检索、数据分析都在系统能力范围内："
+        "不得以「缺少对应助手」「能力不足」为由拒绝或空转，选兵阶段会自动创建责任人；\n"
+        "10. 只有需要现实身体动作（吃掉/到场/当面交付）或资金支付时，才拆成"
+        "「说明 + 可行替代方案」，不要假装能完成；\n"
+        "11. 输出 Schema：\n"
         '{"goal":"...","success_criteria":["..."],"assumptions":["..."],'
         '"subtasks":[{"id":"t1","title":"...","instruction":"...","agent_hint":"...",'
         '"agent_code":"...","depends_on":[],"expected_output":"..."}],'
@@ -267,8 +429,11 @@ def _user_prompt(
     catalog: list[str],
     max_subtasks: int,
     deliverable: str | None = None,
+    capability_hint: str = "",
 ) -> str:
     lines = [f"用户目标：{user_content[:CONTEXT_CAP]}"]
+    if capability_hint:
+        lines.append(f"能力边界：{capability_hint}")
     if deliverable:
         lines.append(
             f"必须交付的文件格式：{deliverables.label(deliverable)}"
@@ -351,8 +516,13 @@ async def request_plan(
     max_subtasks: int,
     settings: dict[str, Any],
     deliverable: str | None = None,
-) -> tuple[dict[str, Any] | None, dict[str, int], bool]:
-    """调用规划模型；返回 (原始 JSON, token 用量, 是否走了修复调用)。"""
+    capability_hint: str = "",
+) -> tuple[dict[str, Any] | None, dict[str, int], bool, str | None]:
+    """调用规划模型；返回 (原始 JSON, token 用量, 是否走了修复调用, 失败原因)。
+
+    失败原因仅在计划不可用时返回：``llm_error``（模型调用失败）或
+    ``parse_failed``（输出无法修复成 JSON）；正常返回时第四项为 None。
+    """
     task_id = f"cmd-plan-{uuid.uuid4().hex[:10]}"
     messages = [
         ChatMessage(role="system", content=_system_prompt()),
@@ -364,6 +534,7 @@ async def request_plan(
                 catalog=catalog,
                 max_subtasks=max_subtasks,
                 deliverable=deliverable,
+                capability_hint=capability_hint,
             ),
         ),
     ]
@@ -375,19 +546,19 @@ async def request_plan(
         )
     except Exception as exc:  # noqa: BLE001 - 规划失败必须可降级，不向上抛
         log.warning("commander plan llm failed (fallback): %s", exc)
-        return None, usage, False
+        return None, usage, False, "llm_error"
     usage["input_tokens"] += int(resp.input_tokens or 0)
     usage["output_tokens"] += int(resp.output_tokens or 0)
     data = parse_json_object(resp.content or "")
     if data is not None:
-        return data, usage, False
+        return data, usage, False, None
 
     repaired, repair_usage = await repair_json(
         db, ctx=ctx, raw=resp.content or "", settings=settings
     )
     usage["input_tokens"] += repair_usage["input_tokens"]
     usage["output_tokens"] += repair_usage["output_tokens"]
-    return repaired, usage, True
+    return repaired, usage, True, None if repaired is not None else "parse_failed"
 
 
 async def repair_json(
