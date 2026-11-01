@@ -68,6 +68,15 @@
       </el-tab-pane>
 
       <el-tab-pane
+        v-if="isOwner"
+        lazy
+        label="系统日志"
+        name="system_logs"
+      >
+        <SettingsSystemLogs />
+      </el-tab-pane>
+
+      <el-tab-pane
         lazy
         label="技能与插件"
         name="skills"
@@ -530,6 +539,7 @@ import SettingsNetwork from '@/components/settings/SettingsNetwork.vue'
 import SettingsSkillLab from '@/components/settings/SettingsSkillLab.vue'
   import SettingsAgentGenerate from '@/components/settings/SettingsAgentGenerate.vue'
 import SettingsCommander from '@/components/settings/SettingsCommander.vue'
+import SettingsSystemLogs from '@/components/settings/SettingsSystemLogs.vue'
 import SettingsOfficialLibrary from '@/components/settings/SettingsOfficialLibrary.vue'
 import SettingsAsr from '@/components/settings/SettingsAsr.vue'
 import SettingsSelfImprove from '@/components/settings/SettingsSelfImprove.vue'
@@ -557,6 +567,7 @@ const TAB_NAMES = [
   'registration',
   'network',
   'commander',
+  'system_logs',
   'skills',
   'asr',
   'self_improve',
@@ -574,7 +585,9 @@ const TAB_NAMES = [
 type TabName = (typeof TAB_NAMES)[number]
 
 const availableTabs = computed<TabName[]>(() =>
-  isOwner.value ? [...TAB_NAMES] : TAB_NAMES.filter(name => name !== 'grants'),
+  isOwner.value
+    ? [...TAB_NAMES]
+    : TAB_NAMES.filter(name => name !== 'grants' && name !== 'system_logs'),
 )
 
 function resolveTab(raw: unknown): TabName {

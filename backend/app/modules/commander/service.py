@@ -53,7 +53,7 @@ from app.modules.agents.models import (
 )
 from app.modules.audit.service import log_audit
 from app.modules.chat import models as chat_models
-from app.modules.commander import matcher, planner
+from app.modules.commander import deliverables, matcher, planner
 from app.modules.commander import settings as commander_settings
 from app.modules.commander.models import (
     RUN_CANCELLED,
@@ -96,6 +96,47 @@ ERR_DISABLED = "COMMANDER_DISABLED"
 ERR_NEEDS_INPUT = "COMMANDER_NEEDS_INPUT"
 #: 自主补救轮尽：现有助手与工具能力不足（不是用户缺信息）
 ERR_CAPABILITY_GAP = "COMMANDER_CAPABILITY_GAP"
+
+#: 子任务「空手而归」判据：短且含拒答话术，不能当作下游素材
+_REFUSAL_MARKERS = (
+    "无法确认",
+    "检索资料为空",
+    "未检索到",
+    "没有检索到",
+    "暂无相关资料",
+    "缺乏相关",
+    "无法提供",
+    "资料不足",
+    "没有找到相关",
+)
+_REFUSAL_MAX_CHARS = 600
+#: 指挥官子任务交付契约：一句话目标必须落地，资料不足也要给出可用草稿
+_DELIVERY_CONTRACT = (
+    "【指挥官交付要求】这是自动化流水线的一步，结果会直接交给下一步或用户。"
+    "即使检索为空或资料不足，也要基于通用行业常识给出可用的草稿、结构与要点，"
+    "把不确定的具体数字、案例标注为「待补充」，不要只回复「无法确认」「资料不足」而空手返回。"
+)
+
+
+def _insufficient_excerpt(text: str) -> bool:
+    """短且含拒答话术的输出视为空手而归，不能当作下游素材。"""
+    body = (text or "").strip()
+    if not body:
+        return True
+    # 文档生成回执（“已由指挥官生成…”）不是素材，不能喂给下游继续生成
+    if body.startswith("已由「指挥官」生成") or body.startswith("已生成"):
+        return True
+    if len(body) >= _REFUSAL_MAX_CHARS:
+        return False
+    return any(marker in body for marker in _REFUSAL_MARKERS)
+
+
+def _with_delivery_contract(question: str) -> str:
+    return f"{question.strip()}\n\n{_DELIVERY_CONTRACT}" if question.strip() else _DELIVERY_CONTRACT
+
+
+#: 要求交付文件但结果里没有对应格式的产物
+ERR_DELIVERABLE_MISSING = "COMMANDER_DELIVERABLE_MISSING"
 
 #: 本进程内串行化写提交（SQLite 单写者；桌面版并发落库必须排队）
 _COMMIT_LOCK = threading.Lock()
@@ -341,6 +382,7 @@ async def create_plan_run(
 
     catalog_agents = planner.visible_published_agents(db, yard_id=ctx.yard_id, user_id=ctx.user_id)
     max_subtasks = int(settings["max_subtasks"])
+    required_fmt = deliverables.detect(text)
     raw_plan, usage, repaired = await planner.request_plan(
         db,
         ctx=ctx,
@@ -349,6 +391,7 @@ async def create_plan_run(
         catalog=planner.catalog_lines(catalog_agents),
         max_subtasks=max_subtasks,
         settings=settings,
+        deliverable=required_fmt,
     )
     plan = planner.normalize_plan(raw_plan, max_subtasks=max_subtasks, fallback_goal=text)
     clarify: list[str] = list(plan.get("clarify") or []) if plan is not None else []
@@ -396,14 +439,41 @@ async def create_plan_run(
             _safe_commit(db)
             return run
         # 澄清关闭：忽略模型给的 clarify，退回单任务直答（与规划失败同口径）
-        plan = planner.fallback_plan(text)
+        plan = planner.fallback_plan(text, deliverable=required_fmt)
         plan["clarify"] = []
         plan_fallback = True
     else:
         plan_fallback = plan is None
         if plan is None:
-            plan = planner.fallback_plan(text)
+            log.warning(
+                "commander plan unusable, fallback applied: deliverable=%s raw=%s",
+                required_fmt,
+                str(raw_plan)[:400],
+            )
+            plan = planner.fallback_plan(text, deliverable=required_fmt)
     plan["plan_repaired"] = repaired
+
+    # 用户要文件但计划没覆盖时补齐交付子任务：宁可由指挥官确定性出文件，
+    # 也不能让「模型只回一段大纲」当成完成。
+    if required_fmt:
+        added = deliverables.ensure_plan_deliverable(
+            plan, text, required_fmt, max_subtasks=max_subtasks
+        )
+        log.info(
+            "commander plan deliverable=%s covered=%s added=%s subtasks=%d",
+            required_fmt,
+            not added,
+            added,
+            len(plan.get("subtasks") or []),
+        )
+    log.info(
+        "commander plan subtasks=%d fallback=%s repaired=%s deliverable=%s goal=%s",
+        len(plan.get("subtasks") or []),
+        plan_fallback,
+        repaired,
+        required_fmt or "-",
+        str(plan.get("goal") or "")[:120],
+    )
 
     picks = await matcher.assign_agents(
         db,
@@ -600,6 +670,32 @@ def update_plan(
         )
 
     removed = max(0, len(existing) - len(plan_subtasks))
+    # 用户要文件：编辑时删掉交付任务也要补回来（否则改完计划就出不了文件）
+    required_fmt = deliverables.detect(str(run.goal or "")) or str(
+        (run.plan_json or {}).get("deliverable", {}).get("format") or ""
+    )
+    if required_fmt:
+        before = len(plan_subtasks)
+        temp = {"subtasks": plan_subtasks}
+        if deliverables.ensure_plan_deliverable(
+            temp, str(run.goal or ""), required_fmt, max_subtasks=limit
+        ):
+            plan_subtasks = temp["subtasks"]
+            commander_binding = {
+                "agent_id": None,
+                "agent_code": None,
+                "agent_name": "指挥官",
+                "agent_source": SOURCE_COMMANDER,
+            }
+            if len(plan_subtasks) > before:
+                bindings.append(commander_binding)
+            else:
+                bindings[-1] = commander_binding
+            log.info(
+                "commander plan edited: deliverable=%s auto_restored=%s",
+                required_fmt,
+                len(plan_subtasks) > before,
+            )
     # 先删后插：绕开 (run_id, seq) 唯一约束（同事务内 flush 保证删除先落）
     for row in existing:
         db.delete(row)
@@ -630,6 +726,11 @@ def update_plan(
     plan = dict(run.plan_json or {})
     plan.setdefault("clarify", [])
     plan["subtasks"] = plan_subtasks
+    if required_fmt:
+        plan["deliverable"] = {
+            "format": required_fmt,
+            "label": deliverables.label(required_fmt),
+        }
     plan["generated_agents"] = [
         {
             "seq": int(plan_subtask["seq"]),
@@ -800,6 +901,96 @@ def _extract_artifacts(payload: Any, answer: str) -> list[dict[str, Any]]:
     return found
 
 
+def _artifact_matches_format(artifacts: Any, fmt: str) -> bool:
+    """产物里是否有指定格式的文件（按 format/文件名/下载地址判断）。"""
+    ext = deliverables.FORMAT_EXT.get(fmt, f".{fmt}").lower()
+    want = fmt.lower().lstrip(".")
+    for item in artifacts or []:
+        if not isinstance(item, dict):
+            continue
+        declared = str(item.get("format") or "").strip().lower().lstrip(".")
+        if declared == want:
+            return True
+        for key in ("title", "filename", "name", "url", "download_url", "path"):
+            value = str(item.get(key) or "").strip().lower()
+            if value and value.endswith(ext):
+                return True
+    return False
+
+
+async def _deliver_document(
+    db: Session,
+    *,
+    run: CommanderRun,
+    subtask: CommanderSubtask,
+    ctx: YardContext,
+    fmt: str,
+    context: str,
+) -> dict[str, Any]:
+    """确定性交付：直接走对话文档链路生成真实文件，不依赖模型是否会调工具。"""
+    from app.modules.chat import document as document_service
+
+    agent = db.get(YardAgent, subtask.agent_id) if subtask.agent_id else None
+    # 交付阶段吃全部前序素材（不只直接依赖）：逐页文案常被上游写成 JSON，
+    # 真正的技术要点在更早的子任务里；只取直接依赖会丢掉可用内容。
+    material = _dependency_context(db, run.id, list(range(1, int(subtask.seq or 1))))
+    if not material:
+        material = context
+    instruction = deliverables.clean_requirement(subtask.instruction or "")
+    goal = deliverables.clean_requirement(run.goal or "")
+    parts = [part for part in (goal, instruction) if part]
+    if material:
+        parts.append("请优先使用随附资料中的大纲、结构与数据组织页面，不要只写封面和目录。")
+    request_text = "\n\n".join(parts).strip()
+    card, note, usage = await document_service.generate_document_from_chat(
+        db,
+        ctx=ctx,
+        session_id=run.session_id,
+        request_text=request_text[:6000] or goal or instruction,
+        context=material,
+        fmt=fmt,
+        agent_name=str(getattr(agent, "name", "") or "指挥官"),
+        agent_persona=str(getattr(agent, "persona_prompt", "") or ""),
+        agent_bound_skills=list(getattr(agent, "bound_skills", None) or []),
+    )
+    got = str(card.get("format") or "").strip().lower().lstrip(".")
+    if got != fmt:
+        raise AppError(
+            ERR_DELIVERABLE_MISSING,
+            f"需要交付{deliverables.label(fmt)}，但渲染器只产出 {got or '未知格式'}。",
+            http_status=502,
+            details={"format": fmt, "produced": got},
+        )
+    base = f"/chat/sessions/{card['session_id']}/attachments/{card['attachment_id']}"
+    artifact = {
+        **card,
+        "type": "document",
+        "title": str(card.get("filename") or deliverables.label(fmt)),
+        "format": fmt,
+        "url": f"{base}/download",
+        "download_url": f"{base}/download",
+        "preview_url": f"{base}/preview",
+    }
+    log.info(
+        "commander deliverable generated run=%s seq=%s fmt=%s file=%s size=%s model=%s "
+        "builder=%s",
+        run.id,
+        subtask.seq,
+        fmt,
+        card.get("filename"),
+        card.get("size_bytes"),
+        usage.get("model"),
+        usage.get("builder"),
+    )
+    return {
+        "answer": note,
+        "input_tokens": int(usage.get("input_tokens") or 0),
+        "output_tokens": int(usage.get("output_tokens") or 0),
+        "artifacts": [artifact],
+        "model": usage.get("model"),
+    }
+
+
 def _run_ctx(run: CommanderRun) -> YardContext:
     return YardContext(
         yard_id=run.yard_id,
@@ -825,11 +1016,24 @@ def _dependency_context(db: Session, run_id: str, depends_on: list[int]) -> str:
         .order_by(CommanderSubtask.seq.asc())
     )
     parts: list[str] = []
+    dropped = 0
     for row in rows:
         excerpt = (row.output_excerpt or "").strip()
-        if excerpt:
-            parts.append(f"[子任务 {row.seq}「{row.title}」]\n{excerpt}")
-    return "\n\n".join(parts)[:6000]
+        if not excerpt:
+            dropped += 1
+            continue
+        if _insufficient_excerpt(excerpt):
+            dropped += 1
+            continue
+        parts.append(f"[子任务 {row.seq}「{row.title}」]\n{excerpt}")
+    if dropped:
+        log.info(
+            "commander dependency context run=%s dropped=%d usable=%d",
+            run_id,
+            dropped,
+            len(parts),
+        )
+    return "\n\n".join(parts)[:12000]
 
 
 async def _commander_answer(
@@ -873,15 +1077,18 @@ async def _commander_answer(
     }
 
 
-def _self_executor_agent(ctx: YardContext) -> YardAgent:
+def _self_executor_agent(ctx: YardContext, *, allow_doc_tool: bool = True) -> YardAgent:
     """指挥官亲自执行时的临时执行器：带全部已注册工具，不再反问用户。
 
     不是长期 Agent：只在本次子任务里构造，不落 yard_agents 表；工具体系仍按
     ctx.approval_mode 走风险闸——完全控制直接执行，其余模式高风险工具仍会拦截。
+    ``allow_doc_tool=False`` 用于非交付子任务：避免「整理大纲」被自作主张生成文件。
     """
     from app.modules.tools.registry import tool_registry
 
-    tools = sorted({str(getattr(tool, "code", "") or "") for tool in tool_registry.list_tools()})
+    tools = {str(getattr(tool, "code", "") or "") for tool in tool_registry.list_tools()}
+    if not allow_doc_tool:
+        tools.discard("doc.generate")
     return YardAgent(
         id=f"commander-self-{ctx.yard_id[:8]}",
         yard_id=ctx.yard_id,
@@ -896,7 +1103,7 @@ def _self_executor_agent(ctx: YardContext) -> YardAgent:
             "不要编造结果，也不要把问题抛回给用户。"
         ),
         task_prompt_template="完成任务：{{question}}",
-        allowed_tools=[code for code in tools if code],
+        allowed_tools=sorted(code for code in tools if code),
         bound_skills=[],
         knowledge_scopes=[],
         status="published",
@@ -915,6 +1122,7 @@ async def _commander_tool_answer(
     question: str,
     ctx: YardContext,
     settings: dict[str, Any],
+    allow_doc_tool: bool = True,
 ) -> dict[str, Any]:
     """指挥官自执行：优先走声明式工具循环；工具链不可用时退回纯答复。"""
     from app.modules.agents import declarative
@@ -922,7 +1130,7 @@ async def _commander_tool_answer(
     try:
         result = await declarative.run_declarative_agent(
             db,
-            agent=_self_executor_agent(ctx),
+            agent=_self_executor_agent(ctx, allow_doc_tool=allow_doc_tool),
             input_data={"question": question},
             ctx=ctx,
             task_id=f"cmd-self-{run.id[:10]}-{subtask.seq}-{uuid.uuid4().hex[:6]}",
@@ -967,6 +1175,20 @@ async def _invoke_agent(
     question = instruction
     if context:
         question = f"{instruction}\n\n上游子任务结果（可直接引用）：\n{context}"
+    question = _with_delivery_contract(question)
+
+    # 要文件的子任务走确定性文档链路：不依赖上游模型是否会调用工具
+    fmt = deliverables.subtask_format(subtask)
+    if fmt:
+        log.info(
+            "commander subtask run=%s seq=%s deliverable=%s executor=doc_pipeline",
+            run.id,
+            subtask.seq,
+            fmt,
+        )
+        return await _deliver_document(
+            db, run=run, subtask=subtask, ctx=ctx, fmt=fmt, context=context
+        )
 
     if subtask.agent_source == SOURCE_COMMANDER or not subtask.agent_id:
         return await _commander_tool_answer(
@@ -976,6 +1198,8 @@ async def _invoke_agent(
             question=question,
             ctx=ctx,
             settings=settings,
+            # 非交付子任务不给文档工具：避免「整理大纲」被自作主张生成文件
+            allow_doc_tool=False,
         )
 
     agent = db.get(YardAgent, subtask.agent_id)
@@ -1152,6 +1376,14 @@ async def _run_one(
             subtask.error_code = None
             _safe_commit(db)
             _emit(on_event, "subtask", subtask_out(subtask))
+            log.info(
+                "commander subtask start run=%s seq=%s agent=%s source=%s deliverable=%s",
+                run_id,
+                subtask.seq,
+                subtask.agent_name or "指挥官",
+                subtask.agent_source,
+                deliverables.subtask_format(subtask) or "-",
+            )
 
             context = _dependency_context(db, run_id, list(subtask.depends_on_json or []))
             auto_remediate = bool(settings.get("auto_remediate", True))
@@ -1236,6 +1468,16 @@ async def _run_one(
                         subtask.remediation_json = list(remediations)
                         subtask.error_code = None
                         _safe_commit(db)
+                        log.info(
+                            "commander remediation run=%s seq=%s round=%d action=%s "
+                            "agent=%s cause=%s",
+                            run_id,
+                            subtask.seq,
+                            attempt,
+                            action,
+                            subtask.agent_name or "指挥官",
+                            failure.code,
+                        )
                         log_audit(
                             db,
                             yard_id=run.yard_id,
@@ -1273,12 +1515,26 @@ async def _run_one(
                 subtask.status = SUB_OK
                 subtask.input_tokens = int(subtask.input_tokens or 0) + input_tokens
                 subtask.output_tokens = int(subtask.output_tokens or 0) + output_tokens
-                subtask.output_excerpt = str(result.get("answer") or "").strip()[:1200] or None
+                # 摘录既给下游当素材，也给前端展示：4000 字能保住整份逐页大纲
+                subtask.output_excerpt = str(result.get("answer") or "").strip()[:4000] or None
                 subtask.artifact_json = list(result.get("artifacts") or []) or None
                 subtask.error_code = None
                 subtask.finished_at = _now()
                 _safe_commit(db)
                 _emit(on_event, "subtask", subtask_out(subtask))
+                log.info(
+                    "commander subtask ok run=%s seq=%s agent=%s tokens=%d attempts=%d "
+                    "latency_ms=%d artifacts=%d",
+                    run_id,
+                    subtask.seq,
+                    subtask.agent_name or "指挥官",
+                    input_tokens + output_tokens,
+                    int(subtask.attempts or 0),
+                    int((subtask.finished_at - subtask.started_at).total_seconds() * 1000)
+                    if subtask.started_at and subtask.finished_at
+                    else 0,
+                    len(subtask.artifact_json or []),
+                )
                 return {
                     "seq": int(subtask.seq),
                     "status": SUB_OK,
@@ -1308,6 +1564,15 @@ async def _run_one(
             subtask.finished_at = _now()
             _safe_commit(db)
             _emit(on_event, "subtask", subtask_out(subtask))
+            log.warning(
+                "commander subtask failed run=%s seq=%s agent=%s code=%s attempts=%d " "reason=%s",
+                run_id,
+                subtask.seq,
+                subtask.agent_name or "指挥官",
+                subtask.error_code,
+                int(subtask.attempts or 0),
+                str(failure.message or "")[:200],
+            )
             return {
                 "seq": int(subtask.seq),
                 "status": SUB_ERROR,

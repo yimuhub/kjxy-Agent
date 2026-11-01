@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 from app.core.deps import YardContext
 from app.core.logging import get_logger
 from app.modules.agents.models import YardAgent
+from app.modules.commander import deliverables
 from app.modules.llm.schemas import ChatMessage, LLMMetadata, LLMRequest
 from app.modules.llm.service import complete_with_logging
 
@@ -173,28 +174,37 @@ def normalize_plan(
     }
 
 
-def fallback_plan(user_content: str, *, goal: str | None = None) -> dict[str, Any]:
-    """规划失败时的单子任务计划：交给一个可用 Agent 直答，并如实标注 fallback。"""
+def fallback_plan(
+    user_content: str, *, goal: str | None = None, deliverable: str | None = None
+) -> dict[str, Any]:
+    """规划失败时的单子任务计划：交给一个可用 Agent 直答，并如实标注 fallback。
+
+    用户明确要文件（PPT/Word/Excel/PDF）时，兜底任务直接写成交付任务，避免
+    「模型没规划出来 → 只回一段大纲」再次发生。
+    """
     text = (user_content or "").strip()
-    return {
+    task: dict[str, Any] = {
+        "seq": 1,
+        "title": "完成用户请求",
+        "instruction": text or "完成用户请求",
+        "expected_output": "直接可用的答复与产物",
+        "agent_hint": "",
+        "agent_code": "",
+        "depends_on": [],
+    }
+    plan: dict[str, Any] = {
         "goal": (goal or text or "完成用户请求")[:500],
         "success_criteria": [],
         "assumptions": [],
         "merge_notes": "",
         "fallback": True,
-        "subtasks": [
-            {
-                "seq": 1,
-                "title": "完成用户请求",
-                "instruction": text or "完成用户请求",
-                "expected_output": "直接可用的答复与产物",
-                "agent_hint": "",
-                "agent_code": "",
-                "depends_on": [],
-            }
-        ],
+        "subtasks": [task],
         "clarify": [],
     }
+    if deliverable:
+        plan["subtasks"] = [deliverables.build_task(text, deliverable, seq=1, depends_on=[])]
+        plan["deliverable"] = {"format": deliverable, "label": deliverables.label(deliverable)}
+    return plan
 
 
 def visible_published_agents(
@@ -239,7 +249,10 @@ def _system_prompt() -> str:
         "6. 子任务数量不超过 max_subtasks；\n"
         "7. 若目标缺少对象/交付物/范围且无法做合理假设，不要拆任务，只输出 "
         '{"clarify":["问题1","问题2"]}（最多 2 个，必须具体、可直接回答）；\n'
-        "8. 输出 Schema：\n"
+        "8. 用户要可下载文件（PPT/Word/Excel/PDF）时，必须有一个交付子任务："
+        "instruction 明确写「调用 doc.generate 生成 .pptx 文件」，expected_output "
+        "写文件格式；前面的任务负责收集/整理内容，并作为该任务的依赖；\n"
+        "9. 输出 Schema：\n"
         '{"goal":"...","success_criteria":["..."],"assumptions":["..."],'
         '"subtasks":[{"id":"t1","title":"...","instruction":"...","agent_hint":"...",'
         '"agent_code":"...","depends_on":[],"expected_output":"..."}],'
@@ -247,8 +260,21 @@ def _system_prompt() -> str:
     )
 
 
-def _user_prompt(*, user_content: str, context: str, catalog: list[str], max_subtasks: int) -> str:
+def _user_prompt(
+    *,
+    user_content: str,
+    context: str,
+    catalog: list[str],
+    max_subtasks: int,
+    deliverable: str | None = None,
+) -> str:
     lines = [f"用户目标：{user_content[:CONTEXT_CAP]}"]
+    if deliverable:
+        lines.append(
+            f"必须交付的文件格式：{deliverables.label(deliverable)}"
+            f"（{deliverables.FORMAT_EXT.get(deliverable, '.' + deliverable)}）；"
+            "计划中必须包含调用 doc.generate 的交付子任务。"
+        )
     if context:
         lines.append(f"上下文（附件/会话摘要，仅作事实参考）：{context[:CONTEXT_CAP]}")
     lines.append(f"max_subtasks={max_subtasks}")
@@ -324,6 +350,7 @@ async def request_plan(
     catalog: list[str],
     max_subtasks: int,
     settings: dict[str, Any],
+    deliverable: str | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, int], bool]:
     """调用规划模型；返回 (原始 JSON, token 用量, 是否走了修复调用)。"""
     task_id = f"cmd-plan-{uuid.uuid4().hex[:10]}"
@@ -336,6 +363,7 @@ async def request_plan(
                 context=context,
                 catalog=catalog,
                 max_subtasks=max_subtasks,
+                deliverable=deliverable,
             ),
         ),
     ]

@@ -14,6 +14,7 @@
 - **门禁**：后端 2092 passed；隔离栈全量 E2E 113 passed / 1 skipped；契约与版本 3.38.0 九处一致；界面规范检查通过。
 - **3.39.0 补齐（本文件缺口清零）**：选兵接入 LLM 重排（`commander_match`，<0.6 视为无合适）、近 30 天成功率/频次/负载打分、90 天去重窗口、每日创建上限；计划卡可删除/改指令/换助手/调顺序；`POST /commander/preview` 与 `PUT /commander/runs/{id}/plan`；运行前配额预检；澄清阶段（`clarify_enabled`）；`commander_run_started` / `commander_plan_edited` 审计与 `GET /commander/stats`；SQLite 提交串行化与锁重试；会话列表「指挥官」徽章；打包冒烟新增 `.pptx/.docx` 生成断言（`--docs-selfcheck`）。
 - **3.40.0 自主补救**：失败不再回问用户——按「原执行者重试 → 换相关助手 → 新建专用助手 → 指挥官带全部工具亲自执行」自救，`remediate_rounds`（默认 5）轮尽才以 `COMMANDER_CAPABILITY_GAP` 报告原因；完全控制继承（`commander_runs.approval_mode` 快照，`full` 不逐次审批、也不问澄清）；默认 `preview_plan=false` / `clarify_enabled=false`（一句话即开跑）；重规划自动带最近 6 条会话与上一版产物标题，成品反馈直接进入修订；子任务卡展示尝试轮次与补救轨迹，新增 `commander_subtask_remediated` 审计。
+- **3.41.0 交付物闭环**：定位「要 PPT 只回大纲」的真实根因——规划静默 fallback 成通用任务、选兵绑到没有文档工具的助手、Agent 工具链里没有文档生成工具、完成时也不校验产物。现已在四处同时收口：交付物识别（显式格式 + 文件动作）→ 计划强制补齐调用 `doc.generate` 的交付子任务（fallback/编辑后同样成立）→ 交付任务固定由指挥官走确定性文档链路生成真实文件 → `COMMANDER_DELIVERABLE_MISSING` 产物校验并进入自主补救；新增内置 `doc.generate` 工具，工具产物随 AgentResult 上抛。Deck 生成降温到 0.3 并增加质量门：有上游资料时若标题复述需求/内容页过少/标题重复，自动低温度重写一次，仍不合格则按上游 Markdown 大纲确定性生成完整稿（封面—目录—章节—要点—致谢），保证「有资料就能出真稿」。同版新增「设置 → 系统日志」：`app.log` 落盘轮转、`/system/logs` 查询与脱敏下载、负责人可读，指挥官计划/选兵/子任务/补救/文档生成全链路可追溯。
 - **保留未做**：critic 质检（设置预留但未接入汇总）、跨进程后台队列（当前为进程内后台任务）。
 
 ---

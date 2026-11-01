@@ -1461,6 +1461,8 @@ async def run_declarative_agent(
         raise AppError("RUN_NOT_FOUND", f"运行不存在或无权访问：{run_id}。", http_status=404)
 
     warnings: list[str] = []
+    #: 工具产出的可下载产物（doc.generate 等）：随最终结果上抛，指挥官据此落库
+    artifacts: list[dict[str, Any]] = []
     first_step_meta: dict[str, Any] | None = None
     if resume_run_id is not None:
         state = _replay_checkpoint(steps)
@@ -1651,6 +1653,12 @@ async def run_declarative_agent(
             duration_ms=duration_ms,
         )
         next_index += 1
+        if isinstance(result, dict):
+            produced = result.get("artifacts")
+            if isinstance(produced, list):
+                for item in produced:
+                    if isinstance(item, dict) and item not in artifacts:
+                        artifacts.append(item)
         _backfill(result)
 
     def _finish(
@@ -1700,6 +1708,7 @@ async def run_declarative_agent(
                 "model": model,
                 "run_id": run_id,
                 "truncated": truncated,
+                "artifacts": artifacts,
                 "token_usage": {
                     "input_tokens": in_token_total,
                     "output_tokens": out_token_total,

@@ -159,9 +159,11 @@ async def test_create_plan_run_falls_back_to_single_task(db_session, yard, ctx, 
     _run, subtasks = commander_service.get_run(db_session, yard.id, run.id)
     assert run.status == "queued"
     assert run.plan_json["fallback"] is True
+    assert run.plan_json["deliverable"] == {"format": "pptx", "label": "PPT 演示文稿"}
     assert len(subtasks) == 1
-    assert subtasks[0].title == "完成用户请求"
+    assert subtasks[0].title == "生成PPT交付物"
     assert subtasks[0].agent_source == "commander"
+    assert "doc.generate" in subtasks[0].instruction
 
 
 @pytest.mark.asyncio
@@ -190,8 +192,12 @@ async def test_create_plan_run_repairs_invalid_json_once(db_session, yard, ctx, 
     assert calls["n"] == 2
     assert run.plan_json["fallback"] is False
     assert run.plan_json["plan_repaired"] is True
-    assert len(subtasks) == 2
+    # 用户要 PPT，计划未覆盖交付 → 自动追加第 3 个交付任务
+    assert len(subtasks) == 3
     assert subtasks[1].depends_on_json == [1]
+    assert subtasks[2].title == "生成PPT交付物"
+    assert subtasks[2].depends_on_json == [1, 2]
+    assert subtasks[2].agent_source == "commander"
 
 
 @pytest.mark.asyncio
@@ -205,14 +211,14 @@ async def test_create_plan_run_binds_matching_existing_agent(db_session, yard, c
         return _resp(
             json.dumps(
                 {
-                    "goal": "做 PPT",
+                    "goal": "整理 PPT 资料",
                     "subtasks": [
                         {
                             "id": "t1",
-                            "title": "生成 PPT 幻灯片",
-                            "instruction": "使用演示文稿技能生成幻灯片",
+                            "title": "整理 PPT 幻灯片资料",
+                            "instruction": "使用演示文稿技能整理幻灯片资料",
                             "agent_hint": "办公文档/PPT",
-                            "expected_output": "pptx",
+                            "expected_output": "整理后的文字资料",
                             "depends_on": [],
                         }
                     ],
@@ -223,7 +229,7 @@ async def test_create_plan_run_binds_matching_existing_agent(db_session, yard, c
 
     monkeypatch.setattr(planner, "complete_with_logging", plan)
     run = await commander_service.create_plan_run(
-        db_session, ctx=ctx, session_id="s-cmd", user_content="做一个 PPT"
+        db_session, ctx=ctx, session_id="s-cmd", user_content="整理 PPT 资料"
     )
     _run, subtasks = commander_service.get_run(db_session, yard.id, run.id)
     assert subtasks[0].agent_id == agent.id

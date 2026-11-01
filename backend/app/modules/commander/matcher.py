@@ -29,6 +29,7 @@ from app.core.logging import get_logger
 from app.modules.agents import agent_builder, declarative
 from app.modules.agents.models import CREATED_FROM_COMMANDER, YardAgent
 from app.modules.audit.service import log_audit
+from app.modules.commander import deliverables
 from app.modules.commander.models import (
     SOURCE_COMMANDER,
     SOURCE_EXISTING,
@@ -531,6 +532,17 @@ async def assign_agents(
     created_today = daily_created_count(db, ctx.yard_id) if auto_create else 0
     picks: list[dict[str, Any]] = []
     for subtask in subtasks:
+        # 文件交付任务由指挥官确定性执行（doc.generate 直连文档渲染），
+        # 不把「没有文档工具」的助手硬绑上去，也不为此浪费一次自动创建额度。
+        fmt = deliverables.subtask_format(subtask)
+        if fmt:
+            log.info(
+                "commander match seq=%s deliverable=%s executor=commander",
+                subtask.get("seq"),
+                fmt,
+            )
+            picks.append(_commander_pick())
+            continue
         text = subtask_text(subtask)
         explicit = lookup_by_code(
             db,

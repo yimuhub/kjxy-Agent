@@ -212,14 +212,18 @@ async def test_output_schema_validation(db_session):
 
 
 def test_seed_builtin_tools_idempotent(db_session):
-    # v3.37：内置工具新增 video.generate，种子共 4 项
-    assert seed_builtin_tools(db_session) == 4
-    assert seed_builtin_tools(db_session) == 4  # 第二次幂等
+    # v3.41：在内置 video.generate 基础上新增 doc.generate，种子共 5 项
+    assert seed_builtin_tools(db_session) == 5
+    assert seed_builtin_tools(db_session) == 5  # 第二次幂等
     db_session.commit()
     rows = db_session.query(ToolDefinition).filter_by(code="knowledge.search").all()
     assert len(rows) == 1
     assert rows[0].risk_level == "read_only"
     assert rows[0].required_permissions_json == ["knowledge:read"]
+    doc_rows = db_session.query(ToolDefinition).filter_by(code="doc.generate").all()
+    assert len(doc_rows) == 1
+    assert doc_rows[0].risk_level == "draft"
+    assert doc_rows[0].required_permissions_json == []
     workorder_rows = db_session.query(ToolDefinition).filter_by(code="workorder.dispatch").all()
     assert len(workorder_rows) == 1
     assert workorder_rows[0].risk_level == "external_side_effect"

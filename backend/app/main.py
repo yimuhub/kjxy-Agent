@@ -29,6 +29,7 @@ def _startup_wiring() -> None:
     try:
         from app.db.session import SessionLocal
         from app.modules.devices.agent_tool import register_sensor_query_tool
+        from app.modules.docs.tool import register_doc_generate_tool
         from app.modules.growth.compliance import register_compliance_tool
         from app.modules.growth.poster import register_image_tool
         from app.modules.growth.toolseed import seed_growth_tools
@@ -122,6 +123,7 @@ def _startup_wiring() -> None:
         register_compliance_tool()
         register_image_tool()
         register_video_tool()
+        register_doc_generate_tool()
     except Exception as e:
         log.warning("startup wiring failed: %s", e)
 
@@ -145,7 +147,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="科技小院多智能体平台", version="3.40.0", lifespan=lifespan)
+    app = FastAPI(title="科技小院多智能体平台", version="3.41.0", lifespan=lifespan)
     app.add_middleware(RequestIDMiddleware)
     app.add_exception_handler(AppError, app_error_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)

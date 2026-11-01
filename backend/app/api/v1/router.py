@@ -40,6 +40,7 @@ from app.modules.search.router import router as search_router
 from app.modules.self_improve.router import router as self_improve_router
 from app.modules.share.router import public_router as share_public_router
 from app.modules.share.router import router as share_router
+from app.modules.system.router import router as system_router
 from app.modules.tasks.router import router as tasks_router
 from app.modules.tools.approvals_router import router as tool_approvals_router
 from app.modules.tools.router import router as tools_router
@@ -96,6 +97,7 @@ router.include_router(pairing_router)  # /pairing（手机扫码配对：建码/
 router.include_router(bots_router)  # /bots（IM 机器人网关：配置/测试/会话批准/账本）
 router.include_router(search_router)  # /search（联网状态探测 + 连通性测试）
 router.include_router(self_improve_router)  # /yards/current/self-improve*（自我总结提升 v3.4）
+router.include_router(system_router)  # /system/logs（负责人查看脱敏运行日志，v3.41）
 
 
 @router.get("/meta", tags=["meta"])

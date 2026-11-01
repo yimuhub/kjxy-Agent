@@ -605,6 +605,27 @@ v3.37 起通道判别以**模型模态**为兜底：通用 OpenAI 兼容供应�
 - **完全控制继承**：运行创建时把会话 `approval_mode` 快照到 `commander_runs.approval_mode`，执行器按快照重建上下文；`full` 会话里子任务的高风险工具直接执行、不再逐次审批（仅对具备升级角色的成员生效，且每次写 `tool_risk_auto_approved` 审计），`clarify_enabled` 与 `preview_plan` 也被忽略——完全控制 = 不问、不等确认。
 - **成品反馈迭代**：指挥官重规划时自动带上最近 6 条会话消息（总长 ≤2500 字，含上一版产物标题），「第 3 页排版不好」这类反馈会被理解为对上一版成品的修改，而不是新任务。
 
+### 文件交付（v3.41）
+
+- 用户明确要文件（PPT/幻灯片/演示文稿、Word/docx、Excel/xlsx/电子表格、PDF、Markdown）时，计划必须包含交付子任务；模型规划失败、澄清关闭或计划未覆盖时，服务端自动追加依赖全部前序任务的「生成 X 交付物」（达到 `max_subtasks` 时并入最后一个任务），计划编辑删除交付任务也会自动补回。
+- 交付子任务固定由指挥官确定性执行：直接调用对话文档链路（PPT 走 DeckPlan 版式渲染）生成 `.pptx/.docx/.xlsx/.pdf` 并落为会话附件，不依赖模型是否会在工具循环里调用工具；渲染结果格式与要求不一致时按 `COMMANDER_DELIVERABLE_MISSING` 失败并进入自主补救。
+- 交付子任务不参与选兵（不会硬绑没有文档能力的助手，也不消耗自动创建额度）；运行时产物写入子任务 `artifact_json`，汇总卡可直接预览/下载。
+- 新增内置工具 `doc.generate`（入参 `request`、可选 `format`、`context`），声明式 Agent 与指挥官自执行器均可调用；工具产出的产物随 `AgentResult.output.artifacts` 上抛。
+
+## 系统日志（v3.41）
+
+负责人排障入口：设置页「系统日志」。应用日志写入 `<data_dir>/logs/app.log`（10MB × 5 轮转，含 uvicorn 访问/错误日志）；桌面版 sidecar 的 `engine.log` 作为第二来源。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | /system/logs | 查询尾部日志；`source=app\|engine`、`level=DEBUG\|INFO\|WARNING\|ERROR\|CRITICAL`、`q` 关键词、`limit`（20–1000）、`offset`；返回 `items[]`（新→旧）与 `meta{path,exists,size_bytes,mtime,scanned_bytes,truncated,matched,sources[]}` |
+| GET | /system/logs/download | 下载脱敏后的尾部日志（最多 5MB），文件名带时间戳 |
+
+- 权限：仅 `platform_admin` 或当前小院负责人（`yard_owner`）；其他角色 403 `FORBIDDEN`。日志是进程级资源，多小院部署不向普通管理员开放。
+- 脱敏：输出前统一替换 `api_key/token/password/Authorization/Bearer`、`sk-*`、GitHub token；下载同样脱敏。
+- 读取上限：单次扫描最近 4MB，`meta.truncated=true` 时提示下载查看更早内容。
+- 指挥官关键日志：计划 fallback 原因、交付任务补齐、选兵决策、子任务开始/完成/失败（耗时、产物数）、自主补救动作、文档生成文件与大小。
+
 ### 选兵与澄清
 
 - 选兵顺序：计划里显式 `agent_code` → 规则打分（关键词 + 近 30 天成功率/频次 + 当前负载）→ 前 8 个候选交小模型重排（用途码 `commander_match`，置信度 <0.6 视为「无合适」）→ 近 90 天指挥官创建的同意图草稿复用 → 自动创建（受开关与每日上限约束）→ 最接近候选/指挥官代执行。

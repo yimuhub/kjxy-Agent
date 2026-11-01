@@ -122,12 +122,29 @@ async def test_rule_score_hits_published_agent(db_session, yard, ctx):
     picks = await matcher.assign_agents(
         db_session,
         ctx=ctx,
-        subtasks=[_subtask("生成 PPT 幻灯片")],
+        subtasks=[_subtask("整理 PPT 幻灯片")],
         settings=settings,
         plan_fallback=False,
     )
     assert picks[0]["agent_id"] == agent.id
     assert picks[0]["agent_source"] == "existing"
+
+
+@pytest.mark.asyncio
+async def test_deliverable_subtask_binds_commander(db_session, yard, ctx, monkeypatch):
+    async def must_not_create(*_args, **_kwargs):
+        raise AssertionError("交付任务不应触发自动创建助手")
+
+    monkeypatch.setattr(matcher, "_create_agent", must_not_create)
+    picks = await matcher.assign_agents(
+        db_session,
+        ctx=ctx,
+        subtasks=[_subtask("生成 PPT 文件（.pptx），作为会话附件交付")],
+        settings=defaults(),
+        plan_fallback=False,
+    )
+    assert picks[0]["agent_source"] == "commander"
+    assert picks[0]["agent_id"] is None
 
 
 @pytest.mark.asyncio
@@ -152,7 +169,7 @@ async def test_similar_draft_is_reused_without_creating(db_session, yard, ctx, m
     picks = await matcher.assign_agents(
         db_session,
         ctx=ctx,
-        subtasks=[_subtask("生成幻灯片演示文稿")],
+        subtasks=[_subtask("整理幻灯片演示文稿")],
         settings=defaults(),
         plan_fallback=False,
     )
@@ -319,7 +336,7 @@ async def test_llm_rerank_high_confidence_uses_llm_pick(db_session, yard, ctx, m
     picks = await matcher.assign_agents(
         db_session,
         ctx=ctx,
-        subtasks=[_subtask("生成销售幻灯片提案")],
+        subtasks=[_subtask("整理销售幻灯片提案")],
         settings=defaults(),
         plan_fallback=False,
     )
@@ -348,7 +365,7 @@ async def test_llm_rerank_failure_falls_back_to_rule_best(db_session, yard, ctx,
     picks = await matcher.assign_agents(
         db_session,
         ctx=ctx,
-        subtasks=[_subtask("生成销售幻灯片提案")],
+        subtasks=[_subtask("整理销售幻灯片提案")],
         settings=defaults(),
         plan_fallback=False,
     )
@@ -379,7 +396,7 @@ async def test_llm_low_confidence_respects_auto_create_off(db_session, yard, ctx
     picks = await matcher.assign_agents(
         db_session,
         ctx=ctx,
-        subtasks=[_subtask("生成销售幻灯片提案")],
+        subtasks=[_subtask("整理销售幻灯片提案")],
         settings=settings,
         plan_fallback=False,
     )
@@ -422,7 +439,7 @@ async def test_llm_low_confidence_triggers_auto_create(db_session, yard, ctx, mo
     picks = await matcher.assign_agents(
         db_session,
         ctx=ctx,
-        subtasks=[_subtask("生成销售幻灯片提案")],
+        subtasks=[_subtask("整理销售幻灯片提案")],
         settings=defaults(),
         plan_fallback=False,
     )
@@ -462,7 +479,7 @@ async def test_similar_reuse_ignores_agents_older_than_90_days(db_session, yard,
     picks = await matcher.assign_agents(
         db_session,
         ctx=ctx,
-        subtasks=[_subtask("生成幻灯片演示文稿")],
+        subtasks=[_subtask("整理幻灯片演示文稿")],
         settings=defaults(),
         plan_fallback=False,
     )
