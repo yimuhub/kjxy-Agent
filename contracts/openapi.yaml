@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.41.0
+  version: 3.42.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -13259,6 +13259,12 @@ components:
             maxLength: 12
           - type: 'null'
           title: Execution Mode
+        clarify_run_id:
+          anyOf:
+          - type: string
+            maxLength: 36
+          - type: 'null'
+          title: Clarify Run Id
       additionalProperties: false
       type: object
       required:
@@ -13638,9 +13644,7 @@ components:
 
         - ``target_code``：@ 点名定向执行的对象（单聊与群聊通用）；
 
-        - ``execution_mode``：``standard``（默认）| ``commander``（指挥官编排）；
-
-        - ``clarify_run_id``：澄清续跑，回传原运行 id，服务端合并目标后重新规划。'
+        - ``execution_mode``：``standard``（默认）| ``commander``（指挥官编排）。'
     OfficialOrderCreate:
       properties:
         model_key:

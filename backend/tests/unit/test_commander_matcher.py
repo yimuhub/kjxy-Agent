@@ -625,8 +625,6 @@ def test_ensure_skills_does_not_duplicate_existing(db_session, yard):
         description="演示文稿",
         bound_skills=["office_ppt_deck"],
     )
-    added = matcher._ensure_skills(
-        db_session, agent, ["office_ppt_deck", "office_ppt_design"]
-    )
+    added = matcher._ensure_skills(db_session, agent, ["office_ppt_deck", "office_ppt_design"])
     assert added == ["office_ppt_design"]
     assert agent.bound_skills == ["office_ppt_deck", "office_ppt_design"]

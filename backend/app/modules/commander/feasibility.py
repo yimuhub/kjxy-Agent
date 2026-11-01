@@ -271,7 +271,10 @@ def plan_hint(assessment: Assessment) -> str:
     caps = "、".join(
         cap.label for code in assessment.capabilities if (cap := capability(code)) is not None
     )
-    return f"该目标在系统能力范围内（{caps or '通用问答'}）；必须拆出可执行任务，不得以能力不足为由放弃。"
+    return (
+        f"该目标在系统能力范围内（{caps or '通用问答'}）；"
+        "必须拆出可执行任务，不得以能力不足为由放弃。"
+    )
 
 
 __all__ = [

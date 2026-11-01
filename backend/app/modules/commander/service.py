@@ -379,6 +379,7 @@ def _unrealizable_plan(text: str, check: feasibility.Assessment) -> dict[str, An
                 "instruction": (
                     f"用户目标：{text}\n"
                     f"该目标需要现实中的身体动作（{verb}），系统无法执行。\n"
+                    f"已知的替代路径参考：{guidance}\n"
                     "请直接回答：1) 为什么做不到（一句话）；2) 你能替他做到哪一步"
                     "（查资料/写清单/出方案）；3) 他照着做时需要准备什么、分几步。"
                     "不要假装已经完成，也不要只回一句「无法完成」。"

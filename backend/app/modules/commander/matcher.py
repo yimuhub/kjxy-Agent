@@ -576,14 +576,10 @@ async def _capability_owner(
     返回 (责任人摘要, 本次新增创建数)。
     """
     caps = feasibility.detect_capabilities(
-        " ".join(
-            str(subtask.get(key) or "") for key in ("title", "instruction", "expected_output")
-        )
+        " ".join(str(subtask.get(key) or "") for key in ("title", "instruction", "expected_output"))
     )
     skills = feasibility.skill_codes_for(caps)
-    existing = _owner_by_skills(
-        db, yard_id=ctx.yard_id, user_id=ctx.user_id, skill_codes=skills
-    )
+    existing = _owner_by_skills(db, yard_id=ctx.yard_id, user_id=ctx.user_id, skill_codes=skills)
     if existing is not None:
         return (
             {

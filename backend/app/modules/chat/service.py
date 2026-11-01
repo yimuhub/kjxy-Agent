@@ -1790,11 +1790,7 @@ async def _run_commander_turn(
     base_goal = ""
     if clarify_run_id:
         prev = db.get(CommanderRun, clarify_run_id)
-        if (
-            prev is not None
-            and prev.yard_id == ctx.yard_id
-            and prev.user_id == ctx.user_id
-        ):
+        if prev is not None and prev.yard_id == ctx.yard_id and prev.user_id == ctx.user_id:
             base_goal = str(prev.goal or "").strip()
     if base_goal and base_goal not in content:
         content = f"{base_goal}\n\n用户补充（以此为准）：{content}"

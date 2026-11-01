@@ -404,8 +404,8 @@ def _system_prompt() -> str:
         "6. 子任务数量不超过 max_subtasks；\n"
         "7. 若目标缺少**必要**信息（受众/范围/交付格式/数据来源）且无法做合理假设，"
         "不要拆任务，只输出 clarify 表单（最多 2 项），每项给出可点选的选项；\n"
-        "   字段：{\"key\":\"英文键\",\"label\":\"一句问话\",\"type\":\"single|multi|text\","
-        "\"options\":[\"可选项1\",\"可选项2\"],\"placeholder\":\"补充输入提示\",\"required\":false}；\n"
+        '   字段：{"key":"英文键","label":"一句问话","type":"single|multi|text",'
+        '"options":["可选项1","可选项2"],"placeholder":"补充输入提示","required":false}；\n'
         "   options 要覆盖 2–5 个最常见答案，让用户点一下就够；能合理假设就不要问；\n"
         "8. 用户要可下载文件（PPT/Word/Excel/PDF）时，必须有一个交付子任务："
         "instruction 明确写「调用 doc.generate 生成 .pptx 文件」，expected_output "
