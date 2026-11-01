@@ -8,7 +8,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-ScopeType = Literal["global", "purpose", "agent"]
+ScopeType = Literal["global", "purpose", "agent", "agent_purpose"]
 
 
 class BindingEntry(BaseModel):

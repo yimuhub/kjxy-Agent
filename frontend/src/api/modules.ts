@@ -566,16 +566,22 @@ export interface LlmCapability {
   hint: string
 }
 
+export type LlmScopeType = 'global' | 'purpose' | 'agent' | 'agent_purpose'
+
 export interface LlmBindingItem {
   id: string
   yard_id: string | null
-  scope_type: 'global' | 'purpose' | 'agent'
+  scope_type: LlmScopeType
   scope_key: string
   supplier_id: string
   supplier_name: string
   provider_type: string
   model_id: string
   model_name: string | null
+  /** v3.37：绑定到具体模型行时返回（供应商下多模型） */
+  supplier_model_id?: string | null
+  model_key?: string | null
+  modality?: string | null
   priority: number
   enabled: boolean
   // v3.26：停用/熔断的供应商要标「不可用」，否则界面会把绑定当成真的在用
@@ -585,6 +591,7 @@ export interface LlmBindingItem {
 
 export interface LlmBindingEntry {
   supplier_id: string
+  supplier_model_id?: string | null
   model_name?: string | null
   group_name?: string | null
   priority?: number
@@ -611,9 +618,17 @@ export interface LlmAgentModelItem {
   /** follow=跟随中心，custom=已单独指定，legacy=助手编辑页旧设置 */
   mode: 'follow' | 'custom' | 'legacy'
   bindings: LlmBindingItem[]
+  /** v3.37：该助手的专属能力模型（图像/视频） */
+  capabilities?: LlmAgentCapabilityItem[]
   legacy: { supplier_id: string; supplier_name: string; model_id: string; model_name: string | null } | null
   resolved: { supplier_id: string; supplier_name: string; model_name: string; level: string; level_label: string } | null
   hops: { level_label: string; supplier_name: string; model_name: string }[]
+}
+
+export interface LlmAgentCapabilityItem {
+  purpose: 'image_generation' | 'video_generation'
+  label: string
+  bindings: LlmBindingItem[]
 }
 
 export interface LlmVisualModelItem {
@@ -647,7 +662,7 @@ export const llmBindingApi = {
     return unwrap(api.get<ApiResponse<{ items: LlmBindingItem[] }>>('/llm/bindings', { params: scope }))
   },
   replace(payload: {
-    scope_type: 'global' | 'purpose' | 'agent'
+    scope_type: LlmScopeType
     scope_key?: string
     entries: LlmBindingEntry[]
   }): Promise<{ items: LlmBindingItem[] }> {

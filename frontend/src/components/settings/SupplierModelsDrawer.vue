@@ -321,6 +321,7 @@
             <el-select
               v-model="form.modality"
               style="width: 220px"
+              @change="onModalityChange"
             >
               <el-option
                 v-for="item in MODALITY_OPTIONS"
@@ -357,6 +358,15 @@
               :value="item.value"
             />
           </el-select>
+          <span class="note">图像/视频模型按模态即可识别；协议栏只在同模态有多套接口时才需要改</span>
+        </el-form-item>
+        <el-form-item label="接口路径">
+          <el-input
+            v-model="form.endpoint_path"
+            placeholder="选填；默认 /chat/completions、/images/generations 或 /videos"
+            maxlength="200"
+          />
+          <span class="note">上游路径与默认不一致时填写（如 /v1/video/generations）</span>
         </el-form-item>
         <el-form-item label="上下文窗口">
           <el-input-number
@@ -608,6 +618,7 @@
     display_name: '',
     modality: 'text',
     protocol: 'openai_chat',
+    endpoint_path: '',
     context_window: null as number | null,
     max_output_tokens: null as number | null,
     price_input: null as number | null,
@@ -745,7 +756,7 @@
       model.test_ok = res.ok === true
       model.latency_ms = res.latency_ms ?? model.latency_ms
       model.last_test_at = new Date().toISOString()
-      model.last_error = res.ok ? null : res.message || res.detail || '测试失败'
+      model.last_error = res.ok ? null : res.message || '测试失败'
       if (res.ok) {
         ElMessage.success(
           `${displayName(model)} 测试通过${res.latency_ms != null ? `，延迟 ${res.latency_ms} ms` : ''}`,
@@ -841,6 +852,7 @@
       display_name: '',
       modality: 'text',
       protocol: 'openai_chat',
+      endpoint_path: '',
       context_window: null as number | null,
       max_output_tokens: null as number | null,
       price_input: null,
@@ -867,6 +879,7 @@
       display_name: model.display_name ?? '',
       modality: model.modality || 'text',
       protocol: model.protocol || 'openai_chat',
+      endpoint_path: model.endpoint_path ?? '',
       context_window: model.context_window ?? null,
       max_output_tokens: model.max_output_tokens ?? null,
       price_input: model.pricing?.input ?? null,
@@ -892,6 +905,11 @@
     rerank: '重排',
     asr: '语音识别',
     tts: '语音合成',
+  }
+
+  /** 改模态时把协议切到对应的默认协议；已手动改过协议的，用户仍可再调 */
+  function onModalityChange(value: string): void {
+    form.protocol = protocolForModality(value)
   }
 
   function protocolForModality(modality: string): string {
@@ -971,6 +989,7 @@
           display_name: form.display_name.trim() || key,
           modality: form.modality,
           protocol: form.protocol,
+          endpoint_path: form.endpoint_path.trim() || null,
           context_window: form.context_window,
           pricing,
           status: form.enabled ? 1 : 2,
@@ -984,6 +1003,7 @@
           display_name: form.display_name.trim() || key,
           modality: form.modality,
           protocol: form.protocol,
+          endpoint_path: form.endpoint_path.trim() || null,
           capabilities: {},
           context_window: form.context_window,
           max_output_tokens: form.max_output_tokens,

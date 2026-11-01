@@ -75,6 +75,7 @@ NO_MODEL_LIST_PROVIDERS = {
     # 百炼原生图像接口与视频通道路径不同，不按 /models 探测，避免误报 404
     "dashscope_image",
     "openai_video",
+    "dashscope_video",
 }
 
 #: 测试注入口：httpx.MockTransport 假扮上游 /models（全离线纪律，生产恒为 None）
@@ -239,6 +240,7 @@ def _protocol_for_selected(supplier: Supplier, modality: str) -> str:
         "openai_images": "openai_images",
         "dashscope_image": "dashscope_image",
         "openai_video": "openai_video",
+        "dashscope_video": "dashscope_video",
     }.get(supplier.provider_type, "openai_chat")
     protocol = protocol_for_modality(modality, default=default)
     if supplier.provider_type == "dashscope_image" and modality == "image":
@@ -262,6 +264,7 @@ def _apply_selected_models(
         "openai_images": "image",
         "dashscope_image": "image",
         "openai_video": "video",
+        "dashscope_video": "video",
     }.get(supplier.provider_type)
 
     rows = (
@@ -1822,12 +1825,35 @@ async def _run_model_test(
                 ),
                 detail,
             )
-        if modality == "video" or protocol == "openai_video":
+        if modality == "video" or protocol in ("openai_video", "dashscope_video"):
+            from app.modules.llm.video import VideoRequest, build_video_provider
+
+            video_provider = build_video_provider(supplier, model_row=row)
+            # 真实提交一次最小任务：受理即算连通（不等整段视频生成完），会真实计费一次
+            video_batch = await video_provider.generate(
+                VideoRequest(prompt="连通性测试：草地上的一只猫", duration_seconds=5),
+                wait_seconds=45,
+            )
+            latency = int((time.perf_counter() - started) * 1000)
+            ok = bool(video_batch.assets) or video_batch.accepted
+            detail.update(
+                {
+                    "model": video_batch.model,
+                    "task_id": video_batch.task_id,
+                    "accepted": video_batch.accepted,
+                    "videos": len(video_batch.assets),
+                }
+            )
+            message = (
+                "视频已生成（1 段最小请求）。"
+                if video_batch.assets
+                else "视频任务已受理，生成中（受理即连通）。"
+            )
             return (
                 SupplierModelTestResult(
-                    ok=False,
-                    latency_ms=int((time.perf_counter() - started) * 1000),
-                    message="视频通道已登记，暂无内置调用工具",
+                    ok=ok,
+                    latency_ms=latency,
+                    message=message,
                     detail=detail,
                 ),
                 detail,
@@ -2002,9 +2028,16 @@ def get_provider_templates() -> list[ProviderTemplate]:
         ),
         ProviderTemplate(
             provider_type="openai_video",
-            label="视频生成（通道预留）",
-            base_url="",
-            model_id="",
-            note="协议位已登记，当前无内置调用工具；配置后可用于后续视频技能",
+            label="视频生成（OpenAI 兼容）",
+            base_url="https://api.openai.com/v1",
+            model_id="sora-2",
+            note="先试 POST {base_url}/videos，404 再试 /video/generations；聚合网关也可用",
+        ),
+        ProviderTemplate(
+            provider_type="dashscope_video",
+            label="视频生成（阿里云百炼）",
+            base_url="https://dashscope.aliyuncs.com",
+            model_id="wan2.2-t2v-plus",
+            note="百炼原生异步视频接口（提交任务后轮询），base_url 不要带 /compatible-mode",
         ),
     ]

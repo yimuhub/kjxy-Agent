@@ -18,6 +18,7 @@ ProviderType = Literal[
     "openai_images",
     "dashscope_image",
     "openai_video",
+    "dashscope_video",
     # v3.33 官方供应商/官方通道：目录同步出的统一协议适配
     "official_relay",
 ]
@@ -41,6 +42,7 @@ Protocol = Literal[
     "openai_images",
     "dashscope_image",
     "openai_video",
+    "dashscope_video",
     "anthropic",
     "gemini",
     "openai_audio",
@@ -178,6 +180,7 @@ ProbeProviderType = Literal[
     "openai_images",
     "dashscope_image",
     "openai_video",
+    "dashscope_video",
     "official_relay",
 ]
 

@@ -30,12 +30,13 @@ from app.core.logging import get_logger
 log = get_logger(__name__)
 
 IMAGE_PROVIDER_TYPES = frozenset({"openai_images", "dashscope_image"})
-VIDEO_PROVIDER_TYPES = frozenset({"openai_video"})
+VIDEO_PROVIDER_TYPES = frozenset({"openai_video", "dashscope_video"})
 #: 图像供应商类型 → 中文名（前端模板与错误文案共用）
 IMAGE_PROVIDER_LABELS: dict[str, str] = {
     "openai_images": "图像生成（OpenAI 兼容）",
     "dashscope_image": "图像生成（阿里云百炼原生）",
-    "openai_video": "视频生成（通道预留）",
+    "openai_video": "视频生成（OpenAI 兼容）",
+    "dashscope_video": "视频生成（阿里云百炼）",
 }
 
 DEFAULT_SIZE = "1024x1024"
@@ -114,6 +115,31 @@ def _truncate(text: str, limit: int = 160) -> str:
     return clean[:limit]
 
 
+def upstream_excerpt(resp: httpx.Response, limit: int = 160) -> str:
+    """上游错误原文摘要：只取响应体，绝不带请求头（Authorization）。"""
+    try:
+        return _truncate(resp.text, limit)
+    except Exception:  # noqa: BLE001 - 读体失败时不影响主错误
+        return ""
+
+
+def _normalize_path(path: str | None, default: str) -> str:
+    raw = (path or "").strip()
+    if not raw:
+        return default
+    return raw if raw.startswith("/") else f"/{raw}"
+
+
+def normalize_dashscope_base(base_url: str) -> str:
+    """百炼原生接口在站点根上：用户常填 OpenAI 兼容地址，这里统一剥掉路径。"""
+    base = (base_url or "").strip().rstrip("/")
+    for suffix in ("/compatible-mode/v1", "/compatible-mode", "/v1"):
+        if base.endswith(suffix):
+            base = base[: -len(suffix)]
+            break
+    return base or "https://dashscope.aliyuncs.com"
+
+
 class OpenAIImagesProvider:
     """OpenAI 兼容的图像生成接口。"""
 
@@ -125,12 +151,17 @@ class OpenAIImagesProvider:
         model: str,
         timeout_seconds: int = 120,
         provider_label: str = "images",
+        endpoint_path: str | None = None,
+        transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self.base_url = (base_url or "").rstrip("/")
         self.api_key = api_key
         self.model = model
         self.timeout = timeout_seconds
         self.provider_label = provider_label
+        self.endpoint_path = _normalize_path(endpoint_path, "/images/generations")
+        #: 测试注入口（httpx.MockTransport）；生产恒为 None
+        self.transport = transport
         if not self.base_url or not self.api_key or not self.model:
             raise AppError(
                 "IMAGE_NOT_CONFIGURED",
@@ -138,45 +169,77 @@ class OpenAIImagesProvider:
                 http_status=503,
             )
 
-    async def generate(self, request: ImageRequest) -> ImageBatch:
-        from app.core.net_guard import check_egress_url
-
-        url = f"{self.base_url}/images/generations"
-        check_egress_url(url, context="image_generation", allow_local=True)
-        payload = {
+    def _payload(self, request: ImageRequest, *, level: int) -> dict[str, object]:
+        """level 0=完整参数；逐级去掉兼容性差的可选字段（部分聚合网关只认最小集）。"""
+        payload: dict[str, object] = {
             "model": self.model,
             "prompt": request.prompt[:MAX_PROMPT_LEN],
-            "size": normalize_size(request.size),
-            "n": normalize_count(request.n),
-            "response_format": "b64_json",
         }
+        if level < 2:
+            payload["size"] = normalize_size(request.size)
+        if level < 1:
+            payload["n"] = normalize_count(request.n)
+            payload["response_format"] = "b64_json"
         if request.negative_prompt:
             # OpenAI 协议没有负面词字段；部分兼容实现接受 prompt 内嵌写法
             payload["prompt"] = f"{payload['prompt']}\n\nAvoid: {request.negative_prompt[:400]}"
+        return payload
+
+    async def generate(self, request: ImageRequest) -> ImageBatch:
+        from app.core.net_guard import check_egress_url
+
+        url = f"{self.base_url}{self.endpoint_path}"
+        check_egress_url(url, context="image_generation", allow_local=True)
         started = time.perf_counter()
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with httpx.AsyncClient(timeout=self.timeout, transport=self.transport) as client:
                 resp = await client.post(
                     url,
-                    json=payload,
+                    json=self._payload(request, level=0),
                     headers={"Authorization": f"Bearer {self.api_key}"},
                 )
+                # 4xx 常是「多传了可选字段」：按最小集重试两次，仍然失败才如实报错
+                for level in (1, 2):
+                    if resp.status_code not in (400, 422):
+                        break
+                    resp = await client.post(
+                        url,
+                        json=self._payload(request, level=level),
+                        headers={"Authorization": f"Bearer {self.api_key}"},
+                    )
                 if resp.status_code in (401, 403):
                     raise image_error("图像服务鉴权失败，请检查供应商密钥。", category="auth")
                 if resp.status_code == 429:
                     raise image_error("图像服务限流，请稍后重试。", category="rate_limit")
                 if 500 <= resp.status_code < 600:
                     raise image_error("图像服务暂时不可用，请稍后重试。", category="provider_5xx")
+                if resp.status_code == 404:
+                    raise image_error(
+                        f"图像接口路径不存在（404）：{self.endpoint_path}。"
+                        "请在模型设置里把「接口路径」改成上游实际路径。",
+                        category="provider_4xx",
+                    )
                 if resp.status_code != 200:
-                    raise image_error("图像服务返回异常，请稍后重试。", category="provider_4xx")
+                    raise image_error(
+                        f"图像服务返回 {resp.status_code}：{upstream_excerpt(resp) or '无响应体'}",
+                        category="provider_4xx",
+                    )
                 try:
                     data = resp.json()
                 except ValueError as e:
-                    raise image_error("图像服务返回无法解析。", category="provider_5xx") from e
+                    raise image_error(
+                        f"图像服务返回无法解析：{upstream_excerpt(resp) or '无响应体'}",
+                        category="provider_5xx",
+                    ) from e
                 if not isinstance(data, dict):
                     raise image_error("图像服务返回格式异常。", category="provider_5xx")
+                items = data.get("data")
+                if not isinstance(items, list):
+                    # 百炼/聚合网关的同步回包：output.results[].url
+                    output = data.get("output")
+                    items = output.get("results") if isinstance(output, dict) else None
                 assets: list[ImageAsset] = []
-                for item in data.get("data") or []:
+                for item in items or []:
                     asset = await self._asset_from_item(client, item)
                     if asset is not None:
                         assets.append(asset)
@@ -242,13 +305,15 @@ class DashScopeImageProvider:
         timeout_seconds: int = 150,
         poll_interval: float = 2.0,
         provider_label: str = "dashscope",
+        transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
-        self.base_url = (base_url or "https://dashscope.aliyuncs.com").rstrip("/")
+        self.base_url = normalize_dashscope_base(base_url)
         self.api_key = api_key
         self.model = model
         self.timeout = timeout_seconds
         self.poll_interval = poll_interval
         self.provider_label = provider_label
+        self.transport = transport
         if not self.api_key or not self.model:
             raise AppError(
                 "IMAGE_NOT_CONFIGURED",
@@ -275,7 +340,9 @@ class DashScopeImageProvider:
         headers = {"Authorization": f"Bearer {self.api_key}", "X-DashScope-Async": "enable"}
         deadline = time.monotonic() + self.timeout
         try:
-            async with httpx.AsyncClient(timeout=min(self.timeout, 60)) as client:
+            async with httpx.AsyncClient(
+                timeout=min(self.timeout, 60), transport=self.transport
+            ) as client:
                 resp = await client.post(submit_url, json=payload, headers=headers)
                 task_id = self._task_id(resp)
                 urls = await self._poll(client, task_id, deadline)
@@ -379,16 +446,26 @@ def build_image_provider(
 
     provider_type = str(getattr(supplier, "provider_type", "") or "")
     model_protocol = str(getattr(model_row, "protocol", "") or "")
-    if model_protocol in IMAGE_PROVIDER_TYPES:
-        image_protocol = model_protocol
-    elif provider_type in IMAGE_PROVIDER_TYPES:
-        image_protocol = provider_type
+    modality = str(getattr(model_row, "modality", "") or "").lower()
+    if model_protocol == "dashscope_image" or provider_type == "dashscope_image":
+        image_protocol = "dashscope_image"
+    elif model_protocol in IMAGE_PROVIDER_TYPES or provider_type in IMAGE_PROVIDER_TYPES:
+        image_protocol = "openai_images"
+    elif modality == "image":
+        # v3.37：通用 OpenAI 兼容供应商（聚合网关）里的图片模型，协议常仍标 openai_chat；
+        # 以模型模态为准放行，否则「上游明明能出图」会被协议字段一票否决。
+        image_protocol = "openai_images"
     else:
         raise AppError(
             "IMAGE_NOT_CONFIGURED",
-            f"供应商 {provider_type or '未知'} 不提供图像生成能力。",
+            f"供应商 {provider_type or '未知'} 不提供图像生成能力"
+            f"（模型模态：{modality or '未知'}）。",
             http_status=503,
-            details={"provider_type": provider_type, "protocol": model_protocol or None},
+            details={
+                "provider_type": provider_type,
+                "protocol": model_protocol or None,
+                "modality": modality or None,
+            },
         )
     model = (
         str(getattr(model_row, "upstream_model_id", "") or "").strip()
@@ -405,7 +482,9 @@ def build_image_provider(
         }
         if image_protocol == "dashscope_image":
             return DashScopeImageProvider(**kwargs)
-        return OpenAIImagesProvider(**kwargs)
+        return OpenAIImagesProvider(
+            **kwargs, endpoint_path=getattr(model_row, "endpoint_path", None)
+        )
     finally:
         del api_key
 
@@ -442,6 +521,7 @@ def resolve_image_provider(
         is_image = (
             getattr(row, "provider_type", "") in IMAGE_PROVIDER_TYPES
             or model_protocol in IMAGE_PROVIDER_TYPES
+            or str(getattr(model_row, "modality", "") or "").lower() == "image"
         )
         if not is_image:
             continue
@@ -472,7 +552,10 @@ def resolve_image_provider(
         .filter(
             Supplier.status == 1,
             SupplierModel.status == 1,
-            SupplierModel.protocol.in_(sorted(IMAGE_PROVIDER_TYPES)),
+            or_(
+                SupplierModel.protocol.in_(sorted(IMAGE_PROVIDER_TYPES)),
+                SupplierModel.modality == "image",
+            ),
             or_(Supplier.yard_id == yard_id, Supplier.yard_id.is_(None)),
         )
         .order_by(Supplier.priority.desc(), SupplierModel.created_at.asc())

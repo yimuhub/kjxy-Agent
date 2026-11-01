@@ -259,9 +259,9 @@ def test_visual_capabilities_and_templates():
     assert "image_generation" in CAPABILITY_CODES
     assert "video_generation" in CAPABILITY_CODES
     types = {item.provider_type for item in supplier_service.get_provider_templates()}
-    assert {"openai_images", "dashscope_image", "openai_video"} <= types
+    assert {"openai_images", "dashscope_image", "openai_video", "dashscope_video"} <= types
     assert images.IMAGE_PROVIDER_TYPES == {"openai_images", "dashscope_image"}
-    assert images.VIDEO_PROVIDER_TYPES == {"openai_video"}
+    assert images.VIDEO_PROVIDER_TYPES == {"openai_video", "dashscope_video"}
 
 
 @pytest.mark.asyncio

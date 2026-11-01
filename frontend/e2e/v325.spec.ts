@@ -50,14 +50,24 @@ async function clearPurposeBinding(
   expect(resp.ok()).toBeTruthy()
 }
 
-async function pickSupplier(page: Page, row: Locator, label: string): Promise<void> {
+/** v3.37：一档 = 一个「供应商 → 模型」级联下拉，按供应商分组，可选默认模型或具体模型。 */
+async function pickSupplierModel(
+  page: Page,
+  row: Locator,
+  supplierLabel: string,
+  optionText = 'e2e325-model',
+): Promise<void> {
   // Element Plus 的浮层挂在 body 上且带收起动画：先确认没有残留的下拉，再点这一档，
   // 否则 Playwright 会命中正在淡出的上一层，报「element is not visible」。
   await expect(page.locator('.el-select-dropdown:visible')).toHaveCount(0, { timeout: 10_000 })
-  await row.locator('.entry-supplier').click()
+  await row.locator('.supplier-model-select').click()
   const popper = page.locator('.el-select-dropdown:visible')
   await expect(popper).toHaveCount(1, { timeout: 10_000 })
-  await popper.locator('.el-select-dropdown__item', { hasText: label }).click({ timeout: 15_000 })
+  const group = popper.locator('.el-select-group__wrap').filter({ hasText: supplierLabel }).first()
+  await group
+    .locator('.el-select-dropdown__item', { hasText: optionText })
+    .first()
+    .click({ timeout: 15_000 })
 }
 
 /** 上一轮超时/中断会留下半截供应商，先扫干净再建，避免选项列表越滚越长。 */
@@ -139,21 +149,21 @@ test.describe('模型中心与工具目录（v3.25）', () => {
       await dialog.getByRole('button', { name: '添加一档兜底' }).click()
       const rows = dialog.locator('.entry-row')
       await expect(rows).toHaveCount(2)
-      await pickSupplier(page, rows.nth(0), mainName)
-      await pickSupplier(page, rows.nth(1), spareName)
-      await rows.nth(1).locator('.entry-model input').fill('e2e325-override')
+      await pickSupplierModel(page, rows.nth(0), mainName)
+      // 第二档绑定到具体模型行，验证「模型级」绑定也能保存与回显
+      await pickSupplierModel(page, rows.nth(1), spareName, 'e2e325-model')
 
       await dialog.getByRole('button', { name: '保存', exact: true }).click()
-      await expect(page.getByText('模型绑定已保存并即时生效')).toBeVisible()
+      await expect(page.locator('.el-message').filter({ hasText: '模型绑定已保存并即时生效' }).first()).toBeVisible()
 
-      // 列表回显：主用 → 兜底1，且顺序与界面一致
-      await expect(row.locator('.bind-tag').nth(0)).toContainText(`主用 ${mainName}`)
-      await expect(row.locator('.bind-tag').nth(1)).toContainText(`兜底1 ${spareName}`)
-      await expect(row.locator('.bind-tag').nth(1)).toContainText('e2e325-override')
+      // 列表回显：主用在行内下拉，兜底在下面按顺序列 tag
+      await expect(row.locator('.supplier-model-select')).toContainText(mainName)
+      await expect(row.locator('.bind-tags .el-tag').nth(0)).toContainText(`兜底1 ${spareName}`)
+      await expect(row.locator('.bind-tags .el-tag').nth(0)).toContainText('e2e325-model')
 
       // 同一层重复供应商被前端拦下，不会写出无意义的兜底链
       await dialog.getByRole('button', { name: '添加一档兜底' }).click()
-      await pickSupplier(page, dialog.locator('.entry-row').nth(2), mainName)
+      await pickSupplierModel(page, dialog.locator('.entry-row').nth(2), mainName)
       await dialog.getByRole('button', { name: '保存', exact: true }).click()
       await expect(page.getByText('同一层内供应商不能重复')).toBeVisible()
       await dialog.locator('.entry-row').nth(2).getByRole('button', { name: '移除' }).click()
@@ -161,8 +171,9 @@ test.describe('模型中心与工具目录（v3.25）', () => {
       // 上移兜底档：交换主用与兜底顺序
       await dialog.locator('.entry-row').nth(1).getByRole('button', { name: '上移' }).click()
       await dialog.getByRole('button', { name: '保存', exact: true }).click()
-      await expect(page.getByText('模型绑定已保存并即时生效')).toBeVisible()
-      await expect(row.locator('.bind-tag').nth(0)).toContainText(`主用 ${spareName}`)
+      await expect(page.locator('.el-message').filter({ hasText: '模型绑定已保存并即时生效' }).first()).toBeVisible()
+      await expect(row.locator('.supplier-model-select')).toContainText(spareName)
+      await expect(row.locator('.bind-tags .el-tag').nth(0)).toContainText(mainName)
 
       // 解析预览按「这次会用谁」列出链路
       await expect(dialog.getByText('当前解析（这次会用谁）')).toBeVisible()

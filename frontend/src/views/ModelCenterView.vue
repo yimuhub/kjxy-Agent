@@ -145,7 +145,7 @@
             :closable="false"
             show-icon
             class="banner"
-            title="给某条能力单独指定模型：优先级高于全局默认。例如让「文档生成」用长上下文模型、让「知识向量化」用便宜的嵌入模型。"
+            title="给某条能力单独指定模型：优先级高于全局默认。下拉里按「供应商 → 模型」分组，只显示已接入且模态匹配的模型；「配置」用于追加兜底。"
           />
           <el-table
             v-col-resize
@@ -169,26 +169,47 @@
               show-overflow-tooltip
             />
             <el-table-column
-              label="当前绑定"
-              min-width="220"
+              label="主用模型（下拉即改）"
+              min-width="300"
             >
               <template #default="{ row }">
-                <template v-if="bindingMap[row.code]?.length">
-                  <el-tag
-                    v-for="(item, i) in bindingMap[row.code]"
-                    :key="item.id"
-                    size="small"
-                    :type="i === 0 ? 'success' : 'info'"
-                    effect="plain"
-                    class="bind-tag"
+                <div class="bind-cell">
+                  <div class="bind-row">
+                    <SupplierModelSelect
+                      :suppliers="supplierOptions"
+                      :modalities="modalitiesForPurpose(row.code)"
+                      :allow-default="!modalitiesForPurpose(row.code).length"
+                      :supplier-id="primaryOf(row.code)?.supplier_id ?? ''"
+                      :model-id="primaryOf(row.code)?.supplier_model_id ?? ''"
+                      :fallback-label="primaryLabel(row.code)"
+                      :placeholder="bindingMap[row.code]?.length ? '选择供应商 · 模型' : '跟随全局默认（点此指定）'"
+                      @change="(choice: ModelChoice) => savePrimary(row.code, choice)"
+                    />
+                    <el-button
+                      v-if="bindingMap[row.code]?.length"
+                      size="small"
+                      text
+                      type="danger"
+                      @click="clearLayer(row.code)"
+                    >
+                      清除
+                    </el-button>
+                  </div>
+                  <div
+                    v-if="(bindingMap[row.code]?.length ?? 0) > 1"
+                    class="bind-tags"
                   >
-                    {{ i === 0 ? '主用' : `兜底${i}` }} {{ item.supplier_name }}{{ item.model_name ? ` · ${item.model_name}` : '' }}
-                  </el-tag>
-                </template>
-                <span
-                  v-else
-                  class="note"
-                >跟随全局默认</span>
+                    <el-tag
+                      v-for="(item, i) in bindingMap[row.code].slice(1)"
+                      :key="item.id"
+                      size="small"
+                      type="info"
+                      effect="plain"
+                    >
+                      兜底{{ i + 1 }} {{ item.supplier_name }}{{ item.model_name ? ` · ${item.model_name}` : '' }}
+                    </el-tag>
+                  </div>
+                </div>
               </template>
             </el-table-column>
             <el-table-column
@@ -234,6 +255,7 @@
         :title="bindingDialogTitle"
         hint="留空并保存即取消该层的单独绑定，回落到下一档。"
         :suppliers="supplierOptions"
+        :modalities="bindingModalities"
         :max-fallback="maxFallback"
         @saved="onBindingSaved"
       />
@@ -253,9 +275,12 @@
   import { ElMessage } from 'element-plus'
   import { llmApi, llmBindingApi, llmSupplierApi } from '@/api/modules'
   import type { LlmCapability, LlmBindingItem, LlmSupplier } from '@/api/modules'
+  import type { ModelChoice } from '@/composables/useSupplierModels'
+  import { modalitiesForPurpose } from '@/utils/modelPurpose'
   import ModelSuppliers from '@/components/settings/ModelSuppliers.vue'
   import AgentModelSettings from '@/components/settings/AgentModelSettings.vue'
   import ModelBindings from '@/components/settings/ModelBindings.vue'
+  import SupplierModelSelect from '@/components/settings/SupplierModelSelect.vue'
   import RelayChannels from '@/components/settings/RelayChannels.vue'
   import OfficialModels from '@/components/settings/OfficialModels.vue'
   import type { LlmStatus } from '@/types/api'
@@ -278,6 +303,10 @@
   const bindingScopeType = ref<'purpose' | 'agent'>('purpose')
   const bindingScopeKey = ref('')
   const bindingDialogTitle = ref('')
+  /** 弹窗里按能力过滤模态；助手层不限制（对话模型可用任意文本模型） */
+  const bindingModalities = computed(() =>
+    bindingScopeType.value === 'purpose' ? modalitiesForPurpose(bindingScopeKey.value) : [],
+  )
 
   const supplierOptions = computed(() => suppliers.value)
   const resolutionHead = computed(() => {
@@ -370,6 +399,62 @@
     await loadResolution()
   }
 
+  function primaryOf(code: string): LlmBindingItem | undefined {
+    return bindingMap[code]?.[0]
+  }
+
+  function primaryLabel(code: string): string {
+    const head = primaryOf(code)
+    if (!head) return ''
+    return `${head.supplier_name}${head.model_name ? ` · ${head.model_name}` : ''}`
+  }
+
+  /** 直接在表格里换主用模型：保留原有兜底顺序，重排 priority */
+  async function savePrimary(code: string, choice: ModelChoice): Promise<void> {
+    const current = bindingMap[code] ?? []
+    const rest = current
+      .slice(1)
+      .filter(item => item.supplier_id !== choice.supplier_id)
+      .map(item => ({
+        supplier_id: item.supplier_id,
+        supplier_model_id: item.supplier_model_id ?? null,
+        model_name: item.model_name,
+      }))
+    const entries = [
+      {
+        supplier_id: choice.supplier_id,
+        supplier_model_id: choice.supplier_model_id || null,
+        model_name: choice.model_name || null,
+      },
+      ...rest,
+    ].slice(0, maxFallback.value)
+    try {
+      await llmBindingApi.replace({
+        scope_type: 'purpose',
+        scope_key: code,
+        entries: entries.map((entry, index) => ({
+          ...entry,
+          priority: (entries.length - index) * 10,
+          enabled: true,
+        })),
+      })
+      ElMessage.success('已更新主用模型，下一次调用即生效')
+      await onBindingSaved()
+    } catch {
+      /* 错误 toast 已由 client 统一处理 */
+    }
+  }
+
+  async function clearLayer(code: string): Promise<void> {
+    try {
+      await llmBindingApi.replace({ scope_type: 'purpose', scope_key: code, entries: [] })
+      ElMessage.success('已清除该能力的单独绑定，回落到全局默认')
+      await onBindingSaved()
+    } catch {
+      /* 错误 toast 已由 client 统一处理 */
+    }
+  }
+
   function openBinding(scopeType: 'purpose' | 'agent', scopeKey: string, title: string): void {
     bindingScopeType.value = scopeType
     bindingScopeKey.value = scopeKey
@@ -448,7 +533,19 @@
     font-size: 12px;
     color: var(--ds-text-2);
   }
-  .bind-tag {
-    margin-right: 6px;
+  .bind-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .bind-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .bind-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
   }
 </style>

@@ -68,6 +68,7 @@ export const PROTOCOL_OPTIONS = [
   { value: 'openai_images', label: 'OpenAI 图像' },
   { value: 'dashscope_image', label: '百炼图像' },
   { value: 'openai_video', label: 'OpenAI 视频' },
+  { value: 'dashscope_video', label: '百炼视频' },
   { value: 'anthropic', label: 'Anthropic Messages' },
   { value: 'gemini', label: 'Gemini' },
   { value: 'openai_audio', label: 'OpenAI 音频（ASR/TTS）' },
@@ -124,6 +125,8 @@ export interface SupplierModelInput {
   display_name?: string
   modality?: string
   protocol?: string
+  /** v3.37：覆盖默认接口路径（图像 /images/generations、视频 /videos 等） */
+  endpoint_path?: string | null
   capabilities?: Record<string, unknown>
   context_window?: number | null
   max_output_tokens?: number | null
@@ -221,6 +224,7 @@ export interface SupplierModelUpdate {
   display_name?: string
   modality?: string
   protocol?: string
+  endpoint_path?: string | null
   capabilities?: Record<string, unknown>
   context_window?: number | null
   pricing?: ModelPricing | null
@@ -307,15 +311,20 @@ export const supplierModelApi = {
     return unwrap<ModelTestResult>(
       api.post(
         `/llm/providers/${encodeURIComponent(supplierId)}/models/${encodeURIComponent(modelId)}/test`,
+        undefined,
+        // 图像/视频测试会真实生成一次，默认 30s 必然超时
+        { timeout: 180_000 },
       ),
     ).then(asObject)
   },
 
   batchTest(supplierId: string, modelIds: string[]): Promise<BatchModelTestResult[]> {
     return unwrap<{ items?: BatchModelTestResult[] }>(
-      api.post(`/llm/providers/${encodeURIComponent(supplierId)}/models/batch-test`, {
-        model_ids: modelIds,
-      }),
+      api.post(
+        `/llm/providers/${encodeURIComponent(supplierId)}/models/batch-test`,
+        { model_ids: modelIds },
+        { timeout: 600_000 },
+      ),
     ).then(asItems)
   },
 
@@ -337,10 +346,7 @@ export const supplierModelApi = {
     payload: { model_key?: string; upstream_model_id?: string },
   ): Promise<SupplierModelDetectResult> {
     return unwrap<SupplierModelDetectResult>(
-      api.post(
-        `/llm/providers/${encodeURIComponent(supplierId)}/models/detect-modality`,
-        payload,
-      ),
+      api.post(`/llm/providers/${encodeURIComponent(supplierId)}/models/detect-modality`, payload),
     ).then(asObject)
   },
 }
@@ -492,15 +498,15 @@ export const officialApi = {
   },
 
   models(): Promise<OfficialModel[]> {
-    return unwrap<{ items?: OfficialModel[] }>(
-      api.get('/llm/official/models', silentConfig),
-    ).then(asItems)
+    return unwrap<{ items?: OfficialModel[] }>(api.get('/llm/official/models', silentConfig)).then(
+      asItems,
+    )
   },
 
   plans(): Promise<OfficialPlan[]> {
-    return unwrap<{ items?: OfficialPlan[] }>(
-      api.get('/llm/official/plans', silentConfig),
-    ).then(asItems)
+    return unwrap<{ items?: OfficialPlan[] }>(api.get('/llm/official/plans', silentConfig)).then(
+      asItems,
+    )
   },
 
   entitlements(): Promise<OfficialEntitlement[]> {
@@ -517,11 +523,7 @@ export const officialApi = {
 
   createOrder(modelKey: string, planCode: string): Promise<OfficialOrder> {
     return unwrap<OfficialOrder>(
-      api.post(
-        '/llm/official/orders',
-        { model_key: modelKey, plan_code: planCode },
-        silentConfig,
-      ),
+      api.post('/llm/official/orders', { model_key: modelKey, plan_code: planCode }, silentConfig),
     ).then(asObject)
   },
 }

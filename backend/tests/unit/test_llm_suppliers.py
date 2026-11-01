@@ -514,6 +514,8 @@ def test_templates_have_no_keys():
         "openai_images",
         "dashscope_image",
         "openai_video",
+        # v3.37：百炼原生视频（异步任务），与 OpenAI 兼容视频分开
+        "dashscope_video",
     }
     for t in templates:
         assert "api_key" not in t.model_dump()
@@ -583,7 +585,7 @@ def test_router_templates(client, admin_headers):
     r = client.get("/api/v1/llm/provider-templates", headers=admin_headers)
     assert r.status_code == 200
     items = r.json()["data"]
-    assert len(items) == 8
+    assert len(items) == 9
     deepseek = next(t for t in items if t["provider_type"] == "deepseek")
     assert deepseek["base_url"] == "https://api.deepseek.com"
 

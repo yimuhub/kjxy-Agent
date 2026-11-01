@@ -346,3 +346,165 @@ def test_agent_model_overview_requires_llm_manage(client, world):
     token = _login(client, "llm_viewer", world["yard"].id)
     resp = client.get(f"{PREFIX}/llm/bindings/agents", headers=_hdr(token))
     assert resp.status_code == 403
+
+
+# ---------- v3.37：模态优先 + 助手专属能力 ----------
+
+
+def _mk_model_row(
+    db_session,
+    supplier_id: str,
+    *,
+    key: str,
+    modality: str,
+    protocol: str = "openai_chat",
+):
+    from app.modules.llm.supplier_models import SupplierModel
+
+    row = SupplierModel(
+        supplier_id=supplier_id,
+        model_key=key,
+        upstream_model_id=key,
+        display_name=key,
+        modality=modality,
+        protocol=protocol,
+        status=1,
+        source="manual",
+    )
+    db_session.add(row)
+    db_session.commit()
+    db_session.refresh(row)
+    return row
+
+
+def test_visual_binding_accepts_generic_supplier_by_modality(client, world, db_session):
+    """聚合网关的图片模型协议常仍是 openai_chat：按模态也要能绑进图像能力。"""
+    token = _login(client, "llm_owner", world["yard"].id)
+    supplier_id = _mk_generic_supplier(client, token, "gateway-media")
+    row = _mk_model_row(db_session, supplier_id, key="agnes-image-2.5", modality="image")
+
+    resp = client.put(
+        f"{PREFIX}/llm/bindings",
+        headers=_hdr(token),
+        json={
+            "scope_type": "purpose",
+            "scope_key": "image_generation",
+            "entries": [{"supplier_id": supplier_id, "supplier_model_id": row.id, "priority": 10}],
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    items = resp.json()["data"]["items"]
+    assert items[0]["supplier_model_id"] == row.id
+    assert items[0]["modality"] == "image"
+
+
+def test_visual_binding_rejects_chat_only_supplier(client, world):
+    token = _login(client, "llm_owner", world["yard"].id)
+    supplier_id = _mk_supplier(client, token, "chat-only")
+    resp = client.put(
+        f"{PREFIX}/llm/bindings",
+        headers=_hdr(token),
+        json={
+            "scope_type": "purpose",
+            "scope_key": "image_generation",
+            "entries": [{"supplier_id": supplier_id, "priority": 10}],
+        },
+    )
+    assert resp.status_code == 400
+    assert "图像生成" in resp.json()["error"]["message"]
+
+
+def test_agent_purpose_binding_resolves_before_visual_default(client, world, db_session):
+    """助手专属能力：同一助手单独指定图像模型，且优先于全局视觉能力绑定。"""
+    from app.modules.llm import binding_service
+
+    token = _login(client, "llm_owner", world["yard"].id)
+    shared = _mk_generic_supplier(client, token, "gateway-shared")
+    shared_model = _mk_model_row(db_session, shared, key="shared-image", modality="image")
+    own = _mk_generic_supplier(client, token, "gateway-own")
+    own_model = _mk_model_row(db_session, own, key="own-image", modality="image")
+
+    for scope_type, scope_key, supplier, model in (
+        ("purpose", "image_generation", shared, shared_model),
+        ("agent_purpose", "agent-x::image_generation", own, own_model),
+    ):
+        resp = client.put(
+            f"{PREFIX}/llm/bindings",
+            headers=_hdr(token),
+            json={
+                "scope_type": scope_type,
+                "scope_key": scope_key,
+                "entries": [
+                    {"supplier_id": supplier, "supplier_model_id": model.id, "priority": 10}
+                ],
+            },
+        )
+        assert resp.status_code == 200, resp.text
+
+    db_session.expire_all()
+    summary = binding_service.resolution_summary(
+        db_session, world["yard"].id, purpose="image_generation", agent_code="agent-x"
+    )
+    assert summary["hops"][0]["level"] == "agent_purpose_binding"
+    assert summary["hops"][0]["supplier_id"] == own
+
+    # 别的助手仍然用全局图像模型
+    other = binding_service.resolution_summary(
+        db_session, world["yard"].id, purpose="image_generation", agent_code="agent-y"
+    )
+    head = next(hop for hop in other["hops"] if hop.get("supplier_id"))
+    assert head["supplier_id"] == shared
+
+
+def test_agent_overview_exposes_capability_bindings(client, world, db_session):
+    from app.modules.agents.definitions import platform_agent_definitions
+
+    code = str(platform_agent_definitions()[0]["code"])
+    token = _login(client, "llm_owner", world["yard"].id)
+    own = _mk_generic_supplier(client, token, "gateway-cap")
+    model = _mk_model_row(db_session, own, key="cap-video", modality="video")
+    client.put(
+        f"{PREFIX}/llm/bindings",
+        headers=_hdr(token),
+        json={
+            "scope_type": "agent_purpose",
+            "scope_key": f"{code}::video_generation",
+            "entries": [{"supplier_id": own, "supplier_model_id": model.id, "priority": 10}],
+        },
+    )
+    data = client.get(f"{PREFIX}/llm/bindings/agents", headers=_hdr(token)).json()["data"]
+    row = next(item for item in data["items"] if item["code"] == code)
+    caps = {cap["purpose"]: cap for cap in row["capabilities"]}
+    assert caps["video_generation"]["bindings"][0]["supplier_model_id"] == model.id
+    assert caps["image_generation"]["bindings"] == []
+
+
+def test_agent_purpose_binding_rejects_unknown_purpose(client, world):
+    token = _login(client, "llm_owner", world["yard"].id)
+    supplier_id = _mk_supplier(client, token, "agent-purpose-bad")
+    resp = client.put(
+        f"{PREFIX}/llm/bindings",
+        headers=_hdr(token),
+        json={
+            "scope_type": "agent_purpose",
+            "scope_key": "agent-x::not_a_purpose",
+            "entries": [{"supplier_id": supplier_id, "priority": 10}],
+        },
+    )
+    assert resp.status_code == 400
+
+
+def _mk_generic_supplier(client, token: str, name: str) -> str:
+    resp = client.post(
+        f"{PREFIX}/llm/providers",
+        headers=_hdr(token),
+        json={
+            "name": name,
+            "provider_type": "openai_compatible",
+            "base_url": "https://gateway.example.test/v1",
+            "model_id": f"{name}-default",
+            "api_key": "sk-integration-test-key",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()["data"]["id"]

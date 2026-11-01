@@ -212,8 +212,9 @@ async def test_output_schema_validation(db_session):
 
 
 def test_seed_builtin_tools_idempotent(db_session):
-    assert seed_builtin_tools(db_session) == 3
-    assert seed_builtin_tools(db_session) == 3  # 第二次幂等
+    # v3.37：内置工具新增 video.generate，种子共 4 项
+    assert seed_builtin_tools(db_session) == 4
+    assert seed_builtin_tools(db_session) == 4  # 第二次幂等
     db_session.commit()
     rows = db_session.query(ToolDefinition).filter_by(code="knowledge.search").all()
     assert len(rows) == 1

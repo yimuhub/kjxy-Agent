@@ -566,36 +566,17 @@
 
         <el-form-item label="专用模型">
           <div class="model-bind-row">
-            <el-select
-              v-model="decForm.supplier_id"
-              clearable
+            <SupplierModelSelect
+              v-model:supplier-id="decForm.supplier_id"
+              v-model:model-id="decForm.model_name"
+              value-mode="name"
+              :suppliers="supplierList"
+              :modalities="['text']"
+              allow-default
               placeholder="跟随中心（能力/全局默认）"
-              style="width: 240px"
-              @change="onSupplierChange"
-            >
-              <el-option
-                v-for="s in supplierList"
-                :key="s.id"
-                :label="`${s.name}（默认: ${s.model_id}）`"
-                :value="s.id"
-              />
-            </el-select>
-            <el-select
-              v-model="decForm.model_name"
-              filterable
-              allow-create
-              default-first-option
-              clearable
-              placeholder="可选：指定具体子模型（可手输）"
-              style="width: 240px"
-            >
-              <el-option
-                v-for="m in candidateSubModels"
-                :key="m"
-                :label="m"
-                :value="m"
-              />
-            </el-select>
+              fallback-label="当前模型（已停用或已删除）"
+              @change="onModelChoice"
+            />
           </div>
           <span class="da-note">留空即跟随中心；也可到「模型中心 → 智能体模型」统一配置主用与兜底（保存后以那边为准）</span>
         </el-form-item>
@@ -828,6 +809,8 @@
   import BindableExtensionPicker from '@/components/agents/BindableExtensionPicker.vue'
   import DeclarativeAgentCard from '@/components/agents/DeclarativeAgentCard.vue'
   import DuplicateNameDialog from '@/components/agents/DuplicateNameDialog.vue'
+  import SupplierModelSelect from '@/components/settings/SupplierModelSelect.vue'
+  import type { ModelChoice } from '@/composables/useSupplierModels'
   import { friendlyErrorMessage } from '@/utils/status'
   import type { ToolDefinition } from '@/types/api'
 
@@ -1074,21 +1057,6 @@
     group_name: '' as string,
   })
 
-  const candidateSubModels = computed<string[]>(() => {
-    const sup = supplierMap.value[decForm.value.supplier_id]
-    if (!sup) return ['deepseek-chat', 'deepseek-reasoner', 'qwen-plus', 'qwen-max', 'gpt-4o-mini']
-    const list = new Set<string>()
-    if (sup.model_id) list.add(sup.model_id)
-    if (sup.models) {
-      sup.models
-        .split(/[,，\s]+/)
-        .map(s => s.trim())
-        .filter(Boolean)
-        .forEach(m => list.add(m))
-    }
-    return Array.from(list)
-  })
-
   /**
    * 失效绑定：已绑定但不在当前可选集合（已下架/无权限）。
    * 加载中/失败时集合未知，不标记失效，避免误伤；绑定值始终保留在 bound_skills 中。
@@ -1104,11 +1072,9 @@
     return decForm.value.bound_skills.filter(c => c.startsWith('plugin:') && !known.has(c))
   })
 
-  function onSupplierChange() {
-    const sup = supplierMap.value[decForm.value.supplier_id]
-    if (sup && !decForm.value.model_name) {
-      decForm.value.model_name = sup.model_id || ''
-    }
+  function onModelChoice(choice: ModelChoice): void {
+    decForm.value.supplier_id = choice.supplier_id
+    decForm.value.model_name = choice.model_name
   }
 
   const DA_TEMPLATES = [

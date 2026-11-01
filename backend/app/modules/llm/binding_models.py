@@ -19,7 +19,12 @@ from app.db.base import Base, TimestampMixin
 SCOPE_GLOBAL = "global"
 SCOPE_PURPOSE = "purpose"
 SCOPE_AGENT = "agent"
-SCOPE_TYPES: tuple[str, ...] = (SCOPE_GLOBAL, SCOPE_PURPOSE, SCOPE_AGENT)
+#: v3.37：助手 + 能力（``scope_key = "<agent_code>::<purpose>"``），
+#: 让单个助手单独指定图像/视频/向量等能力模型，且不污染它的对话模型。
+SCOPE_AGENT_PURPOSE = "agent_purpose"
+SCOPE_TYPES: tuple[str, ...] = (SCOPE_GLOBAL, SCOPE_PURPOSE, SCOPE_AGENT, SCOPE_AGENT_PURPOSE)
+#: agent_purpose 的 scope_key 分隔符
+AGENT_PURPOSE_SEP = "::"
 
 #: 同一层可配的兜底条数上限（3 条足够覆盖「主 + 备 + 备」，再多会掩盖配置错误）
 MAX_FALLBACK_PER_SCOPE = 3

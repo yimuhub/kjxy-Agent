@@ -33,6 +33,7 @@ def _startup_wiring() -> None:
         from app.modules.growth.poster import register_image_tool
         from app.modules.growth.toolseed import seed_growth_tools
         from app.modules.knowledge.service import register_knowledge_search_tool
+        from app.modules.llm.video_tool import register_video_tool
         from app.modules.market.skill_tools import register_skill_agent_tools
         from app.modules.search.tools import register_search_tools
         from app.modules.tools.registry import seed_builtin_tools
@@ -120,6 +121,7 @@ def _startup_wiring() -> None:
         register_skill_agent_tools()
         register_compliance_tool()
         register_image_tool()
+        register_video_tool()
     except Exception as e:
         log.warning("startup wiring failed: %s", e)
 
@@ -143,7 +145,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="科技小院多智能体平台", version="3.36.2", lifespan=lifespan)
+    app = FastAPI(title="科技小院多智能体平台", version="3.37.0", lifespan=lifespan)
     app.add_middleware(RequestIDMiddleware)
     app.add_exception_handler(AppError, app_error_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)

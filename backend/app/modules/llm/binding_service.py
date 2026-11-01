@@ -21,8 +21,10 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
 from app.modules.llm.binding_models import (
+    AGENT_PURPOSE_SEP,
     MAX_FALLBACK_PER_SCOPE,
     SCOPE_AGENT,
+    SCOPE_AGENT_PURPOSE,
     SCOPE_GLOBAL,
     SCOPE_PURPOSE,
     LLMBinding,
@@ -35,6 +37,7 @@ from app.modules.llm.supplier_schemas import STATUS_ENABLED
 #: 解析档位（前端「这次会用谁」按此顺序展示，值同时用于审计与提示）
 LEVEL_AGENT_BOUND = "agent_bound"
 LEVEL_AGENT_BINDING = "agent_binding"
+LEVEL_AGENT_PURPOSE_BINDING = "agent_purpose_binding"
 LEVEL_PURPOSE_BINDING = "purpose_binding"
 LEVEL_YARD_DEFAULT = "yard_default"
 LEVEL_PLATFORM_DEFAULT = "platform_default"
@@ -45,6 +48,7 @@ LEVEL_SETTINGS = "settings_fallback"
 LEVEL_LABELS: dict[str, str] = {
     LEVEL_AGENT_BOUND: "助手指定模型",
     LEVEL_AGENT_BINDING: "按智能体绑定",
+    LEVEL_AGENT_PURPOSE_BINDING: "助手的专属能力模型",
     LEVEL_PURPOSE_BINDING: "按能力绑定",
     LEVEL_YARD_DEFAULT: "小院默认+兜底",
     LEVEL_PLATFORM_DEFAULT: "平台默认+兜底",
@@ -57,6 +61,7 @@ LEVEL_LABELS: dict[str, str] = {
 LEVEL_ORDER: tuple[str, ...] = (
     LEVEL_AGENT_BOUND,
     LEVEL_AGENT_BINDING,
+    LEVEL_AGENT_PURPOSE_BINDING,
     LEVEL_PURPOSE_BINDING,
     LEVEL_YARD_DEFAULT,
     LEVEL_PLATFORM_DEFAULT,
@@ -105,6 +110,20 @@ def _normalize_scope(scope_type: str, scope_key: str) -> str:
             f"未知能力码：{key}（请从能力清单中选择）。",
             http_status=400,
         )
+    if scope_type == SCOPE_AGENT_PURPOSE:
+        agent_code, _, purpose = key.partition(AGENT_PURPOSE_SEP)
+        if not agent_code or not purpose:
+            raise AppError(
+                "INVALID_REQUEST",
+                "助手能力绑定的 scope_key 必须是「助手编码::能力码」。",
+                http_status=400,
+            )
+        if not is_known_purpose(purpose):
+            raise AppError(
+                "INVALID_REQUEST",
+                f"未知能力码：{purpose}（请从能力清单中选择）。",
+                http_status=400,
+            )
     return key
 
 
@@ -362,6 +381,18 @@ def resolve_chain(
                 )
             ]
             _append(chain, seen, rows, LEVEL_AGENT_BINDING, yard_id=yard_id)
+
+    if agent_code and purpose:
+        # 助手专属能力模型：只作用于「这个助手的这条能力」，不影响它的对话模型
+        scope_key = f"{agent_code}{AGENT_PURPOSE_SEP}{purpose}"
+        for platform_level in (False, True):
+            rows = [
+                _binding_row(db, _usable(db, yard_id, b.supplier_id), b)
+                for b in _bindings_of(
+                    db, yard_id, SCOPE_AGENT_PURPOSE, scope_key, platform_level=platform_level
+                )
+            ]
+            _append(chain, seen, rows, LEVEL_AGENT_PURPOSE_BINDING, yard_id=yard_id)
 
     if purpose:
         for platform_level in (False, True):

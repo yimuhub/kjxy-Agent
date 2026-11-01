@@ -45,25 +45,18 @@
       <span class="entry-order">
         {{ index === 0 ? '主用' : `兜底 ${index}` }}
       </span>
-      <el-select
-        v-model="row.supplier_id"
-        placeholder="选择供应商"
-        class="entry-supplier"
-      >
-        <el-option
-          v-for="s in suppliers"
-          :key="s.id"
-          :label="`${s.name}（${s.model_id}）`"
-          :value="s.id"
-          :disabled="s.status !== 1"
+      <div class="entry-picker">
+        <SupplierModelSelect
+          :supplier-id="row.supplier_id"
+          :model-id="row.supplier_model_id"
+          :suppliers="suppliers"
+          :modalities="modalities"
+          :allow-default="!modalities.length"
+          :fallback-label="row.model_name || '当前模型（已停用或已删除）'"
+          :placeholder="modalities.length ? '选择供应商 · 模型' : '选择供应商（可只选默认模型）'"
+          @change="choice => onPick(row, choice)"
         />
-      </el-select>
-      <el-input
-        v-model="row.model_name"
-        placeholder="模型覆盖（留空=供应商默认）"
-        class="entry-model"
-        maxlength="100"
-      />
+      </div>
       <div class="page-actions">
         <el-button
           size="small"
@@ -139,10 +132,20 @@
 
 <script setup lang="ts">
   /** 同一绑定层的兜底顺序编辑器（v3.25 模型中心）：主用 + 最多 2 档兜底。 */
-  import { onMounted, ref, watch } from 'vue'
+  import { computed, onMounted, ref, watch } from 'vue'
   import { ElMessage } from 'element-plus'
   import { llmBindingApi } from '@/api/modules'
-  import type { LlmBindingEntry, LlmSupplier } from '@/api/modules'
+  import type { LlmSupplier } from '@/api/modules'
+  import SupplierModelSelect from './SupplierModelSelect.vue'
+  import type { ModelChoice } from '@/composables/useSupplierModels'
+
+  interface DraftEntry {
+    supplier_id: string
+    supplier_model_id: string
+    model_name: string
+    priority: number
+    enabled: boolean
+  }
 
   const props = defineProps<{
     scopeType: 'global' | 'purpose' | 'agent'
@@ -151,11 +154,14 @@
     hint: string
     suppliers: LlmSupplier[]
     maxFallback: number
+    /** 允许的模态（图像/视频/向量…）；空数组=不限制 */
+    modalities?: string[]
     /** 解析预览按哪条链路展示（能力绑定传 purpose，全局传空） */
     previewPurpose?: string
   }>()
 
-  const entries = ref<LlmBindingEntry[]>([])
+  const entries = ref<DraftEntry[]>([])
+  const modalities = computed(() => props.modalities ?? [])
   const saving = ref(false)
   const emit = defineEmits<{ (event: 'saved'): void }>()
   const resolution = ref<{ hops: { level_label: string; supplier_name: string | null; model_name: string | null; reason: string }[] } | null>(
@@ -170,7 +176,8 @@
       })
       entries.value = res.items.map(item => ({
         supplier_id: item.supplier_id,
-        model_name: item.model_name ?? '',
+        supplier_model_id: item.supplier_model_id ?? '',
+        model_name: item.model_name ?? item.model_key ?? '',
         priority: item.priority,
         enabled: item.enabled,
       }))
@@ -200,7 +207,19 @@
   }
 
   function addRow(): void {
-    entries.value.push({ supplier_id: '', model_name: '', priority: 0 })
+    entries.value.push({
+      supplier_id: '',
+      supplier_model_id: '',
+      model_name: '',
+      priority: 0,
+      enabled: true,
+    })
+  }
+
+  function onPick(row: DraftEntry, choice: ModelChoice): void {
+    row.supplier_id = choice.supplier_id
+    row.supplier_model_id = choice.supplier_model_id
+    row.model_name = choice.model_name
   }
 
   function move(index: number, delta: number): void {
@@ -221,6 +240,10 @@
       ElMessage.warning('同一层内供应商不能重复')
       return
     }
+    if (modalities.value.length && filled.some(row => !row.supplier_model_id)) {
+      ElMessage.warning('请为每一档选择具体模型（该能力按模型绑定）')
+      return
+    }
     saving.value = true
     try {
       // priority 由顺序推导：首档最高，保证「保存即可控顺序」与后端解析一致
@@ -230,6 +253,7 @@
         scope_key: props.scopeKey,
         entries: filled.map((row, index) => ({
           supplier_id: row.supplier_id,
+          supplier_model_id: row.supplier_model_id || null,
           model_name: (row.model_name || '').trim() || null,
           priority: (total - index) * 10,
           enabled: row.enabled ?? true,
@@ -281,11 +305,7 @@
     font-size: 13px;
     color: var(--ds-text-2);
   }
-  .entry-supplier {
-    width: 260px;
-    flex-shrink: 0;
-  }
-  .entry-model {
+  .entry-picker {
     flex: 1;
     min-width: 0;
   }

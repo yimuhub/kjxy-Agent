@@ -81,7 +81,7 @@ async function openAgentModels(page: Page) {
   await expect(page.locator('.page-title')).toHaveText('模型中心', { timeout: 20_000 })
   await page.getByRole('tab', { name: '智能体模型' }).click()
   const pane = page.locator('.el-tab-pane:visible')
-  await expect(pane.getByText('一个地方配完：跟随中心')).toBeVisible({ timeout: 20_000 })
+  await expect(pane.getByText('主用模型直接下拉即改')).toBeVisible({ timeout: 20_000 })
   return pane
 }
 
@@ -96,19 +96,20 @@ test.describe('增长与服务技能包（v3.26）', () => {
     const row = pane.locator('.el-table tbody tr').filter({ hasText: AGENT_CODE }).first()
     await expect(row).toBeVisible()
     await expect(row.getByText('平台助手')).toBeVisible()
-    await expect(row.getByText('跟随中心')).toBeVisible()
+    await expect(row.getByText('跟随中心', { exact: true })).toBeVisible()
     // 没有单独配置时展示继承结果或“暂无可用供应商”，但不允许空白
     await expect(row.locator('td').nth(3)).not.toBeEmpty()
 
     await expect(pane.getByText('视觉能力默认模型（2）')).toBeVisible()
     const cards = pane.locator('.visual-card')
     await expect(cards).toHaveCount(2)
+    // v3.37：视觉卡片直接给下拉选择（只列对应模态的模型），不再需要先进弹窗
     await expect(cards.nth(0)).toContainText('图像生成')
-    await expect(cards.nth(0)).toContainText('还没有可用的图像供应商')
+    await expect(cards.nth(0).locator('.el-select')).toBeVisible()
     await expect(cards.nth(1)).toContainText('视频生成')
-    await expect(cards.nth(1)).toContainText('视频生成通道已预留')
+    await expect(cards.nth(1).locator('.el-select')).toBeVisible()
 
-    await cards.nth(0).getByRole('button', { name: '配置' }).click()
+    await cards.nth(0).getByRole('button', { name: '配置兜底' }).click()
     const dialog = page.getByRole('dialog').filter({ hasText: '绑定模型：图像生成' })
     await expect(dialog).toBeVisible()
     await expect(dialog.getByText('当前解析（这次会用谁）')).toBeVisible()
@@ -133,8 +134,8 @@ test.describe('增长与服务技能包（v3.26）', () => {
       await expect(row.getByText('指定模型')).toBeVisible()
       await expect(row).toContainText(name)
 
-      // 调整弹窗按“用户能看懂的名字”展示，而不是裸编码
-      await row.getByRole('button', { name: '调整' }).click()
+      // 兜底弹窗按“用户能看懂的名字”展示，而不是裸编码
+      await row.getByRole('button', { name: '兜底', exact: true }).click()
       const dialog = page.getByRole('dialog').filter({ hasText: '绑定模型：' })
       await expect(dialog).toBeVisible()
       await expect(dialog).toContainText(AGENT_CODE)
@@ -146,7 +147,7 @@ test.describe('增长与服务技能包（v3.26）', () => {
       await expect(confirm).toContainText('清除「')
       await confirm.getByRole('button', { name: '确定' }).click()
       await expect(page.getByText('已回到跟随中心')).toBeVisible()
-      await expect(row.getByText('跟随中心')).toBeVisible()
+      await expect(row.getByText('跟随中心', { exact: true })).toBeVisible()
     } finally {
       await clearAgentBinding(request, token)
       await request.delete(`/api/v1/llm/providers/${supplierId}`, { headers: auth(token) })

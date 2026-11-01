@@ -380,9 +380,10 @@ v3.26 起「按智能体绑定」页签升级为「智能体模型」：一次�
 
 1. 助手编辑页里指定的供应商（旧设置；在「智能体模型」保存一次即被接管并清空）
 2. 按智能体绑定（`scope_type=agent`，`scope_key` = 助手 `agent_code`）
-3. 按能力绑定（`scope_type=purpose`，`scope_key` = 用途码）
-4. 小院/平台全局默认（`scope_type=global`）
-5. 小院当前生效供应商 → 6. 平台优先级 → 7. `settings` 环境变量兜底
+3. 助手专属能力绑定（`scope_type=agent_purpose`，`scope_key` = `助手编码::用途码`，v3.37）
+4. 按能力绑定（`scope_type=purpose`，`scope_key` = 用途码）
+5. 小院/平台全局默认（`scope_type=global`）
+6. 小院当前生效供应商 → 7. 平台优先级 → 8. `settings` 环境变量兜底
 
 供应商连续失败 5 次自动置为禁用并从候选链剔除，调用成功即清零计数。
 
@@ -390,7 +391,7 @@ v3.26 起「按智能体绑定」页签升级为「智能体模型」：一次�
 |---|---|
 | `GET /llm/capabilities` | 24 条能力（用途码/中文名/分组/说明，含 `image_generation`/`video_generation`）+ 三层绑定类型 + 解析层顺序 + `max_fallback` |
 | `GET /llm/bindings?scope_type&scope_key` | 本小院可见绑定（含平台级），返回供应商名与模型名 |
-| `PUT /llm/bindings` | **整层替换**：`{scope_type, scope_key, entries[]}`，顺序即兜底顺序；`scope_type=agent` 时同步清空该自建助手的旧 `supplier_id/model_name`（统一定义接管）；超过 3 条 400 `BINDING_TOO_MANY`，平台级仅平台管理员可改 403 `BINDING_READONLY` |
+| `PUT /llm/bindings` | **整层替换**：`{scope_type, scope_key, entries[]}`，顺序即兜底顺序；`scope_type` 取 `global/purpose/agent/agent_purpose`；`agent` 时同步清空该自建助手的旧 `supplier_id/model_name`（统一定义接管）；视觉能力（`image_generation`/`video_generation` 及其助手专属层）只接受图像/视频协议或对应模态的供应商，否则 400 `INVALID_REQUEST`；超过 3 条 400 `BINDING_TOO_MANY`，平台级仅平台管理员可改 403 `BINDING_READONLY` |
 | `DELETE /llm/bindings/{id}` | 删单条绑定，不存在 404 `BINDING_NOT_FOUND` |
 | `GET /llm/bindings/agents` | 智能体模型聚合：全部助手（平台 + 已发布自建）× 当前策略（跟随/指定/旧设置）× 绑定与解析结果，另含图像/视频两档默认（v3.26） |
 | `GET /llm/bindings/resolution?purpose&agent_code` | 「这次会用谁」：逐档给出候选与不可用原因 |
@@ -414,7 +415,9 @@ v3.26 起「按智能体绑定」页签升级为「智能体模型」：一次�
 
 内置增长技能 12 项：营销 6（品牌定位/卖点详情页/定价毛利/渠道节奏/选题排期/复购老客）、活动 4（活动策划/邀请通知/直播脚本/活动复盘）、海报 2（提示词工程/出图）。全部按 `SkillSpec` 带输入表、≥2 条评测用例与护栏；新小院注册即铺（12 农技 + 12 增长）。所有对外文案出门前可调用只读工具 `compliance.check_copy`（离线 236 词库、按句例外降级、只给建议不改语义）。
 
-图像/视频生成一律由模型供应商供应（不自建出图服务）：供应商类型新增 `openai_images`（兼容 `POST {base_url}/images/generations`）、`dashscope_image`（百炼原生异步任务）、`openai_video`（通道位，暂无内置工具）。三者都是 `suppliers.provider_type` 的字符串取值，**不需要迁移**。
+图像/视频生成一律由模型供应商供应（不自建出图服务）：供应商类型新增 `openai_images`（兼容 `POST {base_url}/images/generations`）、`dashscope_image`（百炼原生异步任务）、`openai_video` / `dashscope_video`（v3.37 起为真实通道，另有内置工具 `video.generate`）。它们都是 `suppliers.provider_type` 的字符串取值，**不需要迁移**。
+
+v3.37 起通道判别以**模型模态**为兜底：通用 OpenAI 兼容供应商里 `modality=image/video` 的模型，即使协议仍标 `openai_chat`，也能被图像/视频通道接管；图像生成按「完整参数 → 去掉 n/response_format → 再去掉 size」逐级降级重试，错误信息带上游摘要；视频以「任务受理即连通」判定，轮询超时仍返回 `task_id`。
 
 | 接口 | 说明 |
 |---|---|
@@ -497,6 +500,32 @@ v3.26 起「按智能体绑定」页签升级为「智能体模型」：一次�
 - **PPT 专项技能**：`office_ppt_storyline`（叙事）、`office_ppt_design`（视觉）、`office_ppt_chart`（图表）、`office_ppt_review`（质检）、`office_ppt_template`（模板替换），与 `office_ppt_deck` 组合使用。
 - **正式写作技能 28 项**：公文 10（通知/请示/报告/函/纪要/工作计划/总结/批复/讲话稿/简报）、申报 7（项目申报/科技计划/补贴/荣誉/中期/验收/预算）、招投标 7（招标文件/投标文件/响应矩阵/技术标/商务标/风险审查/澄清答复）、通用 4（长篇正式文/高管简报/政策解读/会议包），新小院注册即铺并自动建议绑定。
 - **Word 公文版式**：`DocModel.doc_style=official_cn|grant|tender|brief`，A4、版心与页边距、仿宋/黑体/楷体东亚字体、标题分级、页码页脚、封面与目录；由绑定技能或需求意图自动选择。
+
+## 视觉能力与助手专属模型（v3.37）
+
+### 供应商 → 模型级联选择
+
+模型中心的所有选模型入口（全局默认、按能力、按助手、助手专属能力、视觉能力、助手编辑页）统一为一个级联下拉：按供应商分组列模型，只列**已启用供应商 + 已启用且模态匹配的模型**；允许只绑供应商时提供「供应商 · 使用默认模型」。写入优先 `supplier_model_id`，旧数据（只有 `model_name`/供应商默认模型）继续可解析。
+
+| 接口 / 字段 | 说明 |
+|---|---|
+| `GET /llm/bindings/agents` | 每行新增 `capabilities[]`（`purpose/label/bindings`），展示该助手的专属图像/视频绑定 |
+| `GET /llm/bindings?scope_type=agent_purpose` | 读取助手专属能力绑定（`scope_key=助手编码::用途码`） |
+| `PUT /llm/bindings` + `scope_type=agent_purpose` | 写入单个助手的专属能力模型；`::` 分隔校验失败 400 |
+| `POST /llm/providers/{id}/models/{model_id}/test` | 图像/视频模型按模态走真实生成最小请求；前端超时 180 秒（批量 600 秒） |
+
+### 图像生成
+
+- 通道判别：模型 `protocol` → 供应商 `provider_type` → 模型 `modality=image` 依次判定；通用兼容供应商里模态为图像的模型可直接用于出图。
+- 请求降级：400/422 时依次去掉 `n`/`response_format`、再去掉 `size` 重试；返回解析同时支持 `data[]` 与 `output.results[]`。
+- 百炼供应商 `base_url` 自动去掉 `/compatible-mode/v1` 等后缀，避免拼出重复路径；错误信息带上游摘要（截断、不含密钥）。
+
+### 视频生成
+
+- `openai_video`：优先 `endpoint_path`，否则尝试 `POST {base_url}/videos`，失败再试 `/video/generations`；轮询任务状态，完成后取 `url/video_url/output_url`。
+- `dashscope_video`：百炼原生异步任务（`X-DashScope-Async` + `/api/v1/tasks/{id}`），成功取 `output.video_url`。
+- **连通判定 = 任务受理**：供应商返回 `task_id` 即认为通道可用，轮询超时也返回 `task_id` 与 `accepted=true`，不把「还在生成」误报为失败。
+- 内置工具 `video.generate`（`external_side_effect`，需审批；超时 240 秒，默认最多等待 120 秒）按助手编码解析视频供应商，返回 `{ok, accepted, url, task_id, model, provider, latency_ms, message}`。
 
 ## 任务状态机
 

@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.36.2
+  version: 3.37.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -12113,6 +12113,7 @@ components:
           - global
           - purpose
           - agent
+          - agent_purpose
           title: Scope Type
         scope_key:
           type: string
@@ -15267,6 +15268,7 @@ components:
           - openai_images
           - dashscope_image
           - openai_video
+          - dashscope_video
           - official_relay
           title: Provider Type
         base_url:
@@ -15399,6 +15401,7 @@ components:
             - openai_images
             - dashscope_image
             - openai_video
+            - dashscope_video
             - official_relay
           - type: 'null'
           title: Provider Type
@@ -15482,6 +15485,7 @@ components:
           - openai_images
           - dashscope_image
           - openai_video
+          - dashscope_video
           - anthropic
           - gemini
           - openai_audio
@@ -15639,6 +15643,7 @@ components:
             - openai_images
             - dashscope_image
             - openai_video
+            - dashscope_video
             - anthropic
             - gemini
             - openai_audio
@@ -15744,6 +15749,7 @@ components:
           - openai_images
           - dashscope_image
           - openai_video
+          - dashscope_video
           - official_relay
           title: Provider Type
         base_url:
@@ -15787,6 +15793,7 @@ components:
           - openai_images
           - dashscope_image
           - openai_video
+          - dashscope_video
           - official_relay
           title: Provider Type
         base_url:
@@ -15833,6 +15840,7 @@ components:
             - openai_images
             - dashscope_image
             - openai_video
+            - dashscope_video
             - official_relay
           - type: 'null'
           title: Provider Type

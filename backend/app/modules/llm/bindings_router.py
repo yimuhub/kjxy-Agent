@@ -7,6 +7,7 @@ metadata 只放层级与供应商 id/名称，绝不含密钥。
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, Query, Request
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.deps import CurrentUser, get_db_session, require_yard_permission
@@ -15,8 +16,10 @@ from app.core.responses import ok
 from app.modules.audit.service import log_audit
 from app.modules.llm import binding_service
 from app.modules.llm.binding_models import (
+    AGENT_PURPOSE_SEP,
     MAX_FALLBACK_PER_SCOPE,
     SCOPE_AGENT,
+    SCOPE_AGENT_PURPOSE,
     SCOPE_GLOBAL,
     SCOPE_PURPOSE,
 )
@@ -25,6 +28,7 @@ from app.modules.llm.capabilities import (
     CAPABILITY_CODES,
     SCOPE_TYPE_LABELS,
     VALID_PURPOSES,
+    capability_label,
     capability_payload,
 )
 from app.modules.llm.provider import invalidate_supplier_cache
@@ -129,6 +133,10 @@ def _scope_labels() -> dict[str, Any]:
 VISUAL_PURPOSES: tuple[str, ...] = ("image_generation", "video_generation")
 
 
+def _visual_modality(purpose: str) -> str:
+    return "image" if purpose == "image_generation" else "video"
+
+
 def _head_of_summary(summary: dict[str, Any]) -> dict[str, Any] | None:
     hops = summary.get("hops") or []
     if not hops:
@@ -162,12 +170,16 @@ def _visual_head(db: Session, summary: dict[str, Any], purpose: str) -> dict[str
     if supplier.provider_type in allowed:
         return head
     # v3.33：官方供应商/官方供应商按模型行协议提供视觉能力
+    # v3.37：通用供应商的模型只要模态对得上也算（协议字段可能仍是 openai_chat）
     supports_protocol = (
         db.query(SupplierModel)
         .filter(
             SupplierModel.supplier_id == supplier.id,
             SupplierModel.status == 1,
-            SupplierModel.protocol.in_(sorted(allowed)),
+            or_(
+                SupplierModel.protocol.in_(sorted(allowed)),
+                SupplierModel.modality == _visual_modality(purpose),
+            ),
         )
         .first()
     )
@@ -183,9 +195,20 @@ def _agent_model_row(
     kind: str,
     agent: Any,
     bindings: list,
+    capability_bindings: dict[str, list] | None = None,
 ) -> dict[str, Any]:
     """一行 = 一个助手 + 它当前真正会用的模型（含旧设置与继承来源）。"""
     enriched = _enrich(db, bindings)
+    capabilities: list[dict[str, Any]] = []
+    for purpose in VISUAL_PURPOSES:
+        rows = (capability_bindings or {}).get(purpose, [])
+        capabilities.append(
+            {
+                "purpose": purpose,
+                "label": capability_label(purpose),
+                "bindings": _enrich(db, rows),
+            }
+        )
     legacy: dict[str, Any] | None = None
     if agent is not None and getattr(agent, "supplier_id", None):
         supplier = db.get(Supplier, agent.supplier_id)
@@ -211,6 +234,7 @@ def _agent_model_row(
         "status": getattr(agent, "status", "published"),
         "mode": mode,
         "bindings": enriched,
+        "capabilities": capabilities,
         "legacy": legacy,
         "resolved": _head_of_summary(summary),
         "hops": [
@@ -244,6 +268,13 @@ def list_agent_model_overview(
     for row in agent_rows:
         by_key.setdefault(row.scope_key, []).append(row)
 
+    # 助手专属能力绑定（agent_purpose）：按「助手编码 → 能力码 → 绑定行」预分组，避免 N+1
+    purpose_rows = binding_service.list_bindings(db, user.yard_id, scope_type=SCOPE_AGENT_PURPOSE)
+    cap_by_agent: dict[str, dict[str, list]] = {}
+    for row in purpose_rows:
+        code, _, purpose = row.scope_key.partition(AGENT_PURPOSE_SEP)
+        cap_by_agent.setdefault(code, {}).setdefault(purpose, []).append(row)
+
     items: list[dict[str, Any]] = []
     seen: set[str] = set()
     for item in platform_agent_definitions():
@@ -260,6 +291,7 @@ def list_agent_model_overview(
                 kind="platform",
                 agent=None,
                 bindings=by_key.get(code, []),
+                capability_bindings=cap_by_agent.get(code, {}),
             )
         )
     yard_agents = declarative.list_agents(db, yard_id=user.yard_id or "", user_id=user.user_id)
@@ -276,6 +308,7 @@ def list_agent_model_overview(
                 kind="yard",
                 agent=agent,
                 bindings=by_key.get(agent.agent_code, []),
+                capability_bindings=cap_by_agent.get(agent.agent_code, {}),
             )
         )
     # 先展示「自定义过」的，再按类型与名称；用户一眼看到需要关注的
@@ -327,14 +360,20 @@ def _ensure_visual_suppliers(db: Session, purpose: str, entries: list[Any]) -> N
             if getattr(entry, "supplier_model_id", None)
             else None
         )
-        if model_row is not None and model_row.protocol in allowed:
+        if model_row is not None and (
+            model_row.protocol in allowed
+            or str(getattr(model_row, "modality", "") or "").lower() == _visual_modality(purpose)
+        ):
             continue
         has_protocol_model = (
             db.query(SupplierModel)
             .filter(
                 SupplierModel.supplier_id == supplier.id,
                 SupplierModel.status == 1,
-                SupplierModel.protocol.in_(sorted(allowed)),
+                or_(
+                    SupplierModel.protocol.in_(sorted(allowed)),
+                    SupplierModel.modality == _visual_modality(purpose),
+                ),
             )
             .first()
         )
@@ -362,8 +401,15 @@ def put_bindings(
     ``supplier_id`` / ``model_name``（助手编辑页遗留字段），消灭两套入口互相覆盖。
     """
     try:
+        visual_purpose = ""
         if payload.scope_type == SCOPE_PURPOSE and payload.scope_key in VISUAL_PURPOSES:
-            _ensure_visual_suppliers(db, payload.scope_key, payload.entries)
+            visual_purpose = payload.scope_key
+        elif payload.scope_type == SCOPE_AGENT_PURPOSE:
+            _code, _, _purpose = payload.scope_key.partition(AGENT_PURPOSE_SEP)
+            if _purpose in VISUAL_PURPOSES:
+                visual_purpose = _purpose
+        if visual_purpose:
+            _ensure_visual_suppliers(db, visual_purpose, payload.entries)
         rows = binding_service.replace_bindings(
             db,
             user.yard_id,

@@ -510,6 +510,7 @@
   import AsyncState from '@/components/AsyncState.vue'
   import ModalityTag from '@/components/settings/ModalityTag.vue'
   import SupplierModelsDrawer from '@/components/settings/SupplierModelsDrawer.vue'
+  import { clearSupplierModelCache } from '@/composables/useSupplierModels'
   import { classifyError, type ViewState } from '@/utils/status'
 
   const emit = defineEmits<{ changed: [] }>()
@@ -775,6 +776,8 @@
   }
 
   async function onModelsChanged(): Promise<void> {
+    // 模型增删改后，绑定下拉的缓存必须失效，否则还显示旧模型
+    clearSupplierModelCache()
     await loadSuppliers()
   }
 
