@@ -109,10 +109,10 @@ test.describe('指挥官模式提示（v3.40）', () => {
       await page.locator('.new-btn').click()
       await expect(page.locator('.chat-empty')).toBeVisible()
 
-      const bar = page.locator('.commander-bar')
+      const bar = page.locator('.exec-seg')
       await expect(bar).toBeVisible()
       await bar.getByText('指挥官', { exact: true }).click()
-      await expect(bar).toContainText('自己拆任务、找助手、调工具')
+      await expect(page.locator('.composer-caption')).toContainText('自己拆任务、找助手、调工具')
     } finally {
       await putCommander(request, token, {
         enabled: Boolean(baseline.enabled ?? true),

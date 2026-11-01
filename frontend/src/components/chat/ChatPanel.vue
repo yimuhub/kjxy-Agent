@@ -438,176 +438,118 @@
     </div>
 
     <footer class="chat-input">
-      <!-- 待发附件：上传后先落这里，随下一条消息一起发出 -->
+      <!--
+        会话级信息（锁定 / 群聊成员 / 本轮答法 / 点名）：统一收成一行灰字，
+        不再各自带边框占一整条，把纵向空间还给消息区。
+      -->
       <div
-        v-if="store.attachments.length"
-        class="att-row"
-      >
-        <span
-          v-for="a in store.attachments"
-          :key="a.id"
-          class="att-chip"
-          :class="{ bad: a.status === 'failed' }"
-        >
-          <el-icon>
-            <component :is="a.kind === 'image' ? Picture : Document" />
-          </el-icon>
-          <span class="nm">{{ a.filename }}</span>
-          <el-tooltip
-            v-if="a.status === 'failed'"
-            :content="a.error || '解析失败'"
-            placement="top"
-          >
-            <span class="err">解析失败</span>
-          </el-tooltip>
-          <button
-            v-else-if="a.kind === 'image'"
-            class="vision"
-            type="button"
-            :disabled="visionId === a.id"
-            :title="a.chars > 0 ? '已识别，点击重新识别' : '识别图片内容（会消耗模型额度）'"
-            :aria-label="`识别图片 ${a.filename}`"
-            @click="onVision(a)"
-          >
-            <el-icon>
-              <Loading
-                v-if="visionId === a.id"
-                class="is-spin"
-              />
-              <View v-else />
-            </el-icon>
-            {{ a.chars > 0 ? '已识别' : '识别' }}
-          </button>
-          <button
-            class="x"
-            type="button"
-            aria-label="移除附件"
-            @click="onRemoveAttachment(a.id)"
-          >
-            <el-icon><Close /></el-icon>
-          </button>
-        </span>
-      </div>
-      <div
-        v-if="lockNote"
-        class="lock-note"
-        :style="{ maxWidth }"
-        role="status"
-      >
-        <el-icon><Lock /></el-icon>
-        <span>{{ lockNote }}</span>
-      </div>
-      <div
-        v-if="groupable && !qaMode && !locked"
-        class="group-band"
-        :style="{ maxWidth }"
-      >
-        <ChatMemberBar
-          :store="store"
-          :disabled="store.sending"
-          :label="label"
-        />
-        <ChatPolicyPicker
-          v-if="store.isGroup"
-          v-model="policyModel"
-          :disabled="store.sending"
-          :block-reason="blockedReason"
-        />
-      </div>
-
-      <!-- 执行模式（v3.38）：普通=自动路由单个助手；指挥官=拆分目标并派给多个助手 -->
-      <div
-        v-if="commanderVisible"
-        class="commander-bar"
-        :style="{ maxWidth }"
-      >
-        <el-segmented
-          :model-value="executionMode"
-          :options="EXECUTION_MODE_OPTIONS"
-          size="small"
-          :disabled="store.sending"
-          aria-label="执行模式"
-          @change="setExecutionMode"
-        />
-        <span
-          v-if="executionMode === 'commander'"
-          class="commander-hint"
-        >一句话说清目标即可：会自己拆任务、找助手、调工具，做完直接交成品</span>
-      </div>
-
-      <!-- 本轮点名提示条：比把 @ 文本硬塞进正文更好回收 -->
-      <div
-        v-if="mentionable && !qaMode && !locked && store.mention"
-        class="mention-bar"
-        :style="{ maxWidth }"
-        role="status"
-      >
-        <span class="mb-label">本轮点名：</span>
-        <span class="mb-name">
-          <span aria-hidden="true">{{ store.mention.emoji || '🤖' }}</span>
-          {{ mentionDisplayName(store.mention) }}
-        </span>
-        <button
-          class="mb-x"
-          type="button"
-          :aria-label="`取消点名 ${mentionDisplayName(store.mention)}，下一条回到自动路由`"
-          @click="store.clearMention()"
-        >
-          <el-icon><Close /></el-icon>
-          取消
-        </button>
-      </div>
-
-      <!-- 模式切换（v3.13）：通用对话自动路由助手；知识问答只依据知识库且必带引用 -->
-      <div
-        v-if="qaToggle && !locked"
-        class="qa-bar"
+        v-if="
+          lockNote ||
+            (groupable && !qaMode && !locked) ||
+            (mentionable && !qaMode && !locked && store.mention)
+        "
+        class="composer-meta"
         :style="{ maxWidth }"
       >
         <div
-          class="qa-tabs"
-          role="group"
-          aria-label="对话模式"
+          v-if="lockNote"
+          class="lock-note"
+          role="status"
         >
+          <el-icon><Lock /></el-icon>
+          <span>{{ lockNote }}</span>
+        </div>
+        <template v-if="groupable && !qaMode && !locked">
+          <ChatMemberBar
+            :store="store"
+            :disabled="store.sending"
+            :label="label"
+          />
+          <ChatPolicyPicker
+            v-if="store.isGroup"
+            v-model="policyModel"
+            :disabled="store.sending"
+            :block-reason="blockedReason"
+          />
+        </template>
+        <!-- 本轮点名提示条：比把 @ 文本硬塞进正文更好回收 -->
+        <div
+          v-if="mentionable && !qaMode && !locked && store.mention"
+          class="mention-bar"
+          role="status"
+        >
+          <span class="mb-label">本轮点名：</span>
+          <span class="mb-name">
+            <span aria-hidden="true">{{ store.mention.emoji || '🤖' }}</span>
+            {{ mentionDisplayName(store.mention) }}
+          </span>
           <button
+            class="mb-x"
             type="button"
-            class="qa-tab"
-            :class="{ active: !qaMode }"
-            :aria-pressed="!qaMode"
-            @click="setQaMode(false)"
+            :aria-label="`取消点名 ${mentionDisplayName(store.mention)}，下一条回到自动路由`"
+            @click="store.clearMention()"
           >
-            通用对话
-          </button>
-          <button
-            type="button"
-            class="qa-tab"
-            :class="{ active: qaMode }"
-            :aria-pressed="qaMode"
-            @click="setQaMode(true)"
-          >
-            知识问答
+            <el-icon><Close /></el-icon>
+            取消
           </button>
         </div>
-        <span
-          v-if="qaMode"
-          class="qa-hint"
-        >只依据知识库资料，回答带引用；不支持附件与 @ 点名</span>
-        <label
-          v-if="qaMode"
-          class="qa-topk"
-        >
-          检索条数
-          <el-input-number
-            v-model="qaTopK"
-            :min="1"
-            :max="20"
-            size="small"
-            controls-position="right"
-            aria-label="知识库检索条数"
-          />
-        </label>
       </div>
 
+      <!-- 输入卡：附件、正文、工具条同属一张卡片 -->
+      <div
+        class="composer-card"
+        :style="{ maxWidth }"
+      >
+        <!-- 待发附件：卡内顶部，随下一条消息一起发出 -->
+        <div
+          v-if="store.attachments.length"
+          class="att-row"
+        >
+          <span
+            v-for="a in store.attachments"
+            :key="a.id"
+            class="att-chip"
+            :class="{ bad: a.status === 'failed' }"
+          >
+            <el-icon>
+              <component :is="a.kind === 'image' ? Picture : Document" />
+            </el-icon>
+            <span class="nm">{{ a.filename }}</span>
+            <el-tooltip
+              v-if="a.status === 'failed'"
+              :content="a.error || '解析失败'"
+              placement="top"
+            >
+              <span class="err">解析失败</span>
+            </el-tooltip>
+            <button
+              v-else-if="a.kind === 'image'"
+              class="vision"
+              type="button"
+              :disabled="visionId === a.id"
+              :title="a.chars > 0 ? '已识别，点击重新识别' : '识别图片内容（会消耗模型额度）'"
+              :aria-label="`识别图片 ${a.filename}`"
+              @click="onVision(a)"
+            >
+              <el-icon>
+                <Loading
+                  v-if="visionId === a.id"
+                  class="is-spin"
+                />
+                <View v-else />
+              </el-icon>
+              {{ a.chars > 0 ? '已识别' : '识别' }}
+            </button>
+            <button
+              class="x"
+              type="button"
+              aria-label="移除附件"
+              @click="onRemoveAttachment(a.id)"
+            >
+              <el-icon><Close /></el-icon>
+            </button>
+          </span>
+        </div>
       <!--
         @ 候选浮层的锚点就是输入行本身：ElPopover 的 reference 只透传唯一子元素、
         不额外包 DOM，所以不传 mentionable 时（open 恒为 false）渲染结果与改造前一致。
@@ -622,72 +564,11 @@
         @select="onMentionSelect"
       >
         <template #reference>
-          <div class="input-inner">
-            <!--
-              输入框行左端：本对话的高风险操作权限（每次询问 / 会话内自动放行 / 完全访问）。
-              知识问答只读知识库、不调用工具，所以不在该模式下出现。
-            -->
-            <ChatApprovalPicker
-              v-if="!qaMode"
-              :model-value="approvalMode"
-              :can-escalate="canEscalateApproval"
-              :has-session="!!store.activeId"
-              :disabled="store.sending || approvalBusy"
-              @update:model-value="onApprovalMode"
-            />
-            <!-- 输入框左侧：上传附件（照片/文档） -->
-            <button
-              class="attach-btn"
-              type="button"
-              :disabled="store.sending || store.uploading || qaMode"
-              :title="qaMode ? '知识问答只依据知识库资料，不支持附件' : '上传附件（图片或文档）'"
-              aria-label="上传附件"
-              @click="onPickFile"
-            >
-              <el-icon>
-                <Loading
-                  v-if="store.uploading"
-                  class="is-spin"
-                />
-                <Paperclip v-else />
-              </el-icon>
-            </button>
-            <input
-              ref="fileRef"
-              class="file-input"
-              type="file"
-              accept="image/png,image/jpeg,image/webp,.pdf,.docx,.xlsx,.pptx,.txt,.md,.csv,.html"
-              :aria-label="`为${label}选择附件`"
-              @change="onFilePicked"
-            >
-            <!-- 语音输入：录音 → 后端转写 → 文本落入草稿（不支持时明确提示） -->
-            <button
-              class="attach-btn"
-              type="button"
-              :class="{ recording }"
-              :disabled="store.sending || transcribing"
-              :title="recording ? '停止录音并转写' : '语音输入'"
-              :aria-label="recording ? '停止录音并转写' : '语音输入'"
-              :aria-pressed="recording"
-              @click="onToggleRecord"
-            >
-              <el-icon>
-                <Loading
-                  v-if="transcribing"
-                  class="is-spin"
-                />
-                <VideoPause v-else-if="recording" />
-                <Microphone v-else />
-              </el-icon>
-            </button>
-            <span
-              v-if="recording"
-              class="rec-hint"
-              role="status"
-            >录音中 {{ recordSeconds }}s，再点一次结束</span>
+          <div class="composer-body">
             <el-input
               ref="inputRef"
               v-model="draft"
+              class="composer-field"
               type="textarea"
               :autosize="{ minRows: 1, maxRows: 6 }"
               :maxlength="2000"
@@ -701,23 +582,153 @@
               @keydown="onKeydown"
               @keyup="onKeyup"
             />
-            <!-- 发送中仅样式变为「停止」并禁用（v1 不支持中断） -->
-            <button
-              class="send-btn"
-              :class="{ stop: store.sending }"
-              :disabled="store.sending || !draft.trim() || !!blockedReason"
-              :title="blockedReason || (store.sending ? '回答生成中' : '发送')"
-              :aria-label="blockedReason || (store.sending ? '回答生成中' : '发送')"
-              @click="onSend"
-            >
-              <el-icon>
-                <VideoPause v-if="store.sending" />
-                <Promotion v-else />
-              </el-icon>
-            </button>
+
+            <div class="composer-toolbar">
+              <!-- 上传附件（照片/文档） -->
+              <button
+                class="tool-btn"
+                type="button"
+                :disabled="store.sending || store.uploading || qaMode"
+                :title="qaMode ? '知识问答只依据知识库资料，不支持附件' : '上传附件（图片或文档）'"
+                aria-label="上传附件"
+                @click="onPickFile"
+              >
+                <el-icon>
+                  <Loading
+                    v-if="store.uploading"
+                    class="is-spin"
+                  />
+                  <Paperclip v-else />
+                </el-icon>
+              </button>
+              <input
+                ref="fileRef"
+                class="file-input"
+                type="file"
+                accept="image/png,image/jpeg,image/webp,.pdf,.docx,.xlsx,.pptx,.txt,.md,.csv,.html"
+                :aria-label="`为${label}选择附件`"
+                @change="onFilePicked"
+              >
+              <!-- 语音输入：录音 → 后端转写 → 文本落入草稿（不支持时明确提示） -->
+              <button
+                class="tool-btn"
+                type="button"
+                :class="{ 'is-rec': recording }"
+                :disabled="store.sending || transcribing"
+                :title="recording ? '停止录音并转写' : '语音输入'"
+                :aria-label="recording ? '停止录音并转写' : '语音输入'"
+                :aria-pressed="recording"
+                @click="onToggleRecord"
+              >
+                <el-icon>
+                  <Loading
+                    v-if="transcribing"
+                    class="is-spin"
+                  />
+                  <VideoPause v-else-if="recording" />
+                  <Microphone v-else />
+                </el-icon>
+              </button>
+              <span
+                v-if="recording"
+                class="rec-hint"
+                role="status"
+              >{{ recordSeconds }}s</span>
+
+              <!--
+                高风险操作权限（每次询问 / 会话内自动放行 / 完全访问）。
+                知识问答只读知识库、不调用工具，所以不在该模式下出现。
+              -->
+              <ChatApprovalPicker
+                v-if="!qaMode"
+                :model-value="approvalMode"
+                :can-escalate="canEscalateApproval"
+                :has-session="!!store.activeId"
+                :disabled="store.sending || approvalBusy"
+                @update:model-value="onApprovalMode"
+              />
+
+              <span
+                v-if="qaToggle && !locked"
+                class="tool-divider"
+                aria-hidden="true"
+              />
+
+              <!-- 对话模式（v3.13）：通用对话自动路由助手；知识问答只依据知识库且必带引用 -->
+              <div
+                v-if="qaToggle && !locked"
+                class="mode-group"
+                role="group"
+                aria-label="对话模式"
+              >
+                <button
+                  type="button"
+                  class="mode-btn"
+                  :class="{ active: !qaMode }"
+                  :aria-pressed="!qaMode"
+                  @click="setQaMode(false)"
+                >
+                  通用对话
+                </button>
+                <button
+                  type="button"
+                  class="mode-btn"
+                  :class="{ active: qaMode }"
+                  :aria-pressed="qaMode"
+                  @click="setQaMode(true)"
+                >
+                  知识问答
+                </button>
+              </div>
+              <label
+                v-if="qaMode"
+                class="qa-topk"
+              >
+                检索条数
+                <el-input-number
+                  v-model="qaTopK"
+                  :min="1"
+                  :max="20"
+                  size="small"
+                  controls-position="right"
+                  aria-label="知识库检索条数"
+                />
+              </label>
+
+              <span class="toolbar-gap" />
+
+              <!-- 执行模式（v3.38）：普通=自动路由单个助手；指挥官=拆分目标并派给多个助手 -->
+              <el-segmented
+                v-if="commanderVisible"
+                class="exec-seg"
+                :model-value="executionMode"
+                :options="EXECUTION_MODE_OPTIONS"
+                size="small"
+                :disabled="store.sending"
+                aria-label="执行模式"
+                @change="setExecutionMode"
+              />
+
+              <!-- 发送中仅样式变为「停止」并禁用（v1 不支持中断） -->
+              <button
+                class="send-btn"
+                :class="{ stop: store.sending }"
+                :disabled="store.sending || !draft.trim() || !!blockedReason"
+                :title="blockedReason || (store.sending ? '回答生成中' : '发送')"
+                :aria-label="blockedReason || (store.sending ? '回答生成中' : '发送')"
+                @click="onSend"
+              >
+                <el-icon>
+                  <VideoPause v-if="store.sending" />
+                  <Promotion v-else />
+                </el-icon>
+              </button>
+            </div>
           </div>
         </template>
       </ChatMentionLayer>
+      </div>
+
       <p
         v-if="blockedReason"
         class="send-block"
@@ -725,6 +736,18 @@
         role="alert"
       >
         {{ blockedReason }}
+      </p>
+      <p
+        v-else-if="qaMode || (commanderVisible && executionMode === 'commander')"
+        class="composer-caption"
+        :style="{ maxWidth }"
+      >
+        <template v-if="qaMode">
+          只依据知识库资料，回答带引用；不支持附件与 @ 点名
+        </template>
+        <template v-else>
+          一句话说清目标即可：会自己拆任务、找助手、调工具，做完直接交成品
+        </template>
       </p>
     </footer>
 
@@ -2292,54 +2315,76 @@
     border-radius: 10px;
   }
 
-  /* 待发附件行：输入框上方的可移除小卡 */
+  /* 会话级信息条：锁定 / 成员 / 答法 / 点名统一收在这里，无卡片外框 */
+  .composer-meta {
+    margin: 0 auto 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  /* 待发附件行：输入卡内顶部，可移除小卡 */
   .att-row {
-    max-width: v-bind(maxWidth);
-    margin: 0 auto 8px;
+    margin: 0;
+    padding: 12px 14px 0;
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
   }
 
-  /* 群聊带：成员条 + 策略选择器，与输入行同宽并在窄屏自身换行 */
-  .group-band {
-    margin: 0 auto 8px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    min-width: 0;
+  /* 输入卡：附件 / 正文 / 工具条同属一张卡片，聚焦只加深描边 */
+  .composer-card {
+    margin: 0 auto;
+    background: color-mix(in srgb, var(--ds-bg-2) 55%, transparent);
+    border: 1px solid var(--ds-border);
+    border-radius: 16px;
+    transition:
+      border-color 0.18s,
+      box-shadow 0.18s,
+      background 0.18s;
+  }
+  .composer-card:focus-within {
+    border-color: var(--ds-border-strong);
+    background: color-mix(in srgb, var(--ds-bg-2) 75%, transparent);
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.03);
   }
 
-  /* 锁定会话提示条：明确本会话不会再自动换助手 */
+  /* 锁定会话提示：融进信息条的一行灰字，不再单独成条 */
   .lock-note {
-    margin: 0 auto 8px;
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 5px 10px;
-    width: fit-content;
+    gap: 5px;
+    padding: 1px 2px;
     max-width: 100%;
     font-size: 12px;
-    color: var(--ds-text-2);
-    background: color-mix(in srgb, var(--ds-accent) 10%, transparent);
-    border: 1px solid color-mix(in srgb, var(--ds-accent) 30%, transparent);
-    border-radius: var(--ds-radius-pill);
+    line-height: 1.5;
+    color: var(--ds-text-3);
+  }
+  .lock-note .el-icon {
+    flex: none;
+    font-size: 12px;
+  }
+  .lock-note span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   /* 本轮点名提示条：一键移除，正文里不留 @ 文本 */
   .mention-bar {
-    margin: 0 auto 8px;
+    margin: 0;
     display: flex;
     align-items: center;
     flex-wrap: wrap;
     gap: 6px;
-    padding: 4px 6px 4px 10px;
+    padding: 3px 6px 3px 9px;
     width: fit-content;
     max-width: 100%;
     font-size: 12px;
     color: var(--ds-text-2);
-    background: var(--ds-glass-strong);
-    border: 1px solid color-mix(in srgb, var(--ds-accent) 35%, transparent);
+    background: var(--ds-glass);
+    border: 1px solid var(--ds-border);
     border-radius: var(--ds-radius-pill);
   }
   .mb-label {
@@ -2380,58 +2425,107 @@
     line-height: 1.5;
     color: var(--ds-warning);
   }
-  .qa-bar {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 10px;
-    margin: 0 auto 8px;
-    font-size: 12px;
-    color: var(--ds-text-3);
-  }
-  .qa-tabs {
+  /* 工具条上的对话模式切换：中性胶囊，不抢主色 */
+  .mode-group {
     display: inline-flex;
+    flex: none;
     padding: 2px;
-    border-radius: 999px;
+    border-radius: 8px;
     background: var(--ds-glass);
-    border: 1px solid var(--ds-border);
   }
-  .qa-tab {
-    padding: 4px 12px;
+  .mode-btn {
+    height: 24px;
+    padding: 0 9px;
     border: none;
-    border-radius: 999px;
+    border-radius: 6px;
     background: transparent;
-    color: var(--ds-text-2);
+    color: var(--ds-text-3);
     font-size: 12px;
+    line-height: 1;
     cursor: pointer;
+    white-space: nowrap;
+    transition:
+      background 0.15s,
+      color 0.15s;
   }
-  .qa-tab.active {
-    background: var(--ds-accent);
-    color: #fff;
+  .mode-btn:hover:not(.active) {
+    color: var(--ds-text-2);
+    background: var(--ds-glass);
   }
-  .qa-hint {
-    color: var(--ds-text-3);
+  .mode-btn.active {
+    background: var(--ds-glass-strong);
+    color: var(--ds-text-1);
   }
-  /* 执行模式切换：普通 / 指挥官，只影响单聊且未锁定助手的会话 */
-  .commander-bar {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 10px;
-    margin: 0 auto 8px;
+
+  /* 执行模式：沿用 el-segmented 的交互与无障碍语义，只把配色换成中性 */
+  .exec-seg {
+    flex: none;
+    --el-segmented-bg-color: var(--ds-glass);
+    --el-segmented-color: var(--ds-text-3);
+    --el-segmented-item-hover-bg-color: var(--ds-glass-strong);
+    --el-segmented-item-hover-color: var(--ds-text-2);
+    --el-segmented-item-selected-bg-color: var(--ds-glass-strong);
+    --el-segmented-item-selected-color: var(--ds-text-1);
+    --el-segmented-item-selected-disabled-bg-color: var(--ds-glass);
+    --el-segmented-item-disabled-color: var(--ds-text-3);
+    --el-segmented-padding: 2px;
+    border-radius: 8px;
     font-size: 12px;
+  }
+  .exec-seg :deep(.el-segmented__item) {
+    height: 24px;
+    line-height: 24px;
+    padding: 0 10px;
+    border-radius: 6px;
+    font-size: 12px;
+  }
+
+  /* 特殊模式说明：只在知识问答/指挥官时出现一行，不占整条 */
+  .composer-caption {
+    margin: 6px auto 0;
+    padding: 0 2px;
+    font-size: 11.5px;
+    line-height: 1.5;
     color: var(--ds-text-3);
   }
-  .commander-hint {
-    color: var(--ds-text-3);
-  }
+
   .qa-topk {
     display: inline-flex;
     align-items: center;
     gap: 6px;
+    font-size: 12px;
+    color: var(--ds-text-3);
   }
   .qa-topk :deep(.el-input-number) {
-    width: 92px;
+    width: 88px;
+  }
+
+  /* 窄屏压缩工具条，避免发送钮被挤到第二行单独站着 */
+  @media (max-width: 1280px) {
+    .composer-toolbar {
+      gap: 0;
+      padding: 2px 6px 8px;
+    }
+    .tool-btn {
+      width: 28px;
+      height: 28px;
+    }
+    .mode-btn {
+      padding: 0 7px;
+      font-size: 11.5px;
+    }
+    .exec-seg :deep(.el-segmented__item) {
+      padding: 0 8px;
+      font-size: 11.5px;
+    }
+    .tool-divider {
+      margin: 0 3px;
+    }
+    .send-btn {
+      width: 28px;
+      height: 28px;
+      margin-left: 2px;
+    }
   }
   .att-chip {
     display: inline-flex;
@@ -2587,59 +2681,93 @@
   /* 底部输入区：粘性玻璃，随消息流同宽 */
   .chat-input {
     flex: none;
-    border-top: 1px solid var(--ds-border);
-    background: var(--ds-glass);
-    backdrop-filter: blur(18px) saturate(1.2);
-    padding: 12px 20px 16px;
+    background: transparent;
+    padding: 6px 20px 16px;
   }
-  .input-inner {
-    max-width: v-bind(maxWidth);
-    margin: 0 auto;
+  .composer-body {
     display: flex;
-    align-items: flex-end;
-    gap: 10px;
+    flex-direction: column;
+    min-width: 0;
   }
 
-  /* 附件按钮：输入框左侧，玻璃圆形动作位 */
-  .attach-btn {
+  /* 正文：无边框，整张卡片就是输入框 */
+  .composer-field :deep(.el-textarea__inner) {
+    box-shadow: none;
+    background: transparent;
+    color: var(--ds-text-1);
+    border: 0;
+    border-radius: 16px 16px 0 0;
+    padding: 14px 14px 4px;
+    font-size: 14.5px;
+    line-height: 1.7;
+  }
+  .composer-field :deep(.el-textarea__inner:focus) {
+    box-shadow: none;
+  }
+  .composer-field :deep(.el-textarea__inner::placeholder) {
+    color: var(--ds-text-3);
+  }
+
+  /* 底部工具条：左侧操作、右侧模式与发送，中间留白 */
+  .composer-toolbar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 2px;
+    padding: 2px 8px 8px;
+  }
+
+  /* 工具图标按钮：无边框，悬停才出现底色 */
+  .tool-btn {
     flex: none;
-    width: 34px;
-    height: 34px;
-    border: 1px solid var(--ds-border);
-    border-radius: 999px;
-    background: var(--ds-glass-strong);
+    width: 30px;
+    height: 30px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
     color: var(--ds-text-2);
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
     transition:
-      color 0.2s,
-      border-color 0.2s;
+      background 0.15s,
+      color 0.15s;
   }
-  .attach-btn:hover:not(:disabled) {
-    color: var(--ds-accent);
-    border-color: var(--ds-border-strong);
+  .tool-btn:hover:not(:disabled) {
+    background: var(--ds-glass-strong);
+    color: var(--ds-text-1);
   }
-  .attach-btn:disabled {
-    opacity: 0.5;
+  .tool-btn:disabled {
+    opacity: 0.45;
     cursor: not-allowed;
   }
-  .attach-btn.recording {
+  .tool-btn.is-rec {
     color: var(--ds-danger);
-    border-color: color-mix(in srgb, var(--ds-danger) 55%, transparent);
+    background: color-mix(in srgb, var(--ds-danger) 14%, transparent);
     animation: attach-rec 1.2s ease-in-out infinite;
   }
   .rec-hint {
     flex: none;
-    align-self: center;
-    font-size: 12px;
+    padding: 0 4px;
+    font-size: 11.5px;
     color: var(--ds-danger);
     white-space: nowrap;
   }
+  .tool-divider {
+    flex: none;
+    width: 1px;
+    height: 16px;
+    margin: 0 5px;
+    background: var(--ds-border);
+  }
+  .toolbar-gap {
+    flex: 1 1 8px;
+    min-width: 8px;
+  }
   @keyframes attach-rec {
     50% {
-      background: color-mix(in srgb, var(--ds-danger) 14%, transparent);
+      background: color-mix(in srgb, var(--ds-danger) 26%, transparent);
     }
   }
   .is-spin {
@@ -2655,40 +2783,31 @@
   .file-input {
     display: none;
   }
-  .input-inner :deep(.el-textarea__inner) {
-    box-shadow: 0 0 0 1px var(--ds-border) inset;
-    background: var(--ds-bg-1);
-    color: var(--ds-text-1);
-    border-radius: 10px;
-    padding: 8px 12px;
-    line-height: 22px;
-  }
-  .input-inner :deep(.el-textarea__inner:focus) {
-    box-shadow:
-      0 0 0 1px color-mix(in srgb, var(--ds-accent) 30%, transparent) inset,
-      0 0 0 3px color-mix(in srgb, var(--ds-accent) 30%, transparent);
-  }
 
-  /* 发送圆钮：品牌渐变动作位；发送中仅禁用 */
+  /* 发送圆钮：中性高对比（白底深箭头），发送中仅禁用 */
   .send-btn {
     flex: none;
-    width: 34px;
-    height: 34px;
+    width: 30px;
+    height: 30px;
+    margin-left: 4px;
     border: none;
     border-radius: 999px;
-    background: var(--ds-grad-brand);
-    color: #fff;
+    background: var(--ds-text-1);
+    color: var(--ds-bg-0);
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: filter 0.2s;
+    transition:
+      background 0.15s,
+      opacity 0.15s;
   }
   .send-btn:hover:not(:disabled) {
-    filter: brightness(1.1);
+    background: #ffffff;
   }
   .send-btn:disabled {
-    opacity: 0.5;
+    background: var(--ds-glass-strong);
+    color: var(--ds-text-3);
     cursor: not-allowed;
   }
 

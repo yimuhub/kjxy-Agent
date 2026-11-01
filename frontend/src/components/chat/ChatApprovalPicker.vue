@@ -101,25 +101,25 @@
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    height: 26px;
+    height: 28px;
     padding: 0 8px;
-    border: 1px solid var(--ds-border);
-    border-radius: var(--ds-radius-pill);
-    background: var(--ds-field);
-    color: var(--ds-text-2);
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--ds-text-3);
     font-size: 12px;
     cursor: pointer;
     transition:
-      border-color 0.2s,
-      color 0.2s;
+      background 0.15s,
+      color 0.15s;
   }
   .ap-pill:hover:not(:disabled) {
-    border-color: var(--ds-border-strong);
+    background: var(--ds-glass-strong);
     color: var(--ds-text-1);
   }
   .ap-pill:disabled,
   .ap-pill.is-off {
-    opacity: 0.55;
+    opacity: 0.5;
     cursor: not-allowed;
   }
   .ap-icon,
@@ -129,15 +129,13 @@
   .ap-text {
     white-space: nowrap;
   }
-  /* 档位越高越醒目：完全访问用告警色提醒这不是默认状态 */
+  /* 档位越高越醒目：只改文字色，不额外加边框，保持中性底 */
   .ap-pill--auto {
-    color: var(--ds-accent-text);
-    border-color: color-mix(in srgb, var(--ds-accent) 45%, transparent);
+    color: var(--ds-text-2);
   }
   .ap-pill--full {
     color: var(--ds-warning);
-    border-color: color-mix(in srgb, var(--ds-warning) 50%, transparent);
-    background: color-mix(in srgb, var(--ds-warning) 10%, transparent);
+    background: color-mix(in srgb, var(--ds-warning) 12%, transparent);
   }
 
   .ap-item {
@@ -168,5 +166,15 @@
     line-height: 1.45;
     color: var(--ds-text-3);
     white-space: normal;
+  }
+
+  /* 窄屏压缩，给右侧模式与发送留空间 */
+  @media (max-width: 1280px) {
+    .ap-pill {
+      padding: 0 6px;
+    }
+    .ap-text {
+      font-size: 11.5px;
+    }
   }
 </style>

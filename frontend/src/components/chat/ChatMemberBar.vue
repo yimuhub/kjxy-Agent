@@ -295,43 +295,50 @@
 </script>
 
 <style scoped>
+  /* 成员条：融进会话信息行的一行灰字，不再自带卡片外框 */
   .member-bar {
     display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 8px 10px;
-    background: var(--ds-glass);
-    border: 1px solid var(--ds-border);
-    border-radius: var(--ds-radius-card);
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 10px;
+    min-width: 0;
+    padding: 0;
+    background: transparent;
+    border: 0;
   }
 
   .bar-head {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 10px;
+    gap: 6px;
+    flex: none;
   }
 
   .bar-title {
-    font-size: 12.5px;
-    color: var(--ds-text-2);
+    font-size: 12px;
+    color: var(--ds-text-3);
+    white-space: nowrap;
   }
 
   .add-btn {
     display: inline-flex;
     align-items: center;
-    gap: 3px;
-    padding: 2px 9px;
-    font-size: 12px;
-    color: var(--ds-text-2);
-    background: var(--ds-glass-strong);
-    border: 1px solid var(--ds-border);
-    border-radius: var(--ds-radius-pill);
+    gap: 2px;
+    height: 24px;
+    padding: 0 8px;
+    font-size: 11.5px;
+    color: var(--ds-text-3);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 7px;
     cursor: pointer;
+    transition:
+      background 0.15s,
+      color 0.15s;
   }
   .add-btn:hover:not(:disabled) {
-    color: var(--ds-accent-text);
-    border-color: var(--ds-border-strong);
+    color: var(--ds-text-1);
+    background: var(--ds-glass-strong);
   }
   .add-btn:disabled {
     opacity: 0.5;
@@ -344,7 +351,7 @@
     padding: 0;
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: 5px;
   }
 
   .member-chip {
@@ -456,6 +463,7 @@
 
   .bar-alert {
     display: flex;
+    flex: 1 1 100%;
     align-items: center;
     gap: 5px;
     margin: 0;

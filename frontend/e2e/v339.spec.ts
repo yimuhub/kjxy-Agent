@@ -105,7 +105,7 @@ test.describe('会话指挥官徽章（v3.39）', () => {
       await page.locator('.new-btn').click()
       await expect(page.locator('.chat-empty')).toBeVisible()
 
-      const bar = page.locator('.commander-bar')
+      const bar = page.locator('.exec-seg')
       await expect(bar).toBeVisible()
       const [patch] = await Promise.all([
         page.waitForResponse(
@@ -121,7 +121,7 @@ test.describe('会话指挥官徽章（v3.39）', () => {
       expect((patch.request().postDataJSON() as { execution_mode?: string }).execution_mode).toBe(
         'commander',
       )
-      await expect(bar).toContainText('一句话说清目标即可')
+      await expect(page.locator('.composer-caption')).toContainText('一句话说清目标即可')
 
       // 记下刚建的会话，刷新后只断言这一行的徽章（不受历史会话里其他指挥官行干扰）
       const sessionId = await page
