@@ -529,9 +529,30 @@ def _owner_by_skills(
 
 
 def _ensure_skills(db: Session, agent: YardAgent, codes: list[str]) -> list[str]:
-    """补齐责任人 Agent 的技能绑定；返回实际新增的技能编码。"""
+    """补齐责任人 Agent 的技能绑定；返回实际新增的技能编码。
+
+    绑定表里同时存在两种写法：``skill:<id>``（安装时的引用）与技能 code。
+    agent_builder 自动匹配绑的是前者，所以这里要先把 id 映射回 code 再判重，
+    否则同一项技能会被绑两遍，提示词里也会重复出现。
+    """
     bound = [str(s) for s in (agent.bound_skills or [])]
-    added = [code for code in codes if code and code not in bound]
+    if not codes:
+        return []
+    from sqlalchemy import select as _select
+
+    from app.modules.market.models import MarketItem
+
+    skill_refs = {item for item in bound if item.startswith("skill:")}
+    if skill_refs:
+        rows = db.execute(
+            _select(MarketItem.code, MarketItem.id).where(
+                MarketItem.yard_id == agent.yard_id, MarketItem.code.in_(codes)
+            )
+        ).all()
+        already = {code for code, item_id in rows if f"skill:{item_id}" in skill_refs}
+    else:
+        already = set()
+    added = [code for code in codes if code and code not in bound and code not in already]
     if added:
         agent.bound_skills = [*bound, *added]
         db.add(agent)

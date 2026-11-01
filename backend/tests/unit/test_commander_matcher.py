@@ -613,3 +613,20 @@ async def test_daily_limit_without_candidates_uses_commander(db_session, yard, c
     assert called["n"] == 0
     assert picks[0]["agent_source"] == "commander"
     assert picks[0]["agent_id"] is None
+
+
+def test_ensure_skills_does_not_duplicate_existing(db_session, yard):
+    """已绑定的技能不再追加，避免提示词里同一技能出现两遍。"""
+    agent = _agent(
+        db_session,
+        yard,
+        code="ppt_dup",
+        name="PPT 助手",
+        description="演示文稿",
+        bound_skills=["office_ppt_deck"],
+    )
+    added = matcher._ensure_skills(
+        db_session, agent, ["office_ppt_deck", "office_ppt_design"]
+    )
+    assert added == ["office_ppt_design"]
+    assert agent.bound_skills == ["office_ppt_deck", "office_ppt_design"]
