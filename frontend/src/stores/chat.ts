@@ -13,6 +13,8 @@ import {
   COMMANDER_SSE_EVENTS,
   commanderApi,
   type CommanderArtifact,
+  type CommanderClarifyPayload,
+  type CommanderClarifyQuestion,
   type CommanderFailedItem,
   type CommanderPlanFrame,
   type CommanderPlanPayload,
@@ -99,12 +101,24 @@ export interface PluginCardOpState {
   error: string
 }
 
-/** 发送附加字段：既有 target_code/policy 之外，指挥官模式再带一个 execution_mode */
-type CommanderSendExtras = SendMessageExtras & { execution_mode?: ExecutionMode }
+/** 发送附加字段：既有 target_code/policy 之外，指挥官模式再带 execution_mode */
+type CommanderSendExtras = SendMessageExtras & {
+  execution_mode?: ExecutionMode
+  /** 澄清续跑：回传原 run，服务端合并目标后重新规划，不再二次追问 */
+  clarify_run_id?: string
+}
+
+/** 待回答的澄清请求（对话页据此弹表单） */
+export interface ClarifyRequest {
+  runId: string
+  sessionId: string
+  goal: string
+  displayName: string
+  questions: CommanderClarifyQuestion[]
+}
 
 /** 指挥官一次运行的前端视图（计划预览 → 执行中 → 汇总） */
-export interface CommanderRunView {
-  runId: string
+export interface CommanderRunView {  runId: string
   goal: string
   preview: boolean
   /** 计划载荷里是否真的带过 preview（没带时由设置 preview_plan 兜底，不写进消息载荷） */
@@ -312,6 +326,13 @@ function buildChatStore(scope: string) {
      */
     const commanderRuns = ref<Record<string, CommanderRunView>>({})
     const commanderTimers = new Map<string, ReturnType<typeof setInterval>>()
+    /**
+     * 待回答的澄清：最近一条 commander_clarify 且尚未提交。
+     * 对话页据此自动弹出表单；提交或跳过即清空，历史消息里的卡片仍可重新作答。
+     */
+    const clarifyRequest = ref<ClarifyRequest | null>(null)
+    /** 已提交过答案的 run：消息内卡片转为只读回显 */
+    const clarifyAnswers = ref<Record<string, string[]>>({})
 
     /**
      * 轮次序号：每一轮 send 自增。
@@ -1545,6 +1566,7 @@ function buildChatStore(scope: string) {
         // execution_mode 是可选字段：保持既有请求体形状，只有指挥官/显式普通模式才带
         const body = buildSendBody(content, attachmentIds, extras)
         if (extras.execution_mode) body.execution_mode = extras.execution_mode
+        if (extras.clarify_run_id) body.clarify_run_id = extras.clarify_run_id
 
         const finish = (outcome: StreamOutcome) => {
           if (settled) return
@@ -1582,6 +1604,19 @@ function buildChatStore(scope: string) {
               applyCommanderSummary(data as unknown as CommanderSummaryFrame)
             } else if (frame.event === CHAT_SSE_EVENTS.message) {
               const msg = asMessage(data)
+              const incoming = (msg.payload ?? pendingCard) as unknown as {
+                type?: string
+              } | null
+              if (incoming?.type === 'commander_clarify') {
+                const card = incoming as unknown as CommanderClarifyPayload
+                clarifyRequest.value = {
+                  runId: card.run_id,
+                  sessionId: sid,
+                  goal: card.goal || '',
+                  displayName: card.display_name || '指挥官',
+                  questions: card.questions || [],
+                }
+              }
               if (sid === activeId.value) {
                 const runId = commanderRunIdOfMessage(msg)
                 const index = runId ? commanderMessageIndex(runId) : -1
@@ -1619,7 +1654,7 @@ function buildChatStore(scope: string) {
      */
     async function send(
       content: string,
-      overrides: { execution_mode?: ExecutionMode } = {},
+      overrides: { execution_mode?: ExecutionMode; clarify_run_id?: string } = {},
     ): Promise<boolean> {
       const draft = content.trim()
       if (!draft || sending.value) return false
@@ -1711,6 +1746,53 @@ function buildChatStore(scope: string) {
           liveSteps.value = []
         }
       }
+    }
+
+    /* ---------------- 指挥官澄清（表单弹窗 → 按原 run 续跑） ---------------- */
+
+    /** 把表单答案拼成一句可读的补充说明：后端会与目标合并后重新规划 */
+    function clarifyAnswerText(
+      answers: Array<{ key: string; label: string; value: string }>,
+    ): string {
+      if (!answers.length) return '没有额外要求，按最合理假设直接执行。'
+      return answers.map(item => `${item.label}：${item.value}`).join('；')
+    }
+
+    /**
+     * 提交澄清答案：清掉弹窗、记录已答内容，然后以原 run 为目标续跑。
+     * 续跑走的是同一条发送链路（SSE 上屏），用户不需要重开对话。
+     */
+    async function submitClarify(
+      runId: string,
+      answers: Array<{ key: string; label: string; value: string }>,
+    ): Promise<boolean> {
+      const text = clarifyAnswerText(answers)
+      if (answers.length) {
+        clarifyAnswers.value = {
+          ...clarifyAnswers.value,
+          [runId]: answers.map(item => `${item.label}：${item.value}`),
+        }
+      }
+      if (clarifyRequest.value?.runId === runId) clarifyRequest.value = null
+      return send(text, { execution_mode: 'commander', clarify_run_id: runId })
+    }
+
+    /** 跳过澄清：明确让指挥官按最合理假设开跑，同样续跑原 run */
+    async function skipClarify(runId: string): Promise<boolean> {
+      if (clarifyRequest.value?.runId === runId) clarifyRequest.value = null
+      return send('没有额外要求，按最合理假设直接执行。', {
+        execution_mode: 'commander',
+        clarify_run_id: runId,
+      })
+    }
+
+    function dismissClarify() {
+      clarifyRequest.value = null
+    }
+
+    /** 某次运行的已答内容（历史消息卡片只读回显用） */
+    function clarifyAnswerOf(runId: string): string[] | null {
+      return clarifyAnswers.value[runId] ?? null
     }
 
     /* ---------------- 技能卡片（v3.2 一句话技能）：状态按实例 + 消息 id 隔离 ---------------- */
@@ -1936,6 +2018,16 @@ function buildChatStore(scope: string) {
       /* 指挥官运行视图与动作（v3.38）：按 run_id 隔离，SSE 与轮询共同更新 */
       commanderRuns,
       commanderRun,
+      /*
+       * 指挥官澄清（v3.42）：信息不足时弹表单收集，答完按原 run 续跑；
+       * 用户也可以跳过，让指挥官按最合理假设直接执行。
+       */
+      clarifyRequest,
+      clarifyAnswers,
+      clarifyAnswerOf,
+      submitClarify,
+      skipClarify,
+      dismissClarify,
       executeCommanderRun,
       retryCommanderRun,
       cancelCommanderRun,

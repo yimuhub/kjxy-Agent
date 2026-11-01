@@ -53,7 +53,7 @@ from app.modules.agents.models import (
 )
 from app.modules.audit.service import log_audit
 from app.modules.chat import models as chat_models
-from app.modules.commander import deliverables, matcher, planner
+from app.modules.commander import deliverables, feasibility, matcher, planner
 from app.modules.commander import settings as commander_settings
 from app.modules.commander.models import (
     RUN_CANCELLED,
@@ -353,6 +353,47 @@ def require_run_access(db: Session, run: CommanderRun, *, user_id: str, roles: l
 # ---------------------------------------------------------------------------
 
 
+def _unrealizable_plan(text: str, check: feasibility.Assessment) -> dict[str, Any]:
+    """现实不可执行时的唯一合法降级：如实说明 + 给出可照着做的替代路径。
+
+    这类目标无论怎么补能力都做不到（需要身体动作/到场/实物交付），所以不拆
+    执行任务，只交一份「为什么做不到 + 你可以怎么做」的说明，由指挥官直接答。
+    """
+    verb = check.verb or "该动作"
+    guidance = check.guidance or (
+        f"「{verb}」需要人在现实里完成，我无法代替你的身体动作。"
+        "我可以把该做的事整理成一份可执行的清单，你照着做即可。"
+    )
+    return {
+        "goal": (text or "完成用户请求")[:500],
+        "success_criteria": [],
+        "assumptions": [],
+        "merge_notes": "",
+        "fallback": True,
+        "fallback_reason": feasibility.REASON_UNREALIZABLE,
+        "feasibility": check.to_json(),
+        "subtasks": [
+            {
+                "seq": 1,
+                "title": "说明原因与替代方案",
+                "instruction": (
+                    f"用户目标：{text}\n"
+                    f"该目标需要现实中的身体动作（{verb}），系统无法执行。\n"
+                    "请直接回答：1) 为什么做不到（一句话）；2) 你能替他做到哪一步"
+                    "（查资料/写清单/出方案）；3) 他照着做时需要准备什么、分几步。"
+                    "不要假装已经完成，也不要只回一句「无法完成」。"
+                ),
+                "expected_output": "原因说明 + 可直接照做的替代清单",
+                "agent_hint": "指挥官",
+                "agent_code": "",
+                "depends_on": [],
+                "executor": "commander",
+            }
+        ],
+        "clarify": [],
+    }
+
+
 async def create_plan_run(
     db: Session,
     *,
@@ -360,6 +401,7 @@ async def create_plan_run(
     session_id: str,
     user_content: str,
     context: str = "",
+    allow_clarify: bool = True,
 ) -> CommanderRun:
     """读设置 → 规划 → clamp → 选兵 → 落库（queued）。"""
     text = (user_content or "").strip()
@@ -386,78 +428,111 @@ async def create_plan_run(
     catalog_agents = planner.visible_published_agents(db, yard_id=ctx.yard_id, user_id=ctx.user_id)
     max_subtasks = int(settings["max_subtasks"])
     required_fmt = deliverables.detect(text)
-    raw_plan, usage, repaired, plan_error = await planner.request_plan(
-        db,
-        ctx=ctx,
-        user_content=text,
-        context=context,
-        catalog=planner.catalog_lines(catalog_agents),
-        max_subtasks=max_subtasks,
-        settings=settings,
-        deliverable=required_fmt,
-    )
-    plan = planner.normalize_plan(raw_plan, max_subtasks=max_subtasks, fallback_goal=text)
-    clarify: list[str] = list(plan.get("clarify") or []) if plan is not None else []
-    if plan is not None and clarify and not plan.get("subtasks"):
-        if settings.get("clarify_enabled") and approval_mode != chat_models.APPROVAL_FULL:
-            # 信息不足：只落一条「待澄清」运行，不建子任务、不选兵、不执行
-            plan["plan_repaired"] = repaired
-            run = CommanderRun(
-                yard_id=ctx.yard_id,
-                session_id=session_id,
-                user_id=ctx.user_id,
-                turn_id=uuid.uuid4().hex[:12],
-                goal=str(plan.get("goal") or text)[:500],
-                plan_json=plan,
-                status=RUN_CANCELLED,
-                max_parallel=int(settings["max_parallel"]),
-                effective_parallel=int(settings["max_parallel"]),
-                degraded=False,
-                tokens_total=usage["input_tokens"] + usage["output_tokens"],
-                latency_ms=0,
-                error_code=ERR_NEEDS_INPUT,
-                roles_json=list(ctx.roles),
-                approval_mode=approval_mode,
-            )
-            db.add(run)
-            db.flush()
-            log_audit(
-                db,
-                yard_id=ctx.yard_id,
-                actor_id=ctx.user_id,
-                action="commander_plan_created",
-                resource_type="commander_run",
-                resource_id=run.id,
-                result="success",
-                request_id=ctx.request_id,
-                metadata={
-                    "session_id": session_id,
-                    "subtasks": 0,
-                    "fallback": False,
-                    "clarify": len(clarify),
-                    "repaired": repaired,
-                    "plan_tokens": run.tokens_total,
-                },
-            )
-            _safe_commit(db)
-            return run
-        # 澄清关闭：忽略模型给的 clarify，退回单任务直答（与规划失败同口径）
-        plan = planner.fallback_plan(text, deliverable=required_fmt, reason="clarify_disabled")
-        plan["clarify"] = []
+    # 先判能力边界：只有现实不可执行才允许降级；能做的必须做出来
+    check = feasibility.assess(text, fmt=required_fmt)
+    usage: dict[str, int] = {"input_tokens": 0, "output_tokens": 0}
+    repaired = False
+    plan_error: str | None = None
+    plan_fallback = False
+
+    if check.blocked:
+        plan = _unrealizable_plan(text, check)
+        plan["plan_repaired"] = False
         plan_fallback = True
+        log.info("commander target unrealizable: verb=%s goal=%s", check.verb, text[:80])
     else:
-        plan_fallback = plan is None
-        if plan is None:
+        raw_plan, usage, repaired, plan_error = await planner.request_plan(
+            db,
+            ctx=ctx,
+            user_content=text,
+            context=context,
+            catalog=planner.catalog_lines(catalog_agents),
+            max_subtasks=max_subtasks,
+            settings=settings,
+            deliverable=required_fmt,
+            capability_hint=feasibility.plan_hint(check),
+        )
+        plan = planner.normalize_plan(raw_plan, max_subtasks=max_subtasks, fallback_goal=text)
+
+    if not check.blocked:
+        if plan is not None:
+            clarify: list[dict[str, Any]] = list(plan.get("clarify") or [])
+        else:
+            clarify = []
+        if plan is not None and clarify and not plan.get("subtasks"):
+            if (
+                allow_clarify
+                and settings.get("clarify_enabled")
+                and approval_mode != chat_models.APPROVAL_FULL
+            ):
+                # 信息不足：落一条「待澄清」运行，前端弹表单卡片逐项收集；
+                # 这不是失败——用户答完即可继续，无需重开对话。
+                plan["plan_repaired"] = repaired
+                plan["feasibility"] = check.to_json()
+                run = CommanderRun(
+                    yard_id=ctx.yard_id,
+                    session_id=session_id,
+                    user_id=ctx.user_id,
+                    turn_id=uuid.uuid4().hex[:12],
+                    goal=str(plan.get("goal") or text)[:500],
+                    plan_json=plan,
+                    status=RUN_CANCELLED,
+                    max_parallel=int(settings["max_parallel"]),
+                    effective_parallel=int(settings["max_parallel"]),
+                    degraded=False,
+                    tokens_total=usage["input_tokens"] + usage["output_tokens"],
+                    latency_ms=0,
+                    error_code=ERR_NEEDS_INPUT,
+                    roles_json=list(ctx.roles),
+                    approval_mode=approval_mode,
+                )
+                db.add(run)
+                db.flush()
+                log_audit(
+                    db,
+                    yard_id=ctx.yard_id,
+                    actor_id=ctx.user_id,
+                    action="commander_plan_created",
+                    resource_type="commander_run",
+                    resource_id=run.id,
+                    result="success",
+                    request_id=ctx.request_id,
+                    metadata={
+                        "session_id": session_id,
+                        "subtasks": 0,
+                        "fallback": False,
+                        "clarify": len(clarify),
+                        "repaired": repaired,
+                        "plan_tokens": run.tokens_total,
+                    },
+                )
+                _safe_commit(db)
+                return run
+            # 澄清被跳过（开关关闭或完全控制）：不降级，按能力目录直接排可执行计划
+            plan = planner.capability_plan(
+                text,
+                goal=plan.get("goal"),
+                fmt=required_fmt,
+                capabilities=check.capabilities,
+                reason="clarify_skipped",
+            )
+        elif plan is None:
+            # 规划模型不可用/输出不可用：只要目标可达，就按能力目录排出计划，
+            # 不再退化成「单任务直答」——PPT/Excel 这类必须继续产出文件。
+            plan = planner.capability_plan(
+                text,
+                fmt=required_fmt,
+                capabilities=check.capabilities,
+                reason=plan_error or "parse_failed",
+            )
             log.warning(
-                "commander plan unusable, fallback applied: deliverable=%s reason=%s raw=%s",
+                "commander plan unusable, capability plan applied: deliverable=%s reason=%s raw=%s",
                 required_fmt,
                 plan_error or "parse_failed",
                 str(raw_plan)[:400],
             )
-            plan = planner.fallback_plan(
-                text, deliverable=required_fmt, reason=plan_error or "parse_failed"
-            )
-    plan["plan_repaired"] = repaired
+        plan["feasibility"] = check.to_json()
+        plan["plan_repaired"] = repaired
 
     # 用户要文件但计划没覆盖时补齐交付子任务：宁可由指挥官确定性出文件，
     # 也不能让「模型只回一段大纲」当成完成。

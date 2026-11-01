@@ -136,7 +136,10 @@ def test_fallback_plan_is_single_task():
 
 
 @pytest.mark.asyncio
-async def test_create_plan_run_falls_back_to_single_task(db_session, yard, ctx, monkeypatch):
+async def test_create_plan_run_builds_capability_plan_when_parse_failed(
+    db_session, yard, ctx, monkeypatch
+):
+    """规划输出不可用不算降级：按能力目录排出「整理 → 交付」两步，PPT 照常产出。"""
     commander_settings.update_settings(
         db_session,
         yard_id=yard.id,
@@ -158,14 +161,15 @@ async def test_create_plan_run_falls_back_to_single_task(db_session, yard, ctx, 
     )
     _run, subtasks = commander_service.get_run(db_session, yard.id, run.id)
     assert run.status == "queued"
-    assert run.plan_json["fallback"] is True
+    assert run.plan_json["fallback"] is False
+    assert run.plan_json["assumed"] is True
+    assert run.plan_json["assumed_reason"] == "parse_failed"
     assert run.plan_json["deliverable"] == {"format": "pptx", "label": "PPT 演示文稿"}
-    # 模型输出不是 JSON → 降级原因必须是 parse_failed（界面据此区分文案）
-    assert run.plan_json["fallback_reason"] == "parse_failed"
-    assert len(subtasks) == 1
-    assert subtasks[0].title == "生成PPT交付物"
-    assert subtasks[0].agent_source == "commander"
-    assert "doc.generate" in subtasks[0].instruction
+    assert len(subtasks) == 2
+    assert subtasks[0].title == "梳理交付内容"
+    assert subtasks[1].title == "生成PPT交付物"
+    assert subtasks[1].depends_on_json == [1]
+    assert "doc.generate" in subtasks[1].instruction
 
 
 @pytest.mark.asyncio
@@ -248,14 +252,41 @@ def test_normalize_clarify_filters_empty_and_caps_two():
     assert plan is not None
     assert plan["fallback"] is False
     assert plan["subtasks"] == []
-    assert plan["clarify"] == ["面向哪个作物？", "交付什么格式？"]
+    # 纯字符串澄清统一升级为可渲染的表单项（type=text，可直接输入）
+    assert [item["label"] for item in plan["clarify"]] == ["面向哪个作物？", "交付什么格式？"]
+    assert all(item["type"] == "text" for item in plan["clarify"])
     assert plan["goal"] == "做方案"
+
+
+def test_normalize_clarify_keeps_options_and_type():
+    """模型给结构化澄清时保留选项与交互类型，前端可直接渲染成点选表单。"""
+    plan = planner.normalize_plan(
+        {
+            "clarify": [
+                {
+                    "key": "audience",
+                    "label": "讲给谁看？",
+                    "type": "single",
+                    "options": ["农户", "乡镇领导", "企业客户"],
+                },
+                {"key": "pages", "label": "大概几页？", "type": "text"},
+            ]
+        },
+        max_subtasks=6,
+        fallback_goal="目标",
+    )
+    assert plan is not None
+    first = plan["clarify"][0]
+    assert first["key"] == "audience"
+    assert first["type"] == "single"
+    assert first["options"] == ["农户", "乡镇领导", "企业客户"]
+    assert plan["clarify"][1]["type"] == "text"
 
 
 def test_normalize_clarify_truncates_long_questions():
     plan = planner.normalize_plan({"clarify": ["问" * 300]}, max_subtasks=6, fallback_goal="目标")
     assert plan is not None
-    assert len(plan["clarify"][0]) == 200
+    assert len(plan["clarify"][0]["label"]) == 200
 
 
 @pytest.mark.asyncio
@@ -287,12 +318,15 @@ async def test_create_plan_run_returns_cancelled_clarify_run(db_session, yard, c
     _run, subtasks = commander_service.get_run(db_session, yard.id, run.id)
     assert run.status == "cancelled"
     assert run.error_code == "COMMANDER_NEEDS_INPUT"
-    assert run.plan_json["clarify"] == ["面向哪个作物？", "交付什么格式？"]
+    assert [item["label"] for item in run.plan_json["clarify"]] == [
+        "面向哪个作物？",
+        "交付什么格式？",
+    ]
     assert run.plan_json["subtasks"] == []
     assert run.plan_json["fallback"] is False
     assert run.tokens_total == 30
     assert subtasks == []
-    assert commander_service.run_out(run, subtasks)["clarify"] == [
+    assert [item["label"] for item in commander_service.run_out(run, subtasks)["clarify"]] == [
         "面向哪个作物？",
         "交付什么格式？",
     ]
@@ -318,8 +352,10 @@ async def test_create_plan_run_ignores_clarify_when_disabled(db_session, yard, c
     )
     _run, subtasks = commander_service.get_run(db_session, yard.id, run.id)
     assert run.status == "queued"
-    assert run.plan_json["fallback"] is True
-    assert run.plan_json["fallback_reason"] == "clarify_disabled"
+    # 澄清关闭不再算「降级」：按能力目录排出可执行计划，标 assumed 说明是假设执行
+    assert run.plan_json["fallback"] is False
+    assert run.plan_json["assumed"] is True
+    assert run.plan_json["assumed_reason"] == "clarify_skipped"
     assert run.plan_json["clarify"] == []
     assert len(subtasks) == 1
     assert subtasks[0].title == "完成用户请求"
@@ -375,7 +411,7 @@ async def test_full_control_snapshot_and_clarify_suppressed(db_session, yard, ct
 
 @pytest.mark.asyncio
 async def test_create_plan_run_marks_llm_error_reason(db_session, yard, ctx, monkeypatch):
-    """规划模型调用失败 → 降级原因是 llm_error，且 run 仍可执行（不是整体失败）。"""
+    """规划模型不可用不算降级：走能力计划并记录 assumed_reason=llm_error。"""
     commander_settings.update_settings(
         db_session,
         yard_id=yard.id,
@@ -394,10 +430,53 @@ async def test_create_plan_run_marks_llm_error_reason(db_session, yard, ctx, mon
     )
     _run, subtasks = commander_service.get_run(db_session, yard.id, run.id)
     assert run.status == "queued"
-    assert run.plan_json["fallback"] is True
-    assert run.plan_json["fallback_reason"] == "llm_error"
-    assert len(subtasks) == 1
-    # 接口回包必须带上原因，否则界面只能退回「未能拆分任务」这类模糊文案
+    assert run.plan_json["fallback"] is False
+    assert run.plan_json["assumed"] is True
+    assert run.plan_json["assumed_reason"] == "llm_error"
+    assert len(subtasks) >= 1
+    # 接口回包不能把它说成「任务失败」
     out = commander_service.run_out(run, subtasks)
-    assert out["plan_fallback"] is True
-    assert out["plan_fallback_reason"] == "llm_error"
+    assert out["plan_fallback"] is False
+    assert out["plan_fallback_reason"] == ""
+
+
+@pytest.mark.asyncio
+async def test_clarify_skipped_for_pptx_still_delivers_file(db_session, yard, ctx, monkeypatch):
+    """模型想追问、但澄清关闭且用户要 PPT：不降级，按能力目录排出「整理 → 交付」两步。"""
+    commander_settings.update_settings(
+        db_session,
+        yard_id=yard.id,
+        payload={"auto_create_agent": False, "clarify_enabled": False},
+        actor_id="u-cmd",
+        request_id="req-cmd",
+    )
+    db_session.commit()
+
+    async def wants_clarify(*_args, **_kwargs):
+        return _resp(json.dumps({"clarify": ["讲给谁看？"]}, ensure_ascii=False))
+
+    monkeypatch.setattr(planner, "complete_with_logging", wants_clarify)
+    run = await commander_service.create_plan_run(
+        db_session, ctx=ctx, session_id="s-cmd", user_content="帮我做一份春耕动员的PPT"
+    )
+    _run, subtasks = commander_service.get_run(db_session, yard.id, run.id)
+    assert run.plan_json["fallback"] is False
+    assert run.plan_json["assumed_reason"] == "clarify_skipped"
+    assert [row.title for row in subtasks] == ["梳理交付内容", "生成PPT交付物"]
+    assert subtasks[1].depends_on_json == [1]
+    assert "doc.generate" in subtasks[1].instruction
+
+
+@pytest.mark.asyncio
+async def test_realistically_impossible_goal_degrades_with_guidance(db_session, yard, ctx):
+    """只有现实办不到才降级：给出原因与替代方案，且不假装执行。"""
+    run = await commander_service.create_plan_run(
+        db_session, ctx=ctx, session_id="s-cmd", user_content="你去把香蕉吃了"
+    )
+    _run, subtasks = commander_service.get_run(db_session, yard.id, run.id)
+    assert run.plan_json["fallback"] is True
+    assert run.plan_json["fallback_reason"] == "unrealizable"
+    assert run.plan_json["feasibility"]["status"] == "blocked"
+    assert len(subtasks) == 1
+    assert subtasks[0].title == "说明原因与替代方案"
+    assert subtasks[0].agent_source == "commander"

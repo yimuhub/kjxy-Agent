@@ -13616,6 +13616,12 @@ components:
             maxLength: 12
           - type: 'null'
           title: Execution Mode
+        clarify_run_id:
+          anyOf:
+          - type: string
+            maxLength: 36
+          - type: 'null'
+          title: Clarify Run Id
       additionalProperties: false
       type: object
       required:
@@ -13632,7 +13638,9 @@ components:
 
         - ``target_code``：@ 点名定向执行的对象（单聊与群聊通用）；
 
-        - ``execution_mode``：``standard``（默认）| ``commander``（指挥官编排）。'
+        - ``execution_mode``：``standard``（默认）| ``commander``（指挥官编排）；
+
+        - ``clarify_run_id``：澄清续跑，回传原运行 id，服务端合并目标后重新规划。'
     OfficialOrderCreate:
       properties:
         model_key:

@@ -265,6 +265,28 @@ export interface CommanderPlanPayload {
   token_usage?: Record<string, unknown>
 }
 
+/** 澄清表单的一项：能选就选（chips），不能选就填一句话 */
+export interface CommanderClarifyQuestion {
+  key: string
+  label: string
+  /** single=单选 chips；multi=多选；text=自由输入 */
+  type: 'single' | 'multi' | 'text'
+  options: string[]
+  placeholder?: string
+  allow_custom?: boolean
+  required?: boolean
+}
+
+/** assistant 消息里的澄清载荷：用户答完自动续跑，不用重开对话 */
+export interface CommanderClarifyPayload {
+  type: 'commander_clarify'
+  run_id: string
+  goal?: string
+  display_name?: string
+  questions: CommanderClarifyQuestion[]
+  feasibility?: Record<string, unknown>
+}
+
 /** assistant 消息里的汇总载荷（历史消息可能只带 id，不带 run_id） */
 export interface CommanderSummaryPayload {
   type: 'commander_summary'

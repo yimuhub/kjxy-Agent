@@ -1768,6 +1768,7 @@ async def _run_commander_turn(
     steps: StepRecorder,
     on_step: StepCallback | None,
     on_commander_event: CommanderEventCallback | None,
+    clarify_run_id: str | None = None,
 ) -> dict[str, Any]:
     """指挥官一轮：拆解计划 →（预览或）并行执行 → 汇总落库。
 
@@ -1775,6 +1776,7 @@ async def _run_commander_turn(
     """
     from app.modules.commander import service as commander_service
     from app.modules.commander import settings as commander_settings
+    from app.modules.commander.models import CommanderRun
 
     cfg = commander_settings.settings_for(db, session.yard_id)
     display_name = str(cfg.get("display_name") or "指挥官")
@@ -1784,25 +1786,67 @@ async def _run_commander_turn(
         context = f"{context}\n\n{history}".strip() if context else history
     emit = on_step or steps.emit
 
+    # 澄清续跑：把原目标与用户补充合并成一条完整目标，并跳过二次追问
+    base_goal = ""
+    if clarify_run_id:
+        prev = db.get(CommanderRun, clarify_run_id)
+        if (
+            prev is not None
+            and prev.yard_id == ctx.yard_id
+            and prev.user_id == ctx.user_id
+        ):
+            base_goal = str(prev.goal or "").strip()
+    if base_goal and base_goal not in content:
+        content = f"{base_goal}\n\n用户补充（以此为准）：{content}"
+
     emit(PHASE_ROUTING, f"{display_name}正在拆解任务", STEP_RUNNING)
     run = await commander_service.create_plan_run(
-        db, ctx=ctx, session_id=session.id, user_content=content, context=context
+        db,
+        ctx=ctx,
+        session_id=session.id,
+        user_content=content,
+        context=context,
+        allow_clarify=not clarify_run_id,
     )
     plan_json = getattr(run, "plan_json", None) or {}
-    clarify = [str(q).strip() for q in (plan_json.get("clarify") or []) if str(q).strip()]
+    # 兼容两种存量形状：结构化表单项 / 早期纯字符串问题
+    clarify: list[dict[str, Any]] = []
+    for index, item in enumerate(plan_json.get("clarify") or [], start=1):
+        if isinstance(item, dict) and str(item.get("label") or "").strip():
+            clarify.append(item)
+        elif isinstance(item, str) and item.strip():
+            clarify.append(
+                {
+                    "key": f"q{index}",
+                    "label": item.strip()[:200],
+                    "type": "text",
+                    "options": [],
+                    "allow_custom": True,
+                    "required": False,
+                }
+            )
     # 完全控制 = 不问：连澄清也跳过，按最合理假设直接开跑；只有轮尽才回报缺口
     if (
         clarify
         and cfg.get("clarify_enabled", False)
         and (session.approval_mode or APPROVAL_ASK) != APPROVAL_FULL
     ):
-        # 目标太笼统：先问 1–2 个问题再拆，避免拆出一堆空转子任务
-        text = f"为了把任务拆准，{display_name}需要先确认：\n" + "\n".join(
-            f"{i}. {q}" for i, q in enumerate(clarify, start=1)
+        # 目标缺必要信息：先弹表单问 1–2 个可点选的问题，答完自动续跑
+        labels = [str(item.get("label") or "").strip() for item in clarify]
+        text = f"为了把任务拆准，{display_name}需要先确认 {len(clarify)} 项：\n" + "\n".join(
+            f"{i}. {label}" for i, label in enumerate(labels, start=1)
         )
-        emit(PHASE_ROUTING, f"信息不足，先确认 {len(clarify)} 个问题", STEP_DONE)
+        emit(PHASE_ROUTING, f"信息不足，先确认 {len(clarify)} 项", STEP_DONE)
         choice = {"kind": "commander", "id": run.id, "name": display_name}
         plan_tokens = _commander_token_usage(run.tokens_total)
+        payload = {
+            "type": "commander_clarify",
+            "run_id": run.id,
+            "goal": str(getattr(run, "goal", "") or ""),
+            "display_name": display_name,
+            "questions": clarify,
+            "feasibility": plan_json.get("feasibility") or {},
+        }
         assistant_msg = persist_assistant_message(
             db,
             ctx=ctx,
@@ -1811,7 +1855,7 @@ async def _run_commander_turn(
             routed_by="commander",
             choice=choice,
             reason="指挥官澄清",
-            payload=None,
+            payload=payload,
             steps=steps.steps or None,
             token_usage=plan_tokens,
         )
@@ -1821,7 +1865,7 @@ async def _run_commander_turn(
             "routed_by": "commander",
             "choice": choice,
             "reason": "指挥官澄清",
-            "payload": None,
+            "payload": payload,
             "steps": steps.steps,
             "citations": [],
             "token_usage": plan_tokens,
@@ -1918,6 +1962,7 @@ async def run_and_persist(
     recorder: StepRecorder | None = None,
     target_code: str | None = None,
     execution_mode: str | None = None,
+    clarify_run_id: str | None = None,
     on_commander_event: CommanderEventCallback | None = None,
 ) -> dict[str, Any]:
     ctx = scoped_ctx(ctx, session)
@@ -1941,6 +1986,7 @@ async def run_and_persist(
                 steps=steps,
                 on_step=_cb,
                 on_commander_event=on_commander_event,
+                clarify_run_id=clarify_run_id,
             )
         outcome = await execute_turn(
             db,
@@ -2035,6 +2081,7 @@ async def send_message(
     on_step: StepCallback | None = None,
     target_code: str | None = None,
     execution_mode: str | None = None,
+    clarify_run_id: str | None = None,
     on_commander_event: CommanderEventCallback | None = None,
 ) -> dict[str, Any]:
     content = (content or "").strip()[:CONTENT_CAP]
@@ -2058,6 +2105,7 @@ async def send_message(
         on_step=on_step,
         target_code=target_code,
         execution_mode=execution_mode,
+        clarify_run_id=clarify_run_id,
         on_commander_event=on_commander_event,
     )
     assistant_msg = outcome["assistant_message"]

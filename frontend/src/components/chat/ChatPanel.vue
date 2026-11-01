@@ -166,7 +166,15 @@
               @export="exportPlan(row.m)"
               @escalate="openEscalate(row.m)"
             />
-            <!-- 指挥官：计划卡（预览可执行）/ 运行汇总卡 -->
+            <!-- 指挥官：信息不足时的澄清表单（答完按原 run 续跑）；弹窗接管时不重复渲染 -->
+            <CommanderClarifyCard
+              v-else-if="isClarifyMessage(row.m) && !clarifyOpen"
+              :card="clarifyCardOf(row.m)"
+              :submitting="store.sending"
+              :submitted="store.clarifyAnswerOf(clarifyCardOf(row.m).run_id)"
+              @submit="onClarifySubmit"
+              @skip="onClarifySkip"
+            />
             <CommanderPlanCard
               v-else-if="isCommanderPlanMessage(row.m)"
               :plan="commanderPlanOf(row.m)"
@@ -550,183 +558,183 @@
             </button>
           </span>
         </div>
-      <!--
+        <!--
         @ 候选浮层的锚点就是输入行本身：ElPopover 的 reference 只透传唯一子元素、
         不额外包 DOM，所以不传 mentionable 时（open 恒为 false）渲染结果与改造前一致。
       -->
-      <ChatMentionLayer
-        ref="mentionLayerRef"
-        v-model:open="mentionOpen"
-        :candidates="store.mentionCandidates"
-        :keyword="mentionKeyword"
-        :loading="store.mentionLoading"
-        :label="label"
-        @select="onMentionSelect"
-      >
-        <template #reference>
-          <div class="composer-body">
-            <el-input
-              ref="inputRef"
-              v-model="draft"
-              class="composer-field"
-              type="textarea"
-              :autosize="{ minRows: 1, maxRows: 6 }"
-              :maxlength="2000"
-              resize="none"
-              :placeholder="placeholderText"
-              :aria-label="`${label}输入`"
-              :role="mentionable ? 'combobox' : undefined"
-              :aria-expanded="mentionable ? mentionOpen : undefined"
-              :aria-controls="mentionable ? mentionListboxId : undefined"
-              :aria-activedescendant="mentionable ? mentionActiveDescendant : undefined"
-              @keydown="onKeydown"
-              @keyup="onKeyup"
-            />
+        <ChatMentionLayer
+          ref="mentionLayerRef"
+          v-model:open="mentionOpen"
+          :candidates="store.mentionCandidates"
+          :keyword="mentionKeyword"
+          :loading="store.mentionLoading"
+          :label="label"
+          @select="onMentionSelect"
+        >
+          <template #reference>
+            <div class="composer-body">
+              <el-input
+                ref="inputRef"
+                v-model="draft"
+                class="composer-field"
+                type="textarea"
+                :autosize="{ minRows: 1, maxRows: 6 }"
+                :maxlength="2000"
+                resize="none"
+                :placeholder="placeholderText"
+                :aria-label="`${label}输入`"
+                :role="mentionable ? 'combobox' : undefined"
+                :aria-expanded="mentionable ? mentionOpen : undefined"
+                :aria-controls="mentionable ? mentionListboxId : undefined"
+                :aria-activedescendant="mentionable ? mentionActiveDescendant : undefined"
+                @keydown="onKeydown"
+                @keyup="onKeyup"
+              />
 
-            <div class="composer-toolbar">
-              <!-- 上传附件（照片/文档） -->
-              <button
-                class="tool-btn"
-                type="button"
-                :disabled="store.sending || store.uploading || qaMode"
-                :title="qaMode ? '知识问答只依据知识库资料，不支持附件' : '上传附件（图片或文档）'"
-                aria-label="上传附件"
-                @click="onPickFile"
-              >
-                <el-icon>
-                  <Loading
-                    v-if="store.uploading"
-                    class="is-spin"
-                  />
-                  <Paperclip v-else />
-                </el-icon>
-              </button>
-              <input
-                ref="fileRef"
-                class="file-input"
-                type="file"
-                accept="image/png,image/jpeg,image/webp,.pdf,.docx,.xlsx,.pptx,.txt,.md,.csv,.html"
-                :aria-label="`为${label}选择附件`"
-                @change="onFilePicked"
-              >
-              <!-- 语音输入：录音 → 后端转写 → 文本落入草稿（不支持时明确提示） -->
-              <button
-                class="tool-btn"
-                type="button"
-                :class="{ 'is-rec': recording }"
-                :disabled="store.sending || transcribing"
-                :title="recording ? '停止录音并转写' : '语音输入'"
-                :aria-label="recording ? '停止录音并转写' : '语音输入'"
-                :aria-pressed="recording"
-                @click="onToggleRecord"
-              >
-                <el-icon>
-                  <Loading
-                    v-if="transcribing"
-                    class="is-spin"
-                  />
-                  <VideoPause v-else-if="recording" />
-                  <Microphone v-else />
-                </el-icon>
-              </button>
-              <span
-                v-if="recording"
-                class="rec-hint"
-                role="status"
-              >{{ recordSeconds }}s</span>
+              <div class="composer-toolbar">
+                <!-- 上传附件（照片/文档） -->
+                <button
+                  class="tool-btn"
+                  type="button"
+                  :disabled="store.sending || store.uploading || qaMode"
+                  :title="qaMode ? '知识问答只依据知识库资料，不支持附件' : '上传附件（图片或文档）'"
+                  aria-label="上传附件"
+                  @click="onPickFile"
+                >
+                  <el-icon>
+                    <Loading
+                      v-if="store.uploading"
+                      class="is-spin"
+                    />
+                    <Paperclip v-else />
+                  </el-icon>
+                </button>
+                <input
+                  ref="fileRef"
+                  class="file-input"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,.pdf,.docx,.xlsx,.pptx,.txt,.md,.csv,.html"
+                  :aria-label="`为${label}选择附件`"
+                  @change="onFilePicked"
+                >
+                <!-- 语音输入：录音 → 后端转写 → 文本落入草稿（不支持时明确提示） -->
+                <button
+                  class="tool-btn"
+                  type="button"
+                  :class="{ 'is-rec': recording }"
+                  :disabled="store.sending || transcribing"
+                  :title="recording ? '停止录音并转写' : '语音输入'"
+                  :aria-label="recording ? '停止录音并转写' : '语音输入'"
+                  :aria-pressed="recording"
+                  @click="onToggleRecord"
+                >
+                  <el-icon>
+                    <Loading
+                      v-if="transcribing"
+                      class="is-spin"
+                    />
+                    <VideoPause v-else-if="recording" />
+                    <Microphone v-else />
+                  </el-icon>
+                </button>
+                <span
+                  v-if="recording"
+                  class="rec-hint"
+                  role="status"
+                >{{ recordSeconds }}s</span>
 
-              <!--
+                <!--
                 高风险操作权限（每次询问 / 会话内自动放行 / 完全访问）。
                 知识问答只读知识库、不调用工具，所以不在该模式下出现。
               -->
-              <ChatApprovalPicker
-                v-if="!qaMode"
-                :model-value="approvalMode"
-                :can-escalate="canEscalateApproval"
-                :has-session="!!store.activeId"
-                :disabled="store.sending || approvalBusy"
-                @update:model-value="onApprovalMode"
-              />
+                <ChatApprovalPicker
+                  v-if="!qaMode"
+                  :model-value="approvalMode"
+                  :can-escalate="canEscalateApproval"
+                  :has-session="!!store.activeId"
+                  :disabled="store.sending || approvalBusy"
+                  @update:model-value="onApprovalMode"
+                />
 
-              <span
-                v-if="qaToggle && !locked"
-                class="tool-divider"
-                aria-hidden="true"
-              />
+                <span
+                  v-if="qaToggle && !locked"
+                  class="tool-divider"
+                  aria-hidden="true"
+                />
 
-              <!-- 对话模式（v3.13）：通用对话自动路由助手；知识问答只依据知识库且必带引用 -->
-              <div
-                v-if="qaToggle && !locked"
-                class="mode-group"
-                role="group"
-                aria-label="对话模式"
-              >
-                <button
-                  type="button"
-                  class="mode-btn"
-                  :class="{ active: !qaMode }"
-                  :aria-pressed="!qaMode"
-                  @click="setQaMode(false)"
+                <!-- 对话模式（v3.13）：通用对话自动路由助手；知识问答只依据知识库且必带引用 -->
+                <div
+                  v-if="qaToggle && !locked"
+                  class="mode-group"
+                  role="group"
+                  aria-label="对话模式"
                 >
-                  通用对话
-                </button>
-                <button
-                  type="button"
-                  class="mode-btn"
-                  :class="{ active: qaMode }"
-                  :aria-pressed="qaMode"
-                  @click="setQaMode(true)"
+                  <button
+                    type="button"
+                    class="mode-btn"
+                    :class="{ active: !qaMode }"
+                    :aria-pressed="!qaMode"
+                    @click="setQaMode(false)"
+                  >
+                    通用对话
+                  </button>
+                  <button
+                    type="button"
+                    class="mode-btn"
+                    :class="{ active: qaMode }"
+                    :aria-pressed="qaMode"
+                    @click="setQaMode(true)"
+                  >
+                    知识问答
+                  </button>
+                </div>
+                <label
+                  v-if="qaMode"
+                  class="qa-topk"
                 >
-                  知识问答
+                  检索条数
+                  <el-input-number
+                    v-model="qaTopK"
+                    :min="1"
+                    :max="20"
+                    size="small"
+                    controls-position="right"
+                    aria-label="知识库检索条数"
+                  />
+                </label>
+
+                <span class="toolbar-gap" />
+
+                <!-- 执行模式（v3.38）：普通=自动路由单个助手；指挥官=拆分目标并派给多个助手 -->
+                <el-segmented
+                  v-if="commanderVisible"
+                  class="exec-seg"
+                  :model-value="executionMode"
+                  :options="EXECUTION_MODE_OPTIONS"
+                  size="small"
+                  :disabled="store.sending"
+                  aria-label="执行模式"
+                  @change="setExecutionMode"
+                />
+
+                <!-- 发送中仅样式变为「停止」并禁用（v1 不支持中断） -->
+                <button
+                  class="send-btn"
+                  :class="{ stop: store.sending }"
+                  :disabled="store.sending || !draft.trim() || !!blockedReason"
+                  :title="blockedReason || (store.sending ? '回答生成中' : '发送')"
+                  :aria-label="blockedReason || (store.sending ? '回答生成中' : '发送')"
+                  @click="onSend"
+                >
+                  <el-icon>
+                    <VideoPause v-if="store.sending" />
+                    <Promotion v-else />
+                  </el-icon>
                 </button>
               </div>
-              <label
-                v-if="qaMode"
-                class="qa-topk"
-              >
-                检索条数
-                <el-input-number
-                  v-model="qaTopK"
-                  :min="1"
-                  :max="20"
-                  size="small"
-                  controls-position="right"
-                  aria-label="知识库检索条数"
-                />
-              </label>
-
-              <span class="toolbar-gap" />
-
-              <!-- 执行模式（v3.38）：普通=自动路由单个助手；指挥官=拆分目标并派给多个助手 -->
-              <el-segmented
-                v-if="commanderVisible"
-                class="exec-seg"
-                :model-value="executionMode"
-                :options="EXECUTION_MODE_OPTIONS"
-                size="small"
-                :disabled="store.sending"
-                aria-label="执行模式"
-                @change="setExecutionMode"
-              />
-
-              <!-- 发送中仅样式变为「停止」并禁用（v1 不支持中断） -->
-              <button
-                class="send-btn"
-                :class="{ stop: store.sending }"
-                :disabled="store.sending || !draft.trim() || !!blockedReason"
-                :title="blockedReason || (store.sending ? '回答生成中' : '发送')"
-                :aria-label="blockedReason || (store.sending ? '回答生成中' : '发送')"
-                @click="onSend"
-              >
-                <el-icon>
-                  <VideoPause v-if="store.sending" />
-                  <Promotion v-else />
-                </el-icon>
-              </button>
             </div>
-          </div>
-        </template>
-      </ChatMentionLayer>
+          </template>
+        </ChatMentionLayer>
       </div>
 
       <p
@@ -750,6 +758,34 @@
         </template>
       </p>
     </footer>
+
+    <!-- 澄清弹窗：目标缺关键信息时自动弹出，点选即可答复；答完按原 run 续跑 -->
+    <el-dialog
+      v-model="clarifyOpen"
+      append-to-body
+      :show-close="true"
+      width="min(560px, 92vw)"
+      class="clarify-dialog"
+      :title="`${clarifyDisplayName}想先确认几项`"
+      @closed="onClarifyDialogClosed"
+    >
+      <p
+        v-if="clarifyGoal"
+        class="clarify-goal"
+      >
+        {{ clarifyGoal }}
+      </p>
+      <CommanderClarifyForm
+        v-if="clarifyQuestions.length"
+        :questions="clarifyQuestions"
+        :submitting="store.sending"
+        @submit="onClarifySubmitInline"
+        @skip="onClarifySkipInline"
+      />
+      <template #footer>
+        <span class="clarify-foot-hint">不填也可以：会按最合理假设直接执行</span>
+      </template>
+    </el-dialog>
 
     <!-- 生成文档预览：后端渲染自包含 HTML，装进无脚本沙箱 iframe -->
     <el-dialog
@@ -871,6 +907,8 @@
   import type { QuotaBlockInfo } from '@/api/quota'
   import ChatSteps from '@/components/chat/ChatSteps.vue'
   import { safeHttpUrl } from '@/components/teams/presentation'
+  import CommanderClarifyCard from '@/components/chat/CommanderClarifyCard.vue'
+  import CommanderClarifyForm from '@/components/chat/CommanderClarifyForm.vue'
   import CommanderPlanCard from '@/components/chat/CommanderPlanCard.vue'
   import CommanderRunCard from '@/components/chat/CommanderRunCard.vue'
   import PluginCard from '@/components/chat/PluginCard.vue'
@@ -904,6 +942,7 @@
   } from '@/api/chat'
   import type { TeamDefinition } from '@/api/modules'
   import type {
+    CommanderClarifyPayload,
     CommanderMessagePayload,
     CommanderPlanPayload,
     CommanderRun,
@@ -1695,6 +1734,8 @@
    * 如果后端在计划里放了澄清问题等额外文字，仍按普通气泡显示，绝不吞掉。
    */
   function shouldHideCommanderBubble(m: ChatMessage): boolean {
+    // 澄清问题由表单卡片承载，正文里的编号清单不再重复一遍
+    if (isClarifyMessage(m)) return true
     if (!isCommanderMessage(m)) return false
     const payload = commanderPayloadOf(m)
     if (!payload) return false
@@ -1709,6 +1750,67 @@
 
   function isCommanderSummaryMessage(m: ChatMessage): boolean {
     return commanderPayloadOf(m)?.type === 'commander_summary'
+  }
+
+  /* ---------------- 指挥官澄清（弹窗 + 消息内卡片） ---------------- */
+
+  function isClarifyMessage(m: ChatMessage): boolean {
+    if (m.role !== 'assistant') return false
+    const payload = m.payload as unknown as { type?: string } | null
+    return payload?.type === 'commander_clarify'
+  }
+
+  function clarifyCardOf(m: ChatMessage): CommanderClarifyPayload {
+    return m.payload as unknown as CommanderClarifyPayload
+  }
+
+  /** 弹窗是否展示：收到新的澄清请求就自动打开；用户手动关掉后不再强弹 */
+  const clarifyOpen = ref(false)
+  const clarifyDismissedRun = ref('')
+
+  watch(
+    () => props.store.clarifyRequest?.runId,
+    runId => {
+      if (runId && runId !== clarifyDismissedRun.value) clarifyOpen.value = true
+    },
+    { immediate: true },
+  )
+
+  const clarifyQuestions = computed(() => props.store.clarifyRequest?.questions ?? [])
+  const clarifyGoal = computed(() => props.store.clarifyRequest?.goal ?? '')
+  const clarifyDisplayName = computed(() => props.store.clarifyRequest?.displayName ?? '指挥官')
+
+  type ClarifyAnswers = Array<{ key: string; label: string; value: string }>
+
+  async function onClarifySubmit(payload: CommanderClarifyPayload, answers: ClarifyAnswers) {
+    clarifyOpen.value = false
+    await props.store.submitClarify(payload.run_id, answers)
+    scrollToBottom()
+  }
+
+  async function onClarifySkip(payload: CommanderClarifyPayload) {
+    clarifyOpen.value = false
+    await props.store.skipClarify(payload.run_id)
+    scrollToBottom()
+  }
+
+  /** 弹窗里提交：run 从 store 的待答请求取 */
+  async function onClarifySubmitInline(answers: ClarifyAnswers) {
+    const runId = props.store.clarifyRequest?.runId
+    if (!runId) return
+    await onClarifySubmit({ run_id: runId } as CommanderClarifyPayload, answers)
+  }
+
+  async function onClarifySkipInline() {
+    const runId = props.store.clarifyRequest?.runId
+    if (!runId) return
+    await onClarifySkip({ run_id: runId } as CommanderClarifyPayload)
+  }
+
+  /** 点右上角关掉：本轮不再自动弹，历史消息里的卡片仍可作答 */
+  function onClarifyDialogClosed() {
+    const runId = props.store.clarifyRequest?.runId
+    if (runId && clarifyOpen.value === false) clarifyDismissedRun.value = runId
   }
 
   function commanderPlanOf(m: ChatMessage): CommanderPlanPayload {
@@ -2882,5 +2984,26 @@
 
   :deep(.doc-preview-dialog .el-dialog__body) {
     padding: 10px 14px;
+  }
+</style>
+
+<style>
+  /* 澄清弹窗 append-to-body，scoped 选择器命不中，这里用全局样式兜住内容排版 */
+  .clarify-dialog .el-dialog__body {
+    padding: 16px 20px 8px;
+  }
+  .clarify-dialog .el-dialog__footer {
+    padding: 0 20px 14px;
+    text-align: left;
+  }
+  .clarify-dialog .clarify-goal {
+    margin: 0 0 14px;
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--ds-text-3);
+  }
+  .clarify-dialog .clarify-foot-hint {
+    font-size: 12px;
+    color: var(--ds-text-3);
   }
 </style>
