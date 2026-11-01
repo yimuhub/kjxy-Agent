@@ -44,7 +44,8 @@
             <button v-else type="button" class="analysis-line muted" @click="openAnalysis(d)">
               尚未分析 · 点击查看
             </button>
-            <el-table v-if="d.latest && d.latest.length" :data="d.latest.slice(0, 4)" size="small" class="mt8">
+            <el-table
+              v-col-resize v-if="d.latest && d.latest.length" :data="d.latest.slice(0, 4)" size="small" class="mt8">
               <el-table-column prop="metric_name" label="指标" />
               <el-table-column label="最新值" width="110">
                 <template #default="{ row }">{{ row.value ?? row.text ?? '—' }} {{ row.unit || '' }}</template>
@@ -186,7 +187,8 @@
       <el-empty v-else :description="`近 7 天无「${dataMetric}」数值读数`">
         <div class="note">可先用模拟设备造数：backend/ 下运行 python scripts/sim_devices.py --create</div>
       </el-empty>
-      <el-table v-if="recent50.length" :data="recent50" size="small" max-height="260" class="mt">
+      <el-table
+        v-col-resize v-if="recent50.length" :data="recent50" size="small" max-height="260" class="mt">
         <el-table-column label="时间" width="160"><template #default="{ row }">{{ formatTime(row.collected_at) }}</template></el-table-column>
         <el-table-column label="值"><template #default="{ row }">{{ row.value ?? row.text }} {{ row.unit || '' }}</template></el-table-column>
       </el-table>
@@ -258,7 +260,8 @@
       />
       <div v-if="analysisList.length > 1" class="history">
         <h4 class="sec-title">历史分析</h4>
-        <el-table :data="analysisList" size="small" max-height="180" @row-click="selectAnalysis">
+        <el-table
+          v-col-resize :data="analysisList" size="small" max-height="180" @row-click="selectAnalysis">
           <el-table-column label="时间" width="150">
             <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
           </el-table-column>
@@ -285,7 +288,8 @@
       <h3 class="sec-title">告警规则</h3>
       <el-button v-if="canManage" size="small" type="primary" @click="openRule()">新建规则</el-button>
     </div>
-    <el-table :data="rules" size="small" empty-text="暂无规则">
+    <el-table
+      v-col-resize :data="rules" size="small" empty-text="暂无规则">
       <el-table-column label="设备" min-width="120">
         <template #default="{ row }">{{ row.device_id ? deviceName(row.device_id) : '小院全部设备' }}</template>
       </el-table-column>
@@ -309,7 +313,8 @@
     </el-table>
 
     <h3 class="sec-title mt">最近告警</h3>
-    <el-table :data="alerts" size="small" empty-text="暂无告警" :row-class-name="() => ''">
+    <el-table
+      v-col-resize :data="alerts" size="small" empty-text="暂无告警" :row-class-name="() => ''">
       <el-table-column label="时间" width="160"><template #default="{ row }">{{ formatTime(row.triggered_at) }}</template></el-table-column>
       <el-table-column label="设备" min-width="120"><template #default="{ row }">{{ row.device_name || '—' }}</template></el-table-column>
       <el-table-column label="指标" width="120"><template #default="{ row }">{{ row.metric_name || row.metric }}</template></el-table-column>

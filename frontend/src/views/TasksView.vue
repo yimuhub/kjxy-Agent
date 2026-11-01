@@ -37,6 +37,7 @@
         <span>待审批的高风险操作（{{ pendingApprovals.length }}）</span>
       </template>
       <el-table
+        v-col-resize
         :data="pendingApprovals"
         stripe
       >
@@ -93,6 +94,7 @@
         @retry="loadTasks"
       >
         <el-table
+          v-col-resize
           :data="tasks"
           stripe
         >

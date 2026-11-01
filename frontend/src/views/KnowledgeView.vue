@@ -109,6 +109,7 @@
         @retry="doSearch"
       >
         <el-table
+          v-col-resize
           :data="hits"
           stripe
         >
@@ -168,6 +169,7 @@
         @retry="loadDocs"
       >
         <el-table
+          v-col-resize
           :data="docs"
           stripe
         >

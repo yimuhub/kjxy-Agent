@@ -42,6 +42,7 @@
     >
       <div class="table-scroll">
         <el-table
+          v-col-resize
           :data="sources"
           row-key="id"
           stripe

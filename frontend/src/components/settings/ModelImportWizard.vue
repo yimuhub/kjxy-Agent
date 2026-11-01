@@ -115,6 +115,7 @@
           >{{ probeMessage }}</span>
         </div>
         <el-table
+          v-col-resize
           v-if="probeModels.length"
           :data="probeModels"
           max-height="320"
@@ -183,6 +184,7 @@
         </el-tag>
       </div>
       <el-table
+        v-col-resize
         :data="previewItems"
         max-height="360"
         stripe

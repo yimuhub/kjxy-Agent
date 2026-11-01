@@ -461,6 +461,34 @@ a {
 .el-table__inner-wrapper::before {
   background-color: var(--ds-border);
 }
+/* 列宽拖拽：表头列边界的热区必须高于排序/筛选控件，双击恢复默认宽度 */
+.el-table th.col-resizable {
+  position: relative;
+}
+.el-table th.col-resizable .col-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 6;
+  touch-action: none;
+}
+.el-table th.col-resizable .col-resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 18%;
+  left: 3px;
+  width: 1px;
+  height: 64%;
+  background: transparent;
+  transition: background-color 0.15s ease;
+}
+.el-table th.col-resizable:hover .col-resize-handle::after,
+.el-table th.col-resizable .col-resize-handle:active::after {
+  background: var(--el-color-primary);
+}
 /*
  * 固定列（sticky）必须给不透明底色：本项目表格底色是玻璃透明态，EP 默认让固定列
  * 继承行底色（=透明），横向滚动时下层单元格的文字会从固定列底下透出来，和按钮

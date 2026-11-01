@@ -22,7 +22,8 @@
             <div class="stat-desc">
               平台任务总数 · 成员 {{ stats.members?.total ?? 0 }} 人
             </div>
-            <el-table :data="llmByProvider" size="small" class="llm-table">
+            <el-table
+              v-col-resize :data="llmByProvider" size="small" class="llm-table">
               <el-table-column prop="provider" label="模型提供方" />
               <el-table-column prop="count" label="调用次数" />
             </el-table>
@@ -58,7 +59,8 @@
             <span>小院列表（{{ yardList.count ?? 0 }}）</span>
           </template>
           <AsyncState :state="yardsState" empty-text="暂无小院" @retry="loadAll">
-            <el-table :data="yardList.yards ?? []" size="small">
+            <el-table
+              v-col-resize :data="yardList.yards ?? []" size="small">
               <el-table-column prop="name" label="小院" min-width="140" />
               <el-table-column prop="province" label="地区" width="90" />
               <el-table-column prop="active_members" label="成员" width="70" />

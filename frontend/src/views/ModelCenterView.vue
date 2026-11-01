@@ -148,6 +148,7 @@
             title="给某条能力单独指定模型：优先级高于全局默认。例如让「文档生成」用长上下文模型、让「知识向量化」用便宜的嵌入模型。"
           />
           <el-table
+            v-col-resize
             :data="capabilities"
             stripe
             max-height="520"

@@ -47,6 +47,7 @@
         @retry="load"
       >
         <el-table
+          v-col-resize
           :data="providers"
           size="small"
           row-key="id"

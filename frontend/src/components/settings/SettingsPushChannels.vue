@@ -33,6 +33,7 @@
       :image-size="70"
     />
     <el-table
+      v-col-resize
       v-else
       v-loading="loading"
       :data="channels"

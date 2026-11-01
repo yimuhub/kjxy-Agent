@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.36.1
+  version: 3.36.2
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -5718,6 +5718,42 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/SupplierModelCreate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/llm/providers/{supplier_id}/models/detect-modality:
+    post:
+      tags:
+      - v1
+      - llm
+      - llm-suppliers
+      summary: Detect Supplier Model Modality
+      description: 自动识别模型模态：先看模型名，再拉上游目录；识别不到交前端手动选择。
+      operationId: detect_supplier_model_modality_api_v1_llm_providers__supplier_id__models_detect_modality_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: supplier_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Supplier Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SupplierModelDetectBody'
       responses:
         '200':
           description: Successful Response
@@ -15542,6 +15578,22 @@ components:
       - upstream_model_id
       title: SupplierModelCreate
       description: 新建模型：``model_key`` 供应商内唯一，``upstream_model_id`` 是上游物理名。
+    SupplierModelDetectBody:
+      properties:
+        model_key:
+          type: string
+          maxLength: 100
+          title: Model Key
+          default: ''
+        upstream_model_id:
+          type: string
+          maxLength: 200
+          title: Upstream Model Id
+          default: ''
+      additionalProperties: false
+      type: object
+      title: SupplierModelDetectBody
+      description: 模态识别入参：先看模型名，识别不到再用供应商已存密钥拉上游目录。
     SupplierModelUpdate:
       properties:
         model_key:

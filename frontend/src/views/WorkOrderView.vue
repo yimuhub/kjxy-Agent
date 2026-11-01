@@ -82,6 +82,7 @@
         />
 
         <el-table
+          v-col-resize
           v-else
           v-loading="loading"
           :data="orders"
@@ -223,6 +224,7 @@
         />
 
         <el-table
+          v-col-resize
           v-else
           v-loading="alertLoading"
           :data="alerts"

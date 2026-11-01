@@ -26,6 +26,7 @@
       @retry="loadSuppliers"
     >
       <el-table
+        v-col-resize
         :data="suppliers"
         stripe
       >

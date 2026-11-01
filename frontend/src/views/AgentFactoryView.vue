@@ -212,6 +212,7 @@
     </h3>
     <AsyncState :state="listState" empty-text="还没有生成记录，从上方开始第一次" @retry="loadRuns">
       <el-table
+        v-col-resize
         :data="runs"
         size="small"
         class="pointer"
@@ -306,6 +307,7 @@
         :title="`助手装配完成，但自动组队失败（${applyResult.team_error}），可前往「协作班组」手动创建`"
       />
       <el-table
+        v-col-resize
         v-if="applyResult"
         :data="applyResult.results"
         size="small"

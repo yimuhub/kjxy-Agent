@@ -197,6 +197,7 @@
 
         <!-- 运行历史 -->
         <el-table
+          v-col-resize
           v-if="runs.length"
           :data="runs"
           size="small"

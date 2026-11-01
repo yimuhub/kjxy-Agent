@@ -47,6 +47,7 @@
       @retry="load"
     >
       <el-table
+        v-col-resize
         :data="items"
         stripe
       >
@@ -228,6 +229,7 @@
 
         <h4>参数</h4>
         <el-table
+          v-col-resize
           v-if="paramRows.length"
           :data="paramRows"
           size="small"
@@ -274,6 +276,7 @@
 
         <h4>最近调用</h4>
         <el-table
+          v-col-resize
           v-if="detail.recent_calls?.length"
           :data="detail.recent_calls"
           size="small"

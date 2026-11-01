@@ -82,6 +82,7 @@
         </div>
       </template>
       <el-table
+        v-col-resize
         :data="section.rows"
         size="small"
         empty-text="暂无策略"

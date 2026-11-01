@@ -43,6 +43,7 @@ from app.modules.llm.supplier_schemas import (
     SupplierImportPreviewItem,
     SupplierImportResult,
     SupplierModelCreate,
+    SupplierModelDetectResult,
     SupplierModelOut,
     SupplierModelTestResult,
     SupplierModelUpdate,
@@ -462,6 +463,10 @@ _MODALITY_KEYWORDS: tuple[tuple[str, str], ...] = (
     ("asr", "asr"),
     ("dall-e", "image"),
     ("dalle", "image"),
+    ("gpt-image", "image"),
+    ("imagen", "image"),
+    ("midjourney", "image"),
+    ("kolors", "image"),
     ("flux", "image"),
     ("wanx", "image"),
     ("seedream", "image"),
@@ -478,17 +483,113 @@ _MODALITY_KEYWORDS: tuple[tuple[str, str], ...] = (
 )
 
 
+def guess_modality_detail(model_id: str) -> tuple[str, bool]:
+    """按模型名关键字推断模态，返回 ``(modality, matched)``。
+
+    ``matched=False`` 表示只是兜底成 text，不能当作识别成功；
+    前端据此决定是否继续拉上游目录或让用户手动选择。
+    """
+    name = (model_id or "").strip().lower()
+    for keyword, modality in _MODALITY_KEYWORDS:
+        if keyword in name:
+            return modality, True
+    return "text", False
+
+
 def guess_modality(model_id: str) -> str:
     """按模型名关键字猜测模态（仅作导入预填，不代替人工确认）。
 
     ``wan`` 既可能是通义万相（图像）也可能是视频；这里按 v3.33 口径归 video，
     因为 ``wanx``（文生图）已在前面的 image 规则命中。
     """
-    name = (model_id or "").strip().lower()
-    for keyword, modality in _MODALITY_KEYWORDS:
-        if keyword in name:
-            return modality
-    return "text"
+    return guess_modality_detail(model_id)[0]
+
+
+#: 上游目录可能出现的模态别名
+_MODALITY_ALIASES = {
+    "text": "text",
+    "language": "text",
+    "chat": "text",
+    "image": "image",
+    "vision": "multimodal",
+    "multimodal": "multimodal",
+    "video": "video",
+    "audio": "audio",
+    "speech": "audio",
+    "embedding": "embedding",
+    "embeddings": "embedding",
+    "rerank": "rerank",
+    "reranker": "rerank",
+    "asr": "asr",
+    "transcription": "asr",
+    "stt": "asr",
+    "tts": "tts",
+    "speech_synthesis": "tts",
+}
+
+
+def _normalize_modality(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    return _MODALITY_ALIASES.get(value.strip().lower().replace("-", "_"))
+
+
+def _collect_modalities(value: Any) -> set[str]:
+    out: set[str] = set()
+    if isinstance(value, str):
+        item = _normalize_modality(value)
+        if item:
+            out.add(item)
+    elif isinstance(value, list | tuple | set):
+        for raw in value:
+            out.update(_collect_modalities(raw))
+    elif isinstance(value, dict):
+        for key, enabled in value.items():
+            if enabled is False or enabled is None:
+                continue
+            item = _normalize_modality(str(key))
+            if item:
+                out.add(item)
+    return out
+
+
+def _modality_from_catalog_entry(entry: dict[str, Any]) -> str | None:
+    """从上游模型目录条目读取模态；目录没给元数据时返回 None。
+
+    兼容 OpenRouter 的 ``architecture.input_modalities/output_modalities``、
+    常见的 ``modality/type`` 字段，以及 ``capabilities`` 能力位。
+    """
+    outputs: set[str] = set()
+    inputs: set[str] = set()
+    for key in ("modality", "type", "model_type", "output_modality", "output_modalities"):
+        outputs.update(_collect_modalities(entry.get(key)))
+    arch = entry.get("architecture")
+    if isinstance(arch, dict):
+        inputs.update(_collect_modalities(arch.get("input_modalities")))
+        outputs.update(_collect_modalities(arch.get("output_modalities")))
+        outputs.update(_collect_modalities(arch.get("modality")))
+    caps = entry.get("capabilities")
+    if isinstance(caps, dict):
+        outputs.update(_collect_modalities(caps))
+    if not inputs and not outputs:
+        return None
+    if "video" in outputs:
+        return "video"
+    if "image" in outputs:
+        return "image"
+    if "audio" in outputs:
+        return "tts" if "text" not in inputs else "asr"
+    if "embedding" in outputs or "rerank" in outputs:
+        return "embedding" if "embedding" in outputs else "rerank"
+    if "image" in inputs or "video" in inputs:
+        return "multimodal"
+    if "audio" in inputs:
+        return "asr"
+    if outputs == {"text"} and inputs <= {"text"}:
+        return "text"
+    if len(inputs | outputs) > 1:
+        return "multimodal"
+    return next(iter(outputs | inputs), None)
 
 
 def protocol_for_modality(modality: str, default: str = "openai_chat") -> str:
@@ -574,14 +675,83 @@ async def probe_models(
     for entry in items[:MODELS_PROBE_MAX_ITEMS]:
         if isinstance(entry, dict) and entry.get("id"):
             mid = str(entry["id"])
-            models.append(ProbeModelItem(id=mid, label=mid, guessed_modality=guess_modality(mid)))
-        elif isinstance(entry, str) and entry:
+            label = str(entry.get("name") or entry.get("display_name") or mid)
+            catalog_modality = _modality_from_catalog_entry(entry)
+            local_modality, matched = guess_modality_detail(mid)
             models.append(
-                ProbeModelItem(id=entry, label=entry, guessed_modality=guess_modality(entry))
+                ProbeModelItem(
+                    id=mid,
+                    label=label,
+                    guessed_modality=catalog_modality or local_modality,
+                    modality_source="catalog"
+                    if catalog_modality
+                    else ("name" if matched else None),
+                )
+            )
+        elif isinstance(entry, str) and entry:
+            local_modality, matched = guess_modality_detail(entry)
+            models.append(
+                ProbeModelItem(
+                    id=entry,
+                    label=entry,
+                    guessed_modality=local_modality,
+                    modality_source="name" if matched else None,
+                )
             )
     if not models:
         return ProbeModelsResult(models=[], source="error", message="上游未返回任何模型。")
     return ProbeModelsResult(models=models, source="remote")
+
+
+async def detect_model_modality(
+    db: Session,
+    yard_id: str | None,
+    supplier_id: str,
+    *,
+    model_key: str = "",
+    upstream_model_id: str = "",
+) -> SupplierModelDetectResult:
+    """识别模型模态：本地关键字 → 上游目录元数据 → 返回 unknown 交人工选择。"""
+    supplier = get_supplier(db, yard_id, supplier_id)
+    candidates = [value.strip() for value in (upstream_model_id, model_key) if value.strip()]
+    for candidate in candidates:
+        modality, matched = guess_modality_detail(candidate)
+        if matched:
+            return SupplierModelDetectResult(
+                modality=modality, source="local", matched_id=candidate
+            )
+
+    if supplier.provider_type in NO_MODEL_LIST_PROVIDERS:
+        return SupplierModelDetectResult(
+            modality="text",
+            source="unknown",
+            message="该供应商没有统一的模型列表接口，请手动选择模态。",
+        )
+    try:
+        api_key = decrypt_api_key(supplier.api_key_enc)
+    except AppError:
+        api_key = ""
+    result = await probe_models(
+        provider_type=supplier.provider_type,
+        base_url=supplier.base_url,
+        api_key=api_key,
+    )
+    if result.source == "remote":
+        wanted = set(candidates)
+        for item in result.models:
+            if item.id not in wanted:
+                continue
+            if item.modality_source == "catalog" and item.guessed_modality:
+                return SupplierModelDetectResult(
+                    modality=item.guessed_modality,
+                    source="catalog",
+                    matched_id=item.id,
+                )
+    return SupplierModelDetectResult(
+        modality="text",
+        source="unknown",
+        message=result.message or "上游目录没有提供模态信息，请手动选择。",
+    )
 
 
 async def probe_upstream(
@@ -868,8 +1038,16 @@ def supplier_model_to_out(row: SupplierModel) -> SupplierModelOut:
     )
 
 
+#: 计费元数据字段：允许字符串，不参与「必须是数字」校验
+_PRICING_TEXT_KEYS = {"currency", "unit"}
+
+
 def _validate_pricing(pricing: Any) -> dict[str, Any] | None:
-    """单价字典校验：除 ``currency`` 外必须是 >=0 的数字（不做任何隐式转换容错）。"""
+    """单价字典校验：数值字段必须 >=0，单位/币种允许字符串；空值直接忽略。
+
+    价格与用量都是选填：``None``、空字符串、``{}`` 都等价于未填写，
+    不再因为 ``unit`` 之类的展示字段把整次保存拒掉。
+    """
     if pricing is None:
         return None
     if not isinstance(pricing, dict):
@@ -879,8 +1057,10 @@ def _validate_pricing(pricing: Any) -> dict[str, Any] | None:
         name = str(key).strip()
         if not name or len(name) > 40:
             raise AppError("INVALID_REQUEST", "价格字段名不合法。", 400)
-        if name == "currency":
-            out[name] = str(value)[:8]
+        if value is None or (isinstance(value, str) and not value.strip()):
+            continue
+        if name in _PRICING_TEXT_KEYS:
+            out[name] = str(value).strip()[:40]
             continue
         if isinstance(value, bool) or not isinstance(value, int | float):
             raise AppError("INVALID_REQUEST", f"价格字段「{name}」必须是数字。", http_status=400)

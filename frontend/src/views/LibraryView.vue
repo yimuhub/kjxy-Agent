@@ -291,6 +291,7 @@
         @action="goSkillsTab"
       >
         <el-table
+          v-col-resize
           :data="installed"
           row-key="key"
           stripe

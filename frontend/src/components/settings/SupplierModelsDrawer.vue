@@ -1,10 +1,11 @@
 <template>
-  <el-drawer
+  <el-dialog
     v-model="visible"
     append-to-body
-    direction="rtl"
-    size="min(1080px, 96%)"
-    class="supplier-models-drawer"
+    align-center
+    draggable
+    width="min(1180px, 96vw)"
+    class="supplier-models-dialog"
     :close-on-click-modal="false"
   >
     <template #header>
@@ -120,9 +121,12 @@
 
       <div class="table-scroll">
         <el-table
+          v-col-resize
           :data="filtered"
           :row-key="rowKey"
+          border
           stripe
+          class="model-table"
           empty-text="没有符合筛选条件的模型"
           @selection-change="onSelectionChange"
         >
@@ -133,7 +137,7 @@
           />
           <el-table-column
             label="模型名 / 上游 ID"
-            min-width="220"
+            min-width="200"
           >
             <template #default="{ row }">
               <div class="model-cell">
@@ -146,7 +150,7 @@
           </el-table-column>
           <el-table-column
             label="模态"
-            width="110"
+            width="100"
           >
             <template #default="{ row }">
               <ModalityTag :modality="primaryModality(row as SupplierModel)" />
@@ -154,7 +158,7 @@
           </el-table-column>
           <el-table-column
             label="协议"
-            width="160"
+            width="130"
             show-overflow-tooltip
           >
             <template #default="{ row }">
@@ -163,7 +167,7 @@
           </el-table-column>
           <el-table-column
             label="上下文"
-            width="90"
+            width="80"
           >
             <template #default="{ row }">
               {{ formatContext((row as SupplierModel).context_window) }}
@@ -171,7 +175,7 @@
           </el-table-column>
           <el-table-column
             label="单价"
-            min-width="190"
+            min-width="150"
             show-overflow-tooltip
           >
             <template #default="{ row }">
@@ -180,7 +184,7 @@
           </el-table-column>
           <el-table-column
             label="测试状态"
-            min-width="140"
+            min-width="130"
           >
             <template #default="{ row }">
               <el-tooltip
@@ -207,7 +211,7 @@
           </el-table-column>
           <el-table-column
             label="启用"
-            width="80"
+            width="70"
           >
             <template #default="{ row }">
               <el-switch
@@ -221,7 +225,6 @@
           <el-table-column
             label="操作"
             width="190"
-            fixed="right"
           >
             <template #default="{ row }">
               <el-button
@@ -272,8 +275,10 @@
     <el-dialog
       v-model="editVisible"
       append-to-body
+      align-center
       :title="editingId ? '编辑模型' : '新增模型'"
-      width="620px"
+      width="min(760px, 94vw)"
+      class="model-edit-dialog"
     >
       <el-form
         :model="form"
@@ -288,6 +293,7 @@
             placeholder="客户端使用的逻辑 Key，如 deepseek-chat"
             :disabled="!!editingId"
             maxlength="100"
+            @blur="onModelIdentityBlur"
           />
           <span
             v-if="editingId"
@@ -300,6 +306,7 @@
             placeholder="留空则与模型 Key 相同"
             :disabled="!!editingId"
             maxlength="160"
+            @blur="onModelIdentityBlur"
           />
         </el-form-item>
         <el-form-item label="展示名">
@@ -310,17 +317,33 @@
           />
         </el-form-item>
         <el-form-item label="模态">
-          <el-select
-            v-model="form.modality"
-            style="width: 100%"
-          >
-            <el-option
-              v-for="item in MODALITY_OPTIONS"
-              :key="item.value"
-              :label="item.label"
-              :value="item.value"
-            />
-          </el-select>
+          <div class="modality-row">
+            <el-select
+              v-model="form.modality"
+              style="width: 220px"
+            >
+              <el-option
+                v-for="item in MODALITY_OPTIONS"
+                :key="item.value"
+                :label="item.label"
+                :value="item.value"
+              />
+            </el-select>
+            <el-button
+              text
+              size="small"
+              :loading="detecting"
+              :disabled="!supplierId"
+              @click="detectModality(true)"
+            >
+              {{ detecting ? '识别中' : '自动识别' }}
+            </el-button>
+            <span
+              v-if="detectMessage"
+              class="note detect-note"
+              :class="{ 'detect-warn': detectSource === 'unknown' }"
+            >{{ detectMessage }}</span>
+          </div>
         </el-form-item>
         <el-form-item label="协议">
           <el-select
@@ -343,7 +366,7 @@
             controls-position="right"
             style="width: 200px"
           />
-          <span class="note">tokens</span>
+          <span class="note">选填，留空表示不配置</span>
         </el-form-item>
         <el-form-item
           v-if="!editingId"
@@ -356,9 +379,10 @@
             controls-position="right"
             style="width: 200px"
           />
-          <span class="note">tokens，留空表示不限</span>
+          <span class="note">选填，留空表示不限</span>
         </el-form-item>
         <el-form-item label="计费单价">
+          <span class="note price-hint">选填，留空表示不配置价格</span>
           <div class="price-row">
             <el-input-number
               v-model="form.price_input"
@@ -441,6 +465,7 @@
         class="probe-hint"
       />
       <el-table
+        v-col-resize
         v-if="probeModels.length"
         :data="probeModels"
         max-height="380"
@@ -500,7 +525,12 @@
       :readonly="readonly"
       @done="onWizardDone"
     />
-  </el-drawer>
+    <template #footer>
+      <el-button @click="visible = false">
+        关闭
+      </el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <script setup lang="ts">
@@ -563,6 +593,9 @@
   const editVisible = ref(false)
   const editingId = ref<string | null>(null)
   const saving = ref(false)
+  const detecting = ref(false)
+  const detectSource = ref<'local' | 'catalog' | 'unknown' | ''>('')
+  const detectMessage = ref('')
 
   const probeVisible = ref(false)
   const probeModels = ref<ProbeModel[]>([])
@@ -575,10 +608,10 @@
     display_name: '',
     modality: 'text',
     protocol: 'openai_chat',
-    context_window: 128000 as number | null,
+    context_window: null as number | null,
     max_output_tokens: null as number | null,
-    price_input: 0 as number | null,
-    price_output: 0 as number | null,
+    price_input: null as number | null,
+    price_output: null as number | null,
     currency: 'CNY',
     unit: 'per_1k_tokens',
     enabled: true,
@@ -670,12 +703,13 @@
 
   function formatPrice(model: SupplierModel): string {
     const pricing = model.pricing
-    if (!pricing) return '—'
+    if (!pricing || (pricing.input == null && pricing.output == null)) return '—'
     const symbol = currencySymbol(pricing.currency)
-    const input = pricing.input ?? 0
-    const output = pricing.output ?? 0
     const unit = pricing.unit?.includes('1m') ? '百万' : '千'
-    return `入 ${symbol}${input} / 出 ${symbol}${output} · ${unit} token`
+    const parts: string[] = []
+    if (pricing.input != null) parts.push(`入 ${symbol}${pricing.input}`)
+    if (pricing.output != null) parts.push(`出 ${symbol}${pricing.output}`)
+    return `${parts.join(' / ')} · ${unit} token`
   }
 
   function testMeta(model: SupplierModel): { label: string; type: TagType } {
@@ -807,10 +841,10 @@
       display_name: '',
       modality: 'text',
       protocol: 'openai_chat',
-      context_window: 128000 as number | null,
+      context_window: null as number | null,
       max_output_tokens: null as number | null,
-      price_input: 0,
-      price_output: 0,
+      price_input: null,
+      price_output: null,
       currency: 'CNY',
       unit: 'per_1k_tokens',
       enabled: true,
@@ -820,6 +854,8 @@
   function openCreate(): void {
     editingId.value = null
     resetForm()
+    detectSource.value = ''
+    detectMessage.value = ''
     editVisible.value = true
   }
 
@@ -831,15 +867,93 @@
       display_name: model.display_name ?? '',
       modality: model.modality || 'text',
       protocol: model.protocol || 'openai_chat',
-      context_window: model.context_window ?? 128000,
+      context_window: model.context_window ?? null,
       max_output_tokens: model.max_output_tokens ?? null,
-      price_input: model.pricing?.input ?? 0,
-      price_output: model.pricing?.output ?? 0,
+      price_input: model.pricing?.input ?? null,
+      price_output: model.pricing?.output ?? null,
       currency: model.pricing?.currency || 'CNY',
       unit: model.pricing?.unit || 'per_1k_tokens',
       enabled: isEnabled(model),
     })
+    detectSource.value = ''
+    detectMessage.value = ''
     editVisible.value = true
+    // 已存的 text 可能只是旧版本默认值：打开时再识别一次，非 text 的显式选择不覆盖
+    void detectModality(false)
+  }
+
+  const DETECT_LABELS: Record<string, string> = {
+    text: '文本',
+    image: '图像',
+    video: '视频',
+    audio: '音频',
+    multimodal: '多模态',
+    embedding: '向量',
+    rerank: '重排',
+    asr: '语音识别',
+    tts: '语音合成',
+  }
+
+  function protocolForModality(modality: string): string {
+    return (
+      {
+        image: 'openai_images',
+        video: 'openai_video',
+        embedding: 'openai_embedding',
+        asr: 'openai_audio',
+        tts: 'openai_audio',
+      }[modality] || 'openai_chat'
+    )
+  }
+
+  async function detectModality(force = true): Promise<void> {
+    if (!supplierId.value || detecting.value) return
+    const modelKey = form.model_key.trim()
+    const upstream = form.upstream_model_id.trim()
+    if (!modelKey && !upstream) return
+    detecting.value = true
+    detectSource.value = ''
+    detectMessage.value = ''
+    try {
+      const res = await supplierModelApi.detectModality(supplierId.value, {
+        model_key: modelKey,
+        upstream_model_id: upstream,
+      })
+      detectSource.value = res.source
+      const label = DETECT_LABELS[res.modality] || res.modality
+      if (res.source === 'local' || res.source === 'catalog') {
+        const shouldApply = force || !form.modality || form.modality === 'text'
+        if (shouldApply) {
+          form.modality = res.modality
+          if (!form.protocol || form.protocol === 'openai_chat') {
+            form.protocol = protocolForModality(res.modality)
+          }
+        }
+        detectMessage.value =
+          res.source === 'local' ? `已按模型名识别为「${label}」` : `已从上游目录识别为「${label}」`
+      } else {
+        detectMessage.value = res.message || '未能自动识别，请手动选择模态'
+      }
+    } catch (e) {
+      detectSource.value = 'unknown'
+      detectMessage.value = `自动识别失败：${extractErrorMessage(e).message}`
+    } finally {
+      detecting.value = false
+    }
+  }
+
+  function onModelIdentityBlur(): void {
+    if (!editingId.value) void detectModality(false)
+  }
+
+  function buildPricing(): ModelPricing | null {
+    const hasInput = form.price_input != null
+    const hasOutput = form.price_output != null
+    if (!hasInput && !hasOutput) return null
+    const pricing: ModelPricing = { unit: form.unit, currency: form.currency }
+    if (hasInput) pricing.input = form.price_input
+    if (hasOutput) pricing.output = form.price_output
+    return pricing
   }
 
   async function saveModel(): Promise<void> {
@@ -849,12 +963,7 @@
       ElMessage.warning('请填写模型 Key')
       return
     }
-    const pricing: ModelPricing = {
-      unit: form.unit,
-      input: form.price_input,
-      output: form.price_output,
-      currency: form.currency,
-    }
+    const pricing = buildPricing()
     saving.value = true
     try {
       if (editingId.value) {
@@ -963,11 +1072,10 @@
       upstream_model_id: model.id,
       display_name: model.label || model.id,
       modality: model.guessed_modality || 'text',
-      protocol: 'openai_chat',
+      protocol: protocolForModality(model.guessed_modality || 'text'),
       capabilities: {},
-      context_window: 128000,
+      context_window: null,
       max_output_tokens: null,
-      pricing: { unit: 'per_1k_tokens', input: 0, output: 0, currency: 'CNY' },
     }))
     probeImporting.value = true
     try {
@@ -1037,6 +1145,41 @@
   }
   .table-scroll {
     overflow-x: auto;
+  }
+  .model-table {
+    min-width: 1094px;
+  }
+  .model-table :deep(.el-table__cell) {
+    white-space: nowrap;
+  }
+  .model-table :deep(.el-table__header th) {
+    white-space: nowrap;
+  }
+  .modality-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .detect-note {
+    color: var(--ds-text-2);
+  }
+  .detect-warn {
+    color: var(--el-color-warning);
+  }
+  .price-hint {
+    display: block;
+    width: 100%;
+    margin-bottom: 4px;
+  }
+  .supplier-models-dialog {
+    max-width: 96vw;
+  }
+  .supplier-models-dialog :deep(.el-dialog__body) {
+    padding-top: 8px;
+  }
+  .model-edit-dialog :deep(.el-form-item__label) {
+    white-space: nowrap;
   }
   .model-cell {
     display: flex;

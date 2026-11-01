@@ -218,6 +218,7 @@
       shadow="never"
     >
       <el-table
+        v-col-resize
         :data="filteredList"
         size="small"
         :row-class-name="daRowClass"
@@ -747,6 +748,7 @@
       width="720px"
     >
       <el-table
+        v-col-resize
         :data="reviewQueue"
         size="small"
         empty-text="队列为空"

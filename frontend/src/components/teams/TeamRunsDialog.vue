@@ -83,6 +83,7 @@
       show-icon
     />
     <el-table
+      v-col-resize
       v-loading="loading"
       :data="runs"
       empty-text="没有符合条件的运行记录"

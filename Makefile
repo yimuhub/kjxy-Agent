@@ -1,5 +1,5 @@
 .PHONY: up down logs migrate seed-dev test test-security lint type-check contract contract-check check lock build ps
-.PHONY: dialogs-check
+.PHONY: dialogs-check ui-check
 .PHONY: native-install native-migrate native-seed native-api native-web
 
 # 本机 Python 解释器：优先用仓库 .venv（native 流程产物）
@@ -60,6 +60,10 @@ type-check:
 dialogs-check:
 	$(PY) scripts/add_dialog_append_to_body.py --check
 
+# AGENTS.md 界面规范：弹窗居中、禁止 el-drawer、多列表格必须可拖拽列宽
+ui-check:
+	$(PY) scripts/check_ui_standards.py
+
 # 重新生成 OpenAPI 契约（接口变更后执行，随代码同 PR 提交）
 contract:
 	$(PY) backend/scripts/generate_openapi.py
@@ -71,7 +75,7 @@ contract-check:
 		|| { echo "contracts/openapi.yaml 与代码不一致，请运行 'make contract' 并提交"; exit 1; }
 
 # 一键质量门禁：lint + 类型 + 测试 + 契约漂移 + 弹窗 teleport 检查
-check: lint type-check test contract-check dialogs-check
+check: lint type-check test contract-check dialogs-check ui-check
 
 # 依赖锁文件（spec §2.1 版本原则：提交 uv.lock 与前端 lockfile）
 lock:

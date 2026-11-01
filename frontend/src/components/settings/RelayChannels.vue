@@ -46,6 +46,7 @@
 
       <div class="table-scroll">
         <el-table
+          v-col-resize
           :data="channels"
           row-key="id"
           stripe
@@ -279,6 +280,7 @@
           </template>
         </div>
         <el-table
+          v-col-resize
           v-if="syncResult.items?.length"
           :data="syncResult.items"
           max-height="260"

@@ -1,6 +1,7 @@
 <template>
   <div class="grant-matrix">
     <el-table
+      v-col-resize
       v-if="items.length"
       :data="items"
       stripe

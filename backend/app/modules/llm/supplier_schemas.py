@@ -202,6 +202,8 @@ class ProbeModelItem(BaseModel):
     label: str
     # v3.33：按模型名关键字猜测的模态（只作导入预填，绝不代替人工确认）
     guessed_modality: str | None = None
+    # v3.36.2：模态来源；catalog=上游目录元数据，name=模型名关键字，None=未识别
+    modality_source: Literal["catalog", "name"] | None = None
 
 
 class ProbeModelsResult(BaseModel):
@@ -209,6 +211,22 @@ class ProbeModelsResult(BaseModel):
 
     models: list[ProbeModelItem] = Field(default_factory=list)
     source: Literal["remote", "unsupported", "error"]
+    message: str | None = None
+
+
+class SupplierModelDetectBody(BaseModel):
+    """模态识别入参：先看模型名，识别不到再用供应商已存密钥拉上游目录。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    model_key: str = Field(default="", max_length=100)
+    upstream_model_id: str = Field(default="", max_length=200)
+
+
+class SupplierModelDetectResult(BaseModel):
+    modality: str
+    source: Literal["local", "catalog", "unknown"]
+    matched_id: str | None = None
     message: str | None = None
 
 

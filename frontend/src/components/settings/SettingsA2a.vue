@@ -122,6 +122,7 @@
       </template>
 
       <el-table
+        v-col-resize
         :data="peers"
         size="small"
         row-key="id"
@@ -264,6 +265,7 @@
       </template>
 
       <el-table
+        v-col-resize
         :data="tasks"
         size="small"
         row-key="id"

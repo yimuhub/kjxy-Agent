@@ -128,6 +128,7 @@
             </div>
           </template>
           <el-table
+            v-col-resize
             :data="overview.by_purpose"
             :height="320"
             size="small"
@@ -197,6 +198,7 @@
             </div>
           </template>
           <el-table
+            v-col-resize
             :data="overview.by_agent"
             :height="320"
             size="small"
@@ -270,6 +272,7 @@
             </div>
           </template>
           <el-table
+            v-col-resize
             :data="overview.by_model"
             :height="320"
             size="small"
@@ -323,6 +326,7 @@
             </div>
           </template>
           <el-table
+            v-col-resize
             :data="usageRows"
             :height="320"
             size="small"
@@ -382,6 +386,7 @@
         </div>
       </template>
       <el-table
+        v-col-resize
         :data="traceRows"
         :height="360"
         size="small"
@@ -487,6 +492,7 @@
         @retry="loadQuota"
       >
         <el-table
+          v-col-resize
           :data="rows"
           stripe
         >

@@ -48,6 +48,7 @@
       width="640px"
     >
       <el-table
+        v-col-resize
         :data="ops"
         size="small"
       >

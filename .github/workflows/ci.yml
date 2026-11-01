@@ -46,6 +46,8 @@ jobs:
           alembic upgrade head
       - name: Version consistency
         run: python scripts/check_versions.py
+      - name: UI standards (centered dialogs / resizable tables)
+        run: python scripts/check_ui_standards.py
       - name: Lint
         run: |
           cd backend

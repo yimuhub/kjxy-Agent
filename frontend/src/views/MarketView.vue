@@ -154,6 +154,7 @@
       width="560px"
     >
       <el-table
+        v-col-resize
         :data="failedItems"
         size="small"
         max-height="280"

@@ -101,6 +101,7 @@
         </el-empty>
 
         <el-table
+          v-col-resize
           v-else
           v-loading="loading"
           :data="records"
@@ -413,6 +414,7 @@
           :image-size="60"
         />
         <el-table
+          v-col-resize
           v-else
           v-loading="sharesLoading"
           :data="shares"

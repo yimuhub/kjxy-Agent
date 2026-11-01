@@ -246,7 +246,8 @@ onMounted(() => {
       </div>
     </div>
 
-    <el-table v-loading="loading" :data="bots" class="ds-table">
+    <el-table
+      v-col-resize v-loading="loading" :data="bots" class="ds-table">
       <el-table-column prop="name" label="名称" min-width="140" />
       <el-table-column label="平台" min-width="170">
         <template #default="{ row }">{{ platformLabel(row.platform) }}</template>
@@ -352,7 +353,8 @@ onMounted(() => {
       width="620px"
       align-center
     >
-      <el-table :data="convs" @row-click="viewMsgs">
+      <el-table
+        v-col-resize :data="convs" @row-click="viewMsgs">
         <el-table-column prop="display_name" label="会话" min-width="130">
           <template #default="{ row }">{{ row.display_name || row.platform }}</template>
         </el-table-column>
@@ -374,7 +376,8 @@ onMounted(() => {
       </el-table>
       <template v-if="activeConv">
         <h4 class="msgs-title">{{ activeConv.display_name || activeConv.id }} · 最近消息（仅存摘要）</h4>
-        <el-table :data="msgs" size="small">
+        <el-table
+          v-col-resize :data="msgs" size="small">
           <el-table-column label="方向" width="70">
             <template #default="{ row }">{{ row.direction === 'in' ? '入' : '出' }}</template>
           </el-table-column>

@@ -455,6 +455,7 @@ v3.26 起「按智能体绑定」页签升级为「智能体模型」：一次�
 | `PATCH /llm/relay/channels/{id}` / `DELETE` | 修改/删除；平台级通道仅平台管理员可写 |
 | `POST /llm/relay/channels/{id}/sync` | 拉取 `catalog_path` 的模型目录，同步为 `source=relay` 的供应商与模型；返回新增/更新/跳过计数 |
 | `GET /llm/relay/channels/{id}/models` | 查看该官方供应商当前目录（与供应商模型同构） |
+| `POST /llm/providers/{id}/models/detect-modality` | 自动识别模型模态：模型名 → 上游目录 → unknown；返回 `source` 供前端决定是否手选 |
 
 ### 官方模型通道（试用 / 购买预留）
 

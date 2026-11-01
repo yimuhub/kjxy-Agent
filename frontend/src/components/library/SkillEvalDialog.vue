@@ -93,6 +93,7 @@ append-to-body
         </div>
 
         <el-table
+          v-col-resize
           :data="sortedChecks"
           size="small"
           max-height="260"

@@ -25,7 +25,8 @@
 
         <el-card>
           <AsyncState :state="listState" empty-text="暂无政策数据" @retry="loadPolicies">
-            <el-table :data="policies" stripe style="width: 100%" @row-click="openDetail">
+            <el-table
+              v-col-resize :data="policies" stripe style="width: 100%" @row-click="openDetail">
               <el-table-column prop="policy_name" label="政策名称" min-width="220" />
               <el-table-column prop="publish_department" label="发布机构" width="160" />
               <el-table-column prop="province" label="省份" width="100" />
@@ -195,7 +196,8 @@
         <el-card>
           <template #header><span>匹配结果</span></template>
           <AsyncState :state="matchState" empty-text="尚未匹配，点击上方「开始匹配」" @retry="runMatch">
-            <el-table :data="matchResults" stripe>
+            <el-table
+              v-col-resize :data="matchResults" stripe>
               <el-table-column prop="policy_name" label="政策名称" min-width="220" />
               <el-table-column label="匹配档位" width="120">
                 <template #default="{ row }">
@@ -285,7 +287,8 @@
               <el-descriptions-item label="草案编号">{{ draft.draft_id }}</el-descriptions-item>
             </el-descriptions>
             <h4>材料清单</h4>
-            <el-table :data="checklistRows" stripe size="small">
+            <el-table
+              v-col-resize :data="checklistRows" stripe size="small">
               <el-table-column label="已备" width="70">
                 <template #default="{ row }">
                   <el-checkbox v-model="row.checked" />

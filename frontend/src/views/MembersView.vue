@@ -124,6 +124,7 @@
             @retry="loadMembers"
           >
             <el-table
+              v-col-resize
               :data="filteredMembers"
               stripe
               :empty-text="keyword || roleFilter || statusFilter ? '没有匹配的成员' : '暂无成员'"
@@ -317,6 +318,7 @@
             @retry="loadRegistrations"
           >
             <el-table
+              v-col-resize
               :data="registrationItems"
               stripe
             >
@@ -406,6 +408,7 @@
             @retry="loadInvitations"
           >
             <el-table
+              v-col-resize
               :data="invitations"
               stripe
             >

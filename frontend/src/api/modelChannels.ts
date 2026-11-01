@@ -65,13 +65,14 @@ export function modalityMeta(value?: string | null): { label: string; type: TagT
 
 export const PROTOCOL_OPTIONS = [
   { value: 'openai_chat', label: 'OpenAI Chat' },
-  { value: 'openai_responses', label: 'OpenAI Responses' },
-  { value: 'anthropic_messages', label: 'Anthropic Messages' },
+  { value: 'openai_images', label: 'OpenAI 图像' },
+  { value: 'dashscope_image', label: '百炼图像' },
+  { value: 'openai_video', label: 'OpenAI 视频' },
+  { value: 'anthropic', label: 'Anthropic Messages' },
   { value: 'gemini', label: 'Gemini' },
+  { value: 'openai_audio', label: 'OpenAI 音频（ASR/TTS）' },
   { value: 'openai_embedding', label: 'OpenAI Embedding' },
-  { value: 'openai_rerank', label: '重排（Rerank）' },
-  { value: 'openai_asr', label: '语音识别（ASR）' },
-  { value: 'openai_tts', label: '语音合成（TTS）' },
+  { value: 'custom', label: '自定义' },
 ]
 
 export function protocolLabel(value?: string | null): string {
@@ -126,7 +127,7 @@ export interface SupplierModelInput {
   capabilities?: Record<string, unknown>
   context_window?: number | null
   max_output_tokens?: number | null
-  pricing?: ModelPricing
+  pricing?: ModelPricing | null
 }
 
 export interface ModelImportPayload {
@@ -200,6 +201,7 @@ export interface ProbeModel {
   id: string
   label?: string
   guessed_modality?: string | null
+  modality_source?: 'catalog' | 'name' | null
 }
 
 export interface ProbeModelsResult {
@@ -208,13 +210,20 @@ export interface ProbeModelsResult {
   message?: string
 }
 
+export interface SupplierModelDetectResult {
+  modality: string
+  source: 'local' | 'catalog' | 'unknown'
+  matched_id?: string | null
+  message?: string | null
+}
+
 export interface SupplierModelUpdate {
   display_name?: string
   modality?: string
   protocol?: string
   capabilities?: Record<string, unknown>
   context_window?: number | null
-  pricing?: ModelPricing
+  pricing?: ModelPricing | null
   status?: number
 }
 
@@ -320,6 +329,19 @@ export const supplierModelApi = {
     return unwrap<ProbeModelsResult>(api.post('/llm/providers/probe-models', payload)).then(
       asObject,
     )
+  },
+
+  /** 识别模型模态：本地规则 → 上游目录 → unknown（前端再让用户手选） */
+  detectModality(
+    supplierId: string,
+    payload: { model_key?: string; upstream_model_id?: string },
+  ): Promise<SupplierModelDetectResult> {
+    return unwrap<SupplierModelDetectResult>(
+      api.post(
+        `/llm/providers/${encodeURIComponent(supplierId)}/models/detect-modality`,
+        payload,
+      ),
+    ).then(asObject)
   },
 }
 

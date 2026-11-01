@@ -37,6 +37,7 @@
         @retry="loadCandidates"
       >
         <el-table
+          v-col-resize
           :data="candidates"
           stripe
           @selection-change="handleSelectionChange"

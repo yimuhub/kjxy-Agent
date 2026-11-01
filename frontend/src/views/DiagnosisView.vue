@@ -68,6 +68,7 @@
         </el-empty>
 
         <el-table
+          v-col-resize
           v-else
           v-loading="loading"
           :data="diagnoses"
@@ -192,6 +193,7 @@
           </el-button>
         </div>
         <el-table
+          v-col-resize
           v-loading="pesticideLoading"
           :data="pesticides"
           size="small"

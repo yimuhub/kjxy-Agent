@@ -71,6 +71,7 @@
       @retry="loadSessions"
     >
       <el-table
+        v-col-resize
         :data="rows"
         stripe
       >

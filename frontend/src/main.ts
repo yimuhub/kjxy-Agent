@@ -5,6 +5,7 @@ import 'element-plus/theme-chalk/dark/css-vars.css'
 import './styles/design-system.css'
 
 import App from './App.vue'
+import { colResize } from './directives/columnResize'
 import router from './router'
 import { useAuthStore } from './stores/auth'
 
@@ -28,6 +29,7 @@ async function bootstrapDesktop(pinia: ReturnType<typeof createPinia>) {
 
 async function start() {
   const app = createApp(App)
+  app.directive('col-resize', colResize)
   const pinia = createPinia()
   app.use(pinia)
   await bootstrapDesktop(pinia)

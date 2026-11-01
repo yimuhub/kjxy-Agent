@@ -185,6 +185,7 @@
       width="820px"
     >
       <el-table
+        v-col-resize
         v-loading="runsLoading"
         :data="runs"
         size="small"

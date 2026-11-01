@@ -120,6 +120,7 @@
           @retry="loadUsage"
         >
           <el-table
+            v-col-resize
             :data="sortedUsage"
             stripe
           >
@@ -235,6 +236,7 @@
           @retry="loadAgents"
         >
           <el-table
+            v-col-resize
             :data="agentRows"
             stripe
           >

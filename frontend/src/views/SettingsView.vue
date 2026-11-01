@@ -284,6 +284,7 @@
             </div>
           </div>
           <el-table
+            v-col-resize
             :data="pairDevices"
             stripe
             class="pair-table"
@@ -476,6 +477,7 @@
       width="640px"
     >
       <el-table
+        v-col-resize
         v-if="mcpToolsList.length"
         :data="mcpToolsList"
         size="small"

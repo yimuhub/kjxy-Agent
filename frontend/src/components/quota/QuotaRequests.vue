@@ -23,6 +23,7 @@
     </div>
 
     <el-table
+      v-col-resize
       v-loading="loading"
       :data="rows"
       size="small"

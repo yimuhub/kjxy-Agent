@@ -32,7 +32,11 @@ from app.modules.llm.supplier_crypto import (  # noqa: E402
     reset_fernet_cache,
 )
 from app.modules.llm.supplier_models import Supplier, SupplierModel  # noqa: E402,F401 触发建表
-from app.modules.llm.supplier_schemas import SupplierCreate, SupplierUpdate  # noqa: E402
+from app.modules.llm.supplier_schemas import (  # noqa: E402
+    SupplierCreate,
+    SupplierModelCreate,
+    SupplierUpdate,
+)
 
 YARD = "t-001"
 OTHER_YARD = "t-002"
@@ -651,3 +655,112 @@ async def test_provider_honours_per_request_timeout(monkeypatch):
     await provider.complete(_Req(messages=[_Msg(role="user", content="写")]))
     await provider.complete(_Req(messages=[_Msg(role="user", content="写")], timeout_seconds=180))
     assert seen == [60, 180]
+
+
+# ---------- 价格选填与模态识别（v3.36.2） ----------
+
+
+def test_model_pricing_allows_unit_and_optional_numbers(db_session):
+    """价格是选填：unit 是字符串，input/output 留空不应报「必须是数字」。"""
+    supplier = supplier_service.create_supplier(
+        db_session, YARD, _payload(), is_platform_admin=False
+    )
+    out = supplier_service.create_supplier_model(
+        db_session,
+        YARD,
+        supplier.id,
+        SupplierModelCreate(
+            model_key="priced-model",
+            upstream_model_id="priced-model",
+            pricing={"unit": "per_1k_tokens", "input": None, "output": None, "currency": "CNY"},
+        ),
+    )
+    assert out.pricing == {"unit": "per_1k_tokens", "currency": "CNY"}
+
+
+@pytest.mark.asyncio
+async def test_detect_modality_from_model_name(db_session):
+    supplier = supplier_service.create_supplier(
+        db_session,
+        YARD,
+        _payload(
+            provider_type="openai_compatible",
+            base_url="https://example.com/v1",
+            model_id="gpt-image-1",
+        ),
+        is_platform_admin=False,
+    )
+    result = await supplier_service.detect_model_modality(
+        db_session, YARD, supplier.id, upstream_model_id="gpt-image-1"
+    )
+    assert result.modality == "image"
+    assert result.source == "local"
+
+
+@pytest.mark.asyncio
+async def test_detect_modality_from_upstream_catalog(db_session):
+    """模型名识别不出时，用上游目录里的 architecture.output_modalities 兜底。"""
+    supplier = supplier_service.create_supplier(
+        db_session,
+        YARD,
+        _payload(
+            provider_type="openai_compatible",
+            base_url="https://example.com/v1",
+            model_id="custom-x",
+        ),
+        is_platform_admin=False,
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        "id": "custom-x",
+                        "architecture": {
+                            "input_modalities": ["text"],
+                            "output_modalities": ["image"],
+                        },
+                    }
+                ]
+            },
+        )
+
+    supplier_service.set_test_transport(httpx.MockTransport(handler))
+    try:
+        result = await supplier_service.detect_model_modality(
+            db_session, YARD, supplier.id, upstream_model_id="custom-x"
+        )
+    finally:
+        supplier_service.set_test_transport(None)
+    assert result.modality == "image"
+    assert result.source == "catalog"
+    assert result.matched_id == "custom-x"
+
+
+@pytest.mark.asyncio
+async def test_detect_modality_unknown_when_catalog_has_no_metadata(db_session):
+    supplier = supplier_service.create_supplier(
+        db_session,
+        YARD,
+        _payload(
+            provider_type="openai_compatible",
+            base_url="https://example.com/v1",
+            model_id="mystery-x",
+        ),
+        is_platform_admin=False,
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"data": [{"id": "mystery-x"}]})
+
+    supplier_service.set_test_transport(httpx.MockTransport(handler))
+    try:
+        result = await supplier_service.detect_model_modality(
+            db_session, YARD, supplier.id, upstream_model_id="mystery-x"
+        )
+    finally:
+        supplier_service.set_test_transport(None)
+    assert result.source == "unknown"
+    assert "手动选择" in (result.message or "")

@@ -358,6 +358,7 @@
       >
         <h4>候选问题</h4>
         <el-table
+          v-col-resize
           :data="diagResult.candidates"
           stripe
           size="small"
@@ -421,6 +422,7 @@
         <p>计划版本：v{{ planResult.version }}</p>
         <h4>农事建议（{{ planResult.suggestions?.length }} 项）</h4>
         <el-table
+          v-col-resize
           :data="planResult.suggestions"
           stripe
           size="small"
@@ -460,6 +462,7 @@
         </p>
         <h4>描述统计</h4>
         <el-table
+          v-col-resize
           :data="raStatRows"
           stripe
           size="small"
@@ -511,6 +514,7 @@
         </p>
         <h4>关键指标</h4>
         <el-table
+          v-col-resize
           :data="daResult.metrics"
           stripe
           size="small"
@@ -590,6 +594,7 @@
       width="720px"
     >
       <el-table
+        v-col-resize
         :data="reviewQueue"
         size="small"
         empty-text="队列为空"

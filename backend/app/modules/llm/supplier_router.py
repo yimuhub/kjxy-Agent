@@ -23,6 +23,7 @@ from app.modules.llm.supplier_schemas import (
     SupplierImportBundle,
     SupplierImportUrlBody,
     SupplierModelCreate,
+    SupplierModelDetectBody,
     SupplierModelOut,
     SupplierModelsBatchTestBody,
     SupplierModelTestResult,
@@ -434,6 +435,26 @@ def list_supplier_models(
         db, user.yard_id, supplier_id, is_platform_admin=is_platform_admin
     )
     return ok([item.model_dump() for item in items])
+
+
+@router.post("/providers/{supplier_id}/models/detect-modality", response_model=None)
+async def detect_supplier_model_modality(
+    supplier_id: str,
+    payload: SupplierModelDetectBody,
+    ctx=Depends(_actor),
+    db=Depends(get_db_session),
+    _key=Depends(_key_configured_dep),
+):
+    """自动识别模型模态：先看模型名，再拉上游目录；识别不到交前端手动选择。"""
+    user, _is_platform_admin = ctx
+    result = await supplier_service.detect_model_modality(
+        db,
+        user.yard_id,
+        supplier_id,
+        model_key=payload.model_key,
+        upstream_model_id=payload.upstream_model_id,
+    )
+    return ok(result.model_dump())
 
 
 @router.post("/providers/{supplier_id}/models", response_model=None)

@@ -57,6 +57,7 @@
           @retry="loadSkills"
         >
           <el-table
+            v-col-resize
             :data="skills"
             stripe
           >
@@ -245,6 +246,7 @@
           @retry="loadPlugins"
         >
           <el-table
+            v-col-resize
             :data="plugins"
             stripe
           >
@@ -453,6 +455,7 @@
       width="720px"
     >
       <el-table
+        v-col-resize
         :data="evalRuns"
         stripe
         size="small"
@@ -878,6 +881,7 @@
         </el-button>
       </div>
       <el-table
+        v-col-resize
         :data="upgradeRuns"
         size="small"
         empty-text="暂无升级记录"
