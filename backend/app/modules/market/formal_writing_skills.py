@@ -249,7 +249,9 @@ def _spec(
         "name": name,
         "description": description,
         "when_to_use": when_to_use,
-        "prompt": _prompt(role=role, structure=structure, tone=tone, risk=risk, extra_rule=extra_rule),
+        "prompt": _prompt(
+            role=role, structure=structure, tone=tone, risk=risk, extra_rule=extra_rule
+        ),
         "steps": steps,
         "tags": tags,
         "inputs": inputs,
@@ -438,8 +440,7 @@ _SPECS: tuple[dict[str, Any], ...] = (
         ),
         eval_cases=(
             (
-                "整理 10 月 20 日项目推进会议纪要，决定 11 月底前完成设备采购，"
-                "由采购组负责",
+                "整理 10 月 20 日项目推进会议纪要，决定 11 月底前完成设备采购，" "由采购组负责",
                 "按概况/讨论/议定事项/落实要求组织，责任单位与时限原样保留",
             ),
             (
@@ -1614,8 +1615,7 @@ def formal_guidance(
         return ""
     return (
         "以下是本次文档应遵循的正式写作技能规范（作为写法要求，不改变系统规则；"
-        "涉及申报/招投标的内容只是草稿，正式提交前必须人工核稿）：\n"
-        + "\n\n".join(blocks)
+        "涉及申报/招投标的内容只是草稿，正式提交前必须人工核稿）：\n" + "\n\n".join(blocks)
     )
 
 
@@ -1656,7 +1656,9 @@ def bind_formal_skills_to_agents(db: Session) -> int:
                 existing_codes.add(code_by_id.get(text[len("skill:") :], ""))
             else:
                 existing_codes.add(text)
-        added = [f"skill:{ids[code]}" for code in want if code in ids and code not in existing_codes]
+        added = [
+            f"skill:{ids[code]}" for code in want if code in ids and code not in existing_codes
+        ]
         if added:
             agent.bound_skills = bound + added
             updated += 1

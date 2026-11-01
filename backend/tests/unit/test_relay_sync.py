@@ -1,4 +1,4 @@
-"""中转站目录同步（v3.33）：注入 fetcher、增删模型、停用被引用模型、缺密钥报错。"""
+"""官方供应商目录同步（v3.33）：注入 fetcher、增删模型、停用被引用模型、缺密钥报错。"""
 
 import httpx
 import pytest
@@ -25,7 +25,7 @@ def _channel(db, *, api_key: str | None = "relay-key") -> RelayChannel:
         db,
         YARD,
         RelayChannelCreate(
-            name="私有中转",
+            name="私有供应商",
             kind="private",
             base_url="https://relay.example.com",
             api_key=api_key,
@@ -127,9 +127,7 @@ async def test_sync_updates_and_removes_models(db_session):
 
 async def test_referenced_model_is_disabled_not_deleted(db_session):
     channel = _channel(db_session)
-    relay_service.set_test_fetcher(
-        _fetcher({"data": [{"id": "gpt-4o"}, {"id": "dall-e-3"}]})
-    )
+    relay_service.set_test_fetcher(_fetcher({"data": [{"id": "gpt-4o"}, {"id": "dall-e-3"}]}))
     try:
         await relay_service.sync_relay_catalog(db_session, YARD, channel.id)
     finally:

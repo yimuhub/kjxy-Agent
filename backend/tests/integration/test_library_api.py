@@ -56,9 +56,7 @@ def test_source_permissions_and_status(client):
     assert patched.json()["data"]["key_id"] == key_id
 
     # 停用后手动同步直接拒绝（不触网），验证空 body 的 POST 路由可用
-    disabled = client.patch(
-        f"{BASE}/sources/{private_id}", json={"enabled": False}, headers=_hdr()
-    )
+    disabled = client.patch(f"{BASE}/sources/{private_id}", json={"enabled": False}, headers=_hdr())
     assert disabled.status_code == 200
     sync = client.post(f"{BASE}/sources/{private_id}/sync", headers=_hdr())
     assert sync.status_code == 409

@@ -526,9 +526,7 @@ def _find_order(db: Session, payload: dict[str, Any]) -> OfficialOrder:
         external = str(payload.get("external_order_id") or "").strip()
         if external:
             row = (
-                db.query(OfficialOrder)
-                .filter(OfficialOrder.external_order_id == external)
-                .first()
+                db.query(OfficialOrder).filter(OfficialOrder.external_order_id == external).first()
             )
     if row is None:
         raise AppError("OFFICIAL_ORDER_NOT_FOUND", "回调对应的订单不存在。", 404)
@@ -547,23 +545,17 @@ def handle_payment_webhook(
     """支付回调：验签 → 时间窗 → event_id 幂等 → paid/refund/failed 状态机。"""
     channel = _webhook_channel(db)
     if not signature or not timestamp:
-        raise AppError(
-            "OFFICIAL_WEBHOOK_BAD_SIGNATURE", "回调缺少签名或时间戳。", 401
-        )
+        raise AppError("OFFICIAL_WEBHOOK_BAD_SIGNATURE", "回调缺少签名或时间戳。", 401)
     ts_value = _parse_timestamp(timestamp)
     if abs(datetime.now(UTC).timestamp() - ts_value) > WEBHOOK_TOLERANCE_SECONDS:
-        raise AppError(
-            "OFFICIAL_WEBHOOK_EXPIRED", "回调时间戳超出 ±300 秒窗口。", 401
-        )
+        raise AppError("OFFICIAL_WEBHOOK_EXPIRED", "回调时间戳超出 ±300 秒窗口。", 401)
     secret = decrypt_api_key(channel.webhook_secret_enc or "")
     expected = webhook_signature(secret, str(timestamp), raw_body)
     provided = signature.strip()
     if provided.lower().startswith("sha256="):
         provided = provided.split("=", 1)[1]
     if not hmac.compare_digest(expected, provided):
-        raise AppError(
-            "OFFICIAL_WEBHOOK_BAD_SIGNATURE", "回调签名校验失败。", 401
-        )
+        raise AppError("OFFICIAL_WEBHOOK_BAD_SIGNATURE", "回调签名校验失败。", 401)
     try:
         payload = json.loads(raw_body or b"{}")
     except ValueError as e:
@@ -576,11 +568,7 @@ def handle_payment_webhook(
     if not event_id or not event_type:
         raise AppError("OFFICIAL_WEBHOOK_INVALID", "回调缺少 event_id 或 event_type。", 400)
     digest = hashlib.sha256(raw_body).hexdigest()
-    seen = (
-        db.query(OfficialWebhookEvent)
-        .filter(OfficialWebhookEvent.event_id == event_id)
-        .first()
-    )
+    seen = db.query(OfficialWebhookEvent).filter(OfficialWebhookEvent.event_id == event_id).first()
     if seen is not None:
         return {
             "duplicate": True,
@@ -599,7 +587,8 @@ def handle_payment_webhook(
 
     result: dict[str, Any] = {"duplicate": False, "event_id": event_id, "event_type": event_type}
     normalized = event_type.lower()
-    data = payload.get("payload") if isinstance(payload.get("payload"), dict) else payload
+    raw_payload = payload.get("payload")
+    data: dict[str, Any] = raw_payload if isinstance(raw_payload, dict) else payload
     if normalized in ("order.paid", "paid", "payment.succeeded"):
         order = _find_order(db, data)
         order.status = "paid"

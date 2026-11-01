@@ -193,9 +193,7 @@ def test_east_asian_font_is_written_to_xml(tmp_path) -> None:
     assert title_xmls
     assert any("<a:ea" in xml and "思源黑体" in xml for xml in title_xmls)
 
-    chart = next(
-        shape.chart for slide in prs.slides for shape in slide.shapes if shape.has_chart
-    )
+    chart = next(shape.chart for slide in prs.slides for shape in slide.shapes if shape.has_chart)
     chart_xml = chart._chartSpace.xml
     assert "<a:ea" in chart_xml and "思源黑体" in chart_xml
     # 拉丁字体同时设置，避免中文回退时英文变方框

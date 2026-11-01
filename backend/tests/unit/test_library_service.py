@@ -255,11 +255,7 @@ def test_sync_updates_version_and_revokes(db_session):
     v1 = _build("demo_skill", "1.0.0")
     v2 = _build("demo_skill", "1.1.0")
     fetcher = FakeFetcher(
-        {
-            MANIFEST_URL: _json_response(
-                _manifest_body(1, [_entry("demo_skill", "1.0.0", v1)])
-            )
-        }
+        {MANIFEST_URL: _json_response(_manifest_body(1, [_entry("demo_skill", "1.0.0", v1)]))}
     )
     service.sync_source(db_session, YARD, source_id, fetcher)
     db_session.flush()
@@ -328,26 +324,20 @@ def test_install_is_idempotent_and_update_rollback(db_session):
     assert again["idempotent"] is True
     assert db_session.query(Skill).count() == 1
 
-    routes[MANIFEST_URL] = _json_response(
-        _manifest_body(2, [_entry("demo_skill", "1.1.0", v2)])
-    )
+    routes[MANIFEST_URL] = _json_response(_manifest_body(2, [_entry("demo_skill", "1.1.0", v2)]))
     service.sync_source(db_session, YARD, source_id, fetcher)
     updated = service.update_item(db_session, ctx, install.id, fetcher=fetcher)
     assert updated["updated"] is True
     assert updated["installed_version"] == "1.1.0"
     assert updated["previous_version"] == "1.0.0"
     assert db_session.query(Skill).count() == 2
-    assert (
-        db_session.query(Skill).filter(Skill.version == "1.1.0").one().status == "published"
-    )
+    assert db_session.query(Skill).filter(Skill.version == "1.1.0").one().status == "published"
 
     rolled = service.rollback_item(db_session, ctx, install.id)
     assert rolled["rolled_back_from"] == "1.1.0"
     assert rolled["rolled_back_to"] == "1.0.0"
     assert db_session.get(LibraryInstall, install.id).installed_version == "1.0.0"
-    assert (
-        db_session.query(Skill).filter(Skill.version == "1.1.0").one().status == "deprecated"
-    )
+    assert db_session.query(Skill).filter(Skill.version == "1.1.0").one().status == "deprecated"
     assert db_session.query(Skill).filter(Skill.version == "1.0.0").one().status == "published"
     assert db_session.get(LibraryInstall, install.id).auto_update is False
     audit_actions = {row.action for row in db_session.query(AuditLog).all()}
@@ -363,10 +353,7 @@ def test_auto_update_low_risk_only_and_pin_respected(db_session):
         MANIFEST_URL: _json_response(
             _manifest_body(
                 1,
-                [
-                    _entry(code, "1.0.0", data, codes[code])
-                    for code, data in v1.items()
-                ],
+                [_entry(code, "1.0.0", data, codes[code]) for code, data in v1.items()],
             )
         )
     }
@@ -486,9 +473,7 @@ def test_plugin_install_stays_pending_review_and_updates_in_place(db_session):
     install = db_session.query(LibraryInstall).one()
     assert install.plugin_id == "demo_plugin"
 
-    routes[MANIFEST_URL] = _json_response(
-        _manifest_body(2, [_plugin_entry("1.1.0", v2)])
-    )
+    routes[MANIFEST_URL] = _json_response(_manifest_body(2, [_plugin_entry("1.1.0", v2)]))
     service.sync_source(db_session, YARD, source_id, fetcher)
     updated = service.update_item(db_session, ctx, install.id, fetcher=fetcher)
     assert updated["updated"] is True

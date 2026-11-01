@@ -67,8 +67,14 @@ MODELS_PROBE_TIMEOUT_SECONDS = 8
 MODELS_PROBE_MAX_BYTES = 1024 * 1024
 #: 返回给前端的模型条目上限（诚实提示：上游再多也先截断）
 MODELS_PROBE_MAX_ITEMS = 500
-#: 无统一模型列表端点的类型（§A：直接 unsupported，不发外呼）
-NO_MODEL_LIST_PROVIDERS = {"anthropic", "gemini"}
+#: 无统一 OpenAI 兼容模型列表端点的类型（§A：直接 unsupported，不发外呼）
+NO_MODEL_LIST_PROVIDERS = {
+    "anthropic",
+    "gemini",
+    # 百炼原生图像接口与视频通道路径不同，不按 /models 探测，避免误报 404
+    "dashscope_image",
+    "openai_video",
+}
 
 #: 测试注入口：httpx.MockTransport 假扮上游 /models（全离线纪律，生产恒为 None）
 _transport_override: httpx.AsyncBaseTransport | None = None
@@ -144,9 +150,7 @@ def _writable_model_supplier(
     db: Session, yard_id: str | None, supplier_id: str, *, is_platform_admin: bool
 ) -> Supplier:
     """模型目录写操作的归属校验：与供应商写操作同权（官方通道小院只读）。"""
-    return _writable_supplier(
-        db, yard_id, supplier_id, is_platform_admin=is_platform_admin
-    )
+    return _writable_supplier(db, yard_id, supplier_id, is_platform_admin=is_platform_admin)
 
 
 def get_active_supplier_id(db: Session, yard_id: str) -> str | None:
@@ -188,10 +192,7 @@ def supplier_to_out(
         is_active=get_active_supplier_id(db, yard_id) == row.id if yard_id else False,
         # 小院管理员视角：全局共享行/官方通道行只读；平台管理员不受限
         readonly=(not is_platform_admin)
-        and (
-            row.yard_id is None
-            or getattr(row, "channel_kind", "user") == CHANNEL_KIND_OFFICIAL
-        ),
+        and (row.yard_id is None or getattr(row, "channel_kind", "user") == CHANNEL_KIND_OFFICIAL),
         default_model_id=getattr(row, "default_model_id", None),
         channel_kind=getattr(row, "channel_kind", "user") or "user",
         consecutive_failures=row.consecutive_failures or 0,
@@ -220,6 +221,96 @@ def list_suppliers(
     return [
         supplier_to_out(db, r, yard_id or "", is_platform_admin=is_platform_admin) for r in rows
     ]
+
+
+def _selected_model_ids(values: list[str] | None, default_model: str | None) -> list[str]:
+    """默认模型置首、去重、截断；保证默认模型一定在可用列表里。"""
+    out: list[str] = []
+    for raw in [default_model or "", *(values or [])]:
+        mid = str(raw or "").strip()
+        if mid and mid not in out:
+            out.append(mid[:200])
+    return out[:200]
+
+
+def _protocol_for_selected(supplier: Supplier, modality: str) -> str:
+    default = {
+        "openai_images": "openai_images",
+        "dashscope_image": "dashscope_image",
+        "openai_video": "openai_video",
+    }.get(supplier.provider_type, "openai_chat")
+    protocol = protocol_for_modality(modality, default=default)
+    if supplier.provider_type == "dashscope_image" and modality == "image":
+        return "dashscope_image"
+    return protocol
+
+
+def _apply_selected_models(
+    db: Session,
+    supplier: Supplier,
+    selected_values: list[str] | None,
+    default_model: str | None,
+) -> None:
+    """按「可用模型」勾选结果增补/停用 supplier_models 行，并校准默认模型。
+
+    未勾选的模型只置停用、不删除：保留既有绑定与历史，绑定解析会自动跳过停用行。
+    """
+    selected = _selected_model_ids(selected_values, default_model)
+    default_id = (default_model or (selected[0] if selected else "")).strip()
+    forced_modality = {
+        "openai_images": "image",
+        "dashscope_image": "image",
+        "openai_video": "video",
+    }.get(supplier.provider_type)
+
+    rows = (
+        db.query(SupplierModel)
+        .filter(SupplierModel.supplier_id == supplier.id)
+        .order_by(SupplierModel.created_at.asc())
+        .all()
+    )
+    by_name: dict[str, SupplierModel] = {}
+    for row in rows:
+        by_name[row.model_key] = row
+        by_name[row.upstream_model_id] = row
+
+    default_row: SupplierModel | None = None
+    for mid in selected:
+        selected_row = by_name.get(mid)
+        if selected_row is None:
+            modality = guess_modality(mid)
+            if forced_modality and modality in ("text", "multimodal"):
+                modality = forced_modality
+            selected_row = SupplierModel(
+                supplier_id=supplier.id,
+                model_key=mid[:100],
+                upstream_model_id=mid[:200],
+                display_name=mid[:120],
+                modality=modality,
+                protocol=_protocol_for_selected(supplier, modality),
+                source="probe",
+                status=STATUS_ENABLED,
+            )
+            db.add(selected_row)
+            db.flush()
+            rows.append(selected_row)
+            by_name[selected_row.model_key] = selected_row
+            by_name[selected_row.upstream_model_id] = selected_row
+        else:
+            selected_row.status = STATUS_ENABLED
+        if mid == default_id:
+            default_row = selected_row
+
+    keep = set(selected)
+    for row in rows:
+        if row.model_key not in keep and row.upstream_model_id not in keep:
+            row.status = STATUS_DISABLED
+
+    if default_row is None and selected:
+        default_row = by_name.get(default_id)
+    if default_row is not None:
+        supplier.default_model_id = default_row.id
+    _sync_supplier_defaults(db, supplier)
 
 
 def create_supplier(
@@ -253,6 +344,7 @@ def create_supplier(
     )
     db.add(row)
     db.flush()
+    _apply_selected_models(db, row, payload.available_models, payload.model_id)
     invalidate_supplier_cache()
     return supplier_to_out(db, row, yard_id or "")
 
@@ -268,6 +360,8 @@ def update_supplier(
     row = _writable_supplier(db, yard_id, supplier_id, is_platform_admin=is_platform_admin)
     data = payload.model_dump(exclude_unset=True)
     api_key = data.pop("api_key", None)
+    selected_models = data.pop("available_models", None)
+    model_changed = "model_id" in data
     for field in ("name", "provider_type", "base_url", "model_id", "models", "priority"):
         if field in data and data[field] is not None:
             value = data[field]
@@ -289,6 +383,19 @@ def update_supplier(
     for price_field in ("price_in_per_1k", "price_out_per_1k"):
         if price_field in data:
             row.__setattr__(price_field, data[price_field])
+    if selected_models is not None or model_changed:
+        if selected_models is None:
+            selected_models = [
+                m.upstream_model_id
+                for m in db.query(SupplierModel)
+                .filter(
+                    SupplierModel.supplier_id == row.id,
+                    SupplierModel.status == STATUS_ENABLED,
+                )
+                .order_by(SupplierModel.created_at.asc())
+                .all()
+            ]
+        _apply_selected_models(db, row, selected_models, row.model_id)
     db.flush()
     invalidate_supplier_cache(supplier_id=row.id)
     return supplier_to_out(db, row, yard_id or "")
@@ -467,9 +574,7 @@ async def probe_models(
     for entry in items[:MODELS_PROBE_MAX_ITEMS]:
         if isinstance(entry, dict) and entry.get("id"):
             mid = str(entry["id"])
-            models.append(
-                ProbeModelItem(id=mid, label=mid, guessed_modality=guess_modality(mid))
-            )
+            models.append(ProbeModelItem(id=mid, label=mid, guessed_modality=guess_modality(mid)))
         elif isinstance(entry, str) and entry:
             models.append(
                 ProbeModelItem(id=entry, label=entry, guessed_modality=guess_modality(entry))
@@ -687,7 +792,7 @@ def build_provider_from_supplier(
     provider.provider_name = f"supplier:{row.name}"[:50]
     provider.supplier_id = row.id
     # 调用记录里带上模型行 id：同一供应商多模型时成本/额度可按模型归属
-    provider.supplier_model_id = getattr(model_row, "id", None)
+    provider.supplier_model_id = getattr(model_row, "id", None)  # type: ignore[attr-defined]
     # function-calling 能力位：供应商声明 或 模型行能力位（任一为真即开启）
     capabilities = (model_row.capabilities or {}) if model_row is not None else {}
     provider.supports_tools = bool(
@@ -768,7 +873,7 @@ def _validate_pricing(pricing: Any) -> dict[str, Any] | None:
     if pricing is None:
         return None
     if not isinstance(pricing, dict):
-        raise AppError("INVALID_REQUEST", "价格必须是对象（如 {\"input_per_1k\": 0.001}）。", 400)
+        raise AppError("INVALID_REQUEST", '价格必须是对象（如 {"input_per_1k": 0.001}）。', 400)
     out: dict[str, Any] = {}
     for key, value in pricing.items():
         name = str(key).strip()
@@ -778,13 +883,9 @@ def _validate_pricing(pricing: Any) -> dict[str, Any] | None:
             out[name] = str(value)[:8]
             continue
         if isinstance(value, bool) or not isinstance(value, int | float):
-            raise AppError(
-                "INVALID_REQUEST", f"价格字段「{name}」必须是数字。", http_status=400
-            )
+            raise AppError("INVALID_REQUEST", f"价格字段「{name}」必须是数字。", http_status=400)
         if float(value) < 0:
-            raise AppError(
-                "INVALID_REQUEST", f"价格字段「{name}」不能为负数。", http_status=400
-            )
+            raise AppError("INVALID_REQUEST", f"价格字段「{name}」不能为负数。", http_status=400)
         out[name] = float(value)
     return out or None
 
@@ -792,7 +893,7 @@ def _validate_pricing(pricing: Any) -> dict[str, Any] | None:
 def _model_values(payload: SupplierModelCreate) -> dict[str, Any]:
     """把创建契约收敛成可落库字段，并做服务端硬校验。"""
     data = payload.model_dump()
-    # source 由调用方显式决定（手工 / 导入 / 中转同步 / 官方），不随行数据写入
+    # source 由调用方显式决定（手工 / 导入 / 官方供应商同步 / 官方），不随行数据写入
     data.pop("source", None)
     data["model_key"] = (data.get("model_key") or "").strip()
     data["upstream_model_id"] = (data.get("upstream_model_id") or "").strip()
@@ -800,9 +901,9 @@ def _model_values(payload: SupplierModelCreate) -> dict[str, Any]:
         raise AppError("INVALID_REQUEST", "模型标识（model_key）不能为空。", 400)
     if not data["upstream_model_id"]:
         raise AppError("INVALID_REQUEST", "上游模型名（upstream_model_id）不能为空。", 400)
-    data["display_name"] = (data.get("display_name") or data["model_key"]).strip()[
-        :120
-    ] or data["model_key"]
+    data["display_name"] = (data.get("display_name") or data["model_key"]).strip()[:120] or data[
+        "model_key"
+    ]
     data["pricing"] = _validate_pricing(data.get("pricing"))
     if data.get("endpoint_path"):
         data["endpoint_path"] = str(data["endpoint_path"]).strip()[:200] or None
@@ -940,9 +1041,7 @@ def delete_supplier_model(
         db, yard_id, supplier_id, is_platform_admin=is_platform_admin
     )
     row = get_supplier_model(db, supplier.id, model_id)
-    refs = (
-        db.query(LLMBinding).filter(LLMBinding.supplier_model_id == row.id).count()
-    )
+    refs = db.query(LLMBinding).filter(LLMBinding.supplier_model_id == row.id).count()
     # 旧绑定（只有 model_name）同样算引用：删了会让它在运行时静默回落到默认模型
     legacy_refs = (
         db.query(LLMBinding)
@@ -985,9 +1084,7 @@ def _sync_supplier_defaults(db: Session, supplier: Supplier) -> None:
     by_id = {row.id: row for row in rows}
     if supplier.default_model_id not in by_id:
         enabled = [row for row in rows if int(row.status or 0) == STATUS_ENABLED]
-        preferred = next(
-            (row for row in enabled if row.modality in ("text", "multimodal")), None
-        )
+        preferred = next((row for row in enabled if row.modality in ("text", "multimodal")), None)
         supplier.default_model_id = (preferred or (enabled or rows)[0]).id
     default_row = by_id[supplier.default_model_id]
     if default_row.modality in ("text", "multimodal", "embedding", "rerank"):
@@ -997,7 +1094,7 @@ def _sync_supplier_defaults(db: Session, supplier: Supplier) -> None:
 
 
 def sync_supplier_model_defaults(db: Session, supplier: Supplier) -> None:
-    """公开入口：中转站/官方同步在批量改动模型后校准默认模型与旧字段。"""
+    """公开入口：官方供应商/官方同步在批量改动模型后校准默认模型与旧字段。"""
     _sync_supplier_defaults(db, supplier)
 
 
@@ -1144,12 +1241,12 @@ def parse_import_content(content: str, fmt: str | None = None) -> list[dict[str,
             if not isinstance(rows, list):
                 raise AppError(
                     "IMPORT_INVALID",
-                    "JSON 导入需要模型数组（或 {\"models\": [...]}）。",
+                    'JSON 导入需要模型数组（或 {"models": [...]}）。',
                     400,
                 )
         elif resolved == "yaml":
             try:
-                import yaml  # noqa: PLC0415 - 可选依赖，缺失时给出明确提示
+                import yaml  # type: ignore[import-untyped]  # noqa: PLC0415 - 可选依赖，缺失时给出明确提示
             except ImportError as e:
                 raise AppError(
                     "IMPORT_YAML_UNSUPPORTED",
@@ -1242,13 +1339,7 @@ def import_models(
         )
     else:
         meta = bundle.supplier
-        if not (
-            meta
-            and meta.name
-            and meta.provider_type
-            and meta.base_url
-            and meta.api_key
-        ):
+        if not (meta and meta.name and meta.provider_type and meta.base_url and meta.api_key):
             raise AppError(
                 "INVALID_REQUEST",
                 "导入需要指定供应商，或在导入包中提供 name/provider_type/base_url/api_key "
@@ -1264,8 +1355,8 @@ def import_models(
         )
     by_key = {row.model_key: row for row in existing_rows}
     by_upstream: dict[str, SupplierModel] = {}
-    for row in existing_rows:
-        by_upstream.setdefault(row.upstream_model_id, row)
+    for existing in existing_rows:
+        by_upstream.setdefault(existing.upstream_model_id, existing)
 
     items: list[SupplierImportPreviewItem] = []
     plans: list[tuple[str, dict[str, Any], SupplierModel | None]] = []
@@ -1290,9 +1381,7 @@ def import_models(
             continue
         except Exception as e:  # noqa: BLE001 - 单行异常不拖垮整包
             items.append(
-                SupplierImportPreviewItem(
-                    action="error", model_key=display_key, error=str(e)[:200]
-                )
+                SupplierImportPreviewItem(action="error", model_key=display_key, error=str(e)[:200])
             )
             continue
 
@@ -1351,6 +1440,8 @@ def import_models(
 
     if supplier is None:
         meta = bundle.supplier
+        if meta is None:  # 上方已校验：无 supplier_id 时导入包必须带供应商信息
+            raise AppError("INVALID_REQUEST", "导入包缺少供应商信息。", http_status=400)
         first_upstream = next(
             (plan[1]["upstream_model_id"] for plan in plans if plan[0] == "create"),
             "placeholder",
@@ -1442,9 +1533,7 @@ async def fetch_import_text(url: str) -> str:
             current = urljoin(current, location)
             continue
         if resp.status_code >= 400:
-            raise AppError(
-                "IMPORT_FETCH_FAILED", f"导入地址返回 {resp.status_code}。", 502
-            )
+            raise AppError("IMPORT_FETCH_FAILED", f"导入地址返回 {resp.status_code}。", 502)
         if len(resp.content) > IMPORT_MAX_BYTES:
             raise AppError("IMPORT_TOO_LARGE", "导入内容超过 2MB 上限，已中止。", 413)
         return resp.text
@@ -1463,9 +1552,7 @@ async def _post_model_probe(
 
     check_egress_url(url, context="supplier_model_test", allow_local=True)
     async with httpx.AsyncClient(timeout=timeout) as client:
-        return await client.post(
-            url, json=payload, headers={"Authorization": f"Bearer {api_key}"}
-        )
+        return await client.post(url, json=payload, headers={"Authorization": f"Bearer {api_key}"})
 
 
 def _status_message(status_code: int) -> str:
@@ -1491,9 +1578,7 @@ async def _run_model_test(
     try:
         if modality in ("image",) or protocol in ("openai_images", "dashscope_image"):
             provider = build_image_provider(supplier, model_row=row)
-            batch = await provider.generate(
-                ImageRequest(prompt="ping", size=DEFAULT_SIZE, n=1)
-            )
+            batch = await provider.generate(ImageRequest(prompt="ping", size=DEFAULT_SIZE, n=1))
             latency = int((time.perf_counter() - started) * 1000)
             detail.update({"model": batch.model, "images": len(batch.assets)})
             return (
@@ -1506,9 +1591,7 @@ async def _run_model_test(
                 detail,
             )
         if modality in ("embedding", "rerank"):
-            path = row.endpoint_path or (
-                "/embeddings" if modality == "embedding" else "/rerank"
-            )
+            path = row.endpoint_path or ("/embeddings" if modality == "embedding" else "/rerank")
             resp = await _post_model_probe(
                 f"{base}{path}",
                 api_key,

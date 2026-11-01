@@ -86,9 +86,12 @@ def test_seed_and_provision(db_session) -> None:
     assert office.seed_office_skills(db_session) == 0
     yard = create_yard(db_session, name="办公技能单测小院")
     db_session.flush()
-    assert office.ensure_office_skills(
-        db_session, yard_id=yard.id, actor_id="u-office", request_id="test"
-    ) == EXPECTED_ITEMS
+    assert (
+        office.ensure_office_skills(
+            db_session, yard_id=yard.id, actor_id="u-office", request_id="test"
+        )
+        == EXPECTED_ITEMS
+    )
     ids = office.office_skill_ids(db_session, yard.id)
     assert set(ids) == EXPECTED_CODES
     assert db_session.query(Skill).filter(Skill.yard_id == yard.id).count() == EXPECTED_ITEMS

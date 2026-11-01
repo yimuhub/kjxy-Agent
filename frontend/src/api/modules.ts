@@ -466,6 +466,8 @@ export interface LlmSupplierCreate {
   model_id: string
   api_key: string
   models?: string
+  /** 创建时勾选的可用模型；服务端会为每个模型落一行并自动补默认模型 */
+  available_models?: string[]
   priority?: number
   scope?: 'yard' | 'global'
   price_in_per_1k?: number | null
@@ -479,6 +481,8 @@ export interface LlmSupplierUpdate {
   model_id?: string
   api_key?: string
   models?: string
+  /** 勾选的可用模型；未勾选的已有模型置为停用（不删除） */
+  available_models?: string[]
   priority?: number
   // function-calling 能力位开关（PUT 语义：传则覆盖）
   supports_tools?: boolean

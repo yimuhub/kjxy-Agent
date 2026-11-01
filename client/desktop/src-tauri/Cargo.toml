@@ -1,6 +1,6 @@
 [package]
 name = "techyard-desktop"
-version = "3.36.0"
+version = "3.36.1"
 description = "科技小院桌面壳：本地引擎 sidecar + splash + 级联退出（Tauri 2）"
 edition = "2021"
 rust-version = "1.77"

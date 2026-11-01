@@ -114,9 +114,7 @@ def test_xlsx_coerces_numbers_and_freezes_header():
         ],
     }
     ws = load_workbook(io.BytesIO(render_xlsx.to_xlsx(parse_model(raw)))).active
-    header_row = next(
-        row[0].row for row in ws.iter_rows() if row and row[0].value == "设备"
-    )
+    header_row = next(row[0].row for row in ws.iter_rows() if row and row[0].value == "设备")
     assert ws.cell(header_row + 1, 2).value == 0.6
     assert ws.cell(header_row + 1, 3).value == 0.35
     assert ws.freeze_panes == f"A{header_row + 1}"

@@ -1,9 +1,9 @@
-"""API 中转站通道服务（v3.33）。
+"""API 供应商通道服务（v3.33）。
 
-一个中转站（``relay_channels``）暴露一份模型目录，平台按目录同步出一个
+一个官方供应商（``relay_channels``）暴露一份模型目录，平台按目录同步出一个
 ``provider_type=official_relay`` 的供应商及其 ``supplier_models``：
 
-- 通道分 official（平台级，官方通道开关）与 private（小院自建中转）；
+- 通道分 official（平台级，官方通道开关）与 private（小院自建供应商）；
 - 目录 GET ``{base_url}{catalog_path}``，Bearer 用解密后的密钥，**密钥绝不出现在
   任何返回/审计/日志**；
 - 兼容 OpenAI ``{"data": [{"id": ...}]}`` 与扩展目录（modality/protocol/
@@ -80,11 +80,11 @@ def set_test_fetcher(
 def _validated_base_url(raw: str) -> str:
     url = (raw or "").strip().rstrip("/")
     if not url:
-        raise AppError("INVALID_REQUEST", "中转站地址不能为空。", http_status=400)
+        raise AppError("INVALID_REQUEST", "官方供应商地址不能为空。", http_status=400)
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https") or not parsed.hostname:
         raise AppError(
-            "INVALID_REQUEST", "中转站地址必须是 http(s) 形式的完整 URL。", http_status=400
+            "INVALID_REQUEST", "官方供应商地址必须是 http(s) 形式的完整 URL。", http_status=400
         )
     return url
 
@@ -100,7 +100,7 @@ def _visible_query(db: Session, yard_id: str | None):
 def get_channel(db: Session, yard_id: str | None, channel_id: str) -> RelayChannel:
     row = _visible_query(db, yard_id).filter(RelayChannel.id == channel_id).first()
     if row is None:
-        raise AppError("RELAY_CHANNEL_NOT_FOUND", "中转站通道不存在。", http_status=404)
+        raise AppError("RELAY_CHANNEL_NOT_FOUND", "官方供应商通道不存在。", http_status=404)
     return row
 
 
@@ -109,7 +109,7 @@ def _writable_channel(
 ) -> RelayChannel:
     row = get_channel(db, yard_id, channel_id)
     if not is_platform_admin and row.yard_id is None:
-        raise AppError("RELAY_CHANNEL_NOT_FOUND", "中转站通道不存在。", http_status=404)
+        raise AppError("RELAY_CHANNEL_NOT_FOUND", "官方供应商通道不存在。", http_status=404)
     return row
 
 
@@ -140,11 +140,7 @@ def channel_to_out(row: RelayChannel, *, is_platform_admin: bool = False) -> Rel
 def list_channels(
     db: Session, yard_id: str | None, *, is_platform_admin: bool = False
 ) -> list[RelayChannelOut]:
-    rows = (
-        _visible_query(db, yard_id)
-        .order_by(RelayChannel.created_at.asc())
-        .all()
-    )
+    rows = _visible_query(db, yard_id).order_by(RelayChannel.created_at.asc()).all()
     return [channel_to_out(row, is_platform_admin=is_platform_admin) for row in rows]
 
 
@@ -157,11 +153,13 @@ def create_channel(
 ) -> RelayChannelOut:
     if payload.scope == "global":
         if not is_platform_admin:
-            raise AppError("FORBIDDEN", "只有平台管理员可以创建全局中转站通道。", http_status=403)
+            raise AppError(
+                "FORBIDDEN", "只有平台管理员可以创建全局官方供应商通道。", http_status=403
+            )
         scope_yard_id: str | None = None
     else:
         if not yard_id:
-            raise AppError("YARD_REQUIRED", "创建小院中转站通道需要小院上下文。", 400)
+            raise AppError("YARD_REQUIRED", "创建小院官方供应商通道需要小院上下文。", 400)
         scope_yard_id = yard_id
     if payload.kind == KIND_OFFICIAL and not is_platform_admin:
         raise AppError("FORBIDDEN", "官方模型通道只能由平台管理员配置。", http_status=403)
@@ -272,7 +270,7 @@ def _load_public_key(raw: str):
     except Exception as e:  # noqa: BLE001 - 配置错误统一转中文
         raise AppError(
             "RELAY_PUBLIC_KEY_INVALID",
-            "中转站验签公钥不合法（需 PEM 或 base64 的 Ed25519 公钥）。",
+            "官方供应商验签公钥不合法（需 PEM 或 base64 的 Ed25519 公钥）。",
             http_status=400,
         ) from e
 
@@ -280,18 +278,14 @@ def _load_public_key(raw: str):
 def _canonical_payload(payload: dict[str, Any]) -> bytes:
     """签名口径：去掉 signature 字段后的稳定 JSON（sort_keys + 紧凑分隔符）。"""
     clone = {
-        key: value
-        for key, value in payload.items()
-        if key not in ("signature", "signature_alg")
+        key: value for key, value in payload.items() if key not in ("signature", "signature_alg")
     }
     return json.dumps(clone, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
         "utf-8"
     )
 
 
-def _verify_catalog_signature(
-    payload: dict[str, Any], signature: str, public_key: str
-) -> bool:
+def _verify_catalog_signature(payload: dict[str, Any], signature: str, public_key: str) -> bool:
     try:
         key = _load_public_key(public_key)
         key.verify(base64.b64decode(signature), _canonical_payload(payload))
@@ -320,31 +314,29 @@ async def _fetch_catalog(
             async with httpx.AsyncClient(timeout=CATALOG_TIMEOUT_SECONDS) as client:
                 resp = await client.get(url, headers=headers)
         except httpx.TimeoutException as e:
-            raise AppError("RELAY_UNREACHABLE", "中转站目录请求超时。", 502) from e
+            raise AppError("RELAY_UNREACHABLE", "官方供应商目录请求超时。", 502) from e
         except httpx.HTTPError as e:
-            raise AppError("RELAY_UNREACHABLE", "无法连接中转站地址。", 502) from e
+            raise AppError("RELAY_UNREACHABLE", "无法连接官方供应商地址。", 502) from e
     if resp.status_code in (401, 403):
-        raise AppError("RELAY_AUTH_FAILED", "中转站鉴权失败：请检查通道 API Key。", 502)
+        raise AppError("RELAY_AUTH_FAILED", "官方供应商鉴权失败：请检查通道 API Key。", 502)
     if resp.status_code >= 400:
-        raise AppError(
-            "RELAY_CATALOG_ERROR", f"中转站目录返回 {resp.status_code}。", 502
-        )
+        raise AppError("RELAY_CATALOG_ERROR", f"官方供应商目录返回 {resp.status_code}。", 502)
     body = resp.content
     if len(body) > CATALOG_MAX_BYTES:
-        raise AppError("RELAY_CATALOG_TOO_LARGE", "中转站目录超过 2MB 上限。", 502)
+        raise AppError("RELAY_CATALOG_TOO_LARGE", "官方供应商目录超过 2MB 上限。", 502)
     try:
         payload = resp.json()
     except ValueError as e:
-        raise AppError("RELAY_CATALOG_INVALID", "中转站目录不是合法 JSON。", 502) from e
+        raise AppError("RELAY_CATALOG_INVALID", "官方供应商目录不是合法 JSON。", 502) from e
     if not isinstance(payload, dict):
-        raise AppError("RELAY_CATALOG_INVALID", "中转站目录结构不符合约定。", 502)
+        raise AppError("RELAY_CATALOG_INVALID", "官方供应商目录结构不符合约定。", 502)
     return payload, headers
 
 
 def _catalog_entries(payload: dict[str, Any]) -> list[dict[str, Any]]:
     items = payload.get("data")
     if not isinstance(items, list):
-        raise AppError("RELAY_CATALOG_INVALID", "中转站目录缺少 data 数组。", 502)
+        raise AppError("RELAY_CATALOG_INVALID", "官方供应商目录缺少 data 数组。", 502)
     entries: list[dict[str, Any]] = []
     for item in items[:CATALOG_MAX_ITEMS]:
         if isinstance(item, str) and item:
@@ -352,7 +344,7 @@ def _catalog_entries(payload: dict[str, Any]) -> list[dict[str, Any]]:
         elif isinstance(item, dict) and item.get("id"):
             entries.append(item)
     if not entries:
-        raise AppError("RELAY_CATALOG_EMPTY", "中转站目录没有可用模型。", 502)
+        raise AppError("RELAY_CATALOG_EMPTY", "官方供应商目录没有可用模型。", 502)
     return entries
 
 
@@ -386,9 +378,7 @@ def catalog_entry_to_model(entry: dict[str, Any]) -> SupplierModelCreate:
     raw: dict[str, Any] = {
         "model_key": str(entry.get("model_key") or entry["id"])[:100],
         "upstream_model_id": str(entry.get("upstream_model_id") or entry["id"])[:200],
-        "display_name": str(entry.get("display_name") or entry.get("name") or entry["id"])[
-            :120
-        ],
+        "display_name": str(entry.get("display_name") or entry.get("name") or entry["id"])[:120],
     }
     upstream = raw["upstream_model_id"]
     modality = str(entry.get("modality") or "").strip().lower()
@@ -417,9 +407,7 @@ def catalog_entry_to_model(entry: dict[str, Any]) -> SupplierModelCreate:
 
 def _ensure_relay_supplier(db: Session, channel: RelayChannel) -> Supplier:
     """为通道创建/复用供应商：同一通道只对应一个 official_relay 供应商。"""
-    supplier = (
-        db.query(Supplier).filter(Supplier.relay_channel_id == channel.id).first()
-    )
+    supplier = db.query(Supplier).filter(Supplier.relay_channel_id == channel.id).first()
     if supplier is None:
         supplier = Supplier(
             yard_id=channel.yard_id,
@@ -455,11 +443,9 @@ async def sync_relay_catalog(
     """拉取目录并 upsert 到通道对应的供应商；返回 created/updated/removed/items。"""
     channel = _writable_channel(db, yard_id, channel_id, is_platform_admin=is_platform_admin)
     if not channel.enabled:
-        raise AppError("RELAY_CHANNEL_DISABLED", "该中转站通道已停用。", 400)
+        raise AppError("RELAY_CHANNEL_DISABLED", "该官方供应商通道已停用。", 400)
     if not channel.api_key_enc:
-        raise AppError(
-            "RELAY_KEY_MISSING", "中转站未配置 API Key，无法同步模型目录。", 400
-        )
+        raise AppError("RELAY_KEY_MISSING", "官方供应商未配置 API Key，无法同步模型目录。", 400)
     started = time.perf_counter()
     api_key = decrypt_api_key(channel.api_key_enc)
     try:
@@ -480,7 +466,7 @@ async def sync_relay_catalog(
             db.flush()
             raise AppError(
                 "RELAY_SIGNATURE_INVALID",
-                "中转站目录验签失败，已拒绝本次同步。",
+                "官方供应商目录验签失败，已拒绝本次同步。",
                 http_status=502,
             )
 
@@ -494,7 +480,7 @@ async def sync_relay_catalog(
             log.warning("relay catalog entry skipped: %s", e)
     if not models:
         # 目录整体不可用：宁可报错，也不能当成「模型全被删除」清空本地目录
-        raise AppError("RELAY_CATALOG_INVALID", "中转站目录没有可用模型，已中止同步。", 502)
+        raise AppError("RELAY_CATALOG_INVALID", "官方供应商目录没有可用模型，已中止同步。", 502)
 
     bundle = SupplierImportBundle(models=models)
     preview = supplier_service.import_models(
@@ -543,9 +529,7 @@ async def sync_relay_catalog(
         else:
             db.delete(row)
             mode = "deleted"
-        removed_items.append(
-            {"action": "removed", "model_key": row.model_key, "mode": mode}
-        )
+        removed_items.append({"action": "removed", "model_key": row.model_key, "mode": mode})
     db.flush()
     supplier_service.sync_supplier_model_defaults(db, supplier)
     supplier_service.invalidate_supplier_cache(supplier_id=supplier.id)
@@ -559,10 +543,7 @@ async def sync_relay_catalog(
     updated = result.updated if isinstance(result, SupplierImportResult) else 0
     items: list[dict[str, Any]] = []
     if isinstance(preview, SupplierImportPreview):
-        items.extend(
-            {"action": item.action, "model_key": item.model_key}
-            for item in preview.items
-        )
+        items.extend({"action": item.action, "model_key": item.model_key} for item in preview.items)
     items.extend(removed_items)
     return RelaySyncResult(
         supplier_id=supplier.id,
@@ -578,9 +559,7 @@ async def sync_relay_catalog(
     )
 
 
-def list_channel_models(
-    db: Session, yard_id: str | None, channel_id: str
-) -> list[Any]:
+def list_channel_models(db: Session, yard_id: str | None, channel_id: str) -> list[Any]:
     channel = get_channel(db, yard_id, channel_id)
     supplier = db.query(Supplier).filter(Supplier.relay_channel_id == channel.id).first()
     if supplier is None:

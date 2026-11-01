@@ -371,7 +371,7 @@ def build_image_provider(
 ) -> ImagesProvider:
     """按供应商行/模型行构建图像 Provider；chat 类供应商在这里一律拒绝。
 
-    v3.33：中转站/官方供应商的 ``provider_type`` 统一是 ``official_relay``，
+    v3.33：官方供应商/官方供应商的 ``provider_type`` 统一是 ``official_relay``，
     真正的协议在 ``supplier_models.protocol`` 上；有模型行时以模型协议为准，
     没有模型行时保持旧行为（按 ``supplier.provider_type`` 判断）。
     """
@@ -449,9 +449,7 @@ def resolve_image_provider(
             continue
         seen.add(row.id)
         return (
-            build_image_provider(
-                row, model_override=candidate.model_name, model_row=model_row
-            ),
+            build_image_provider(row, model_override=candidate.model_name, model_row=model_row),
             candidate.level,
         )
 
@@ -467,7 +465,7 @@ def resolve_image_provider(
     )
     if row is not None:
         return build_image_provider(row), "image_supplier_priority"
-    # v3.33：中转站/官方供应商没有图像 provider_type，只能按模型行的 protocol 找
+    # v3.33：官方供应商/官方供应商没有图像 provider_type，只能按模型行的 protocol 找
     model_row = (
         db.query(SupplierModel)
         .join(Supplier, Supplier.id == SupplierModel.supplier_id)

@@ -2,7 +2,7 @@
   <el-card class="section">
     <template #header>
       <div class="card-header">
-        <span>官方中转站（{{ channels.length }}）</span>
+        <span>官方供应商（{{ channels.length }}）</span>
         <div class="page-actions">
           <el-button
             size="small"
@@ -26,12 +26,12 @@
       :closable="false"
       show-icon
       class="hint"
-      title="这是我们自己的大模型 API 中转站入口。填地址与访问 Key 后拉取模型目录；以后换模型、换价格只需在服务端更新，客户端点同步即可。"
+      title="这是我们自己的大模型 API 官方供应商入口。填地址与访问 Key 后拉取模型目录；以后换模型、换价格只需在服务端更新，客户端点同步即可。"
     />
 
     <AsyncState
       :state="state"
-      empty-text="还没有中转站渠道。新建一个后即可同步服务端的模型目录。"
+      empty-text="还没有官方供应商渠道。新建一个后即可同步服务端的模型目录。"
       @retry="load()"
     >
       <template #empty-action>
@@ -49,7 +49,7 @@
           :data="channels"
           row-key="id"
           stripe
-          empty-text="暂无中转站渠道"
+          empty-text="暂无官方供应商渠道"
         >
           <el-table-column
             label="名称"
@@ -165,7 +165,7 @@
     <el-dialog
       v-model="dialogVisible"
       append-to-body
-      :title="editingId ? '编辑中转站渠道' : '新建中转站渠道'"
+      :title="editingId ? '编辑官方供应商渠道' : '新建官方供应商渠道'"
       width="640px"
     >
       <el-form
@@ -178,7 +178,7 @@
         >
           <el-input
             v-model="form.name"
-            placeholder="如 官方中转站"
+            placeholder="如 官方供应商"
             maxlength="60"
           />
         </el-form-item>
@@ -203,7 +203,7 @@
             v-model="form.base_url"
             placeholder="https://relay.example.com/v1"
           />
-          <span class="note">中转站根地址，目录路径会拼接在其后</span>
+          <span class="note">官方供应商根地址，目录路径会拼接在其后</span>
         </el-form-item>
         <el-form-item
           :label="editingId ? '访问 Key（轮换）' : '访问 Key'"
@@ -213,7 +213,7 @@
             v-model="form.api_key"
             type="password"
             show-password
-            :placeholder="editingId ? '留空则不修改' : '中转站访问 Key，加密存储'"
+            :placeholder="editingId ? '留空则不修改' : '官方供应商访问 Key，加密存储'"
           />
         </el-form-item>
         <el-form-item label="公钥（可选）">
@@ -221,7 +221,7 @@
             v-model="form.public_key"
             type="textarea"
             :rows="2"
-            placeholder="如需校验中转站签名，可填写公钥"
+            placeholder="如需校验官方供应商签名，可填写公钥"
           />
         </el-form-item>
         <el-form-item label="目录路径">
@@ -320,7 +320,7 @@
 </template>
 
 <script setup lang="ts">
-  /** 官方 API 中转站：渠道 CRUD + 目录同步。 */
+  /** 官方供应商：渠道 CRUD + 目录同步。 */
   import { onMounted, reactive, ref } from 'vue'
   import { ElMessage, ElMessageBox } from 'element-plus'
   import { Lock } from '@element-plus/icons-vue'
@@ -545,7 +545,7 @@
     if (!id) return
     try {
       await ElMessageBox.confirm(
-        `确定删除中转站渠道「${channel.name || id}」？已同步到本地的模型不会被自动删除。`,
+        `确定删除官方供应商渠道「${channel.name || id}」？已同步到本地的模型不会被自动删除。`,
         '删除确认',
         { type: 'warning' },
       )

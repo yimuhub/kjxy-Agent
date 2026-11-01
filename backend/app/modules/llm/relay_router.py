@@ -1,4 +1,4 @@
-"""中转站通道路由（v3.33）：``/llm/relay/channels*``。
+"""官方供应商通道路由（v3.33）：``/llm/relay/channels*``。
 
 权限：platform_admin/admin/yard_admin/yard_owner（复用供应商域角色闸门）。
 小院管理员只能看/改本小院通道；平台级（yard_id 为 NULL）通道仅平台管理员可写。
@@ -55,9 +55,7 @@ def list_relay_channels(
     db=Depends(get_db_session),
 ):
     user, is_platform_admin = ctx
-    items = relay_service.list_channels(
-        db, user.yard_id, is_platform_admin=is_platform_admin
-    )
+    items = relay_service.list_channels(db, user.yard_id, is_platform_admin=is_platform_admin)
     return ok([item.model_dump() for item in items])
 
 

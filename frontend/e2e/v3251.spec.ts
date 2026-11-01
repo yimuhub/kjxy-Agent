@@ -139,11 +139,13 @@ test.describe('弹窗布局与操作栏（v3.25.1）', () => {
     await login(page, 'admin', 'admin123')
     await page.goto('/model-center')
 
-    await page.getByRole('tab', { name: '供应商' }).click()
+    await page.getByRole('tab', { name: '供应商', exact: true }).click()
     await page.getByRole('button', { name: '新增供应商' }).click()
 
     const dialog = page.getByRole('dialog', { name: '新增供应商' })
     await expect(dialog).toBeVisible()
+    // v3.36：新增即可勾选多个可用模型（复选框列表）
+    await expect(dialog.getByText('可用模型', { exact: true })).toBeVisible()
     const m = await expectCenteredDialog(page, dialog)
     // 宽度没被外框压成窄条（弹窗声明 620px）
     expect(m.width).toBeGreaterThanOrEqual(560)

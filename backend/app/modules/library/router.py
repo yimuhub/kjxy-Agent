@@ -64,9 +64,7 @@ def create_source(
 ):
     """新建源：平台管理员可建官方源；小院管理员只能建本小院私有源。"""
     try:
-        result = service.create_source(
-            db, ctx, payload, is_platform_admin=_is_platform_admin(user)
-        )
+        result = service.create_source(db, ctx, payload, is_platform_admin=_is_platform_admin(user))
         db.commit()
     except AppError:
         db.rollback()

@@ -4,7 +4,7 @@
 绝不出现在任何出参中；列表/详情统一返回 api_key_masked。
 """
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -18,7 +18,7 @@ ProviderType = Literal[
     "openai_images",
     "dashscope_image",
     "openai_video",
-    # v3.33 中转站/官方通道：目录同步出的统一协议适配
+    # v3.33 官方供应商/官方通道：目录同步出的统一协议适配
     "official_relay",
 ]
 
@@ -69,6 +69,11 @@ class SupplierCreate(BaseModel):
     models: str | None = Field(
         default=None, max_length=2000, description="模型白名单，逗号分隔；空=全量"
     )
+    #: 创建时勾选的可用模型：服务端为每个模型落一行 supplier_models，
+    #: 默认模型会被自动补进列表；不传则至少创建默认模型那一行。
+    available_models: list[Annotated[str, Field(min_length=1, max_length=200)]] | None = Field(
+        default=None, max_length=200, description="可用模型（上游物理名）列表"
+    )
     priority: int = Field(default=0, description="越大越优先")
     # v3.32 金额额度：单价（元/千 token）；不填则按 Provider 默认常量估算
     price_in_per_1k: float | None = Field(default=None, ge=0, le=10000)
@@ -90,6 +95,11 @@ class SupplierUpdate(BaseModel):
         default=None, min_length=1, max_length=2000, description="提供则轮换密钥，不提供则保持不变"
     )
     models: str | None = Field(default=None, max_length=2000)
+    #: 勾选的可用模型：未勾选的已有模型置为停用（不删除，保留绑定与历史）；
+    #: 不传表示不改动现有模型选择。
+    available_models: list[Annotated[str, Field(min_length=1, max_length=200)]] | None = Field(
+        default=None, max_length=200, description="可用模型（上游物理名）列表"
+    )
     priority: int | None = None
     # function-calling 能力位：true 才允许声明式 Agent 对该供应商启用工具循环
     supports_tools: bool | None = None
@@ -163,6 +173,12 @@ ProbeProviderType = Literal[
     "custom",
     "anthropic",
     "gemini",
+    # v3.36：模板里的图像/视频/官方供应商类型也必须能点「探测模型」，
+    # 否则会因 Literal 校验直接 422（“请求参数有误”）。
+    "openai_images",
+    "dashscope_image",
+    "openai_video",
+    "official_relay",
 ]
 
 
@@ -355,11 +371,11 @@ class SupplierModelsBatchTestBody(BaseModel):
     model_ids: list[str] = Field(default_factory=list, max_length=50)
 
 
-# ---------- 中转站通道（v3.33） ----------
+# ---------- 官方供应商通道（v3.33） ----------
 
 
 class RelayChannelCreate(BaseModel):
-    """新建中转站通道：密钥只入参，出参一律打码。"""
+    """新建官方供应商通道：密钥只入参，出参一律打码。"""
 
     model_config = ConfigDict(extra="forbid")
 

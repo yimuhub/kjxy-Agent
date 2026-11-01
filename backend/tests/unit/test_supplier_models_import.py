@@ -75,16 +75,10 @@ def _make_supplier(db, name: str = "import-src") -> Supplier:
 def test_dry_run_does_not_write(db_session):
     supplier = _make_supplier(db_session)
     bundle = SupplierImportBundle(
-        models=[
-            SupplierModelCreate(
-                model_key="gpt-4o", upstream_model_id="gpt-4o-2024-08-06"
-            )
-        ]
+        models=[SupplierModelCreate(model_key="gpt-4o", upstream_model_id="gpt-4o-2024-08-06")]
     )
 
-    preview = supplier_service.import_models(
-        db_session, YARD, supplier.id, bundle, dry_run=True
-    )
+    preview = supplier_service.import_models(db_session, YARD, supplier.id, bundle, dry_run=True)
 
     assert isinstance(preview, SupplierImportPreview)
     assert preview.summary["create"] == 1
@@ -103,9 +97,7 @@ def test_commit_is_idempotent_and_guesses_modality(db_session):
     )
     bundle = SupplierImportBundle(content=content)
 
-    first = supplier_service.import_models(
-        db_session, YARD, supplier.id, bundle, dry_run=False
-    )
+    first = supplier_service.import_models(db_session, YARD, supplier.id, bundle, dry_run=False)
     assert isinstance(first, SupplierImportResult)
     assert first.created == 3
     assert first.errors == []
@@ -122,9 +114,7 @@ def test_commit_is_idempotent_and_guesses_modality(db_session):
     assert rows["dall-e-3"].protocol == "openai_images"
     assert all(row.source == "import" for row in rows.values())
 
-    second = supplier_service.import_models(
-        db_session, YARD, supplier.id, bundle, dry_run=False
-    )
+    second = supplier_service.import_models(db_session, YARD, supplier.id, bundle, dry_run=False)
     assert second.created == 0
     assert second.updated == 0
     assert second.skipped == 3
@@ -227,7 +217,5 @@ async def test_import_url_rejects_non_http_scheme():
 
 async def test_import_url_blocks_metadata_address():
     with pytest.raises(AppError) as exc:
-        await supplier_service.fetch_import_text(
-            "http://169.254.169.254/latest/meta-data/"
-        )
+        await supplier_service.fetch_import_text("http://169.254.169.254/latest/meta-data/")
     assert exc.value.code == "SSRF_BLOCKED"

@@ -57,7 +57,7 @@ API 服务（FastAPI：鉴权、小院上下文、请求校验、业务服务）
 - **受控自进化**：反馈 → 候选知识/Skill → 评测 → 专家审核 → 版本化发布/回滚；禁止自动改生产代码。
 - **模型解耦**：业务只依赖 `LLMProvider` 协议；首版提供 `fake`（开发/CI）与 `openai_compatible` 两种实现。
 - **供应商/模型分层（v3.36）**：`suppliers` 只描述渠道（地址、密钥、优先级），`supplier_models` 承载同渠道下的多模型（模态/协议/能力/单价/上下文）。绑定优先指向 `supplier_model_id`，解析链再回落模型名、供应商默认模型与旧 `model_id`。
-- **官方中转站预留（v3.36）**：`relay_channels` 描述官方或私有 OpenAI 兼容中转站，`catalog_path` 拉取模型目录并同步为 `source=relay` 的 `supplier_models`；官方试用/购买走 `official_plans/entitlements/orders`，支付回调按 `event_id` 幂等，适配器默认关闭，不配置即不启用。
+- **官方供应商预留（v3.36）**：`relay_channels` 描述官方或私有的 OpenAI 兼容供应商通道，`catalog_path` 拉取模型目录并同步为 `source=relay` 的 `supplier_models`；官方试用/购买走 `official_plans/entitlements/orders`，支付回调按 `event_id` 幂等，适配器默认关闭，不配置即不启用。
 - **官方技能/插件库（v3.36）**：发布者用 Ed25519 签名清单，客户端校验清单与 `.kjxpack` SHA-256 后安装；插件包只声明、不执行脚本；同步支持 ETag/单调序号、撤销、固定版本与离线回退。
 
 ## 部署形态

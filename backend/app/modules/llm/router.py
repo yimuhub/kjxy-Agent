@@ -16,7 +16,7 @@ router = APIRouter(prefix="/llm", tags=["llm"])
 router.include_router(supplier_router)
 # 模型绑定与能力清单（/llm/bindings*、/llm/capabilities），v3.25
 router.include_router(bindings_router)
-# 中转站通道（/llm/relay/channels*），v3.33
+# 官方供应商通道（/llm/relay/channels*），v3.33
 router.include_router(relay_router)
 # 官方模型通道（/llm/official/*），v3.33
 router.include_router(official_router)

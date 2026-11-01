@@ -103,7 +103,7 @@
       </el-tab-pane>
 
       <el-tab-pane
-        label="官方中转站"
+        label="官方供应商"
         name="relay"
       >
         <RelayChannels @changed="loadSuppliers" />

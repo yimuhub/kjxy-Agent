@@ -164,18 +164,32 @@ def _plan_issues(plan: DeckPlan) -> list[DeckIssue]:
         )
     if plan.slides and plan.slides[0].type != "cover":
         issues.append(
-            _issue("COVER_MISSING", "error", "第一页不是封面。", slide=1,
-                   suggestion="把第 1 页改为 cover。")
+            _issue(
+                "COVER_MISSING",
+                "error",
+                "第一页不是封面。",
+                slide=1,
+                suggestion="把第 1 页改为 cover。",
+            )
         )
     if plan.slides and plan.slides[-1].type != "closing":
         issues.append(
-            _issue("CLOSING_MISSING", "warn", "最后一页不是结尾页。",
-                   slide=len(plan.slides), suggestion="补一页 closing 收束。")
+            _issue(
+                "CLOSING_MISSING",
+                "warn",
+                "最后一页不是结尾页。",
+                slide=len(plan.slides),
+                suggestion="补一页 closing 收束。",
+            )
         )
     if not plan.storyline.strip():
         issues.append(
-            _issue("STORYLINE_MISSING", "info", "没有填写叙事线 storyline。",
-                   suggestion="用一句话写清「现状—问题—方案—行动」的主线。")
+            _issue(
+                "STORYLINE_MISSING",
+                "info",
+                "没有填写叙事线 storyline。",
+                suggestion="用一句话写清「现状—问题—方案—行动」的主线。",
+            )
         )
 
     content_seen: dict[str, int] = {}
@@ -249,8 +263,13 @@ def _slide_issues(slide: DeckSlide, index: int) -> list[DeckIssue]:
         chart = slide.chart
         if not chart.categories or not chart.series:
             issues.append(
-                _issue("CHART_EMPTY", "error", "图表没有类别或系列数据。", slide=index,
-                       suggestion="补数据，或改成 statement 讲结论。")
+                _issue(
+                    "CHART_EMPTY",
+                    "error",
+                    "图表没有类别或系列数据。",
+                    slide=index,
+                    suggestion="补数据，或改成 statement 讲结论。",
+                )
             )
         else:
             bad = [s.name for s in chart.series if len(s.values) != len(chart.categories)]

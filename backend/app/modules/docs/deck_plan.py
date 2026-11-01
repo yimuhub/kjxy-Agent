@@ -545,7 +545,7 @@ def plan_from_doc_model(model: DocModel, *, allow_short: bool = False) -> DeckPl
         slides = _build_slides(model, theme, per_slide=3)
     if len(slides) > MAX_SLIDES:
         slides = slides[: MAX_SLIDES - 1] + [_closing()]
-    fields = {
+    fields: dict[str, Any] = {
         "theme": theme,
         "title": _trim(model.title, MAX_TITLE),
         "subtitle": _trim(model.subject, MAX_KEY_MESSAGE),
@@ -580,8 +580,7 @@ def _slide_texts(slide: DeckSlide) -> list[str]:
     if slide.chart and not slide.chart.is_empty:
         series = slide.chart.series[0]
         pairs = [
-            f"{cat} {val}"
-            for cat, val in zip(slide.chart.categories, series.values, strict=False)
+            f"{cat} {val}" for cat, val in zip(slide.chart.categories, series.values, strict=False)
         ]
         return [f"图表（{slide.chart.type}）：" + "、".join(pairs)]
     if slide.timeline:

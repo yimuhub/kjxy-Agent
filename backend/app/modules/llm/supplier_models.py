@@ -1,4 +1,4 @@
-"""模型供应商 ORM：suppliers + supplier_models + 官方中转通道（v3.33）。
+"""模型供应商 ORM：suppliers + supplier_models + 官方供应商通道（v3.33）。
 
 - suppliers.yard_id 为 NULL 表示全局共享供应商，所有小院可见；
   非空则仅归属小院可见。
@@ -6,8 +6,8 @@
 - yard_active_suppliers：小院级"当前生效供应商"（一小院一行）。
 - supplier_models：一个供应商下的多个模型（不同模态/协议/单价），
   ``suppliers.default_model_id`` 指向默认模型（故意不设 FK，避免循环依赖）。
-- channel_kind：user=用户自建，relay=中转站同步，official=官方通道。
-- relay_channels / official_*：官方与私有 API 中转站、官方套餐/权益/订单/回调幂等。
+- channel_kind：user=用户自建，relay=官方供应商同步，official=官方通道。
+- relay_channels / official_*：官方与私有 API 供应商、官方套餐/权益/订单/回调幂等。
 """
 
 from datetime import datetime
@@ -32,7 +32,7 @@ CHANNEL_KIND_USER = "user"
 CHANNEL_KIND_RELAY = "relay"
 CHANNEL_KIND_OFFICIAL = "official"
 
-#: 官方通道 provider_type（中转站与官方共用同一协议适配）
+#: 官方通道 provider_type（官方供应商与官方共用同一协议适配）
 PROVIDER_TYPE_OFFICIAL_RELAY = "official_relay"
 
 
@@ -63,7 +63,7 @@ class Supplier(Base, TimestampMixin):
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     # v3.33 多模型目录：默认模型行（不设 FK，避免与 supplier_models.supplier_id 循环）
     default_model_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
-    # user=用户自建；relay=中转站同步；official=官方通道（小院只读）
+    # user=用户自建；relay=官方供应商同步；official=官方通道（小院只读）
     channel_kind: Mapped[str] = mapped_column(
         String(16), nullable=False, default=CHANNEL_KIND_USER, server_default=CHANNEL_KIND_USER
     )
@@ -79,9 +79,7 @@ class SupplierModel(Base, TimestampMixin):
     """
 
     __tablename__ = "supplier_models"
-    __table_args__ = (
-        UniqueConstraint("supplier_id", "model_key", name="uq_supplier_models_key"),
-    )
+    __table_args__ = (UniqueConstraint("supplier_id", "model_key", name="uq_supplier_models_key"),)
 
     supplier_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("suppliers.id", ondelete="CASCADE"), nullable=False, index=True
@@ -90,9 +88,7 @@ class SupplierModel(Base, TimestampMixin):
     upstream_model_id: Mapped[str] = mapped_column(String(200), nullable=False)
     display_name: Mapped[str] = mapped_column(String(120), nullable=False, default="")
     # text|image|video|audio|multimodal|embedding|rerank|asr|tts
-    modality: Mapped[str] = mapped_column(
-        String(20), nullable=False, default="text", index=True
-    )
+    modality: Mapped[str] = mapped_column(String(20), nullable=False, default="text", index=True)
     # openai_chat|openai_images|dashscope_image|openai_video|anthropic|gemini|
     # openai_audio|openai_embedding|custom
     protocol: Mapped[str] = mapped_column(String(30), nullable=False, default="openai_chat")
@@ -116,7 +112,7 @@ class SupplierModel(Base, TimestampMixin):
 
 
 class RelayChannel(Base, TimestampMixin):
-    """API 中转站通道：官方（平台级）或私有（小院级）。
+    """API 供应商通道：官方（平台级）或私有（小院级）。
 
     ``yard_id`` 为 NULL = 平台级；官方通道以 ``kind='official'`` + ``enabled``
     作为「官方模型通道已开通」的开关。密钥与回调密钥均为 Fernet 密文。
@@ -126,10 +122,8 @@ class RelayChannel(Base, TimestampMixin):
 
     yard_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(80), nullable=False)
-    # official=官方通道；private=私有中转站
-    kind: Mapped[str] = mapped_column(
-        String(16), nullable=False, default="private", index=True
-    )
+    # official=官方通道；private=私有官方供应商
+    kind: Mapped[str] = mapped_column(String(16), nullable=False, default="private", index=True)
     base_url: Mapped[str] = mapped_column(String(500), nullable=False)
     api_key_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Ed25519 公钥（base64 原始 32 字节或 PEM），配置后目录响应必须带签名
@@ -188,9 +182,7 @@ class OfficialOrder(Base, TimestampMixin):
     """官方模型订单：pending→paid/failed/refunded。金额只由服务端按套餐写入。"""
 
     __tablename__ = "official_orders"
-    __table_args__ = (
-        UniqueConstraint("idempotency_key", name="uq_official_orders_idempotency"),
-    )
+    __table_args__ = (UniqueConstraint("idempotency_key", name="uq_official_orders_idempotency"),)
 
     yard_id: Mapped[str] = mapped_column(String(36), nullable=False)
     user_id: Mapped[str] = mapped_column(String(36), nullable=False)
@@ -211,9 +203,7 @@ class OfficialWebhookEvent(Base):
     """支付回调幂等表：同一 event_id 只处理一次，payload 摘要用于审计比对。"""
 
     __tablename__ = "official_webhook_events"
-    __table_args__ = (
-        UniqueConstraint("event_id", name="uq_official_webhook_events_event_id"),
-    )
+    __table_args__ = (UniqueConstraint("event_id", name="uq_official_webhook_events_event_id"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     event_id: Mapped[str] = mapped_column(String(100), nullable=False)

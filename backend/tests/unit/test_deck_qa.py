@@ -149,9 +149,7 @@ def test_detects_and_repairs_duplicate_titles() -> None:
 
     fixed = repair_deck_plan(broken, report)
     assert fixed.slides[4].title == "建设现状（续）"
-    assert not [
-        issue for issue in qa_deck_plan(fixed).issues if issue.code == "TITLE_DUPLICATE"
-    ]
+    assert not [issue for issue in qa_deck_plan(fixed).issues if issue.code == "TITLE_DUPLICATE"]
 
 
 def test_repairs_long_title_and_too_many_bullets() -> None:

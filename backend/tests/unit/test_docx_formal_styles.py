@@ -5,10 +5,9 @@ from __future__ import annotations
 import io
 import zipfile
 
-from docx import Document
-
 from app.modules.docs.model import parse_model
 from app.modules.docs.render_docx import to_docx
+from docx import Document
 
 EMU_PER_CM = 360_000
 

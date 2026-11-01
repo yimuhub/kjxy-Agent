@@ -1,4 +1,4 @@
-"""供应商多模型目录 + 官方 API 中转站 + 官方模型通道预留（v3.33）
+"""供应商多模型目录 + 官方 API 供应商 + 官方模型通道预留（v3.33）
 
 背景：``suppliers`` 原先只有单列 ``model_id``，一个供应商只能代表一个物理模型。
 本迁移把「模型」提升为一等实体：
@@ -7,10 +7,10 @@
   向量/重排），承载协议、能力位、单价、上下文档位与测试结果；
 - ``suppliers.default_model_id``：供应商默认模型（不设 FK，避免与 supplier_models
   的 supplier_id 形成循环依赖，SQLite 批处理建表顺序也更容易）；
-- ``suppliers.channel_kind`` / ``relay_channel_id``：区分用户自建 / 中转站同步 /
+- ``suppliers.channel_kind`` / ``relay_channel_id``：区分用户自建 / 官方供应商同步 /
   官方通道；
 - ``llm_bindings.supplier_model_id``：绑定可直接指向模型行（保留 model_name 兼容）；
-- ``relay_channels``：官方/私有 API 中转站通道（目录地址、加密密钥、验签公钥）；
+- ``relay_channels``：官方/私有 API 供应商通道（目录地址、加密密钥、验签公钥）；
 - ``official_plans`` / ``official_entitlements`` / ``official_orders`` /
   ``official_webhook_events``：官方模型通道的套餐、权益、订单与支付回调幂等表。
 

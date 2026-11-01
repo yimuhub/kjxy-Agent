@@ -80,12 +80,10 @@ def _webhook(
 ) -> dict:
     raw = json.dumps(payload).encode("utf-8")
     ts = timestamp if timestamp is not None else str(int(datetime.now(UTC).timestamp()))
-    sig = signature if signature is not None else official_service.webhook_signature(
-        secret, ts, raw
+    sig = (
+        signature if signature is not None else official_service.webhook_signature(secret, ts, raw)
     )
-    return official_service.handle_payment_webhook(
-        db, raw_body=raw, signature=sig, timestamp=ts
-    )
+    return official_service.handle_payment_webhook(db, raw_body=raw, signature=sig, timestamp=ts)
 
 
 def test_disabled_by_default_returns_503(db_session):
@@ -119,11 +117,7 @@ def test_trial_can_only_be_used_once(db_session):
         .one()
     )
     assert supplier.provider_type == "official_relay"
-    model = (
-        db_session.query(SupplierModel)
-        .filter(SupplierModel.supplier_id == supplier.id)
-        .one()
-    )
+    model = db_session.query(SupplierModel).filter(SupplierModel.supplier_id == supplier.id).one()
     assert model.source == "official"
     assert model.model_key == plan.model_key
 

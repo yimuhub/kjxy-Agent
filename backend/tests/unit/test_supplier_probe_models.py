@@ -111,3 +111,30 @@ async def test_probe_models_requires_admin(client, yard):
         headers=_hdr(roles=("operator",), yard_id=yard.id),
     )
     assert resp.status_code == 403
+
+
+@pytest.mark.parametrize("provider_type", ["dashscope_image", "openai_video"])
+async def test_probe_models_visual_types_accepted(client, yard, provider_type):
+    """图像/视频通道类型不能再因 Literal 校验直接 422（v3.36 回归）。"""
+    resp = client.post(
+        PROBE,
+        json={"provider_type": provider_type, "base_url": "https://example.com/v1"},
+        headers=_hdr(yard_id=yard.id),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["data"]["source"] == "unsupported"
+
+
+@pytest.mark.parametrize("provider_type", ["openai_images", "official_relay"])
+async def test_probe_models_visual_and_official_types_probe_upstream(client, yard, provider_type):
+    """图像/官方供应商类型与 OpenAI 兼容族一样走 /models 探测。"""
+    supplier_service.set_test_transport(_mock_models(["gpt-image-1"]))
+    resp = client.post(
+        PROBE,
+        json={"provider_type": provider_type, "base_url": "https://example.com/v1"},
+        headers=_hdr(yard_id=yard.id),
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()["data"]
+    assert data["source"] == "remote"
+    assert [m["id"] for m in data["models"]] == ["gpt-image-1"]

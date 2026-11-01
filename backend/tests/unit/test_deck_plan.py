@@ -245,9 +245,7 @@ def test_doc_model_from_plan_keeps_text() -> None:
     plan = parse_deck_plan(_deck())
     model = doc_model_from_plan(plan)
     assert model.title == plan.title
-    text = " ".join(
-        block.text + " ".join(block.items) for block in model.blocks
-    )
+    text = " ".join(block.text + " ".join(block.items) for block in model.blocks)
     assert "培训农户 126 人次" in text
     assert "目录" in text
 

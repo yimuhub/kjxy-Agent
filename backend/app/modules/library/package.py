@@ -150,9 +150,7 @@ def extract_package(data: bytes) -> dict[str, bytes]:
                 _safe_name(entry.filename)
             infos = [info for info in archive.infolist() if not info.is_dir()]
             if len(infos) > MAX_FILES:
-                raise _invalid(
-                    f"包内文件数超过 {MAX_FILES}。", code="LIBRARY_PACKAGE_UNSAFE"
-                )
+                raise _invalid(f"包内文件数超过 {MAX_FILES}。", code="LIBRARY_PACKAGE_UNSAFE")
             for info in infos:
                 _safe_name(info.filename)
                 if _is_symlink(info):
@@ -221,9 +219,7 @@ def _checksum_entries(payload: Any) -> dict[str, str]:
         entries = payload["files"]
     elif isinstance(payload, dict):
         entries = {
-            key: value
-            for key, value in payload.items()
-            if key not in {"algorithm", "generated_at"}
+            key: value for key, value in payload.items() if key not in {"algorithm", "generated_at"}
         }
     else:
         raise _invalid("checksums.json 必须是 JSON 对象。")
@@ -341,7 +337,11 @@ def load_package(data: bytes, public_key_b64: str) -> dict[str, Any]:
         )
     # 除三个元数据文件外，任何未登记文件都视为夹带
     unlisted = sorted(
-        name for name in files if name not in entries and name not in {
+        name
+        for name in files
+        if name not in entries
+        and name
+        not in {
             PACKAGE_MANIFEST,
             CHECKSUMS_FILE,
             SIGNATURE_FILE,

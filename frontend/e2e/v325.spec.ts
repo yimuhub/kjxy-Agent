@@ -102,7 +102,7 @@ test.describe('模型中心与工具目录（v3.25）', () => {
     // 四个页签都在，且模型配置已不在系统设置里
     // v3.26 起「按智能体绑定」升级为「智能体模型」（按 Agent 统一配模型）
     for (const tab of ['供应商', '全局默认与兜底', '按能力绑定', '智能体模型']) {
-      await expect(page.getByRole('tab', { name: tab })).toBeVisible()
+      await expect(page.getByRole('tab', { name: tab, exact: true })).toBeVisible()
     }
     await page.goto('/settings')
     await expect(page.getByRole('tab', { name: '模型配置' })).toHaveCount(0)

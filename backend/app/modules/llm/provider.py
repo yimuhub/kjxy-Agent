@@ -95,7 +95,7 @@ def _cached_supplier_provider(
     with _cache_lock:
         inst = _provider_cache.get(cache_key)
     if inst is None:
-        build_kwargs: dict[str, object] = {"model_override": cache_key[2] or None}
+        build_kwargs: dict[str, Any] = {"model_override": cache_key[2] or None}
         if model_row is not None:
             build_kwargs["model_row"] = model_row
         inst = supplier_service.build_provider_from_supplier(supplier, **build_kwargs)
@@ -125,9 +125,7 @@ def get_provider_candidates() -> list[tuple[LLMProvider, str]]:
         if chain:
             return [
                 (
-                    _cached_supplier_provider(
-                        yard_id, c.supplier, c.model_name, c.supplier_model
-                    ),
+                    _cached_supplier_provider(yard_id, c.supplier, c.model_name, c.supplier_model),
                     c.level,
                 )
                 for c in chain

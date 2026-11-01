@@ -118,9 +118,7 @@ def test_legacy_model_name_still_resolves_to_model_row(db_session):
 
 def test_default_model_id_fallback(db_session):
     supplier = _make_supplier(db_session)
-    first = _add_model(
-        db_session, supplier, model_key="first", upstream_model_id="first-v1"
-    )
+    first = _add_model(db_session, supplier, model_key="first", upstream_model_id="first-v1")
     _add_model(db_session, supplier, model_key="second", upstream_model_id="second-v1")
 
     # 不指定模型：回落到供应商默认模型（首条文本模型）
@@ -137,9 +135,7 @@ def test_default_model_id_fallback(db_session):
 
 def test_deleting_bound_model_returns_409(db_session):
     supplier = _make_supplier(db_session)
-    row = _add_model(
-        db_session, supplier, model_key="bound", upstream_model_id="bound-v1"
-    )
+    row = _add_model(db_session, supplier, model_key="bound", upstream_model_id="bound-v1")
     _bind(
         db_session,
         supplier,
@@ -178,9 +174,7 @@ def test_image_provider_uses_model_row_protocol(db_session):
         BindingsReplace(
             scope_type="purpose",
             scope_key="image_generation",
-            entries=[
-                BindingEntry(supplier_id=supplier.id, supplier_model_id=image_row.id)
-            ],
+            entries=[BindingEntry(supplier_id=supplier.id, supplier_model_id=image_row.id)],
         ),
         is_platform_admin=False,
     )

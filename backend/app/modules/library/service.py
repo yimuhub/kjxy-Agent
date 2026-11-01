@@ -224,9 +224,7 @@ def _fetch(url: str, headers: dict[str, str], fetcher: Fetcher | None) -> FetchR
 # ---------------------------------------------------------------------------
 
 
-def serialize_source(
-    source: LibrarySource, *, can_manage: bool = False
-) -> dict[str, Any]:
+def serialize_source(source: LibrarySource, *, can_manage: bool = False) -> dict[str, Any]:
     fingerprint = crypto.public_key_fingerprint(source.public_key_b64 or "")
     return {
         "id": source.id,
@@ -416,9 +414,7 @@ def create_source(
         else:
             yard_id = ctx.yard_id
 
-    base_url = _require_https(
-        _text(_field(payload, "base_url"), 500), field_name="base_url"
-    )
+    base_url = _require_https(_text(_field(payload, "base_url"), 500), field_name="base_url")
     channel = str(_field(payload, "channel", "stable") or "stable").strip().lower()
     if channel not in ("stable", "beta"):
         raise AppError("LIBRARY_SOURCE_INVALID", "channel 只能是 stable/beta。", http_status=400)
@@ -526,9 +522,7 @@ def delete_source(
 ) -> dict[str, Any]:
     source = _get_source(db, source_id)
     _require_manage_source(source, ctx, is_platform_admin)
-    installs = (
-        db.query(LibraryInstall.id).filter(LibraryInstall.source_id == source.id).count()
-    )
+    installs = db.query(LibraryInstall.id).filter(LibraryInstall.source_id == source.id).count()
     if installs:
         raise AppError(
             "LIBRARY_SOURCE_IN_USE",
@@ -653,9 +647,7 @@ def _validate_item(raw: Any, sequence: int) -> dict[str, Any]:
             http_status=422,
             details={"code": code, "version": version},
         )
-    download_url = _require_https(
-        _text(raw.get("download_url"), 500), field_name="download_url"
-    )
+    download_url = _require_https(_text(raw.get("download_url"), 500), field_name="download_url")
     try:
         size_bytes = int(raw.get("size_bytes") or 0)
     except (TypeError, ValueError) as e:
@@ -979,8 +971,8 @@ def sync_source(
         if sequence <= int(source.sequence or 0) and not force:
             source.status = SOURCE_STATUS_OK
             source.last_error = None
-            source.etag = response.headers.get("etag") or _text(manifest.get("etag"), 200) or (
-                source.etag
+            source.etag = (
+                response.headers.get("etag") or _text(manifest.get("etag"), 200) or (source.etag)
             )
             _record_run(
                 db,
@@ -1004,9 +996,7 @@ def sync_source(
 
         raw_items = manifest.get("items")
         if not isinstance(raw_items, list):
-            raise AppError(
-                "LIBRARY_MANIFEST_INVALID", "清单 items 必须是数组。", http_status=422
-            )
+            raise AppError("LIBRARY_MANIFEST_INVALID", "清单 items 必须是数组。", http_status=422)
         added = 0
         updated = 0
         for raw in raw_items:
@@ -1020,8 +1010,8 @@ def sync_source(
         removed = _apply_revocations(db, source, _revoked_keys(manifest))
 
         source.sequence = sequence
-        source.etag = response.headers.get("etag") or _text(manifest.get("etag"), 200) or (
-            source.etag
+        source.etag = (
+            response.headers.get("etag") or _text(manifest.get("etag"), 200) or (source.etag)
         )
         source.key_id = source.key_id or verification["key_id"]
         source.status = SOURCE_STATUS_OK
@@ -1125,9 +1115,7 @@ def _download_package(
         )
     content = response.content
     if len(content) > MAX_DOWNLOAD_BYTES:
-        raise AppError(
-            "LIBRARY_PACKAGE_TOO_LARGE", "官方包超过 50MB。", http_status=413
-        )
+        raise AppError("LIBRARY_PACKAGE_TOO_LARGE", "官方包超过 50MB。", http_status=413)
     if not content:
         raise AppError("LIBRARY_DOWNLOAD_FAILED", "官方包内容为空。", http_status=502)
     digest = hashlib.sha256(content).hexdigest()
@@ -1568,9 +1556,7 @@ def rollback_item(db: Session, ctx: YardContext, install_id: str) -> dict[str, A
     }
 
 
-def pin_item(
-    db: Session, ctx: YardContext, install_id: str, pinned: bool = True
-) -> dict[str, Any]:
+def pin_item(db: Session, ctx: YardContext, install_id: str, pinned: bool = True) -> dict[str, Any]:
     install = _get_install(db, ctx.yard_id, install_id)
     install.pinned = bool(pinned)
     db.flush()
@@ -1696,9 +1682,7 @@ def list_installs(db: Session, ctx: YardContext) -> dict[str, Any]:
     }
 
 
-def status(
-    db: Session, ctx: YardContext, *, is_platform_admin: bool = False
-) -> dict[str, Any]:
+def status(db: Session, ctx: YardContext, *, is_platform_admin: bool = False) -> dict[str, Any]:
     source_rows = db.query(LibrarySource)
     if not is_platform_admin:
         source_rows = source_rows.filter(
@@ -1714,10 +1698,12 @@ def status(
         and row.status == SOURCE_STATUS_OK
         and row.last_sync_at is not None
     ]
-    last_sync = max(
-        (_aware(row.last_sync_at) for row in sources if row.last_sync_at is not None),
-        default=None,
-    )
+    sync_times: list[datetime] = []
+    for row in sources:
+        aware = _aware(row.last_sync_at)
+        if aware is not None:
+            sync_times.append(aware)
+    last_sync = max(sync_times) if sync_times else None
     recent = (
         db.query(LibrarySyncRun)
         .filter(LibrarySyncRun.source_id.in_([row.id for row in sources] or [""]))
@@ -1727,9 +1713,7 @@ def status(
     )
     return {
         "sources": [
-            serialize_source(
-                row, can_manage=_can_manage_source(row, ctx, is_platform_admin)
-            )
+            serialize_source(row, can_manage=_can_manage_source(row, ctx, is_platform_admin))
             for row in sources
         ],
         "source_count": len(sources),
@@ -1758,9 +1742,7 @@ def status(
     }
 
 
-def apply_auto_updates(
-    db: Session, yard_id: str, fetcher: Fetcher | None = None
-) -> dict[str, Any]:
+def apply_auto_updates(db: Session, yard_id: str, fetcher: Fetcher | None = None) -> dict[str, Any]:
     """自动更新策略：仅 auto_update+未 pin+risk=low 才升级；中高风险只提示。"""
     updated: list[dict[str, Any]] = []
     prompted: list[dict[str, Any]] = []
@@ -1774,9 +1756,7 @@ def apply_auto_updates(
     )
     install_ids = [
         row[0]
-        for row in db.query(LibraryInstall.id)
-        .filter(LibraryInstall.yard_id == yard_id)
-        .all()
+        for row in db.query(LibraryInstall.id).filter(LibraryInstall.yard_id == yard_id).all()
     ]
     for install_id in install_ids:
         install = db.get(LibraryInstall, install_id)

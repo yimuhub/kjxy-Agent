@@ -161,7 +161,7 @@ def _visual_head(db: Session, summary: dict[str, Any], purpose: str) -> dict[str
         return None
     if supplier.provider_type in allowed:
         return head
-    # v3.33：中转站/官方供应商按模型行协议提供视觉能力
+    # v3.33：官方供应商/官方供应商按模型行协议提供视觉能力
     supports_protocol = (
         db.query(SupplierModel)
         .filter(
@@ -321,7 +321,7 @@ def _ensure_visual_suppliers(db: Session, purpose: str, entries: list[Any]) -> N
             continue  # 可见性/存在性由 replace_bindings 统一报错
         if supplier.provider_type in allowed:
             continue
-        # v3.33：中转站/官方供应商的视觉能力由模型行 protocol 决定
+        # v3.33：官方供应商/官方供应商的视觉能力由模型行 protocol 决定
         model_row = (
             db.get(SupplierModel, entry.supplier_model_id)
             if getattr(entry, "supplier_model_id", None)

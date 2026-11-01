@@ -381,9 +381,7 @@ def _setup_section(doc, style: str) -> None:
     section = doc.sections[0]
     section.page_height = Cm(29.7)
     section.page_width = Cm(21.0)
-    top, bottom, left, right = (
-        _OFFICIAL_MARGINS if style == "official_cn" else _DEFAULT_MARGINS
-    )
+    top, bottom, left, right = _OFFICIAL_MARGINS if style == "official_cn" else _DEFAULT_MARGINS
     section.top_margin = Cm(top)
     section.bottom_margin = Cm(bottom)
     section.left_margin = Cm(left)
@@ -512,9 +510,7 @@ def _render_blocks(
     heading_offset = 1 if profile.legacy else 0
     for block in model.blocks:
         if block.type == "heading":
-            text = (
-                numberer.label(block.level, block.text) if numberer is not None else block.text
-            )
+            text = numberer.label(block.level, block.text) if numberer is not None else block.text
             heading = doc.add_heading(text, level=min(block.level + heading_offset, 9))
             if not profile.legacy:
                 font_key = profile.heading_fonts[min(block.level, 3) - 1]

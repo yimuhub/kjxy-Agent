@@ -19,7 +19,9 @@ from __future__ import annotations
 import io
 import math
 import re
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from pptx import Presentation
 from pptx.chart.data import CategoryChartData
@@ -47,8 +49,7 @@ FOOTER_Y = 6.9
 MIN_BODY_PT = 12
 
 _NUMERIC_RE = re.compile(
-    r"^[+-]?[\d,]+(\.\d+)?\s*"
-    r"(%|％|万|亿|元|吨|kg|t|亩|户|台|人|次|小时|天|月|年|MPa|℃)?$"
+    r"^[+-]?[\d,]+(\.\d+)?\s*" r"(%|％|万|亿|元|吨|kg|t|亩|户|台|人|次|小时|天|月|年|MPa|℃)?$"
 )
 
 
@@ -246,9 +247,7 @@ def _paragraph(
 def _solid_rect(
     slide, x: float, y: float, w: float, h: float, *, fill: str, line: str | None = None
 ):
-    shape = slide.shapes.add_shape(
-        MSO_SHAPE.RECTANGLE, Inches(x), Inches(y), Inches(w), Inches(h)
-    )
+    shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(x), Inches(y), Inches(w), Inches(h))
     shape.fill.solid()
     shape.fill.fore_color.rgb = _rgb(fill)
     if line:
@@ -463,9 +462,7 @@ def _agenda(prs, plan: DeckPlan, slide_model: DeckSlide, theme: DeckTheme, page:
             title=True,
             space_after=0,
         )
-        label = _textbox(
-            slide, x + 0.78, y, col_w - 0.78, row_h - 0.1, anchor=MSO_ANCHOR.MIDDLE
-        )
+        label = _textbox(slide, x + 0.78, y, col_w - 0.78, row_h - 0.1, anchor=MSO_ANCHOR.MIDDLE)
         _paragraph(
             label.text_frame,
             _clip_to_width(item, size, col_w - 0.9, 2),
@@ -557,7 +554,7 @@ def _bullets(prs, plan: DeckPlan, slide_model: DeckSlide, theme: DeckTheme, page
     size = _fit_size(items, width, BODY_H - 0.2, theme.bullet)
     dropped = False
     if _block_height(items, size, width, 12) > BODY_H - 0.2:
-        kept = []
+        kept: list[str] = []
         for item in items:
             if _block_height(kept + [item], size, width, 12) <= BODY_H - 0.2:
                 kept.append(item)
@@ -796,9 +793,7 @@ def _table(prs, plan: DeckPlan, slide_model: DeckSlide, theme: DeckTheme, page: 
     for index in range(row_count):
         table.rows[index].height = Inches(row_h)
     text_size = theme.table
-    max_units = max(
-        [_text_units(str(cell)) for row in rows for cell in row] or [0]
-    )
+    max_units = max([_text_units(str(cell)) for row in rows for cell in row] or [0])
     while text_size > 12 and _cell_lines(max_units, text_size, col_w) > 2:
         text_size -= 1
     capacity = int(col_w * 72 / text_size * 2 * 0.95)
@@ -945,9 +940,7 @@ def _process(prs, plan: DeckPlan, slide_model: DeckSlide, theme: DeckTheme, page
             MSO_SHAPE.CHEVRON, Inches(x), Inches(y), Inches(width), Inches(0.95)
         )
         chevron.fill.solid()
-        chevron.fill.fore_color.rgb = _rgb(
-            theme.primary if index % 2 == 0 else theme.secondary
-        )
+        chevron.fill.fore_color.rgb = _rgb(theme.primary if index % 2 == 0 else theme.secondary)
         chevron.line.fill.background()
         chevron.shadow.inherit = False
         chevron.name = "qa:chevron"
@@ -1181,7 +1174,9 @@ def _closing(prs, plan: DeckPlan, slide_model: DeckSlide, theme: DeckTheme, page
     return slide
 
 
-_BUILDERS = {
+_BuildFn = Callable[..., Any]
+
+_BUILDERS: dict[str, _BuildFn] = {
     "cover": _cover,
     "agenda": _agenda,
     "section": _section,
@@ -1205,7 +1200,7 @@ _BUILDERS = {
 # --------------------------------------------------------------------------- #
 
 
-def build_presentation(plan: DeckPlan) -> Presentation:
+def build_presentation(plan: DeckPlan) -> Any:
     """把 DeckPlan 渲染成 Presentation 对象（质检直接检查几何用）。"""
     prs = Presentation()
     prs.slide_width = Inches(SLIDE_W)

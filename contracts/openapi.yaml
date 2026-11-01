@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.36.0
+  version: 3.36.1
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -14320,7 +14320,7 @@ components:
       - name
       - base_url
       title: RelayChannelCreate
-      description: 新建中转站通道：密钥只入参，出参一律打码。
+      description: 新建官方供应商通道：密钥只入参，出参一律打码。
     RelayChannelUpdate:
       properties:
         name:
@@ -15257,6 +15257,17 @@ components:
           - type: 'null'
           title: Models
           description: 模型白名单，逗号分隔；空=全量
+        available_models:
+          anyOf:
+          - items:
+              type: string
+              maxLength: 200
+              minLength: 1
+            type: array
+            maxItems: 200
+          - type: 'null'
+          title: Available Models
+          description: 可用模型（上游物理名）列表
         priority:
           type: integer
           title: Priority
@@ -15678,6 +15689,10 @@ components:
           - custom
           - anthropic
           - gemini
+          - openai_images
+          - dashscope_image
+          - openai_video
+          - official_relay
           title: Provider Type
         base_url:
           type: string
@@ -15797,6 +15812,17 @@ components:
             maxLength: 2000
           - type: 'null'
           title: Models
+        available_models:
+          anyOf:
+          - items:
+              type: string
+              maxLength: 200
+              minLength: 1
+            type: array
+            maxItems: 200
+          - type: 'null'
+          title: Available Models
+          description: 可用模型（上游物理名）列表
         priority:
           anyOf:
           - type: integer

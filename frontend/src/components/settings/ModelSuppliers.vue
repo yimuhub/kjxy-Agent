@@ -315,9 +315,10 @@
               :loading="probing"
               placeholder="填写地址与密钥后自动获取"
               class="model-select"
+              @change="onDefaultModelChange"
             >
               <el-option
-                v-for="m in modelOptions"
+                v-for="m in defaultModelOptions"
                 :key="m.id"
                 :label="m.label"
                 :value="m.id"
@@ -331,7 +332,7 @@
             <el-button
               text
               :loading="probing"
-              @click="probeModels(true)"
+              @click="probeModels()"
             >
               {{ probing ? '获取中' : '刷新列表' }}
             </el-button>
@@ -347,10 +348,53 @@
             class="note"
           >{{ probeMessage }}</span>
         </el-form-item>
+        <el-form-item label="可用模型">
+          <div class="model-checklist">
+            <div class="checklist-toolbar">
+              <span class="note">勾选后随供应商一起导入/启用；取消勾选会停用该模型（不删除已绑定的历史）</span>
+              <span class="checklist-actions">
+                <el-button
+                  text
+                  size="small"
+                  :disabled="!selectableModels.length"
+                  @click="selectAllModels"
+                >
+                  全选
+                </el-button>
+                <el-button
+                  text
+                  size="small"
+                  :disabled="!form.available_models.length"
+                  @click="clearSelectedModels"
+                >
+                  仅保留默认
+                </el-button>
+              </span>
+            </div>
+            <el-checkbox-group
+              v-if="selectableModels.length"
+              v-model="form.available_models"
+              class="model-checklist-group"
+              @change="onAvailableModelsChange"
+            >
+              <el-checkbox
+                v-for="m in selectableModels"
+                :key="m.id"
+                :value="m.id"
+              >
+                {{ m.label }}
+              </el-checkbox>
+            </el-checkbox-group>
+            <span
+              v-else
+              class="note"
+            >填写地址与密钥后自动获取；也可手动填写默认模型，保存时会自动加入可用列表。</span>
+          </div>
+        </el-form-item>
         <el-form-item label="模型白名单">
           <el-input
             v-model="form.models"
-            placeholder="逗号分隔，留空=全量"
+            placeholder="逗号分隔，留空=全量；可用模型勾选后会自动维护"
           />
         </el-form-item>
         <el-form-item label="优先级">
@@ -454,7 +498,7 @@
 
 <script setup lang="ts">
   /** 模型供应商管理（v3.25 从系统设置迁入「模型中心」，逻辑逐字保留）。 */
-  import { onMounted, reactive, ref } from 'vue'
+  import { computed, onMounted, reactive, ref } from 'vue'
   import { Lock } from '@element-plus/icons-vue'
   import { ElMessage, ElMessageBox } from 'element-plus'
   import { extractErrorMessage } from '@/api/client'
@@ -487,6 +531,38 @@
 
   /* 默认模型下拉（v1.3 §A）：填完地址/密钥自动获取上游模型列表 */
   const modelOptions = ref<{ id: string; label: string }[]>([])
+  /** 可用模型复选列表：上游探测结果 + 已落库模型（编辑态） */
+  const selectableModels = computed(() => {
+    const seen = new Set<string>()
+    const out: { id: string; label: string }[] = []
+    for (const item of modelOptions.value) {
+      if (item.id && !seen.has(item.id)) {
+        seen.add(item.id)
+        out.push(item)
+      }
+    }
+    for (const mid of form.available_models) {
+      if (mid && !seen.has(mid)) {
+        seen.add(mid)
+        out.push({ id: mid, label: mid })
+      }
+    }
+    return out
+  })
+  const defaultModelOptions = computed(() => {
+    const seen = new Set<string>()
+    const out: { id: string; label: string }[] = []
+    for (const item of [...selectableModels.value, ...modelOptions.value]) {
+      if (item.id && !seen.has(item.id)) {
+        seen.add(item.id)
+        out.push(item)
+      }
+    }
+    if (form.model_id && !seen.has(form.model_id)) {
+      out.unshift({ id: form.model_id, label: form.model_id })
+    }
+    return out
+  })
   const probing = ref(false)
   const manualModel = ref(false)
   const probeMessage = ref('')
@@ -498,6 +574,7 @@
     model_id: '',
     api_key: '',
     models: '',
+    available_models: [] as string[],
     priority: 0,
     scope: 'yard' as 'yard' | 'global',
     // function-calling 能力位：仅编辑时提交（创建接口不接受该字段）
@@ -506,9 +583,13 @@
     price_out_per_1k: null as number | null,
   })
 
-  async function probeModels(force = false) {
+  async function probeModels() {
     if (probing.value) return
-    if (!force && !form.base_url.trim()) return
+    if (!form.base_url.trim()) {
+      probeMessage.value = '请先填写 Base URL，再获取上游模型列表'
+      manualModel.value = true
+      return
+    }
     probing.value = true
     probeMessage.value = ''
     try {
@@ -525,11 +606,14 @@
       if (editingId.value && !form.api_key.trim()) payload.supplier_id = editingId.value
       else if (form.api_key.trim()) payload.api_key = form.api_key.trim()
       const res = await llmSupplierApi.probeModels(payload)
-      modelOptions.value = res.models
+      mergeModelOptions(res.models)
       if (res.source === 'remote') {
         probeMessage.value = `已获取 ${res.models.length} 个模型`
         manualModel.value = false
         if (!form.model_id && res.models.length) form.model_id = res.models[0].id
+        if (!form.available_models.length && form.model_id) {
+          form.available_models = [form.model_id]
+        }
       } else if (res.source === 'unsupported') {
         probeMessage.value = res.message || '该供应商不支持模型列表，请手动填写'
         manualModel.value = true
@@ -545,9 +629,66 @@
     }
   }
 
+  function mergeModelOptions(models: { id: string; label: string }[]) {
+    const merged = new Map(modelOptions.value.map(item => [item.id, item]))
+    for (const item of models) {
+      if (item.id) merged.set(item.id, item)
+    }
+    modelOptions.value = [...merged.values()]
+  }
+
+  async function loadSupplierModels(supplierId: string) {
+    try {
+      const models = await supplierModelApi.list(supplierId)
+      mergeModelOptions(
+        models
+          .map(m => ({
+            id: m.upstream_model_id || m.model_key || '',
+            label: m.display_name || m.upstream_model_id || m.model_key || '',
+          }))
+          .filter(m => m.id),
+      )
+      const enabled = models
+        .filter(m => Number(m.status ?? 1) === 1)
+        .map(m => m.upstream_model_id || m.model_key || '')
+        .filter(Boolean)
+      if (enabled.length) {
+        form.available_models = [...new Set([form.model_id, ...enabled].filter(Boolean))]
+      }
+    } catch {
+      // 模型明细读不到时保留探测结果与手动输入，不阻塞编辑
+    }
+  }
+
+  function onDefaultModelChange(value: string) {
+    if (value && !form.available_models.includes(value)) {
+      form.available_models = [value, ...form.available_models]
+    }
+  }
+
+  function onAvailableModelsChange(value: Array<string | number | boolean>) {
+    const selected = value.map(item => String(item)).filter(Boolean)
+    form.available_models = selected
+    if (!form.model_id || !selected.includes(form.model_id)) {
+      form.model_id = selected[0] ?? ''
+    }
+  }
+
+  function selectAllModels() {
+    const ids = selectableModels.value.map(item => item.id)
+    form.available_models = ids
+    if (!form.model_id || !ids.includes(form.model_id)) {
+      form.model_id = ids[0] ?? ''
+    }
+  }
+
+  function clearSelectedModels() {
+    form.available_models = form.model_id ? [form.model_id] : []
+  }
+
   /** 地址或密钥失焦时自动触发一次探测（force=false 避免空地址乱请求） */
   function onProbeTrigger() {
-    void probeModels(false)
+    void probeModels()
   }
 
   function typeLabel(t: string): string {
@@ -652,6 +793,7 @@
       model_id: '',
       api_key: '',
       models: '',
+      available_models: [] as string[],
       priority: 0,
       scope: 'yard' as const,
       supports_tools: false,
@@ -693,6 +835,7 @@
       model_id: row.model_id,
       api_key: '',
       models: row.models ?? '',
+      available_models: row.model_id ? [row.model_id] : [],
       priority: row.priority,
       scope: 'yard' as const,
       supports_tools: row.supports_tools ?? false,
@@ -706,8 +849,9 @@
     manualModel.value = false
     probeMessage.value = ''
     dialogVisible.value = true
-    // 编辑态：进表单即自动探测一次（用已存密钥，失败则回落到手动输入）
-    void probeModels(false)
+    // 编辑态：先读已落库模型，再用已存密钥探测一次上游目录
+    void loadSupplierModels(row.id)
+    void probeModels()
   }
 
   async function saveForm() {
@@ -719,6 +863,11 @@
       ElMessage.warning('请填写 API Key')
       return
     }
+    const selectedModels = [
+      ...new Set(
+        [form.model_id.trim(), ...form.available_models.map(id => id.trim())].filter(Boolean),
+      ),
+    ]
     saving.value = true
     try {
       if (editingId.value) {
@@ -728,6 +877,7 @@
           base_url: form.base_url.trim(),
           model_id: form.model_id.trim(),
           models: form.models.trim() || null,
+          available_models: selectedModels,
           priority: form.priority,
           supports_tools: form.supports_tools,
           price_in_per_1k: form.price_in_per_1k,
@@ -744,6 +894,7 @@
           model_id: form.model_id.trim(),
           api_key: form.api_key,
           models: form.models.trim() || undefined,
+          available_models: selectedModels,
           priority: form.priority,
           scope: form.scope,
           price_in_per_1k: form.price_in_per_1k,
@@ -904,5 +1055,30 @@
   .model-select {
     flex: 1;
     min-width: 0;
+  }
+  .model-checklist {
+    width: 100%;
+  }
+  .checklist-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .checklist-actions {
+    display: inline-flex;
+    gap: 4px;
+  }
+  .model-checklist-group {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px 12px;
+    margin-top: 8px;
+    max-height: 220px;
+    overflow-y: auto;
+    padding: 8px;
+    border: 1px solid var(--ds-border);
+    border-radius: 8px;
   }
 </style>

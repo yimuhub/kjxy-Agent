@@ -423,7 +423,7 @@ v3.26 起「按智能体绑定」页签升级为「智能体模型」：一次�
 
 内置工具 `image.generate`（`write_reversible`）：参数同上，返回 `assets[].url` 与 `provider/model/fallback`；对话里可按 `![标题](url)` 直接显示。前端 Markdown 渲染只放行 http(s) 与同源 `/api/v1/growth/posters/...?sig=<32位hex>` 图片地址。
 
-## 多模型供应商与官方中转站（v3.36）
+## 多模型供应商与官方供应商（v3.36）
 
 一个供应商不再只对应一个模型：`suppliers` 描述渠道，`supplier_models` 按行承载同渠道下的文本/图像/视频/多模态/Embedding/ASR 等模型。绑定优先写 `supplier_model_id`，解析链再依次回落模型名、供应商默认模型与旧 `model_id`，旧配置无需迁移即可继续工作。
 
@@ -444,9 +444,9 @@ v3.26 起「按智能体绑定」页签升级为「智能体模型」：一次�
 
 导入格式统一为模型对象数组，核心字段：`model_key`、`upstream_model_id`、`display_name`、`modality`、`protocol`、`input_modalities`、`output_modalities`、`capabilities`、`context_window`、`max_output_tokens`、`endpoint_path`、`pricing`、`default_params`、`limits`。未填 `modality` 时按模型名推断（如 `-vision/-vl` → multimodal、`embedding` → embedding、`whisper/asr` → asr），未知值拒绝并回报行号。
 
-### 官方 / 私有 API 中转站
+### 官方 / 私有 API 供应商
 
-`relay_channels` 描述一个 OpenAI 兼容中转站（`kind=official|private`）：平台可维护全局官方通道，小院可维护自己的私有通道；密钥 Fernet 加密，出参只给掩码。
+`relay_channels` 描述一个 OpenAI 兼容供应商通道（`kind=official|private`）：平台可维护全局官方通道，小院可维护自己的私有通道；密钥 Fernet 加密，出参只给掩码。
 
 | 接口 | 说明 |
 |---|---|
@@ -454,7 +454,7 @@ v3.26 起「按智能体绑定」页签升级为「智能体模型」：一次�
 | `POST /llm/relay/channels` | 新建：`{name, kind, base_url, api_key?, catalog_path?, webhook_secret?}` |
 | `PATCH /llm/relay/channels/{id}` / `DELETE` | 修改/删除；平台级通道仅平台管理员可写 |
 | `POST /llm/relay/channels/{id}/sync` | 拉取 `catalog_path` 的模型目录，同步为 `source=relay` 的供应商与模型；返回新增/更新/跳过计数 |
-| `GET /llm/relay/channels/{id}/models` | 查看该中转站当前目录（与供应商模型同构） |
+| `GET /llm/relay/channels/{id}/models` | 查看该官方供应商当前目录（与供应商模型同构） |
 
 ### 官方模型通道（试用 / 购买预留）
 

@@ -38,6 +38,13 @@ def _actor(
     return user
 
 
+def _yard_id(user: CurrentUser) -> str:
+    """官方通道接口都要求小院上下文；_actor 已校验，这里只是给类型收窄。"""
+    if not user.yard_id:
+        raise AppError("YARD_REQUIRED", "官方模型通道需要小院上下文。", http_status=400)
+    return user.yard_id
+
+
 def _audit(db: Session, user: CurrentUser, action: str, resource_id: str | None, meta: dict):
     log_audit(
         db,
@@ -66,8 +73,8 @@ def list_official_models(
     user: CurrentUser = Depends(_actor),
     db=Depends(get_db_session),
 ):
-    official_service.require_enabled(db, user.yard_id)
-    items = official_service.official_models(db, user.yard_id)
+    official_service.require_enabled(db, _yard_id(user))
+    items = official_service.official_models(db, _yard_id(user))
     return ok([item.model_dump() for item in items])
 
 
@@ -76,7 +83,7 @@ def list_official_plans(
     user: CurrentUser = Depends(_actor),
     db=Depends(get_db_session),
 ):
-    official_service.require_enabled(db, user.yard_id)
+    official_service.require_enabled(db, _yard_id(user))
     plans = official_service.ensure_plans(db)
     return ok([plan.model_dump() for plan in plans])
 
@@ -88,7 +95,7 @@ def create_official_trial(
     db=Depends(get_db_session),
 ):
     try:
-        out = official_service.create_trial(db, user.yard_id, user.user_id, payload)
+        out = official_service.create_trial(db, _yard_id(user), user.user_id, payload)
         _audit(
             db,
             user,
@@ -109,8 +116,8 @@ def list_official_entitlements(
     db=Depends(get_db_session),
     model_key: str | None = None,
 ):
-    official_service.require_enabled(db, user.yard_id)
-    items = official_service.list_entitlements(db, user.yard_id, model_key=model_key)
+    official_service.require_enabled(db, _yard_id(user))
+    items = official_service.list_entitlements(db, _yard_id(user), model_key=model_key)
     return ok([item.model_dump() for item in items])
 
 
@@ -123,7 +130,7 @@ def create_official_order(
     try:
         out = official_service.create_order(
             db,
-            user.yard_id,
+            _yard_id(user),
             user.user_id,
             OfficialTrialBody(model_key=payload.model_key, plan_code=payload.plan_code),
         )
@@ -153,7 +160,7 @@ def get_official_order(
     user: CurrentUser = Depends(_actor),
     db=Depends(get_db_session),
 ):
-    return ok(official_service.get_order(db, user.yard_id, order_id).model_dump())
+    return ok(official_service.get_order(db, _yard_id(user), order_id).model_dump())
 
 
 @router.post("/official/webhooks/payment", response_model=None)

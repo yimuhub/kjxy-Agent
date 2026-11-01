@@ -31,7 +31,7 @@ from app.modules.llm.supplier_crypto import (  # noqa: E402
     mask_api_key,
     reset_fernet_cache,
 )
-from app.modules.llm.supplier_models import Supplier  # noqa: E402,F401 触发建表
+from app.modules.llm.supplier_models import Supplier, SupplierModel  # noqa: E402,F401 触发建表
 from app.modules.llm.supplier_schemas import SupplierCreate, SupplierUpdate  # noqa: E402
 
 YARD = "t-001"
@@ -154,6 +154,111 @@ def test_update_without_key_keeps_old(db_session):
     assert updated.api_key_masked == "sk-t****2345"
     row = db_session.query(Supplier).one()
     assert decrypt_api_key(row.api_key_enc) == TEST_KEY
+
+
+def test_create_with_available_models_imports_rows(db_session):
+    """创建供应商时勾选多个模型：一次性落 supplier_models，默认模型去重置首。"""
+    from app.modules.llm.supplier_schemas import STATUS_ENABLED
+
+    out = supplier_service.create_supplier(
+        db_session,
+        YARD,
+        _payload(
+            model_id="deepseek-chat",
+            available_models=["deepseek-chat", "deepseek-reasoner", "deepseek-chat"],
+        ),
+        is_platform_admin=False,
+    )
+    db_session.commit()
+
+    rows = (
+        db_session.query(SupplierModel)
+        .filter(SupplierModel.supplier_id == out.id)
+        .order_by(SupplierModel.created_at.asc())
+        .all()
+    )
+    assert {r.upstream_model_id for r in rows} == {"deepseek-chat", "deepseek-reasoner"}
+    assert all(r.status == STATUS_ENABLED for r in rows)
+    assert out.model_id == "deepseek-chat"
+    default_row = next(r for r in rows if r.upstream_model_id == "deepseek-chat")
+    assert out.default_model_id == default_row.id
+    assert set((out.models or "").split(",")) == {"deepseek-chat", "deepseek-reasoner"}
+
+
+def test_default_model_always_added_to_available_models(db_session):
+    """默认模型没勾选也要自动补进可用列表，避免默认模型无对应行。"""
+    out = supplier_service.create_supplier(
+        db_session,
+        YARD,
+        _payload(model_id="deepseek-chat", available_models=["deepseek-reasoner"]),
+        is_platform_admin=False,
+    )
+    db_session.commit()
+    names = {
+        r.upstream_model_id
+        for r in db_session.query(SupplierModel).filter(SupplierModel.supplier_id == out.id)
+    }
+    assert names == {"deepseek-chat", "deepseek-reasoner"}
+    assert out.default_model_id is not None
+
+
+def test_update_available_models_adds_and_disables(db_session):
+    """编辑时重新勾选：新增模型落行，取消勾选的旧模型置停用而不是删除。"""
+    from app.modules.llm.supplier_schemas import STATUS_DISABLED, STATUS_ENABLED
+
+    out = supplier_service.create_supplier(
+        db_session,
+        YARD,
+        _payload(model_id="m1", available_models=["m1", "m2"]),
+        is_platform_admin=False,
+    )
+    db_session.commit()
+
+    supplier_service.update_supplier(
+        db_session,
+        YARD,
+        out.id,
+        SupplierUpdate(model_id="m3", available_models=["m1", "m3"]),
+    )
+    db_session.commit()
+
+    rows = {
+        r.upstream_model_id: r
+        for r in db_session.query(SupplierModel).filter(SupplierModel.supplier_id == out.id)
+    }
+    assert set(rows) == {"m1", "m2", "m3"}  # m2 未删除
+    assert rows["m1"].status == STATUS_ENABLED
+    assert rows["m3"].status == STATUS_ENABLED
+    assert rows["m2"].status == STATUS_DISABLED
+
+    refreshed = db_session.query(Supplier).filter(Supplier.id == out.id).one()
+    assert refreshed.model_id == "m3"
+    assert refreshed.default_model_id == rows["m3"].id
+
+
+def test_update_omitting_available_models_keeps_selection(db_session):
+    """不传 available_models 表示不改动已有勾选（兼容旧客户端）。"""
+    from app.modules.llm.supplier_schemas import STATUS_ENABLED
+
+    out = supplier_service.create_supplier(
+        db_session,
+        YARD,
+        _payload(model_id="m1", available_models=["m1", "m2"]),
+        is_platform_admin=False,
+    )
+    db_session.commit()
+
+    supplier_service.update_supplier(db_session, YARD, out.id, SupplierUpdate(priority=3))
+    db_session.commit()
+
+    enabled = {
+        r.upstream_model_id
+        for r in db_session.query(SupplierModel).filter(
+            SupplierModel.supplier_id == out.id,
+            SupplierModel.status == STATUS_ENABLED,
+        )
+    }
+    assert enabled == {"m1", "m2"}
 
 
 def test_delete_removes_row(db_session):
