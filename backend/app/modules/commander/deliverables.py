@@ -225,6 +225,49 @@ def ensure_plan_deliverable(
     return True
 
 
+def compact_for_delivery(plan: dict[str, Any], fmt: str, *, max_content: int = 1) -> bool:
+    """单文件交付：把多个前置内容任务并成一个，避免预算被前置步骤吃光。
+
+    规划模型容易把一个「做 30 页 PPT」拆成「大纲 / 素材 / 视觉规范 / 图表规格 /
+    内容填充 / 交付」六步，前五步各调一次模型，很容易在交付前把 token 预算耗尽，
+    最终一份文件都出不来。这里在**只有一个交付任务**时收敛：
+    前置任务合并为「整理交付内容与素材」，交付任务依赖它。
+
+    返回是否发生了合并。
+    """
+    subtasks = [item for item in plan.get("subtasks") or [] if isinstance(item, dict)]
+    delivery = [item for item in subtasks if subtask_format(item) == fmt]
+    if not delivery:
+        return False
+    # 规划模型常把「设计版式」「终检交付」都写成含 .pptx 的任务，只认最后一个当交付，
+    # 其余按内容任务处理（否则同一份文件会被渲染三遍，白白烧预算）
+    deliver = max(delivery, key=lambda item: int(item.get("seq") or 0))
+    contents = [item for item in subtasks if item is not deliver]
+    if len(contents) <= max_content:
+        return False
+    lines = [
+        f"- {str(item.get('title') or '').strip()}：{str(item.get('instruction') or '').strip()}"
+        for item in contents
+    ]
+    merged = {
+        "seq": 1,
+        "title": "整理交付内容与素材",
+        "instruction": (
+            f"为最终{label(fmt)}一次性准备好内容与素材，按下列要求合并完成：\n"
+            + "\n".join(lines)[:3000]
+            + "\n输出结构化内容（章节/页级要点/可用数据/视觉与图表建议），"
+            "缺数据标注「待补充」，不要生成文件。"
+        ),
+        "expected_output": "结构化内容与素材清单",
+        "agent_hint": "内容整理",
+        "agent_code": "",
+        "depends_on": [],
+    }
+    compacted = {**deliver, "seq": 2, "depends_on": [1]}
+    plan["subtasks"] = [merged, compacted]
+    return True
+
+
 __all__ = [
     "DELIVERABLE_TOOL",
     "FORMAT_EXT",
@@ -232,6 +275,7 @@ __all__ = [
     "SHORT_LABELS",
     "build_task",
     "clean_requirement",
+    "compact_for_delivery",
     "detect",
     "ensure_plan_deliverable",
     "label",

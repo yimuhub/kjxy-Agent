@@ -282,6 +282,12 @@ def plan_message_payload(
         "plan_fallback": bool((run.plan_json or {}).get("fallback")),
         "plan_fallback_reason": str((run.plan_json or {}).get("fallback_reason") or ""),
         "clarify": list((run.plan_json or {}).get("clarify") or []),
+        # 技能优先：把这次命中的技能随计划卡下发，用户能看到「用了哪些技能」
+        "skills": [
+            {"code": str(item.get("code") or ""), "name": str(item.get("name") or "")}
+            for item in (run.plan_json or {}).get("skills") or []
+            if isinstance(item, dict) and item.get("code")
+        ],
         "token_usage": {
             "input_tokens": 0,
             "output_tokens": 0,
@@ -395,6 +401,51 @@ def _unrealizable_plan(text: str, check: feasibility.Assessment) -> dict[str, An
     }
 
 
+def _delivery_format(run: CommanderRun, subtask: Any) -> str | None:
+    """这个子任务是否真的产文件。
+
+    计划里常有多个任务提到 ``.pptx``（设计版式、质量终检…），但真正渲染文件的只有
+    ``plan.deliverable_seq`` 指定的那一个；其余按内容任务执行，避免同一份文件被
+    渲染多遍、把预算烧在重复出片上。
+    """
+    fmt = deliverables.subtask_format(subtask)
+    if not fmt:
+        return None
+    plan = getattr(run, "plan_json", None) or {}
+    target = plan.get("deliverable_seq")
+    if target is None:
+        return fmt
+    try:
+        return fmt if int(getattr(subtask, "seq", 0)) == int(target) else None
+    except (TypeError, ValueError):
+        return fmt
+
+
+def _resolve_plan_skills(
+    db: Session,
+    ctx: YardContext,
+    *,
+    text: str,
+    fmt: str | None,
+    capabilities: list[str],
+) -> list[Any]:
+    """规划前检索技能库：拿不到就返回空，绝不阻塞计划生成。"""
+    from app.modules.market import skill_router
+
+    try:
+        return skill_router.resolve(
+            db,
+            ctx.yard_id,
+            text=text,
+            fmt=fmt,
+            capabilities=capabilities,
+            limit=4,
+        )
+    except Exception as exc:  # noqa: BLE001 —— 技能检索是增强，坏了不能拖垮指挥官
+        log.warning("commander skill resolve failed: %s", exc)
+        return []
+
+
 async def create_plan_run(
     db: Session,
     *,
@@ -431,6 +482,10 @@ async def create_plan_run(
     required_fmt = deliverables.detect(text)
     # 先判能力边界：只有现实不可执行才允许降级；能做的必须做出来
     check = feasibility.assess(text, fmt=required_fmt)
+    # 技能优先：动手之前先检索技能库，命中的技能既进提示词，也写进计划
+    resolved_skills = _resolve_plan_skills(
+        db, ctx, text=text, fmt=required_fmt, capabilities=check.capabilities
+    )
     usage: dict[str, int] = {"input_tokens": 0, "output_tokens": 0}
     repaired = False
     plan_error: str | None = None
@@ -452,6 +507,7 @@ async def create_plan_run(
             settings=settings,
             deliverable=required_fmt,
             capability_hint=feasibility.plan_hint(check),
+            skills_hint="、".join(f"{skill.name}（{skill.code}）" for skill in resolved_skills),
         )
         plan = planner.normalize_plan(raw_plan, max_subtasks=max_subtasks, fallback_goal=text)
 
@@ -541,12 +597,31 @@ async def create_plan_run(
         added = deliverables.ensure_plan_deliverable(
             plan, text, required_fmt, max_subtasks=max_subtasks
         )
+        # 单文件交付：前置任务收敛成一个，别让预算在交付前被前置步骤吃光
+        compacted = deliverables.compact_for_delivery(plan, required_fmt)
+        # 只让最后那个交付任务真的产文件；同格式的前置任务按内容任务执行
+        delivery_seqs = [
+            int(item.get("seq") or 0)
+            for item in plan.get("subtasks") or []
+            if isinstance(item, dict) and deliverables.subtask_format(item) == required_fmt
+        ]
+        if delivery_seqs:
+            plan["deliverable_seq"] = max(delivery_seqs)
         log.info(
-            "commander plan deliverable=%s covered=%s added=%s subtasks=%d",
+            "commander plan deliverable=%s covered=%s added=%s compacted=%s subtasks=%d",
             required_fmt,
             not added,
             added,
+            compacted,
             len(plan.get("subtasks") or []),
+        )
+    # 技能命中结果随计划落库：界面与后续交付都能看到「这次用了哪些技能」
+    if resolved_skills:
+        plan["skills"] = [skill.to_json() for skill in resolved_skills]
+        log.info(
+            "commander skills resolved=%s goal=%s",
+            ",".join(skill.code for skill in resolved_skills),
+            str(plan.get("goal") or "")[:80],
         )
     log.info(
         "commander plan subtasks=%d fallback=%s repaired=%s deliverable=%s goal=%s",
@@ -563,6 +638,7 @@ async def create_plan_run(
         subtasks=plan["subtasks"],
         settings=settings,
         plan_fallback=plan_fallback,
+        plan_skills=[skill.code for skill in resolved_skills],
     )
 
     run = CommanderRun(
@@ -1024,6 +1100,12 @@ async def _deliver_document(
     if material:
         parts.append("请优先使用随附资料中的大纲、结构与数据组织页面，不要只写封面和目录。")
     request_text = "\n\n".join(parts).strip()
+    # 计划里带过来的技能编码：交付阶段即使没有绑定助手也要按技能规范写
+    plan_skills = [
+        str(item.get("code") or "")
+        for item in (getattr(run, "plan_json", None) or {}).get("skills") or []
+        if isinstance(item, dict)
+    ]
     card, note, usage = await document_service.generate_document_from_chat(
         db,
         ctx=ctx,
@@ -1034,6 +1116,7 @@ async def _deliver_document(
         agent_name=str(getattr(agent, "name", "") or "指挥官"),
         agent_persona=str(getattr(agent, "persona_prompt", "") or ""),
         agent_bound_skills=list(getattr(agent, "bound_skills", None) or []),
+        preferred_skill_codes=[code for code in plan_skills if code],
     )
     got = str(card.get("format") or "").strip().lower().lstrip(".")
     if got != fmt:
@@ -1260,7 +1343,7 @@ async def _invoke_agent(
     question = _with_delivery_contract(question)
 
     # 要文件的子任务走确定性文档链路：不依赖上游模型是否会调用工具
-    fmt = deliverables.subtask_format(subtask)
+    fmt = _delivery_format(run, subtask)
     if fmt:
         log.info(
             "commander subtask run=%s seq=%s deliverable=%s executor=doc_pipeline",
@@ -1478,6 +1561,10 @@ async def _run_one(
             failure: _Failure | None = None
             attempt = 0
             timeout_seconds = int(settings["subtask_timeout_seconds"])
+            if _delivery_format(run, subtask):
+                # 文档交付要多次调用模型（大纲 + 分批写页 + 过薄重写），
+                # 按普通子任务的 3 分钟会反复超时、被当成失败重试
+                timeout_seconds = max(timeout_seconds, 600)
 
             while attempt < max_rounds:
                 attempt += 1
@@ -1737,6 +1824,10 @@ async def _schedule(
     inflight: dict[int, asyncio.Task] = {}
     tokens_total = int(run.tokens_total or 0)
     budget = int(settings["token_budget"])
+    # 预算兜底只放行一次交付任务，避免极端情况下反复进入同一分支空转
+    delivery_recovery_used = False
+    # 超时兜底只给交付任务开一次收尾窗口
+    delivery_grace_used = False
     loop = asyncio.get_running_loop()
     deadline = loop.time() + int(settings["run_timeout_seconds"])
 
@@ -1775,19 +1866,76 @@ async def _schedule(
             tokens_total = await _stop_inflight(
                 db, run=run, subtasks=subtasks, inflight=inflight, tokens_total=tokens_total
             )
-            if _mark_unfinished(
+            # 交付任务不因预算被饿死：它是整轮唯一产出，成本有界（页数已受限）
+            pending_delivery = [
+                st
+                for st in subtasks
+                if state.get(int(st.seq)) == SUB_PENDING and _delivery_format(run, st)
+            ]
+            if pending_delivery and not delivery_recovery_used:
+                delivery_recovery_used = True
+                log.warning(
+                    "commander budget reached but delivery pending: tokens=%s budget=%s seq=%s",
+                    tokens_total,
+                    budget,
+                    [int(st.seq) for st in pending_delivery],
+                )
+                delivery_seqs = {int(st.seq) for st in pending_delivery}
+                for st in subtasks:
+                    if int(st.seq) in delivery_seqs:
+                        # 断掉依赖，让交付任务下一轮就能跑（素材缺口由目标本身兜住）
+                        st.depends_on_json = []
+                        db.add(st)
+                        continue
+                    if st.status == SUB_PENDING:
+                        st.status = SUB_SKIPPED
+                        st.error_code = "COMMANDER_BUDGET_EXCEEDED"
+                        st.finished_at = _now()
+                        db.add(st)
+                        _emit_out(st)
+                _safe_commit(db)
+            elif _mark_unfinished(
                 db, subtasks, code="COMMANDER_BUDGET_EXCEEDED", include_running=True
             ):
                 for st in subtasks:
                     if st.status == SUB_SKIPPED and st.error_code == "COMMANDER_BUDGET_EXCEEDED":
                         _emit_out(st)
-            break
+                break
+            else:
+                break
 
         now = loop.time()
         if now >= deadline:
             tokens_total = await _stop_inflight(
                 db, run=run, subtasks=subtasks, inflight=inflight, tokens_total=tokens_total
             )
+            pending_delivery = [
+                st
+                for st in subtasks
+                if state.get(int(st.seq)) == SUB_PENDING and _delivery_format(run, st)
+            ]
+            if pending_delivery and not delivery_grace_used:
+                # 整轮唯一产出还没开始：给它一个单独的收尾窗口，否则前面白跑
+                delivery_grace_used = True
+                deadline = now + max(300, int(settings["subtask_timeout_seconds"]))
+                delivery_seqs = {int(st.seq) for st in pending_delivery}
+                for st in subtasks:
+                    if int(st.seq) in delivery_seqs:
+                        st.depends_on_json = []
+                        db.add(st)
+                    elif st.status == SUB_PENDING:
+                        st.status = SUB_SKIPPED
+                        st.error_code = "COMMANDER_RUN_TIMEOUT"
+                        st.finished_at = _now()
+                        db.add(st)
+                        _emit_out(st)
+                _safe_commit(db)
+                log.warning(
+                    "commander run timeout, delivery grace window opened: seq=%s seconds=%s",
+                    sorted(delivery_seqs),
+                    int(deadline - now),
+                )
+                continue
             if _mark_unfinished(db, subtasks, code="COMMANDER_RUN_TIMEOUT", include_running=True):
                 for st in subtasks:
                     if st.error_code == "COMMANDER_RUN_TIMEOUT":

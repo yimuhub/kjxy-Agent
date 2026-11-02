@@ -461,3 +461,46 @@ def test_subtask_format_ignores_copy_task_mentioning_file():
         "expected_output": ".pptx 文件",
     }
     assert deliverables.subtask_format(build_task) == "pptx"
+
+
+def test_compact_for_delivery_merges_front_steps():
+    """单文件交付：多步前置合并成一步，交付任务只依赖它。"""
+    plan = {
+        "subtasks": [
+            {"seq": 1, "title": "内容大纲", "instruction": "写大纲", "depends_on": []},
+            {"seq": 2, "title": "素材检索", "instruction": "找素材", "depends_on": [1]},
+            {"seq": 3, "title": "视觉设计", "instruction": "定主题", "depends_on": [1]},
+            {
+                "seq": 4,
+                "title": "生成PPT交付物",
+                "instruction": "调用 doc.generate 生成 .pptx 并交付",
+                "expected_output": ".pptx 文件",
+                "depends_on": [1, 2, 3],
+            },
+        ]
+    }
+    assert deliverables.compact_for_delivery(plan, "pptx") is True
+    subtasks = plan["subtasks"]
+    assert len(subtasks) == 2
+    assert subtasks[0]["title"] == "整理交付内容与素材"
+    assert "内容大纲" in subtasks[0]["instruction"]
+    assert "素材检索" in subtasks[0]["instruction"]
+    assert subtasks[1]["title"] == "生成PPT交付物"
+    assert subtasks[1]["depends_on"] == [1]
+
+
+def test_compact_for_delivery_skips_when_already_compact():
+    plan = {
+        "subtasks": [
+            {"seq": 1, "title": "整理内容", "instruction": "整理", "depends_on": []},
+            {
+                "seq": 2,
+                "title": "生成PPT交付物",
+                "instruction": "调用 doc.generate 生成 .pptx 并交付",
+                "expected_output": ".pptx 文件",
+                "depends_on": [1],
+            },
+        ]
+    }
+    assert deliverables.compact_for_delivery(plan, "pptx") is False
+    assert len(plan["subtasks"]) == 2

@@ -628,3 +628,44 @@ def test_ensure_skills_does_not_duplicate_existing(db_session, yard):
     added = matcher._ensure_skills(db_session, agent, ["office_ppt_deck", "office_ppt_design"])
     assert added == ["office_ppt_design"]
     assert agent.bound_skills == ["office_ppt_deck", "office_ppt_design"]
+
+
+def test_ensure_skills_maps_skill_ref_without_yard_filter(db_session, yard):
+    """``skill:<id>`` 写法要能识别为同一技能。
+
+    MarketItem 是平台级目录（没有 yard_id 列），早期实现按 yard 过滤会直接抛
+    ``AttributeError``，把整轮指挥官运行打断在「创建责任人」这一步。
+    """
+    from app.modules.market.models import MarketItem
+
+    db_session.add(
+        MarketItem(
+            item_key="builtin:skill:office_ppt_deck",
+            item_type="skill",
+            source="builtin",
+            code="office_ppt_deck",
+            name="PPT 演示文稿",
+            version="1.0.0",
+            description="演示文稿方法论",
+            license="内部原创",
+            risk_level="low",
+            status="available",
+            definition_json={"name": "PPT 演示文稿", "prompt": "写 PPT"},
+            metadata_json={},
+            verified=True,
+        )
+    )
+    db_session.flush()
+    item_id = db_session.query(MarketItem).filter(MarketItem.code == "office_ppt_deck").one().id
+    agent = _agent(
+        db_session,
+        yard,
+        code="ppt_ref",
+        name="PPT 助手",
+        description="演示文稿",
+        bound_skills=[f"skill:{item_id}"],
+    )
+    added = matcher._ensure_skills(db_session, agent, ["office_ppt_deck", "office_ppt_storyline"])
+    # office_ppt_deck 已通过 skill:<id> 绑定，只补没绑的
+    assert added == ["office_ppt_storyline"]
+    assert agent.bound_skills == [f"skill:{item_id}", "office_ppt_storyline"]

@@ -409,7 +409,9 @@ def _system_prompt() -> str:
         "   options 要覆盖 2–5 个最常见答案，让用户点一下就够；能合理假设就不要问；\n"
         "8. 用户要可下载文件（PPT/Word/Excel/PDF）时，必须有一个交付子任务："
         "instruction 明确写「调用 doc.generate 生成 .pptx 文件」，expected_output "
-        "写文件格式；前面的任务负责收集/整理内容，并作为该任务的依赖；\n"
+        "写文件格式；前面的任务负责收集/整理内容，并作为该任务的依赖；"
+        "用户点名了页数/篇幅（如「30 页」「不少于 20 页」）时，必须把该数量原样写进"
+        "交付子任务的 instruction，并要求逐页落实，不得压缩成几页；\n"
         "9. 文件交付、图片、视频、联网检索、数据分析都在系统能力范围内："
         "不得以「缺少对应助手」「能力不足」为由拒绝或空转，选兵阶段会自动创建责任人；\n"
         "10. 只有需要现实身体动作（吃掉/到场/当面交付）或资金支付时，才拆成"
@@ -430,10 +432,16 @@ def _user_prompt(
     max_subtasks: int,
     deliverable: str | None = None,
     capability_hint: str = "",
+    skills_hint: str = "",
 ) -> str:
     lines = [f"用户目标：{user_content[:CONTEXT_CAP]}"]
     if capability_hint:
         lines.append(f"能力边界：{capability_hint}")
+    if skills_hint:
+        lines.append(
+            f"技能库已匹配技能：{skills_hint}；"
+            "相关子任务必须写明按该技能的方法执行（步骤、版式、质检要求），不要另起一套。"
+        )
     if deliverable:
         lines.append(
             f"必须交付的文件格式：{deliverables.label(deliverable)}"
@@ -517,6 +525,7 @@ async def request_plan(
     settings: dict[str, Any],
     deliverable: str | None = None,
     capability_hint: str = "",
+    skills_hint: str = "",
 ) -> tuple[dict[str, Any] | None, dict[str, int], bool, str | None]:
     """调用规划模型；返回 (原始 JSON, token 用量, 是否走了修复调用, 失败原因)。
 
@@ -535,6 +544,7 @@ async def request_plan(
                 max_subtasks=max_subtasks,
                 deliverable=deliverable,
                 capability_hint=capability_hint,
+                skills_hint=skills_hint,
             ),
         ),
     ]

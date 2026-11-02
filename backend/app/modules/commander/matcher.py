@@ -60,6 +60,13 @@ LLM_RERANK_LIMIT = 8
 LLM_RERANK_MIN_CONFIDENCE = 0.6
 #: 每日自动创建上限的兜底值（设置里已声明，读取失败时用它）
 DEFAULT_DAILY_AGENT_LIMIT = 10
+#: 交付格式 → 同族技能编码前缀（规划期检索到的技能按族并入责任人绑定）
+_PLAN_SKILL_PREFIX: dict[str, str] = {
+    "pptx": "office_ppt_",
+    "docx": "office_",
+    "pdf": "office_",
+    "xlsx": "office_excel",
+}
 
 _WORD_RE = re.compile(r"[a-z0-9_]{2,}")
 _CJK_RE = re.compile(r"[\u4e00-\u9fff]+")
@@ -544,10 +551,9 @@ def _ensure_skills(db: Session, agent: YardAgent, codes: list[str]) -> list[str]
 
     skill_refs = {item for item in bound if item.startswith("skill:")}
     if skill_refs:
+        # MarketItem 是平台级目录（无 yard_id 列），只按 code 取 id 再换算成 skill:<id>
         rows = db.execute(
-            _select(MarketItem.code, MarketItem.id).where(
-                MarketItem.yard_id == agent.yard_id, MarketItem.code.in_(codes)
-            )
+            _select(MarketItem.code, MarketItem.id).where(MarketItem.code.in_(codes))
         ).all()
         already = {code for code, item_id in rows if f"skill:{item_id}" in skill_refs}
     else:
@@ -566,6 +572,7 @@ async def _capability_owner(
     subtask: dict[str, Any],
     settings: dict[str, Any],
     created_today: int,
+    plan_skills: list[str] | None = None,
 ) -> tuple[dict[str, Any] | None, int]:
     """为一个能力型子任务准备常驻责任人：先复用，后创建。
 
@@ -579,6 +586,14 @@ async def _capability_owner(
         " ".join(str(subtask.get(key) or "") for key in ("title", "instruction", "expected_output"))
     )
     skills = feasibility.skill_codes_for(caps)
+    # 规划阶段检索到的同族技能一并绑上（例如 PPT 的叙事/设计/图表/质检/模板）
+    if plan_skills:
+        fmt = deliverables.subtask_format(subtask)
+        prefix = _PLAN_SKILL_PREFIX.get(fmt or "", "")
+        for code in plan_skills:
+            clean = str(code or "").strip()
+            if clean and prefix and clean.startswith(prefix) and clean not in skills:
+                skills.append(clean)
     existing = _owner_by_skills(db, yard_id=ctx.yard_id, user_id=ctx.user_id, skill_codes=skills)
     if existing is not None:
         return (
@@ -644,8 +659,13 @@ async def assign_agents(
     subtasks: list[dict[str, Any]],
     settings: dict[str, Any],
     plan_fallback: bool,
+    plan_skills: list[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """为每个子任务选一个执行者；返回与 subtasks 等长的绑定列表。"""
+    """为每个子任务选一个执行者；返回与 subtasks 等长的绑定列表。
+
+    ``plan_skills``：规划阶段从技能库检索到的技能编码，用于给责任人补齐绑定，
+    让「技能优先」不只停留在提示词里。
+    """
     candidates = match_candidates(db, yard_id=ctx.yard_id, user_id=ctx.user_id)
     stats = agent_stats(db, ctx.yard_id)
     # 兜底规划同样允许补人：降级过的计划更需要一个明确责任人，否则永远补不上能力
@@ -669,6 +689,7 @@ async def assign_agents(
                 subtask=subtask,
                 settings=settings,
                 created_today=created_today,
+                plan_skills=plan_skills,
             )
             created_today += created
             if owner is not None:

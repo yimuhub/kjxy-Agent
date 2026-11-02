@@ -198,12 +198,13 @@ async def test_create_plan_run_repairs_invalid_json_once(db_session, yard, ctx, 
     assert calls["n"] == 2
     assert run.plan_json["fallback"] is False
     assert run.plan_json["plan_repaired"] is True
-    # 用户要 PPT，计划未覆盖交付 → 自动追加第 3 个交付任务
-    assert len(subtasks) == 3
+    # 用户要 PPT，计划未覆盖交付 → 追加交付任务；单文件交付再把前置任务收敛成一个，
+    # 避免多个前置步骤把 token 预算在交付前吃光
+    assert len(subtasks) == 2
+    assert subtasks[0].title == "整理交付内容与素材"
+    assert subtasks[1].title == "生成PPT交付物"
     assert subtasks[1].depends_on_json == [1]
-    assert subtasks[2].title == "生成PPT交付物"
-    assert subtasks[2].depends_on_json == [1, 2]
-    assert subtasks[2].agent_source == "commander"
+    assert subtasks[1].agent_source == "commander"
 
 
 @pytest.mark.asyncio
