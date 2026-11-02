@@ -122,7 +122,7 @@ test.describe('悬浮指挥官伙伴（v3.50）', () => {
     await expect(panel.locator('.msg-row').first()).toBeVisible()
 
     // 换肤：农民伯伯在皮肤循环里，选择会持久化
-    const titleName = panel.locator('.panel-title strong')
+    const titleName = panel.locator('.panel-id strong')
     const skinBefore = await titleName.innerText()
     await panel.getByRole('button', { name: '换肤' }).click()
     const skinAfter = await titleName.innerText()

@@ -576,6 +576,8 @@ export interface CreateSessionPayload {
   title?: string
   target?: ChatTarget
   target_code?: string
+  /** 会话执行模式（v3.51 悬浮伙伴建专属会话时直接指定 commander） */
+  execution_mode?: 'standard' | 'commander'
 }
 
 /**

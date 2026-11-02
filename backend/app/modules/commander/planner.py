@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 from app.core.deps import YardContext
 from app.core.logging import get_logger
 from app.modules.agents.models import YardAgent
-from app.modules.commander import deliverables, prompt_modules
+from app.modules.commander import deliverables, identity, prompt_modules
 from app.modules.llm.schemas import ChatMessage, LLMMetadata, LLMRequest
 from app.modules.llm.service import complete_with_logging
 
@@ -365,13 +365,18 @@ def fallback_plan(
 def visible_published_agents(
     db: Session, *, yard_id: str, user_id: str, limit: int = CATALOG_LIMIT
 ) -> list[YardAgent]:
-    """已发布且当前用户可见的 Agent（public 或本人 private），按最近更新优先。"""
+    """已发布且当前用户可见的 Agent（public 或本人 private），按最近更新优先。
+
+    排除指挥官身份行：它是派单者/兜底执行者，出现在候选目录里只会让规划器
+    把每个子任务都派给「自己」，团队其他助手形同虚设。
+    """
     rows = db.scalars(
         select(YardAgent)
         .where(
             YardAgent.yard_id == yard_id,
             YardAgent.status == "published",
             or_(YardAgent.visibility == "public", YardAgent.created_by == user_id),
+            YardAgent.agent_code != identity.COMMANDER_AGENT_CODE,
         )
         .order_by(YardAgent.updated_at.desc())
         .limit(limit)
@@ -440,9 +445,7 @@ def _core_prompt() -> str:
     )
 
 
-def _system_prompt(
-    persona: str = "balanced", settings: dict[str, Any] | None = None
-) -> str:
+def _system_prompt(persona: str = "balanced", settings: dict[str, Any] | None = None) -> str:
     cfg = settings or {}
     enabled = cfg.get("prompt_modules")
     if not isinstance(enabled, list):
@@ -496,8 +499,7 @@ def _user_prompt(
         )
     if failure_hint:
         lines.append(
-            "失败黑名单（同类场景已知坑，必须规避；不要原样重试）：\n"
-            f"{failure_hint[:1200]}"
+            "失败黑名单（同类场景已知坑，必须规避；不要原样重试）：\n" f"{failure_hint[:1200]}"
         )
     if deliverable:
         lines.append(
@@ -528,7 +530,9 @@ def _metadata(ctx: YardContext, *, task_id: str, purpose: str) -> LLMMetadata:
         task_id=task_id,
         request_id=ctx.request_id,
         purpose=purpose,
-        agent_ref="commander",
+        agent_ref=identity.COMMANDER_AGENT_CODE,
+        # 带上 agent_code 才能吃到模型中心「智能体模型 → 指挥官」这条专属绑定
+        agent_code=identity.COMMANDER_AGENT_CODE,
     )
 
 

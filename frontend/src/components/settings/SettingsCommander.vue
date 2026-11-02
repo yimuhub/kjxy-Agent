@@ -361,6 +361,137 @@
           </el-form-item>
 
           <el-divider content-position="left">
+            技能与工具
+          </el-divider>
+
+          <el-form-item label="挂载概览">
+            <div class="identity-head">
+              <span class="identity-chip identity-chip--skill">
+                技能 {{ identity.skill_count }}/{{ identity.available_skill_count }}
+              </span>
+              <span class="identity-chip identity-chip--tool">
+                工具 {{ identity.tool_count }}/{{ identity.available_tool_count }}
+              </span>
+              <span class="identity-chip identity-chip--model">{{ identityModelLabel }}</span>
+              <el-button
+                size="small"
+                type="primary"
+                plain
+                :disabled="!canManage || identityLoading"
+                :loading="identitySaving"
+                @click="attachAllIdentity"
+              >
+                全部挂上
+              </el-button>
+            </div>
+            <span class="note block-note">
+              指挥官自己就带联网搜索、知识检索、文档/表格/PPT/图片/视频生成、技能生成与自建助手；
+              亲自执行时按子任务取用最相关的 3 项技能规范，其余技能按需检索，不会把提示词撑爆
+            </span>
+          </el-form-item>
+
+          <el-form-item label="技能清单">
+            <BindableExtensionPicker
+              v-model="boundDraft"
+              kind="skill"
+              :options="skillOptions"
+              :stale-codes="staleSkillCodes"
+              :error="extensionsError"
+              :loading="extensionsLoading"
+              empty-text="暂无可绑定的技能，可在「插件与技能库」安装或导入后重试"
+              @retry="loadBindableExtensions"
+            />
+          </el-form-item>
+
+          <el-form-item label="插件清单">
+            <BindableExtensionPicker
+              v-model="boundDraft"
+              kind="plugin"
+              :options="pluginOptions"
+              :stale-codes="stalePluginCodes"
+              :error="extensionsError"
+              :loading="extensionsLoading"
+              empty-text="暂无可绑定的工作流插件"
+              @retry="loadBindableExtensions"
+            />
+          </el-form-item>
+
+          <el-form-item label="工具清单">
+            <div class="tool-toolbar">
+              <el-input
+                v-model="toolKeyword"
+                size="small"
+                clearable
+                placeholder="按名称或说明过滤工具"
+                class="tool-search"
+              />
+              <span class="tool-count">已选 {{ toolDraft.length }}</span>
+              <el-button
+                size="small"
+                link
+                type="primary"
+                :disabled="!canManage || !filteredToolOptions.length"
+                @click="selectAllTools"
+              >
+                全选
+              </el-button>
+              <el-button
+                size="small"
+                link
+                :disabled="!canManage || !toolDraft.length"
+                @click="toolDraft = []"
+              >
+                清空
+              </el-button>
+            </div>
+            <div class="tool-list">
+              <el-checkbox-group
+                v-model="toolDraft"
+                :disabled="!canManage"
+              >
+                <el-checkbox
+                  v-for="item in filteredToolOptions"
+                  :key="item.code"
+                  :value="item.code"
+                  class="tool-item"
+                >
+                  {{ item.name }}
+                  <span class="tool-summary">{{ item.summary }}</span>
+                </el-checkbox>
+              </el-checkbox-group>
+              <p
+                v-if="!filteredToolOptions.length"
+                class="tool-empty"
+              >
+                {{ toolOptions.length ? '没有匹配的工具，换个关键词试试' : '暂无可用工具' }}
+              </p>
+            </div>
+          </el-form-item>
+
+          <el-form-item label-width="0">
+            <el-button
+              type="primary"
+              :disabled="!canManage || !identityDirty"
+              :loading="identitySaving"
+              @click="saveIdentity"
+            >
+              保存技能与工具
+            </el-button>
+            <span
+              v-if="identityDirty"
+              class="note"
+            >
+              有未保存的调整
+            </span>
+            <span
+              v-else-if="identity.status === 'absent'"
+              class="note"
+            >
+              首次让指挥官干活时会自动建立它的身份档案
+            </span>
+          </el-form-item>
+
+          <el-divider content-position="left">
             经验资产
           </el-divider>
 
@@ -471,18 +602,22 @@
   import { ElMessage, ElMessageBox } from 'element-plus'
   import {
     commanderApi,
+    emptyCommanderIdentity,
     emptyCommanderStats,
     normalizeCommanderSettings,
+    type CommanderIdentity,
     type CommanderPromptModule,
     type CommanderSettings,
     type CommanderStats,
   } from '@/api/commander'
+  import { agentsApi, type BindablePlugin, type BindableSkill } from '@/api/v3'
   import { llmSupplierApi, type LlmSupplier } from '@/api/modules'
   import {
     commanderWorkspaceApi,
     type CommanderPromptPreview,
   } from '@/api/commanderWorkspace'
   import AsyncState from '@/components/AsyncState.vue'
+  import BindableExtensionPicker from '@/components/agents/BindableExtensionPicker.vue'
   import SupplierModelSelect from '@/components/settings/SupplierModelSelect.vue'
   import { useAuthStore } from '@/stores/auth'
   import { classifyError, type ViewState } from '@/utils/status'
@@ -509,6 +644,160 @@
   /** 运行概况：独立状态，失败只在本区块显示占位文案 */
   const stats = ref<CommanderStats>(emptyCommanderStats())
   const statsState = ref<'loading' | 'ready' | 'empty' | 'error'>('loading')
+
+  /* ---------- 指挥官技能与工具挂载（v3.51） ---------- */
+  const identity = ref<CommanderIdentity>(emptyCommanderIdentity())
+  /** bound_skills 存储契约：技能与插件共用一份数组（与助手编辑弹窗一致） */
+  const boundDraft = ref<string[]>([])
+  const toolDraft = ref<string[]>([])
+  const toolKeyword = ref('')
+  const bindableSkills = ref<BindableSkill[]>([])
+  const bindablePlugins = ref<BindablePlugin[]>([])
+  const identityLoading = ref(false)
+  const identitySaving = ref(false)
+  const extensionsLoading = ref(false)
+  const extensionsError = ref(false)
+
+  const skillOptions = computed(() =>
+    bindableSkills.value.map(item => ({
+      code: item.code,
+      name: item.name || item.code,
+      summary: item.summary || '',
+      source: item.source,
+      risk: item.risk_level,
+    })),
+  )
+
+  const pluginOptions = computed(() =>
+    bindablePlugins.value.map(item => ({
+      code: item.code,
+      name: item.name || item.code,
+      summary: item.summary || '',
+      source: item.source,
+      risk: item.risk_level,
+    })),
+  )
+
+  /** 已下架的历史绑定：候选集加载失败时不判失效，避免把全部技能标成灰色 */
+  const staleSkillCodes = computed(() => {
+    if (extensionsLoading.value || extensionsError.value) return []
+    const known = new Set(skillOptions.value.map(item => item.code))
+    return boundDraft.value.filter(code => code.startsWith('skill:') && !known.has(code))
+  })
+
+  const stalePluginCodes = computed(() => {
+    if (extensionsLoading.value || extensionsError.value) return []
+    const known = new Set(pluginOptions.value.map(item => item.code))
+    return boundDraft.value.filter(code => code.startsWith('plugin:') && !known.has(code))
+  })
+
+  const toolOptions = computed(() =>
+    identity.value.tools.map(item => ({
+      code: item.code,
+      name: item.name || item.code,
+      summary: item.summary,
+    })),
+  )
+
+  const filteredToolOptions = computed(() => {
+    const keyword = toolKeyword.value.trim().toLowerCase()
+    if (!keyword) return toolOptions.value
+    return toolOptions.value.filter(
+      item =>
+        item.code.toLowerCase().includes(keyword) ||
+        item.name.toLowerCase().includes(keyword) ||
+        item.summary.toLowerCase().includes(keyword),
+    )
+  })
+
+  const identityModelLabel = computed(() => {
+    const model = identity.value.model
+    if (!model.model) return '模型：跟随模型中心'
+    return `模型：${model.supplier_name ? `${model.supplier_name} · ` : ''}${model.model}`
+  })
+
+  /** 与后端已保存清单比对，决定「保存」是否可用 */
+  const identityDirty = computed(() => {
+    const savedSkills = identity.value.skills.map(item => item.code).join(',')
+    const savedTools = identity.value.tools
+      .filter(item => item.bound)
+      .map(item => item.code)
+      .join(',')
+    return boundDraft.value.join(',') !== savedSkills || toolDraft.value.join(',') !== savedTools
+  })
+
+  function applyIdentity(next: CommanderIdentity): void {
+    identity.value = next
+    boundDraft.value = next.skills.map(item => item.code)
+    toolDraft.value = next.tools.filter(item => item.bound).map(item => item.code)
+  }
+
+  async function loadIdentity(): Promise<void> {
+    identityLoading.value = true
+    try {
+      applyIdentity(await commanderApi.getIdentity())
+    } catch {
+      // 取不到就退回空档案：设置页其余部分照常可用
+      applyIdentity(emptyCommanderIdentity())
+    } finally {
+      identityLoading.value = false
+    }
+  }
+
+  async function loadBindableExtensions(): Promise<void> {
+    extensionsLoading.value = true
+    extensionsError.value = false
+    try {
+      const data = await agentsApi.bindableExtensions()
+      bindableSkills.value = data.skills ?? []
+      bindablePlugins.value = data.plugins ?? []
+    } catch {
+      bindableSkills.value = []
+      bindablePlugins.value = []
+      extensionsError.value = true
+    } finally {
+      extensionsLoading.value = false
+    }
+  }
+
+  function selectAllTools(): void {
+    const known = new Set(toolDraft.value)
+    toolDraft.value = [...toolDraft.value, ...filteredToolOptions.value
+      .map(item => item.code)
+      .filter(code => !known.has(code))]
+  }
+
+  async function saveIdentity(): Promise<void> {
+    if (!canManage.value) return
+    identitySaving.value = true
+    try {
+      applyIdentity(
+        await commanderApi.updateIdentity({
+          bound_skills: boundDraft.value,
+          allowed_tools: toolDraft.value,
+        }),
+      )
+      ElMessage.success('指挥官的技能与工具已保存')
+    } catch {
+      /* 错误 toast 已由 client 统一处理 */
+    } finally {
+      identitySaving.value = false
+    }
+  }
+
+  async function attachAllIdentity(): Promise<void> {
+    if (!canManage.value) return
+    identitySaving.value = true
+    try {
+      applyIdentity(await commanderApi.attachAllIdentity())
+      await loadBindableExtensions()
+      ElMessage.success('已把小院当前的技能与工具全部挂给指挥官')
+    } catch {
+      /* 错误 toast 已由 client 统一处理 */
+    } finally {
+      identitySaving.value = false
+    }
+  }
 
   function formatRate(value: number): string {
     if (!Number.isFinite(value) || value <= 0) return '0%'
@@ -600,6 +889,8 @@
   async function loadAll(): Promise<void> {
     state.value = 'loading'
     void loadStats()
+    void loadIdentity()
+    void loadBindableExtensions()
     try {
       const [settings] = await Promise.all([commanderApi.getSettings(), loadSuppliers()])
       Object.assign(cfg, settings)
@@ -688,6 +979,80 @@
     display: block;
     margin: 4px 0 0;
     line-height: 1.6;
+  }
+
+  /* 技能与工具挂载：概览胶囊 + 可滚动清单，沿用运行概况的样式语言 */
+  .identity-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  .identity-chip {
+    padding: 3px 10px;
+    border: 1px solid var(--ds-border-strong);
+    border-radius: var(--ds-radius-pill);
+    background: var(--ds-field);
+    font-size: 12px;
+    color: var(--ds-text-2);
+  }
+  .identity-chip--skill {
+    color: var(--ds-success);
+  }
+  .identity-chip--tool {
+    color: var(--ds-accent-2);
+  }
+  .identity-chip--model {
+    color: var(--ds-accent-text);
+  }
+  .tool-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    margin-bottom: 8px;
+  }
+  .tool-search {
+    max-width: 240px;
+  }
+  .tool-count {
+    font-size: 12px;
+    color: var(--ds-text-3);
+  }
+  .tool-list {
+    width: 100%;
+    max-height: 236px;
+    overflow-y: auto;
+    padding: 10px 12px;
+    border: 1px solid var(--ds-border);
+    border-radius: var(--ds-radius-control);
+    background: var(--ds-field);
+  }
+  .tool-list :deep(.el-checkbox-group) {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 2px 14px;
+  }
+  .tool-item {
+    height: auto;
+    margin-right: 0;
+    padding: 3px 0;
+    align-items: flex-start;
+  }
+  .tool-item :deep(.el-checkbox__label) {
+    white-space: normal;
+    line-height: 1.5;
+    font-size: 12.5px;
+  }
+  .tool-summary {
+    display: block;
+    font-size: 11.5px;
+    color: var(--ds-text-3);
+  }
+  .tool-empty {
+    margin: 2px 0 0;
+    font-size: 12px;
+    color: var(--ds-text-3);
   }
 
   /* 运行概况：只读面板，与表单用细分割线隔开 */

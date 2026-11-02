@@ -36,7 +36,7 @@ const HEALTH_TIMEOUT_SECS: u64 = 90;
 const PET_SKINS: &[&str] = &[
     "sprout", "sunny", "taro", "mochi", "orbit", "ember", "panda", "farmer",
 ];
-const DEFAULT_PET_SKIN: &str = "sprout";
+const DEFAULT_PET_SKIN: &str = "farmer";
 
 struct EngineState {
     child: Mutex<Option<CommandChild>>,

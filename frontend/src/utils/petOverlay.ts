@@ -95,3 +95,88 @@ export function resetPetPos(): void {
     /* 忽略 */
   }
 }
+
+/**
+ * 面板位置与尺寸（v3.51）：伙伴面板既能整体拖走，也能拖边/拖角改大小，
+ * 结果与头像位置一样持久化，并按视口夹取，避免出现比屏幕还大的窗口。
+ */
+export const PET_PANEL_RECT_KEY = 'ky_pet_panel_rect'
+export const PET_PANEL_MIN = { width: 320, height: 360 }
+export const PET_PANEL_MAX = { width: 720, height: 900 }
+
+export interface PetRect {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+function fit(value: number, min: number, ceiling: number): number {
+  const safe = Number.isFinite(value) ? value : min
+  return Math.min(Math.max(safe, min), Math.max(min, ceiling))
+}
+
+/** 夹进视口：尺寸受最小/最大与视口约束，坐标保证整块可见 */
+export function clampPetRect(rect: PetRect, viewportWidth: number, viewportHeight: number): PetRect {
+  const width = fit(rect.width, PET_PANEL_MIN.width, Math.min(PET_PANEL_MAX.width, viewportWidth - PET_OVERLAY_MARGIN * 2))
+  const height = fit(rect.height, PET_PANEL_MIN.height, Math.min(PET_PANEL_MAX.height, viewportHeight - PET_OVERLAY_MARGIN * 2))
+  return {
+    width,
+    height,
+    x: fit(rect.x, PET_OVERLAY_MARGIN, Math.max(PET_OVERLAY_MARGIN, viewportWidth - width - PET_OVERLAY_MARGIN)),
+    y: fit(rect.y, PET_OVERLAY_MARGIN, Math.max(PET_OVERLAY_MARGIN, viewportHeight - height - PET_OVERLAY_MARGIN)),
+  }
+}
+
+/** 默认面板：贴在头像左上方，放不下时向视口内收 */
+export function defaultPetPanelRect(
+  anchor: PetPos,
+  viewportWidth: number,
+  viewportHeight: number,
+): PetRect {
+  return clampPetRect(
+    {
+      x: anchor.x + PET_OVERLAY_SIZE.width - 380,
+      y: anchor.y - 540 - 10,
+      width: 380,
+      height: 540,
+    },
+    viewportWidth,
+    viewportHeight,
+  )
+}
+
+export function readPetPanelRect(): PetRect | null {
+  try {
+    const raw = localStorage.getItem(PET_PANEL_RECT_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<PetRect>
+    if (
+      typeof parsed?.x !== 'number' ||
+      typeof parsed?.y !== 'number' ||
+      typeof parsed?.width !== 'number' ||
+      typeof parsed?.height !== 'number'
+    ) {
+      return null
+    }
+    return { x: parsed.x, y: parsed.y, width: parsed.width, height: parsed.height }
+  } catch {
+    return null
+  }
+}
+
+export function writePetPanelRect(rect: PetRect): void {
+  try {
+    localStorage.setItem(PET_PANEL_RECT_KEY, JSON.stringify(rect))
+  } catch {
+    /* 写不进去只影响下次打开时的默认位置 */
+  }
+}
+
+export function resetPetPanelRect(): void {
+  try {
+    localStorage.removeItem(PET_PANEL_RECT_KEY)
+  } catch {
+    /* 忽略 */
+  }
+}

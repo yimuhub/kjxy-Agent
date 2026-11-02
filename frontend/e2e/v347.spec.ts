@@ -14,8 +14,8 @@ test.describe('桌面伙伴与皮肤（v3.47）', () => {
 
     const petPage = page.locator('.pet-page')
     await expect(petPage).toBeVisible()
-    await expect(petPage.locator('.pet-svg')).toBeVisible()
-    await expect(petPage.locator('.pet-name')).toContainText('小芽')
+    await expect(petPage.locator('.pet-figure')).toBeVisible()
+    await expect(petPage.locator('.pet-name')).toContainText('田伯')
     await expect(petPage.locator('.pet-hint')).toContainText('左键呼出工作台')
     await expect(petPage.locator('.pet-bubble')).toContainText(/想先做哪件事|换衣服|呼出工作台|角落|换位置/)
 
@@ -29,6 +29,7 @@ test.describe('桌面伙伴与皮肤（v3.47）', () => {
 
     await panel.locator('.skin-chip', { hasText: '团子' }).click()
     await expect(petPage.locator('.pet-name')).toContainText('团子')
+    await expect(petPage.locator('.pet-svg')).toBeVisible()
     const stored = await page.evaluate(() => localStorage.getItem('ky_pet_skin'))
     expect(stored).toBe('panda')
 

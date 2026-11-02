@@ -22,6 +22,7 @@ from app.core.responses import ok
 from app.modules.audit.service import log_audit
 from app.modules.commander import (
     evaluator,
+    identity,
     learning,
     metrics,
     planner,
@@ -125,6 +126,15 @@ class IterationRunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     month: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}$")
+
+
+class IdentityUpdateRequest(BaseModel):
+    """指挥官技能/工具清单；不传表示这一侧不改动。"""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    bound_skills: list[str] | None = Field(default=None, max_length=500)
+    allowed_tools: list[str] | None = Field(default=None, max_length=200)
 
 
 def _is_manager(ctx: YardContext) -> bool:
@@ -236,6 +246,66 @@ def commander_overview(
         },
         request,
     )
+
+
+@router.get("/identity")
+def commander_identity(
+    request: Request,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+):
+    """指挥官是谁、挂了哪些技能与工具、现在解析到哪个大模型。"""
+    ctx = _ctx(user)
+    return ok(identity.identity_payload(db, yard_id=ctx.yard_id), request)
+
+
+@router.put("/identity")
+def update_commander_identity(
+    body: IdentityUpdateRequest,
+    request: Request,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+):
+    """裁剪指挥官的技能与工具清单（与助手编辑同口径校验未知编码）。"""
+    ctx = _ctx(user)
+    _require_manager(ctx, "仅小院负责人或管理员可调整指挥官的技能与工具。")
+    payload = identity.set_bindings(
+        db,
+        yard_id=ctx.yard_id,
+        actor_id=ctx.user_id,
+        request_id=ctx.request_id,
+        bound_skills=body.bound_skills,
+        allowed_tools=body.allowed_tools,
+    )
+    return ok(payload, request)
+
+
+@router.post("/identity/attach-all")
+def attach_all_commander_identity(
+    request: Request,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+):
+    """把小院当前的全部技能与工具重新挂回指挥官（技能库扩容后的一键补齐）。"""
+    ctx = _ctx(user)
+    _require_manager(ctx, "仅小院负责人或管理员可调整指挥官的技能与工具。")
+    row = identity.attach_all_bindings(db, yard_id=ctx.yard_id, actor_id=ctx.user_id)
+    log_audit(
+        db,
+        yard_id=ctx.yard_id,
+        actor_id=ctx.user_id,
+        action="commander_identity_attached_all",
+        resource_type="agent",
+        resource_id=row.id if row else None,
+        result="success",
+        request_id=ctx.request_id,
+        metadata={
+            "skill_count": len(row.bound_skills or []) if row else 0,
+            "tool_count": len(row.allowed_tools or []) if row else 0,
+        },
+    )
+    db.commit()
+    return ok(identity.identity_payload(db, yard_id=ctx.yard_id), request)
 
 
 @router.get("/evaluations")

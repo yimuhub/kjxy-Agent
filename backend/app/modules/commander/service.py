@@ -53,7 +53,14 @@ from app.modules.agents.models import (
 )
 from app.modules.audit.service import log_audit
 from app.modules.chat import models as chat_models
-from app.modules.commander import deliverables, feasibility, learning, matcher, planner
+from app.modules.commander import (
+    deliverables,
+    feasibility,
+    identity,
+    learning,
+    matcher,
+    planner,
+)
 from app.modules.commander import settings as commander_settings
 from app.modules.commander.models import (
     RUN_CANCELLED,
@@ -494,6 +501,13 @@ async def create_plan_run(
         raise AppError(ERR_RUN_NOT_FOUND, "会话不存在或无权访问。", http_status=404)
     # 完全控制继承：run 快照创建时会话的授权模式，执行器不随时间漂移
     approval_mode = str(getattr(session, "approval_mode", None) or "ask")
+
+    # 指挥官身份行：设置页/模型中心与亲自执行都读它。建号失败不阻塞本轮——
+    # build_executor_agent 会退回临时执行器（全部已注册工具）
+    try:
+        identity.ensure_commander_agent(db, yard_id=ctx.yard_id, actor_id=ctx.user_id)
+    except Exception as exc:  # noqa: BLE001 - 身份行是增强，坏了不能拖垮计划
+        log.warning("commander identity row failed: %s", exc)
 
     catalog_agents = planner.visible_published_agents(db, yard_id=ctx.yard_id, user_id=ctx.user_id)
     max_subtasks = int(settings["max_subtasks"])
@@ -1297,43 +1311,6 @@ async def _commander_answer(
     }
 
 
-def _self_executor_agent(ctx: YardContext, *, allow_doc_tool: bool = True) -> YardAgent:
-    """指挥官亲自执行时的临时执行器：带全部已注册工具，不再反问用户。
-
-    不是长期 Agent：只在本次子任务里构造，不落 yard_agents 表；工具体系仍按
-    ctx.approval_mode 走风险闸——完全控制直接执行，其余模式高风险工具仍会拦截。
-    ``allow_doc_tool=False`` 用于非交付子任务：避免「整理大纲」被自作主张生成文件。
-    """
-    from app.modules.tools.registry import tool_registry
-
-    tools = {str(getattr(tool, "code", "") or "") for tool in tool_registry.list_tools()}
-    if not allow_doc_tool:
-        tools.discard("doc.generate")
-    return YardAgent(
-        id=f"commander-self-{ctx.yard_id[:8]}",
-        yard_id=ctx.yard_id,
-        agent_code="commander_executor",
-        name="指挥官（亲自执行）",
-        description="指挥官兜底执行器：自带可用工具，必要时联网搜索、抓取与生成文档",
-        emoji="🧭",
-        persona_prompt=(
-            "你是「指挥官」的兜底执行器。目标是**把任务做完并交付成品**，不是向用户提问。"
-            "优先调用工具获取事实（联网搜索/网页抓取/知识检索/文档生成）；"
-            "某个工具失败就换一种方法继续；确实无法完成时，明确说明缺少的具体能力，"
-            "不要编造结果，也不要把问题抛回给用户。"
-        ),
-        task_prompt_template="完成任务：{{question}}",
-        allowed_tools=sorted(code for code in tools if code),
-        bound_skills=[],
-        knowledge_scopes=[],
-        status="published",
-        visibility="private",
-        created_by=ctx.user_id,
-        created_from="commander",
-        version=1,
-    )
-
-
 async def _commander_tool_answer(
     db: Session,
     *,
@@ -1344,13 +1321,22 @@ async def _commander_tool_answer(
     settings: dict[str, Any],
     allow_doc_tool: bool = True,
 ) -> dict[str, Any]:
-    """指挥官自执行：优先走声明式工具循环；工具链不可用时退回纯答复。"""
+    """指挥官自执行：优先走声明式工具循环；工具链不可用时退回纯答复。
+
+    执行器取指挥官身份行（``yard_agents.agent_code="commander"``）的技能与工具清单，
+    因此「联网搜索 / 自建助手 / 文档生成」这些能力挂在指挥官自己身上；身份行缺失时
+    ``build_executor_agent`` 退回全部已注册工具。工具体系仍按 ctx.approval_mode 走
+    风险闸——完全控制直接执行，其余模式高风险工具仍会拦截。
+    ``allow_doc_tool=False`` 用于非交付子任务：避免「整理大纲」被自作主张生成文件。
+    """
     from app.modules.agents import declarative
 
     try:
         result = await declarative.run_declarative_agent(
             db,
-            agent=_self_executor_agent(ctx, allow_doc_tool=allow_doc_tool),
+            agent=identity.build_executor_agent(
+                db, ctx=ctx, question=question, allow_doc_tool=allow_doc_tool
+            ),
             input_data={"question": question},
             ctx=ctx,
             task_id=f"cmd-self-{run.id[:10]}-{subtask.seq}-{uuid.uuid4().hex[:6]}",

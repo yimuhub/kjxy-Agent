@@ -349,16 +349,19 @@ def test_dependency_context_skips_empty_refusals(env):
     assert "空手而归" not in context
 
 
-def test_self_executor_hides_doc_tool_for_non_deliverable():
+def test_self_executor_hides_doc_tool_for_non_deliverable(db_session):
+    """无身份行时的兜底执行器：仍带全部已注册工具，非交付子任务不给 doc.generate。"""
+    from app.modules.commander import identity
     from app.modules.docs.tool import register_doc_generate_tool
 
     register_doc_generate_tool()
     ctx = YardContext(yard_id="yard-x", user_id="u-x", roles=[], request_id="r-x")
-    assert "doc.generate" in commander_service._self_executor_agent(ctx).allowed_tools
-    assert (
-        "doc.generate"
-        not in commander_service._self_executor_agent(ctx, allow_doc_tool=False).allowed_tools
+    full = identity.build_executor_agent(db_session, ctx=ctx, question="先写一版大纲")
+    assert "doc.generate" in full.allowed_tools
+    hidden = identity.build_executor_agent(
+        db_session, ctx=ctx, question="先写一版大纲", allow_doc_tool=False
     )
+    assert "doc.generate" not in hidden.allowed_tools
 
 
 @pytest.mark.asyncio

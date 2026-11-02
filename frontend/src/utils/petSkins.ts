@@ -12,11 +12,35 @@ export type PetSkinId =
 
 export type PetEars = 'leaf' | 'round' | 'cat' | 'rabbit' | 'helmet' | 'fox' | 'panda' | 'straw'
 
+/** 形象类型：pet 是圆滚滚的小兽，human 是拟人化小人（农民指挥官） */
+export type PetFigure = 'pet' | 'human'
+
+/** 人形皮肤的分层配色（脸/衣/裤/草帽/农具），缺省回落到皮肤主色 */
+export interface PetHumanPalette {
+  skin: string
+  skinDark: string
+  shirt: string
+  pants: string
+  pantsDark: string
+  hat: string
+  hatDark: string
+  band: string
+  shoe: string
+  handle: string
+  metal: string
+  towel: string
+  hair: string
+  mouth: string
+  sweat: string
+  line: string
+}
+
 export interface PetSkin {
   id: PetSkinId
   name: string
   tagline: string
   ears: PetEars
+  figure: PetFigure
   emoji: string
   body: string
   bodyDark: string
@@ -24,6 +48,7 @@ export interface PetSkin {
   ear: string
   cheek: string
   accent: string
+  human?: PetHumanPalette
 }
 
 export const PET_SKINS: PetSkin[] = [
@@ -32,6 +57,7 @@ export const PET_SKINS: PetSkin[] = [
     name: '小芽',
     tagline: '每天长高一点点',
     ears: 'leaf',
+    figure: 'pet',
     emoji: '🌱',
     body: '#8fd6a8',
     bodyDark: '#5fb783',
@@ -45,6 +71,7 @@ export const PET_SKINS: PetSkin[] = [
     name: '向日',
     tagline: '朝着有光的地方',
     ears: 'round',
+    figure: 'pet',
     emoji: '🌻',
     body: '#f8cd72',
     bodyDark: '#e5aa3d',
@@ -58,6 +85,7 @@ export const PET_SKINS: PetSkin[] = [
     name: '芋泥',
     tagline: '慢一点也没关系',
     ears: 'cat',
+    figure: 'pet',
     emoji: '🍠',
     body: '#bda9ea',
     bodyDark: '#937bd6',
@@ -71,6 +99,7 @@ export const PET_SKINS: PetSkin[] = [
     name: '糯米',
     tagline: '软乎乎地陪着你',
     ears: 'rabbit',
+    figure: 'pet',
     emoji: '🍡',
     body: '#f6bdcc',
     bodyDark: '#e58ea9',
@@ -84,6 +113,7 @@ export const PET_SKINS: PetSkin[] = [
     name: '小轨',
     tagline: '把复杂留给系统',
     ears: 'helmet',
+    figure: 'pet',
     emoji: '🚀',
     body: '#95c0ee',
     bodyDark: '#6398d8',
@@ -97,6 +127,7 @@ export const PET_SKINS: PetSkin[] = [
     name: '小火',
     tagline: '今天也要有干劲',
     ears: 'fox',
+    figure: 'pet',
     emoji: '🔥',
     body: '#f4a273',
     bodyDark: '#df7a45',
@@ -110,6 +141,7 @@ export const PET_SKINS: PetSkin[] = [
     name: '团子',
     tagline: '稳住，我们能赢',
     ears: 'panda',
+    figure: 'pet',
     emoji: '🎋',
     body: '#f3f4f6',
     bodyDark: '#d6dae0',
@@ -123,6 +155,7 @@ export const PET_SKINS: PetSkin[] = [
     name: '田伯',
     tagline: '地里的事交给我',
     ears: 'straw',
+    figure: 'human',
     emoji: '🌾',
     body: '#d99a5b',
     bodyDark: '#b87b3d',
@@ -130,10 +163,28 @@ export const PET_SKINS: PetSkin[] = [
     ear: '#c9973f',
     cheek: '#e0886f',
     accent: '#6b8f4e',
+    human: {
+      skin: '#e8b47f',
+      skinDark: '#d19a63',
+      shirt: '#8fb6d9',
+      pants: '#5f7f4c',
+      pantsDark: '#4c6a3e',
+      hat: '#d8a944',
+      hatDark: '#a87c2c',
+      band: '#6b8f4e',
+      shoe: '#6b5138',
+      handle: '#9c7245',
+      metal: '#a8b2bd',
+      towel: '#f6f1e5',
+      hair: '#4a3a2c',
+      mouth: '#a8514a',
+      sweat: '#bfe3ff',
+      line: '#33291f',
+    },
   },
 ]
 
-export const DEFAULT_PET_SKIN: PetSkinId = 'sprout'
+export const DEFAULT_PET_SKIN: PetSkinId = 'farmer'
 export const PET_SKIN_STORAGE_KEY = 'ky_pet_skin'
 export const PET_ENABLED_STORAGE_KEY = 'ky_pet_enabled'
 

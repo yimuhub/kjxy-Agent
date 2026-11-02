@@ -234,6 +234,18 @@ def _visible_filter(user_id: str):
     return or_(YardAgent.visibility == "public", YardAgent.created_by == user_id)
 
 
+def _not_commander():
+    """指挥官身份行不参与选兵候选。
+
+    它挂了全院技能与工具，任何子任务都会以最高分命中它——一旦成为候选，
+    团队里其他助手会被架空，规划器看到的「候选目录」也只剩自己。
+    它的用武之地是派单与「无合适助手时亲自执行」（见 identity.build_executor_agent）。
+    """
+    from app.modules.commander import identity
+
+    return YardAgent.agent_code != identity.COMMANDER_AGENT_CODE
+
+
 def match_candidates(db: Session, *, yard_id: str, user_id: str) -> list[YardAgent]:
     rows = db.scalars(
         select(YardAgent)
@@ -241,6 +253,7 @@ def match_candidates(db: Session, *, yard_id: str, user_id: str) -> list[YardAge
             YardAgent.yard_id == yard_id,
             YardAgent.status == "published",
             _visible_filter(user_id),
+            _not_commander(),
         )
         .order_by(YardAgent.updated_at.desc())
     )
@@ -257,6 +270,8 @@ def lookup_by_code(db: Session, *, yard_id: str, user_id: str, agent_code: str) 
             YardAgent.agent_code == agent_code,
             YardAgent.status == "published",
             _visible_filter(user_id),
+            # 计划点名「commander」走 executor=commander 的自执行通道，不当作普通助手
+            _not_commander(),
         )
         .order_by(YardAgent.updated_at.desc())
         .limit(1)
@@ -384,6 +399,7 @@ def find_similar_agent(db: Session, *, yard_id: str, user_id: str, text: str) ->
             YardAgent.created_from == CREATED_FROM_COMMANDER,
             YardAgent.created_at >= cutoff,
             _visible_filter(user_id),
+            _not_commander(),
         )
         .order_by(YardAgent.updated_at.desc())
         .limit(REUSE_SCAN_LIMIT)
@@ -524,6 +540,7 @@ def _owner_by_skills(
             YardAgent.yard_id == yard_id,
             YardAgent.status == "published",
             or_(YardAgent.visibility == "public", YardAgent.created_by == user_id),
+            _not_commander(),
         )
         .order_by(YardAgent.updated_at.desc())
         .limit(REUSE_SCAN_LIMIT)

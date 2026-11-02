@@ -477,7 +477,7 @@
             v-if="store.isGroup"
             v-model="policyModel"
             :disabled="store.sending"
-            :block-reason="blockedReason"
+            :block-reason="sendBlockText"
           />
         </template>
         <!-- 本轮点名提示条：比把 @ 文本硬塞进正文更好回收 -->
@@ -721,9 +721,9 @@
                 <button
                   class="send-btn"
                   :class="{ stop: store.sending }"
-                  :disabled="store.sending || !draft.trim() || !!blockedReason"
-                  :title="blockedReason || (store.sending ? '回答生成中' : '发送')"
-                  :aria-label="blockedReason || (store.sending ? '回答生成中' : '发送')"
+                  :disabled="store.sending || !draft.trim() || !!sendBlockText"
+                  :title="sendBlockText || (store.sending ? '回答生成中' : '发送')"
+                  :aria-label="sendBlockText || (store.sending ? '回答生成中' : '发送')"
                   @click="onSend"
                 >
                   <el-icon>
@@ -738,15 +738,15 @@
       </div>
 
       <p
-        v-if="blockedReason"
+        v-if="sendBlockText"
         class="send-block"
         :style="{ maxWidth }"
         role="alert"
       >
-        {{ blockedReason }}
+        {{ sendBlockText }}
       </p>
       <p
-        v-else-if="qaMode || (commanderVisible && executionMode === 'commander')"
+        v-else-if="qaMode || sendExecutionMode === 'commander'"
         class="composer-caption"
         :style="{ maxWidth }"
       >
@@ -1012,6 +1012,8 @@
       qaMode?: boolean
       /** 显示「普通 / 指挥官」执行模式切换（v3.38） */
       commanderToggle?: boolean
+      /** 只有指挥官一种模式：不显示切换控件，但每轮都强制带 execution_mode=commander（v3.51 悬浮伙伴） */
+      commanderOnly?: boolean
       /** 指挥官总开关：关闭后不显示模式切换 */
       commanderEnabled?: boolean
       /** 新会话默认执行模式（来自指挥官设置 default_mode） */
@@ -1040,6 +1042,7 @@
       qaToggle: false,
       qaMode: false,
       commanderToggle: false,
+      commanderOnly: false,
       commanderEnabled: true,
       defaultExecutionMode: 'standard',
       defaultPreviewPlan: true,
@@ -1208,13 +1211,24 @@
   /**
    * 执行模式切换的可见性：只在单聊、非班组、未锁定助手的会话出现。
    * 群聊（participants>0）和锁定会话各有自己的路由语义，混进指挥官会互相打架。
+   * commanderOnly（悬浮伙伴）永不出现控件——它只有「指挥官」一个身份。
    */
   const commanderVisible = computed(() => {
-    if (!props.commanderToggle || !props.commanderEnabled) return false
+    if (props.commanderOnly || !props.commanderToggle || !props.commanderEnabled) return false
     if (props.qaMode || locked.value) return false
     if ((props.store.activeSession?.participant_count ?? 0) > 0) return false
     if (props.store.sessionLocked || props.store.isGroup) return false
     return props.store.activeSession?.target !== 'team'
+  })
+
+  /**
+   * 实际下发给后端的执行模式：
+   * commanderOnly 恒为 commander（藏起控件不等于放弃指挥官链路），
+   * 其余面板沿用控件当前值，控件不可见时不带该字段。
+   */
+  const sendExecutionMode = computed<ExecutionMode | null>(() => {
+    if (props.commanderOnly) return props.commanderEnabled ? 'commander' : null
+    return commanderVisible.value ? executionMode.value : null
   })
 
   /**
@@ -1276,6 +1290,17 @@
   }
 
   const blockedReason = computed(() => props.store.sendBlockReason)
+  /**
+   * 悬浮伙伴只有「指挥官」一个身份：指挥官被关闭时直接禁发并说明原因，
+   * 而不是悄悄降级成普通对话（用户明确要求不出现第二种模式）。
+   */
+  const sendBlockText = computed(
+    () =>
+      blockedReason.value ||
+      (props.commanderOnly && !props.commanderEnabled
+        ? '指挥官功能已在「系统设置 → 指挥官」中关闭，伙伴暂时无法下指令'
+        : ''),
+  )
   const placeholderText = computed(() =>
     props.qaMode
       ? '向知识库提问：只依据已上传资料回答，必附引用'
@@ -2010,7 +2035,7 @@
     const text = raw.trim()
     if (!text || props.store.sending) return
     // named 策略没点名：按钮已置灰，键盘 Enter 这条路也要拦下并说明原因
-    if (blockedReason.value) return
+    if (sendBlockText.value) return
     mentionOpen.value = false
     if (props.qaMode && !locked.value && props.store.attachments.length) {
       ElMessage.warning('知识问答模式不支持附件，请先移除附件或切回通用对话')
@@ -2020,9 +2045,9 @@
     // 一轮对话的收尾（改标题、刷会话列表）是异步的，可能在回答已上屏之后才结束；
     // 期间用户新打的字不能被这一轮的收尾清掉，故只在草稿没被动过时清空。
     // execution_mode 在可见时显式下发（含 standard），否则切回普通后会被会话默认值带回指挥官。
-    const commanderExtras = commanderVisible.value
-      ? { execution_mode: executionMode.value }
-      : {}
+    // commanderOnly（悬浮伙伴）没有控件，但同样每轮显式带 commander。
+    const mode = sendExecutionMode.value
+    const commanderExtras = mode ? { execution_mode: mode } : {}
     const ok = props.qaMode && !locked.value
       ? await props.store.sendQa(text, qaTopK.value)
       : await props.store.send(text, commanderExtras)
@@ -2753,7 +2778,8 @@
     width: 100%;
     max-width: 720px;
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    /* 按容器宽度自适应列数：伙伴面板缩到最窄时自动变一行一条，不挤成竖排 */
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
     gap: 12px;
   }
   /* 建议卡：可点玻璃卡 hover 配方（§3） */

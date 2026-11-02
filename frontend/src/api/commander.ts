@@ -13,6 +13,7 @@ import type { ApiResponse } from '@/types/api'
  * - GET    /commander/runs/{run_id} → {run:{...}}
  * - POST   /commander/runs/{run_id}/retry
  * - POST   /commander/runs/{run_id}/cancel
+ * - GET/PUT /commander/identity + POST /commander/identity/attach-all（技能与工具挂载）
  */
 
 /** 会话执行模式：普通单助手路由 / 指挥官拆分调度 */
@@ -465,6 +466,40 @@ export interface CommanderSummaryFrame {
 }
 
 /** 运行概况（GET /commander/stats）：字段缺失一律回 0，界面不必再做空值判断 */
+/** 指挥官挂载项（一项技能或一个工具） */
+export interface CommanderIdentityEntry {
+  code: string
+  name: string
+  summary: string
+  /** 技能：是否仍在可绑定集合内；已下架的历史绑定为 false，界面标「已失效」 */
+  available: boolean
+  /** 工具：是否挂在指挥官身上 */
+  bound: boolean
+}
+
+/** 指挥官身份（v3.51）：挂在身上的技能/工具与当前解析到的大模型 */
+export interface CommanderIdentity {
+  agent_id: string | null
+  agent_code: string
+  name: string
+  emoji: string
+  description: string
+  /** absent 表示本小院还没落指挥官身份行（首次让指挥官干活时自动创建） */
+  status: string
+  skills: CommanderIdentityEntry[]
+  skill_count: number
+  available_skill_count: number
+  tools: CommanderIdentityEntry[]
+  tool_count: number
+  available_tool_count: number
+  model: {
+    supplier_id: string | null
+    supplier_name: string | null
+    model: string | null
+    level: string | null
+  }
+}
+
 export interface CommanderStatsRuns {
   total: number
   completed: number
@@ -577,6 +612,77 @@ function unwrap<T>(promise: Promise<AxiosResponse<ApiResponse<T>>>): Promise<T> 
   return promise.then(res => res.data.data)
 }
 
+function identityEntries(input: unknown, defaultBound: boolean): CommanderIdentityEntry[] {
+  if (!Array.isArray(input)) return []
+  const out: CommanderIdentityEntry[] = []
+  for (const raw of input) {
+    if (!raw || typeof raw !== 'object') continue
+    const item = raw as Record<string, unknown>
+    const code = typeof item.code === 'string' ? item.code.trim() : ''
+    if (!code) continue
+    const name = typeof item.name === 'string' ? item.name.trim() : ''
+    out.push({
+      code,
+      name: name || code,
+      summary: typeof item.summary === 'string' ? item.summary : '',
+      available: item.available !== false,
+      bound: typeof item.bound === 'boolean' ? item.bound : defaultBound,
+    })
+  }
+  return out
+}
+
+function optionalText(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null
+}
+
+export function emptyCommanderIdentity(): CommanderIdentity {
+  return {
+    agent_id: null,
+    agent_code: 'commander',
+    name: '指挥官',
+    emoji: '🧭',
+    description: '',
+    status: 'absent',
+    skills: [],
+    skill_count: 0,
+    available_skill_count: 0,
+    tools: [],
+    tool_count: 0,
+    available_tool_count: 0,
+    model: { supplier_id: null, supplier_name: null, model: null, level: null },
+  }
+}
+
+export function normalizeCommanderIdentity(input?: unknown): CommanderIdentity {
+  const d = emptyCommanderIdentity()
+  if (!input || typeof input !== 'object') return d
+  const src = input as Record<string, unknown>
+  const model = (
+    src.model && typeof src.model === 'object' ? src.model : {}
+  ) as Record<string, unknown>
+  return {
+    agent_id: typeof src.agent_id === 'string' ? src.agent_id : null,
+    agent_code: optionalText(src.agent_code) ?? d.agent_code,
+    name: optionalText(src.name) ?? d.name,
+    emoji: optionalText(src.emoji) ?? d.emoji,
+    description: typeof src.description === 'string' ? src.description : '',
+    status: optionalText(src.status) ?? d.status,
+    skills: identityEntries(src.skills, true),
+    skill_count: numOr(src.skill_count, 0),
+    available_skill_count: numOr(src.available_skill_count, 0),
+    tools: identityEntries(src.tools, false),
+    tool_count: numOr(src.tool_count, 0),
+    available_tool_count: numOr(src.available_tool_count, 0),
+    model: {
+      supplier_id: optionalText(model.supplier_id),
+      supplier_name: optionalText(model.supplier_name),
+      model: optionalText(model.model),
+      level: optionalText(model.level),
+    },
+  }
+}
+
 type SettingsEnvelope = Partial<CommanderSettings> & { commander?: Partial<CommanderSettings> }
 
 function pickSettings(data: unknown): Partial<CommanderSettings> | null {
@@ -654,5 +760,27 @@ export const commanderApi = {
       api.post<ApiResponse<unknown>>(runPath(runId, 'cancel')),
     )
     return pickRun(payload)
+  },
+  /** 指挥官身份：挂载的技能/工具与当前解析到的大模型 */
+  async getIdentity(): Promise<CommanderIdentity> {
+    const payload = await unwrap<unknown>(api.get<ApiResponse<unknown>>('/commander/identity'))
+    return normalizeCommanderIdentity(payload)
+  },
+  /** 保存指挥官的技能/工具清单（不传的键保持原样） */
+  async updateIdentity(body: {
+    bound_skills?: string[]
+    allowed_tools?: string[]
+  }): Promise<CommanderIdentity> {
+    const payload = await unwrap<unknown>(
+      api.put<ApiResponse<unknown>>('/commander/identity', body),
+    )
+    return normalizeCommanderIdentity(payload)
+  },
+  /** 一键把小院当前的全部技能与工具挂回指挥官 */
+  async attachAllIdentity(): Promise<CommanderIdentity> {
+    const payload = await unwrap<unknown>(
+      api.post<ApiResponse<unknown>>('/commander/identity/attach-all'),
+    )
+    return normalizeCommanderIdentity(payload)
   },
 }

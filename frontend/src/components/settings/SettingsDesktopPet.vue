@@ -140,6 +140,7 @@
   import { petMuted, setPetMuted } from '@/utils/petCopilot'
   import {
     petOverlayEnabled,
+    resetPetPanelRect,
     resetPetPos,
     setPetOverlayEnabled,
   } from '@/utils/petOverlay'
@@ -220,7 +221,8 @@
 
   function resetOverlayPos(): void {
     resetPetPos()
-    ElMessage.success('伙伴位置已重置到右下角')
+    resetPetPanelRect()
+    ElMessage.success('伙伴的位置与面板大小已恢复到默认')
   }
 
   function onStorage(event: StorageEvent): void {

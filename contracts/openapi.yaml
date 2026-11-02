@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.50.0
+  version: 3.51.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -11124,6 +11124,65 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/commander/identity:
+    get:
+      tags:
+      - v1
+      - commander
+      summary: Commander Identity
+      description: 指挥官是谁、挂了哪些技能与工具、现在解析到哪个大模型。
+      operationId: commander_identity_api_v1_commander_identity_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+    put:
+      tags:
+      - v1
+      - commander
+      summary: Update Commander Identity
+      description: 裁剪指挥官的技能与工具清单（与助手编辑同口径校验未知编码）。
+      operationId: update_commander_identity_api_v1_commander_identity_put
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IdentityUpdateRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/commander/identity/attach-all:
+    post:
+      tags:
+      - v1
+      - commander
+      summary: Attach All Commander Identity
+      description: 把小院当前的全部技能与工具重新挂回指挥官（技能库扩容后的一键补齐）。
+      operationId: attach_all_commander_identity_api_v1_commander_identity_attach_all_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
   /api/v1/commander/evaluations:
     get:
       tags:
@@ -14167,6 +14226,28 @@ components:
           title: Detail
       type: object
       title: HTTPValidationError
+    IdentityUpdateRequest:
+      properties:
+        bound_skills:
+          anyOf:
+          - items:
+              type: string
+            type: array
+            maxItems: 500
+          - type: 'null'
+          title: Bound Skills
+        allowed_tools:
+          anyOf:
+          - items:
+              type: string
+            type: array
+            maxItems: 200
+          - type: 'null'
+          title: Allowed Tools
+      additionalProperties: false
+      type: object
+      title: IdentityUpdateRequest
+      description: 指挥官技能/工具清单；不传表示这一侧不改动。
     IngestBody:
       properties:
         token:

@@ -36,7 +36,15 @@
         :aria-label="`${skin.name}：点击打开工作台`"
         @click.stop="openMain"
       >
+        <CommanderFigure
+          v-if="skin.figure === 'human'"
+          class="pet-figure"
+          :skin="skin"
+          :mood="mood"
+          :size="126"
+        />
         <svg
+          v-else
           class="pet-svg"
           viewBox="0 0 160 176"
           role="img"
@@ -197,40 +205,6 @@
             opacity="0.85"
           />
 
-          <g
-            v-if="skin.ears === 'straw'"
-            class="pet-hat"
-          >
-            <path
-              d="M54 46c0-20 12-30 26-30s26 10 26 30z"
-              :fill="skin.ear"
-            />
-            <rect
-              x="54"
-              y="36"
-              width="52"
-              height="6"
-              rx="3"
-              :fill="skin.accent"
-              opacity="0.8"
-            />
-            <ellipse
-              cx="80"
-              cy="47"
-              rx="56"
-              ry="12"
-              :fill="skin.ear"
-            />
-            <ellipse
-              cx="80"
-              cy="45"
-              rx="56"
-              ry="10"
-              :fill="skin.bodyDark"
-              opacity="0.18"
-            />
-          </g>
-
           <g class="pet-eyes">
             <ellipse
               cx="65"
@@ -359,6 +333,7 @@
 <script setup lang="ts">
   import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
+  import CommanderFigure from '@/components/pet/CommanderFigure.vue'
   import {
     PET_SKINS,
     normalizePetSkin,
@@ -664,6 +639,13 @@
   }
 
   .pet-svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  /* 拟人化小人（田伯）：与圆形桌宠共用舞台尺寸 */
+  .pet-figure {
     width: 100%;
     height: 100%;
     display: block;

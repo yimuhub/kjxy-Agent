@@ -7,7 +7,7 @@
     data-companion
   >
     <div
-      v-if="!expanded && bubbleText"
+      v-if="wide && !expanded && bubbleText"
       class="companion-bubble"
       data-companion-bubble
     >
@@ -18,7 +18,7 @@
       ref="handleRef"
       class="companion-avatar"
       type="button"
-      :aria-label="`${skin.name}伙伴：点击交流，拖动换位置`"
+      :aria-label="`${skin.name}指挥官：点击交流，拖动换位置`"
       aria-haspopup="dialog"
       :aria-expanded="expanded"
       data-companion-handle
@@ -28,11 +28,19 @@
       @pointercancel="onPointerUp"
       @contextmenu.prevent="cycleSkin"
     >
+      <CommanderFigure
+        v-if="skin.figure === 'human'"
+        class="avatar-figure"
+        :skin="skin"
+        :mood="mood"
+        :size="58"
+      />
       <span
+        v-else
         class="avatar-face"
         :style="{ background: skin.body, borderColor: skin.ear }"
       >
-        <span class="avatar-hat">{{ skin.emoji }}</span>
+        {{ skin.emoji }}
       </span>
       <span class="avatar-state">{{ MOOD_LABEL[mood] }}</span>
     </button>
@@ -42,18 +50,23 @@
       class="companion-panel"
       :style="panelStyle"
       role="dialog"
-      :aria-label="`${skin.name}指挥官伙伴`"
+      :aria-label="`${skin.name}指挥官`"
       data-companion-panel
     >
-      <header class="panel-head">
-        <div class="panel-title">
+      <header
+        class="panel-head"
+        data-companion-panel-drag
+        @pointerdown="onPanelDragStart"
+      >
+        <div class="panel-id">
           <strong>{{ skin.name }}</strong>
-          <small>{{ SCENE_LABEL[scene] }} · {{ MOOD_LABEL[mood] }}</small>
+          <span class="panel-role">指挥官</span>
+          <small>{{ MOOD_LABEL[mood] }} · 历史 {{ historyCount }} 条</small>
         </div>
         <div class="panel-tools">
           <button
             type="button"
-            title="换一套皮肤（也可右键头像）"
+            title="换一套形象（也可右键头像）"
             @click="cycleSkin"
           >
             换肤
@@ -79,37 +92,60 @@
         <ChatPanel
           :store="store"
           panel-id="companion"
-          :label="`${skin.name}指挥官伙伴`"
+          :label="`${skin.name}指挥官`"
           :suggestions="SUGGESTIONS"
           :max-width="'100%'"
-          empty-title="直接说要办的事"
-          empty-sub="伙伴会把目标拆给助手与班组，进度在这里实时回显。"
+          empty-title="说要办的事，我来安排"
+          empty-sub="直接说目标：我会拆任务、找助手、调工具，做完把成品放回这里。历史一直在，随时回来接着说。"
           placeholder="说一句目标，Enter 交给指挥官"
-          commander-toggle
+          commander-only
           :commander-enabled="commanderEnabled"
-          :default-execution-mode="defaultMode"
           :default-preview-plan="previewPlan"
         />
       </div>
+
+      <span
+        class="panel-edge panel-edge-e"
+        data-companion-resize="e"
+        @pointerdown="onResizeStart('e', $event)"
+      />
+      <span
+        class="panel-edge panel-edge-s"
+        data-companion-resize="s"
+        @pointerdown="onResizeStart('s', $event)"
+      />
+      <span
+        class="panel-corner"
+        data-companion-resize="se"
+        aria-hidden="true"
+        @pointerdown="onResizeStart('se', $event)"
+      />
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
   /**
-   * 页面内悬浮指挥官伙伴（v3.50）：
-   * - 任意页面右下角常驻，可拖到屏幕任何位置，位置存 localStorage；
-   * - 状态/气泡来自 petCopilot 总线，与桌面伙伴窗口共用同一套事件；
-   * - 点头像即开即聊，默认指挥官模式，可直接下指令指挥全部内容。
+   * 页面内悬浮指挥官伙伴（v3.50 首发，v3.51 重做）：
+   * - 任意页面常驻，默认形象是戴草帽会擦汗的农民小人；
+   * - 头像可拖，面板也能整体拖走、拖边/拖角改大小，位置与尺寸都记住；
+   * - 只有「指挥官」一个身份：不出现普通/指挥官切换，每轮都走指挥官链路；
+   * - 每个用户固定一条专属会话，历史一直往下长，刷新换页都不丢。
    */
   import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
   import { useRouter } from 'vue-router'
   import ChatPanel from '@/components/chat/ChatPanel.vue'
+  import CommanderFigure from '@/components/pet/CommanderFigure.vue'
   import { useChatStore } from '@/stores/chat'
-  import { commanderApi, type ExecutionMode } from '@/api/commander'
+  import { commanderApi } from '@/api/commander'
+  import {
+    COMPANION_SESSION_TITLE,
+    clearCompanionSessionId,
+    readCompanionSessionId,
+    writeCompanionSessionId,
+  } from '@/utils/companionChat'
   import {
     MOOD_LABEL,
-    SCENE_LABEL,
     greetingFor,
     petMuted,
     readStoredPetScene,
@@ -121,12 +157,14 @@
   } from '@/utils/petCopilot'
   import {
     PET_OVERLAY_EVENT,
-    PET_OVERLAY_MARGIN,
-    PET_OVERLAY_SIZE,
     clampPetPos,
+    clampPetRect,
+    defaultPetPanelRect,
     defaultPetPos,
     petOverlayEnabled,
+    readPetPanelRect,
     readPetPos,
+    writePetPanelRect,
     writePetPos,
   } from '@/utils/petOverlay'
   import {
@@ -139,7 +177,6 @@
   } from '@/utils/petSkins'
 
   const COMPANION_SCOPE = 'floating-companion'
-  const PANEL_SIZE = { width: 360, height: 520 }
   const SUGGESTIONS = [
     '组织一次本周经营复盘，把结论写成文档给我',
     '给水稻叶黄问题安排诊断并出防治方案',
@@ -151,8 +188,8 @@
 
   const enabled = ref(true)
   const wide = ref(true)
-  /** 窄屏（手机/分屏）不悬浮，避免挡住输入区 */
-  const visible = computed(() => enabled.value && wide.value)
+  /** 窄屏只留头像：气泡会挡住输入区，所以不弹；指挥官本体任何宽度都要在。 */
+  const visible = computed(() => enabled.value)
   const expanded = ref(false)
   const dragging = ref(false)
   const skinId = ref<PetSkinId>(readStoredPetSkin())
@@ -161,9 +198,9 @@
   const scene = ref<PetScene>(readStoredPetScene())
   const speech = ref('')
   const pos = ref({ x: 24, y: 24 })
+  const panel = ref(defaultPetPanelRect({ x: 24, y: 24 }, 1280, 800))
 
   const commanderEnabled = ref(true)
-  const defaultMode = ref<ExecutionMode>('commander')
   const previewPlan = ref(true)
 
   const handleRef = ref<HTMLElement | null>(null)
@@ -173,6 +210,12 @@
   let speechTimer: number | null = null
   let unlisten: (() => void) | null = null
 
+  /** 面板拖拽/缩放进行中：detach 函数，组件卸载时也要摘掉 */
+  let stopPanelDrag: (() => void) | null = null
+  let stopResize: (() => void) | null = null
+
+  const historyCount = computed(() => store.messages.length)
+
   const bubbleText = computed(() => {
     if (speech.value) return speech.value
     if (scene.value !== 'general') return sceneTip(scene.value)
@@ -181,28 +224,33 @@
 
   const anchorStyle = computed(() => ({ left: `${pos.value.x}px`, top: `${pos.value.y}px` }))
 
-  /** 面板固定在头像左上方，并按视口夹取，贴边时不会被裁掉 */
-  const panelStyle = computed(() => {
-    const w = window.innerWidth
-    const h = window.innerHeight
-    const left = Math.min(
-      Math.max(pos.value.x + PET_OVERLAY_SIZE.width - PANEL_SIZE.width, PET_OVERLAY_MARGIN),
-      Math.max(PET_OVERLAY_MARGIN, w - PANEL_SIZE.width - PET_OVERLAY_MARGIN),
-    )
-    const bottom = Math.min(
-      Math.max(h - pos.value.y - 6, PET_OVERLAY_MARGIN),
-      Math.max(PET_OVERLAY_MARGIN, h - PANEL_SIZE.height - PET_OVERLAY_MARGIN),
-    )
-    return { left: `${left}px`, bottom: `${bottom}px` }
-  })
+  const panelStyle = computed(() => ({
+    left: `${panel.value.x}px`,
+    top: `${panel.value.y}px`,
+    width: `${panel.value.width}px`,
+    height: `${panel.value.height}px`,
+  }))
 
   function viewport(): { w: number; h: number } {
     return { w: window.innerWidth, h: window.innerHeight }
   }
 
-  function place(posInput: { x: number; y: number }): void {
+  function place(at: { x: number; y: number }): void {
     const { w, h } = viewport()
-    pos.value = clampPetPos(posInput.x, posInput.y, w, h)
+    pos.value = clampPetPos(at.x, at.y, w, h)
+  }
+
+  function fitPanel(next: typeof panel.value): void {
+    const { w, h } = viewport()
+    panel.value = clampPetRect(next, w, h)
+  }
+
+  /** 打开面板：优先回到上次的位置与大小，首次贴在头像左上方 */
+  function openPanel(): void {
+    const { w, h } = viewport()
+    const stored = readPetPanelRect()
+    fitPanel(stored ?? defaultPetPanelRect(pos.value, w, h))
+    expanded.value = true
   }
 
   function onPointerDown(event: PointerEvent): void {
@@ -234,7 +282,71 @@
       writePetPos(pos.value)
       return
     }
-    expanded.value = !expanded.value
+    if (expanded.value) expanded.value = false
+    else openPanel()
+  }
+
+  function onPanelDragStart(event: PointerEvent): void {
+    if (event.button !== 0) return
+    // 头部按钮不参与拖拽
+    if ((event.target as HTMLElement).closest('button')) return
+    const dx = event.clientX - panel.value.x
+    const dy = event.clientY - panel.value.y
+    stopPanelDrag?.()
+    stopPanelDrag = attachPointerDrag(
+      move => fitPanel({ ...panel.value, x: move.clientX - dx, y: move.clientY - dy }),
+      () => {
+        stopPanelDrag = null
+        writePetPanelRect(panel.value)
+      },
+    )
+  }
+
+  function onResizeStart(dir: 'e' | 's' | 'se', event: PointerEvent): void {
+    if (event.button !== 0) return
+    event.preventDefault()
+    const startX = event.clientX
+    const startY = event.clientY
+    const startWidth = panel.value.width
+    const startHeight = panel.value.height
+    stopResize?.()
+    stopResize = attachPointerDrag(
+      move =>
+        fitPanel({
+          ...panel.value,
+          width: dir === 's' ? startWidth : startWidth + (move.clientX - startX),
+          height: dir === 'e' ? startHeight : startHeight + (move.clientY - startY),
+        }),
+      () => {
+        stopResize = null
+        writePetPanelRect(panel.value)
+      },
+    )
+  }
+
+  /**
+   * pointerdown 后把 move/up 挂到 window：
+   * 把手只有 18px，指针滑出把手也要继续拖，松手才落盘。
+   */
+  function attachPointerDrag(
+    move: (event: PointerEvent) => void,
+    done: () => void,
+  ): () => void {
+    // 捕获阶段监听：面板里有组件会拦截 pointermove 冒泡，冒泡阶段挂 window 收不到
+    const detach = (): void => {
+      window.removeEventListener('pointermove', onMove, true)
+      window.removeEventListener('pointerup', onUp, true)
+      window.removeEventListener('pointercancel', onUp, true)
+    }
+    const onMove = (event: PointerEvent): void => move(event)
+    const onUp = (): void => {
+      detach()
+      done()
+    }
+    window.addEventListener('pointermove', onMove, true)
+    window.addEventListener('pointerup', onUp, true)
+    window.addEventListener('pointercancel', onUp, true)
+    return detach
   }
 
   function cycleSkin(): void {
@@ -289,6 +401,7 @@
   function onResize(): void {
     wide.value = window.innerWidth >= 900
     place(pos.value)
+    if (expanded.value) fitPanel(panel.value)
   }
 
   watch(visible, value => {
@@ -299,29 +412,49 @@
     try {
       const settings = await commanderApi.getSettings()
       commanderEnabled.value = settings.enabled
-      // 伙伴的定位是「随时能指挥」：指挥官开着就默认进入指挥模式，关了才回落到普通对话
-      defaultMode.value = settings.enabled ? 'commander' : 'standard'
       previewPlan.value = settings.preview_plan
     } catch {
       /* 读不到设置时保持指挥官可用，不阻塞伙伴 */
     }
   }
 
+  /**
+   * 续接专属会话：本地记着会话 id 就切回去（历史一直在），
+   * 会话被删或换了账号（列表里没有）才新开一条并重新锚定。
+   */
+  async function ensureCompanionSession(): Promise<void> {
+    const anchor = readCompanionSessionId()
+    await store.fetchSessions().catch(() => undefined)
+    if (anchor && store.sessions.some(item => item.id === anchor)) {
+      await store.selectSession(anchor).catch(() => undefined)
+      return
+    }
+    if (anchor) clearCompanionSessionId()
+    const created = await store
+      .newSession({ title: COMPANION_SESSION_TITLE, execution_mode: 'commander' })
+      .catch(() => undefined)
+    if (created) writeCompanionSessionId(created.id)
+  }
+
   onMounted(() => {
     enabled.value = petOverlayEnabled()
     wide.value = window.innerWidth >= 900
-    const stored = readPetPos()
-    pos.value = stored ?? defaultPetPos(window.innerWidth, window.innerHeight, PET_OVERLAY_SIZE)
-    if (stored) place(stored)
+    const { w, h } = viewport()
+    const anchor = readPetPos() ?? defaultPetPos(w, h)
+    pos.value = clampPetPos(anchor.x, anchor.y, w, h)
+    panel.value = clampPetRect(readPetPanelRect() ?? defaultPetPanelRect(pos.value, w, h), w, h)
     unlisten = subscribePetEvents(handleEvent)
     window.addEventListener('storage', onStorage)
     window.addEventListener('resize', onResize)
     window.addEventListener(PET_OVERLAY_EVENT, onOverlayEvent)
     void loadCommanderSettings()
+    void ensureCompanionSession()
   })
 
   onBeforeUnmount(() => {
     unlisten?.()
+    stopPanelDrag?.()
+    stopResize?.()
     if (speechTimer !== null) window.clearTimeout(speechTimer)
     window.removeEventListener('storage', onStorage)
     window.removeEventListener('resize', onResize)
@@ -363,7 +496,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 3px;
+    gap: 2px;
     padding: 0;
     border: none;
     background: none;
@@ -373,6 +506,10 @@
 
   .companion.is-dragging .companion-avatar {
     cursor: grabbing;
+  }
+
+  .avatar-figure {
+    filter: drop-shadow(0 8px 14px rgba(0, 0, 0, 0.32));
   }
 
   .avatar-face {
@@ -388,10 +525,6 @@
     animation: companion-float 3.6s ease-in-out infinite;
   }
 
-  .avatar-hat {
-    line-height: 1;
-  }
-
   .avatar-state {
     padding: 1px 7px;
     border-radius: 999px;
@@ -401,21 +534,7 @@
     letter-spacing: 0.02em;
   }
 
-  .companion.mood-thinking .avatar-face,
-  .companion.mood-busy .avatar-face {
-    animation: companion-work 1.1s ease-in-out infinite;
-  }
-
-  .companion.mood-happy .avatar-face {
-    animation: companion-hop 0.7s ease-in-out 3;
-  }
-
-  .companion.mood-worried .avatar-face {
-    animation: companion-shake 0.9s ease-in-out 2;
-  }
-
   .companion.mood-sleepy .avatar-face {
-    animation: none;
     filter: brightness(0.82) saturate(0.7);
   }
 
@@ -424,8 +543,6 @@
     z-index: 2601;
     display: flex;
     flex-direction: column;
-    width: 360px;
-    height: 520px;
     overflow: hidden;
     border: 1px solid var(--ds-border);
     border-radius: 14px;
@@ -441,23 +558,42 @@
     padding: 8px 10px;
     border-bottom: 1px solid var(--ds-border);
     background: var(--ds-field, #171d29);
+    cursor: grab;
+    touch-action: none;
   }
 
-  .panel-title {
+  .panel-id {
     display: flex;
-    flex-direction: column;
-    gap: 2px;
+    align-items: baseline;
+    gap: 6px;
     min-width: 0;
+    /* 最小宽度下也要一行读完：名字与徽章不许折行，状态段自己截断 */
+    overflow: hidden;
+    white-space: nowrap;
   }
 
-  .panel-title strong {
+  .panel-id strong {
     font-size: 13px;
     color: var(--ds-text-1, #e8eefb);
+    flex-shrink: 0;
   }
 
-  .panel-title small {
-    font-size: 11px;
+  .panel-role {
+    padding: 1px 6px;
+    border: 1px solid var(--ds-border);
+    border-radius: 999px;
+    color: var(--ds-accent, #4c9aff);
+    font-size: 10.5px;
+    flex-shrink: 0;
+  }
+
+  .panel-id small {
     color: var(--ds-text-3, #8b98ad);
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
   }
 
   .panel-tools {
@@ -485,13 +621,47 @@
   .panel-body {
     flex: 1;
     min-height: 0;
-    overflow: hidden;
     display: flex;
+    overflow: hidden;
   }
 
   .panel-body > * {
     flex: 1;
     min-height: 0;
+  }
+
+  /* 拖边改宽、拖边改高、拖角同时改 */
+  .panel-edge,
+  .panel-corner {
+    position: absolute;
+    touch-action: none;
+  }
+
+  .panel-edge-e {
+    top: 24px;
+    right: 0;
+    width: 6px;
+    height: calc(100% - 40px);
+    cursor: ew-resize;
+  }
+
+  .panel-edge-s {
+    bottom: 0;
+    left: 24px;
+    height: 6px;
+    width: calc(100% - 40px);
+    cursor: ns-resize;
+  }
+
+  .panel-corner {
+    right: 2px;
+    bottom: 2px;
+    width: 18px;
+    height: 18px;
+    cursor: nwse-resize;
+    background:
+      linear-gradient(135deg, transparent 45%, var(--ds-border) 45%, var(--ds-border) 55%, transparent 55%),
+      linear-gradient(135deg, transparent 68%, var(--ds-border) 68%, var(--ds-border) 78%, transparent 78%);
   }
 
   @keyframes companion-float {
@@ -504,45 +674,8 @@
     }
   }
 
-  @keyframes companion-work {
-    0%,
-    100% {
-      transform: translateY(0) rotate(-2deg);
-    }
-    50% {
-      transform: translateY(-4px) rotate(2deg);
-    }
-  }
-
-  @keyframes companion-hop {
-    0%,
-    100% {
-      transform: translateY(0) scale(1);
-    }
-    40% {
-      transform: translateY(-7px) scale(1.04);
-    }
-  }
-
-  @keyframes companion-shake {
-    0%,
-    100% {
-      transform: translateX(0);
-    }
-    25% {
-      transform: translateX(-3px);
-    }
-    75% {
-      transform: translateX(3px);
-    }
-  }
-
   @media (prefers-reduced-motion: reduce) {
-    .avatar-face,
-    .companion.mood-thinking .avatar-face,
-    .companion.mood-busy .avatar-face,
-    .companion.mood-happy .avatar-face,
-    .companion.mood-worried .avatar-face {
+    .avatar-face {
       animation: none;
     }
   }

@@ -25,9 +25,10 @@ log = get_logger(__name__)
 
 def _startup_wiring() -> None:
     """应用启动时装配：工具元数据 seed + knowledge.search / workorder.dispatch /
-    sensor.query / skill.search / skill.generate / skill.install 工具注册。"""
+    sensor.query / skill.search / skill.generate / skill.install / agent.generate 工具注册。"""
     try:
         from app.db.session import SessionLocal
+        from app.modules.agents.agent_tools import register_agent_tools
         from app.modules.devices.agent_tool import register_sensor_query_tool
         from app.modules.docs.tool import register_doc_generate_tool
         from app.modules.growth.compliance import register_compliance_tool
@@ -136,6 +137,7 @@ def _startup_wiring() -> None:
         register_sensor_query_tool()
         register_search_tools()
         register_skill_agent_tools()
+        register_agent_tools()
         register_compliance_tool()
         register_image_tool()
         register_video_tool()
@@ -163,7 +165,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="科技小院多智能体平台", version="3.50.0", lifespan=lifespan)
+    app = FastAPI(title="科技小院多智能体平台", version="3.51.0", lifespan=lifespan)
     app.add_middleware(RequestIDMiddleware)
     app.add_exception_handler(AppError, app_error_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)
