@@ -378,14 +378,24 @@
               :disabled="!canManage"
             />
             <span class="note">
-              成功运行后提炼步骤模板；同类任务规划时优先复用，失败场景同步进黑名单
+              成功运行后提炼步骤模板；同类任务规划时优先复用
+            </span>
+          </el-form-item>
+
+          <el-form-item label="记录失败黑名单">
+            <el-switch
+              v-model="cfg.auto_record_failures"
+              :disabled="!canManage"
+            />
+            <span class="note">
+              失败场景独立累计；关掉工作流沉淀也照样规避同一个坑
             </span>
           </el-form-item>
 
           <el-form-item label="自动萃取技能">
             <el-switch
               v-model="cfg.auto_extract_skills"
-              :disabled="!canManage || !cfg.auto_learn_workflows"
+              :disabled="!canManage"
             />
             <span class="note">
               从 Worker 稳定成功的样本萃取技能；至少 2 个样本且成功率 ≥80% 才转正
@@ -397,7 +407,7 @@
               v-model="cfg.failure_blacklist_threshold"
               :min="1"
               :max="10"
-              :disabled="!canManage || !cfg.auto_learn_workflows"
+              :disabled="!canManage || !cfg.auto_record_failures"
             />
             <span class="note">同场景同错误累计达到该次数后，规划前提示规避方案</span>
           </el-form-item>

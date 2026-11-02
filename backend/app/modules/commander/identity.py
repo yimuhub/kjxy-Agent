@@ -105,7 +105,7 @@ def ensure_commander_agent(db: Session, *, yard_id: str, actor_id: str) -> YardA
             row.created_from = CREATED_FROM_COMMANDER
             row.updated_by = actor_id
             db.add(row)
-            db.commit()
+            db.flush()
         return row
     skills = [str(e.get("code")) for e in available_extensions(db, yard_id) if e.get("code")]
     row = YardAgent(
@@ -130,13 +130,16 @@ def ensure_commander_agent(db: Session, *, yard_id: str, actor_id: str) -> YardA
         created_from=CREATED_FROM_COMMANDER,
     )
     db.add(row)
+    # 事务边界：本函数常在请求中途被调用（计划、设置页），提交会把调用方写到一半的
+    # 改动一起落库，回滚更会把它们整批抹掉。用 SAVEPOINT：并发首建撞唯一约束时，
+    # 只回滚这一条插入，再把对方已写入的行作为结果返回。
+    savepoint = db.begin_nested()
     try:
-        db.commit()
+        db.flush()
+        savepoint.commit()
     except IntegrityError:
-        # 并发首建（同 code 或同名撞唯一约束）：另一条已经落库，本小院照常取用
-        db.rollback()
+        savepoint.rollback()
         return _current_row(db, yard_id)
-    db.refresh(row)
     return row
 
 

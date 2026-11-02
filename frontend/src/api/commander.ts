@@ -85,6 +85,8 @@ export interface CommanderSettings {
   auto_learn_workflows: boolean
   /** 从 Worker 成功样本萃取技能片段 */
   auto_extract_skills: boolean
+  /** 失败场景独立累计进黑名单（与是否沉淀工作流无关） */
+  auto_record_failures: boolean
   /** 同场景同错误累计多少次后进入失败黑名单（1..10） */
   failure_blacklist_threshold: number
   /** 规划提示词的执行风格模块（核心契约与人格段不可关闭） */
@@ -133,6 +135,7 @@ export const DEFAULT_COMMANDER_SETTINGS: CommanderSettings = {
   evaluator_supplier_model_id: null,
   auto_learn_workflows: true,
   auto_extract_skills: true,
+  auto_record_failures: true,
   failure_blacklist_threshold: 2,
   prompt_modules: ['delivery', 'cost', 'concise', 'risk'],
   prompt_max_chars: 4500,
@@ -212,6 +215,7 @@ export function normalizeCommanderSettings(
     evaluator_supplier_model_id: idOrNull(src.evaluator_supplier_model_id),
     auto_learn_workflows: boolOr(src.auto_learn_workflows, d.auto_learn_workflows),
     auto_extract_skills: boolOr(src.auto_extract_skills, d.auto_extract_skills),
+    auto_record_failures: boolOr(src.auto_record_failures, d.auto_record_failures),
     failure_blacklist_threshold: intIn(
       src.failure_blacklist_threshold,
       d.failure_blacklist_threshold,

@@ -795,20 +795,16 @@ async def test_remediation_exhausted_reports_capability_gap(env, monkeypatch):
     db.expire_all()
     row = _subtasks(db, run.id)[0]
     assert row.status == "error"
-    assert row.attempts == 5
+    # 队列见底（换人 → 建人 → 亲自执行）即停手：剩下的轮数只是把同一个执行者再跑一遍
+    assert row.attempts == 3
     assert row.error_code == "COMMANDER_CAPABILITY_GAP"
-    assert [item["action"] for item in (row.remediation_json or [])] == [
-        "alt_agent",
-        "self",
-        "self",
-        "self",
-    ]
-    assert "已自主尝试 5 轮" in (row.output_excerpt or "")
+    assert [item["action"] for item in (row.remediation_json or [])] == ["alt_agent", "self"]
+    assert "已自主尝试 3 轮" in (row.output_excerpt or "")
     assert "不具备完成该任务的能力" in (row.output_excerpt or "")
     refreshed = db.get(CommanderRun, run.id)
     assert refreshed.status == "failed"
     assert refreshed.error_code == "COMMANDER_CAPABILITY_GAP"
-    assert summary["failed"][0]["reason"].startswith("已自主尝试 5 轮")
+    assert summary["failed"][0]["reason"].startswith("已自主尝试 3 轮")
 
 
 @pytest.mark.asyncio
@@ -875,3 +871,142 @@ def test_safe_commit_retries_lock_only_when_nothing_pending(monkeypatch) -> None
     commander_service._safe_commit(db)  # type: ignore[arg-type]
     assert db.commits == 2
     assert db.rollbacks == 1
+
+
+# ---------------------------------------------------------------------------
+# token 记账（C3/C8）与瞬态判定（C15）
+# ---------------------------------------------------------------------------
+
+
+def _ledger_row(db, run, subtask_seq: int, *, input_tokens: int, output_tokens: int) -> None:
+    """按真实 task_id 前缀写一笔 llm_calls 账本行（模拟一次已发生的模型调用）。"""
+    from app.modules.llm.models import LLMCall
+
+    db.add(
+        LLMCall(
+            yard_id=run.yard_id,
+            task_id=f"cmd-{run.id[:12]}-{subtask_seq}-call1",
+            provider="fake",
+            model="fake",
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            status="success",
+            request_id="req-exec",
+            prompt_sha="0" * 64,
+            purpose="declarative",
+        )
+    )
+    db.flush()
+
+
+@pytest.mark.asyncio
+async def test_failed_subtask_tokens_counted_from_ledger(env, monkeypatch):
+    """C3：失败子任务也真花了钱，账本增量必须进 tokens_total 与子任务行。
+
+    旧口径只在成功分支记 result 自报值，失败轮直接 ``tokens: 0``——补救轮再多，
+    ``run.tokens_total`` 也不涨，预算闸长期不告警。
+    """
+    from app.modules.commander import settings as commander_settings
+
+    db, _factory, yard = env
+    commander_settings.update_settings(
+        db,
+        yard_id=yard.id,
+        payload={"auto_create_agent": False},
+        actor_id="u-exec",
+        request_id="req-exec",
+    )
+    db.commit()
+    run = _make_run(db, yard, specs=[(1, []), (2, [])])
+
+    async def fake_invoke(session, *, run, subtask, ctx, settings, context):
+        _ledger_row(session, run, int(subtask.seq), input_tokens=100, output_tokens=50)
+        if int(subtask.seq) == 1:
+            raise AppError("COMMANDER_SUBTASK_ERROR", "助手无法完成该任务。")
+        return _ok_result(int(subtask.seq))
+
+    async def no_agent(_db, *, ctx, text, settings):
+        return None
+
+    monkeypatch.setattr(commander_service.matcher, "create_remediation_agent", no_agent)
+    monkeypatch.setattr(commander_service, "_invoke_agent", fake_invoke)
+
+    await commander_service.execute_run(run.id)
+
+    db.expire_all()
+    rows = {row.seq: row for row in _subtasks(db, run.id)}
+    assert rows[1].status == "error"
+    assert (rows[1].input_tokens, rows[1].output_tokens) == (100, 50)
+    refreshed = db.get(CommanderRun, run.id)
+    # 两个子任务各 150 + 汇总 3+4；旧口径只记成功那一个的 2
+    assert refreshed.tokens_total >= 300
+
+
+@pytest.mark.asyncio
+async def test_remediation_rounds_accumulate_in_subtask_tokens(env, monkeypatch):
+    """C3：同一子任务连烧两轮才成功，入账取「账本累计」而不是「最后一轮自报」。"""
+    db, _factory, yard = env
+    run = _make_run(db, yard, specs=[(1, [])])
+    origin = _agent(db, yard, code="writer_a", name="写作助手", description="写销售方案")
+    better = _agent(db, yard, code="writer_b", name="接手助手", description="写销售方案")
+    _bind_subtask(db, run, agent=origin)
+    rounds = {"n": 0}
+
+    async def flaky_invoke(session, *, run, subtask, ctx, settings, context):
+        rounds["n"] += 1
+        _ledger_row(session, run, int(subtask.seq), input_tokens=100, output_tokens=50)
+        if rounds["n"] < 2:
+            raise AppError("COMMANDER_SUBTASK_ERROR", "上一轮失败。")
+        return {"answer": "成品", "input_tokens": 10, "output_tokens": 5, "artifacts": []}
+
+    monkeypatch.setattr(commander_service, "_invoke_agent", flaky_invoke)
+    await commander_service.execute_run(run.id)
+
+    db.expire_all()
+    row = _subtasks(db, run.id)[0]
+    assert row.status == "ok"
+    assert row.attempts == 2
+    # 第二轮只自报 10/5，账本里两轮合计 200/100
+    assert (row.input_tokens, row.output_tokens) == (200, 100)
+    assert row.agent_id in {origin.id, better.id}
+
+
+def test_retry_run_reclaims_reset_subtask_tokens(env):
+    """C8：retry 把子任务 token 清零，运行级总数必须同扣，否则总数虚高。"""
+    db, _factory, yard = env
+    run = _make_run(db, yard, specs=[(1, [])], status="failed", subtask_status="error")
+    row = _subtasks(db, run.id)[0]
+    row.input_tokens = 400
+    row.output_tokens = 100
+    refreshed = db.get(CommanderRun, run.id)
+    refreshed.tokens_total = 507  # 500 子任务 + 7 汇总
+    db.commit()
+
+    commander_service.retry_run(db, _ctx(yard), refreshed.id)
+
+    db.expire_all()
+    after = db.get(CommanderRun, refreshed.id)
+    assert after.status == "queued"
+    assert _subtasks(db, refreshed.id)[0].input_tokens == 0
+    assert after.tokens_total == 7
+    assert after.budget_status == ""
+
+
+def test_transient_uses_category_not_error_text() -> None:
+    """C15：正文里出现「500 亩 / 429 元」不再被当成上游抖动。"""
+    assert commander_service._is_transient(
+        AppError("LLM_ERROR", "限流", details={"category": "rate_limit"})
+    )
+    assert commander_service._is_transient(TimeoutError())
+    assert not commander_service._is_transient(
+        AppError("COMMANDER_SUBTASK_ERROR", "第 500 亩地面积 429 平方米，方案已生成。")
+    )
+    # providers 把各种上游失败都写成 502：分类存在时以分类为准，鉴权失败不该重试
+    assert not commander_service._is_transient(
+        AppError(
+            "LLM_ERROR",
+            "图像服务鉴权失败。",
+            http_status=502,
+            details={"category": "auth"},
+        )
+    )

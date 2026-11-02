@@ -274,3 +274,55 @@ def test_settings_defaults_include_learning_toggles(db_session):
     assert defaults["auto_learn_workflows"] is True
     assert defaults["auto_extract_skills"] is True
     assert defaults["failure_blacklist_threshold"] == 2
+
+
+def test_failure_blacklist_has_its_own_switch(db_session):
+    """C6：失败黑名单不再挂在「自动沉淀工作流」上。
+
+    关掉沉淀只是不想复用步骤模板；「同一个坑别再派」的依据必须继续累计，
+    反过来关掉黑名单也不该把沉淀一起停掉。
+    """
+    defaults = commander_settings.settings_for(db_session, "yard-p2")
+    assert defaults["auto_record_failures"] is True
+
+    ok_run = _run(db_session, index=10)
+    _subtask(db_session, ok_run)
+    workflow = learning.learn_from_run(
+        db_session,
+        run=ok_run,
+        subtasks=_subtasks(db_session, ok_run),
+        learn_workflows=False,
+        record_failures=True,
+    )
+    db_session.commit()
+    assert workflow is None
+    assert db_session.query(CommanderWorkflow).filter_by(yard_id="yard-p2").count() == 0
+
+    failed_one = _run(db_session, status="failed", index=11)
+    _subtask(db_session, failed_one, status="error")
+    learning.learn_from_run(
+        db_session,
+        run=failed_one,
+        subtasks=_subtasks(db_session, failed_one),
+        failure_threshold=1,
+        learn_workflows=False,
+        record_failures=True,
+    )
+    db_session.commit()
+    cases = learning.retrieve_failures(db_session, yard_id="yard-p2", text="给小院做宣传 PPT")
+    assert len(cases) == 1
+
+    # 两个开关都关：什么都不该发生
+    quiet_run = _run(db_session, status="failed", index=12)
+    _subtask(db_session, quiet_run, status="error")
+    learning.learn_from_run(
+        db_session,
+        run=quiet_run,
+        subtasks=_subtasks(db_session, quiet_run),
+        failure_threshold=1,
+        learn_workflows=False,
+        record_failures=False,
+    )
+    db_session.commit()
+    again = learning.retrieve_failures(db_session, yard_id="yard-p2", text="给小院做宣传 PPT")
+    assert [case.occurrences for case in again] == [1]

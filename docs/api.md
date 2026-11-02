@@ -563,7 +563,8 @@ v3.37 起通道判别以**模型模态**为兜底：通用 OpenAI 兼容供应�
 | `evaluator_enabled` | `true` | 每周一自动跑独立考官测评（仅近 8 天有运行的小院） |
 | `evaluator_auto_persona` | `true` | 允许测评按风险分自动切换人格；样本少于 3 次运行不切换 |
 | `evaluator_supplier_id` / `evaluator_supplier_model_id` | `null` | 考官模型绑定；空 = 复用规划模型 |
-| `auto_learn_workflows` | `true` | 成功运行自动沉淀标准工作流；失败子任务累计进黑名单 |
+| `auto_learn_workflows` | `true` | 成功运行自动沉淀标准工作流（只影响步骤模板复用） |
+| `auto_record_failures` | `true` | 失败子任务独立累计进失败黑名单；与是否沉淀工作流无关 |
 | `auto_extract_skills` | `true` | 从 Worker 成功样本萃取技能片段；关闭后既有资产仍可读取与手动维护 |
 | `failure_blacklist_threshold` | `2` | 同场景同错误累计达到该次数后进入失败黑名单（1–10） |
 
@@ -609,7 +610,7 @@ v3.37 起通道判别以**模型模态**为兜底：通用 OpenAI 兼容供应�
 
 ### 自主补救（v3.40）
 
-- 子任务失败后不向用户提问，按顺序自救：原执行者重试（仅瞬时错误）→ 换用关键词相关的其他已发布助手 → 新建专用助手（受 `auto_create_agent` 与每日上限约束）→ 指挥官用临时执行器（绑定全部已注册工具）亲自完成；换人/建人都不可用时，剩余轮数继续交给指挥官亲自尝试。
+- 子任务失败后不向用户提问，按顺序自救：原执行者重试（仅瞬时错误）→ 换用关键词相关的其他已发布助手 → 新建专用助手（受 `auto_create_agent` 与每日上限约束）→ 指挥官用临时执行器（绑定全部已注册工具）亲自完成。补救队列见底即如实报告能力缺口（`COMMANDER_CAPABILITY_GAP`），不会把剩余轮数用来把同一个执行者再跑一遍。
 - 总尝试次数由 `remediate_rounds` 限制（默认 5）；轮尽仍失败时子任务记为 `COMMANDER_CAPABILITY_GAP`，`output_excerpt` 用自然语言说明「已尝试几轮、用了哪些办法、失败原因、这是能力缺口而不是缺信息」，汇总卡与失败清单直接展示该说明；全部失败且均为能力缺口时运行级 `error_code` 也是该值。
 - 风险闸拦截 `TOOL_RISK_BLOCKED` 时立即停止补救（换人无意义），提示把会话权限切到「完全控制」；配额/鉴权类硬错误同样不再放大成本。
 - **完全控制继承**：运行创建时把会话 `approval_mode` 快照到 `commander_runs.approval_mode`，执行器按快照重建上下文；`full` 会话里子任务的高风险工具直接执行、不再逐次审批（仅对具备升级角色的成员生效，且每次写 `tool_risk_auto_approved` 审计），`clarify_enabled` 与 `preview_plan` 也被忽略——完全控制 = 不问、不等确认。
@@ -697,7 +698,7 @@ v3.37 起通道判别以**模型模态**为兜底：通用 OpenAI 兼容供应�
 | 接口 | 说明 |
 | --- | --- |
 | `GET /commander/assets` | 资产总览：三类计数 + 各自列表（工作流按最近使用、黑名单按次数、技能按成功率） |
-| `POST /commander/assets/scan` | 回填近 30 天运行并重算技能；受 `auto_learn_workflows` / `auto_extract_skills` 开关约束，返回扫描运行数与新增工作流数 |
+| `POST /commander/assets/scan` | 回填近 30 天运行并重算技能；受 `auto_learn_workflows` / `auto_record_failures` / `auto_extract_skills` 开关约束，返回扫描运行数与新增工作流数 |
 | `POST /commander/assets/workflows` | 手动创建工作流 `{name, scene, preconditions?, steps[]}`；`steps[]` 含 `title/instruction/expected_output?/agent_code?` |
 | `PUT /commander/assets/workflows/{id}` | 修改名称/场景/前置/步骤，或切换 `active|draft|archived`；步骤变更时版本 +1 |
 | `PUT /commander/assets/failures/{id}` | 切换 `watching|active|resolved` |
@@ -723,6 +724,8 @@ v3.37 起通道判别以**模型模态**为兜底：通用 OpenAI 兼容供应�
 审计事件：`commander_iteration_created`、`commander_iteration_viewed`。全部接口仅 `yard_owner`/`yard_admin`/`platform_admin` 可用，普通成员 403。
 
 `commander_runs` 新增两个快照列：`token_budget`（创建 run 时的预算，0 表示不限）与 `budget_status`（`ok|warning|exceeded`）。执行中达到 80% 标 `warning` 并发 `commander-budget` SSE 帧；达到 100% 标 `exceeded`，停止继续派发子任务，已完成子任务保留；唯一例外是尚未开始的交付任务可再放行一次（成本已有页数上限），避免整轮没有产物。`GET /commander/runs/{id}` 同时返回 `budget_ratio`、`budget_remaining` 与 `memory_used`，便于前端展示。
+
+token 统计口径（v3.55）：每个子任务按 `llm_calls` 账本的 task_id 前缀（`cmd-<run>-<seq>-` 助手执行、`cmd-self-<run>-<seq>-` 指挥官亲自执行）逐轮取增量，与最后一轮的自报用量取较大者入账——失败轮与补救轮花的 token 同样计入 `tokens_total`，预算闸看得到真实成本。`retry_run` 把失败子任务的 token 清零时会同步从 `tokens_total` 扣回，避免总数虚高。
 
 ## 多集群节点（v3.48）
 

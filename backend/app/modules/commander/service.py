@@ -36,7 +36,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, TypedDict
 
-from sqlalchemy import select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
@@ -80,6 +80,7 @@ from app.modules.commander.models import (
     CommanderRun,
     CommanderSubtask,
 )
+from app.modules.llm.models import LLMCall
 from app.modules.llm.schemas import ChatMessage
 from app.modules.llm.service import complete_with_logging
 from app.modules.memory import service as memory_service
@@ -1044,20 +1045,20 @@ class _Failure:
 
 
 def _is_transient(exc: BaseException) -> bool:
-    """429 / 5xx / 超时 / 连接错误可重试；其余错误原样失败，不放大成本。"""
-    if isinstance(exc, TimeoutError):
+    """瞬态 = 「稍后再试可能成」：只看异常类型与 provider 给出的错误分类。
+
+    旧实现还会到正文里找 ``429`` / `` 500`` 这类字样，助手答复里出现「500 亩」「429 元」
+    也会被判成上游抖动，白烧一轮。分类存在时以分类为准：providers 把各种上游失败统一
+    写成 502，只看 HTTP 状态会把鉴权失败、参数不合法也拖进重试。
+    """
+    if isinstance(exc, TimeoutError | ConnectionError):
         return True
-    if isinstance(exc, AppError):
-        category = str((exc.details or {}).get("category") or "")
-        if category in _TRANSIENT_CATEGORIES:
-            return True
-        if exc.http_status in (429, 500, 502, 503, 504):
-            return True
-    text = str(exc).lower()
-    return any(
-        token in text
-        for token in ("429", "rate limit", " 500", " 502", " 503", " 504", "timed out", "timeout")
-    )
+    if not isinstance(exc, AppError):
+        return False
+    category = str((exc.details or {}).get("category") or "")
+    if category:
+        return category in _TRANSIENT_CATEGORIES
+    return exc.http_status in (429, 500, 502, 503, 504)
 
 
 def _failure_from(exc: BaseException) -> _Failure:
@@ -1280,6 +1281,7 @@ async def _commander_answer(
     db: Session,
     *,
     run: CommanderRun,
+    subtask: CommanderSubtask,
     question: str,
     ctx: YardContext,
     settings: dict[str, Any],
@@ -1302,7 +1304,8 @@ async def _commander_answer(
             db,
             ctx,
             settings,
-            task_id=f"cmd-run-{run.id[:10]}-{uuid.uuid4().hex[:6]}",
+            # 带上 seq：代执行的 token 才能归到本子任务（见 _subtask_ledger_tokens）
+            task_id=f"cmd-self-{run.id[:10]}-{subtask.seq}-{uuid.uuid4().hex[:6]}",
             messages=messages,
             temperature=0.3,
             purpose="commander_merge",
@@ -1353,10 +1356,14 @@ async def _commander_tool_answer(
             # 风险闸必须透传：不能用纯答复绕过审批/权限
             raise
         log.warning("commander self tool execution failed, fallback to plain answer: %s", exc)
-        return await _commander_answer(db, run=run, question=question, ctx=ctx, settings=settings)
+        return await _commander_answer(
+            db, run=run, subtask=subtask, question=question, ctx=ctx, settings=settings
+        )
     except Exception as exc:  # noqa: BLE001 - 工具链异常退化为纯答复
         log.warning("commander self tool execution crashed, fallback: %s", exc)
-        return await _commander_answer(db, run=run, question=question, ctx=ctx, settings=settings)
+        return await _commander_answer(
+            db, run=run, subtask=subtask, question=question, ctx=ctx, settings=settings
+        )
 
     payload = result.model_dump() if hasattr(result, "model_dump") else dict(result)
     raw_output = payload.get("output")
@@ -1565,6 +1572,32 @@ def _capability_gap_message(
     )
 
 
+def _subtask_ledger_tokens(db: Session, run_id: str, seq: int) -> tuple[int, int] | None:
+    """``llm_calls`` 账本里第 ``seq`` 号子任务已花掉的 (input, output) token。
+
+    只认带 seq 的 task_id 前缀族——``cmd-<run>-<seq>-`` 是助手执行、
+    ``cmd-self-<run>-<seq>-`` 是指挥官亲自执行——所以并行的兄弟子任务不会串账。
+    文档链路（``chat-doc-*``）不带 seq，仍由 ``_invoke_agent`` 的自报值兜住。
+    读不到时返回 ``None``：上一次调用失败可能把 Session 留在待回滚状态，记账不能拖垮执行。
+    """
+    try:
+        row = db.execute(
+            select(
+                func.coalesce(func.sum(LLMCall.input_tokens), 0),
+                func.coalesce(func.sum(LLMCall.output_tokens), 0),
+            ).where(
+                or_(
+                    LLMCall.task_id.like(f"cmd-{run_id[:12]}-{seq}-%"),
+                    LLMCall.task_id.like(f"cmd-self-{run_id[:10]}-{seq}-%"),
+                )
+            )
+        ).one()
+    except Exception as exc:  # noqa: BLE001 - 只为尽力读数，失败即放弃本轮记账
+        log.warning("commander ledger read failed run=%s seq=%s: %s", run_id, seq, exc)
+        return None
+    return int(row[0] or 0), int(row[1] or 0)
+
+
 async def _run_one(
     *,
     run_id: str,
@@ -1627,6 +1660,19 @@ async def _run_one(
             result: dict[str, Any] | None = None
             failure: _Failure | None = None
             attempt = 0
+            seq = int(subtask.seq)
+            # 失败轮也烧钱：逐轮汇总 llm_calls 账本增量，补救轮再多也不会把预算闸骗过去
+            ledger_in = 0
+            ledger_out = 0
+
+            def _collect_spend(baseline: tuple[int, int] | None) -> None:
+                nonlocal ledger_in, ledger_out
+                after = _subtask_ledger_tokens(db, run_id, seq)
+                if baseline is None or after is None:
+                    return
+                ledger_in += max(0, after[0] - baseline[0])
+                ledger_out += max(0, after[1] - baseline[1])
+
             timeout_seconds = int(settings["subtask_timeout_seconds"])
             if _delivery_format(run, subtask):
                 # 文档交付要多次调用模型（大纲 + 分批写页 + 过薄重写），
@@ -1637,6 +1683,8 @@ async def _run_one(
                 attempt += 1
                 subtask.attempts = int(subtask.attempts or 0) + 1
                 _safe_commit(db)
+                # 本轮起点：失败轮写下的账本行会被紧随其后的 rollback 抹掉，增量必须在回滚前取
+                baseline = _subtask_ledger_tokens(db, run_id, seq)
                 try:
                     result = await asyncio.wait_for(
                         _invoke_agent(
@@ -1649,10 +1697,12 @@ async def _run_one(
                         ),
                         timeout=timeout_seconds,
                     )
+                    _collect_spend(baseline)
                     break
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:  # noqa: BLE001 - 统一转失败矩阵
+                    _collect_spend(baseline)
                     failure = _failure_from(exc)
                     result = None
                     if failure.transient:
@@ -1678,9 +1728,8 @@ async def _run_one(
                     while True:
                         action = _next_remediation_action(queue, failure, retried=used_retry)
                         if action is None:
-                            # 换人/建人都试过后，剩余轮数交给指挥官亲自执行（工具最全）
-                            action = "self"
-                        if action is None:
+                            # 队列见底：如实报能力缺口。再硬塞一轮「指挥官亲自执行」只是
+                            # 把同一个执行器重跑一遍，白烧 token 也换不来新能力
                             break
                         if action == "retry":
                             used_retry = True
@@ -1746,8 +1795,10 @@ async def _run_one(
             if subtask is None:
                 return {"seq": 0, "status": SUB_ERROR, "tokens": 0, "degraded": degraded}
             if result is not None:
-                input_tokens = int(result.get("input_tokens") or 0)
-                output_tokens = int(result.get("output_tokens") or 0)
+                # 取「自报」与「账本」的较大者：最后一轮两边都记，取大才不会重复计数；
+                # 文档链路只有自报值、失败轮只有账本值，取大才不会漏账。
+                input_tokens = max(int(result.get("input_tokens") or 0), ledger_in)
+                output_tokens = max(int(result.get("output_tokens") or 0), ledger_out)
                 subtask.status = SUB_OK
                 subtask.input_tokens = int(subtask.input_tokens or 0) + input_tokens
                 subtask.output_tokens = int(subtask.output_tokens or 0) + output_tokens
@@ -1797,6 +1848,10 @@ async def _run_one(
             else:
                 subtask.error_code = failure.code[:50]
                 subtask.output_excerpt = failure.message[:1200]
+            # 失败轮的 token 也是真花掉的钱：入账后 run.tokens_total 才会逼近预算
+            if ledger_in or ledger_out:
+                subtask.input_tokens = int(subtask.input_tokens or 0) + ledger_in
+                subtask.output_tokens = int(subtask.output_tokens or 0) + ledger_out
             subtask.finished_at = _now()
             _safe_commit(db)
             _emit(on_event, "subtask", subtask_out(subtask))
@@ -1812,7 +1867,7 @@ async def _run_one(
             return {
                 "seq": int(subtask.seq),
                 "status": SUB_ERROR,
-                "tokens": 0,
+                "tokens": ledger_in + ledger_out,
                 "degraded": degraded,
             }
         finally:
@@ -1981,6 +2036,8 @@ async def _schedule(
                         st.error_code = "COMMANDER_BUDGET_EXCEEDED"
                         st.finished_at = _now()
                         db.add(st)
+                        # 调度表要同步：否则下一轮仍按 pending 把已跳过的任务再派一次
+                        state[int(st.seq)] = SUB_SKIPPED
                         _emit_out(st)
                 _safe_commit(db)
             elif _mark_unfinished(
@@ -2017,6 +2074,7 @@ async def _schedule(
                         st.error_code = "COMMANDER_RUN_TIMEOUT"
                         st.finished_at = _now()
                         db.add(st)
+                        state[int(st.seq)] = SUB_SKIPPED
                         _emit_out(st)
                 _safe_commit(db)
                 log.warning(
@@ -2412,12 +2470,16 @@ async def execute_run(
 
         # 经验资产：成功沉淀工作流，失败累计黑名单，Worker 样本萃取技能
         try:
-            if settings.get("auto_learn_workflows", True):
+            learn_workflows = bool(settings.get("auto_learn_workflows", True))
+            record_failures = bool(settings.get("auto_record_failures", True))
+            if learn_workflows or record_failures:
                 learning.learn_from_run(
                     db,
                     run=run,
                     subtasks=subtasks,
                     failure_threshold=int(settings.get("failure_blacklist_threshold") or 2),
+                    learn_workflows=learn_workflows,
+                    record_failures=record_failures,
                 )
             if settings.get("auto_extract_skills", True):
                 learning.extract_skills_for_yard(db, yard_id=run.yard_id)
@@ -2570,8 +2632,10 @@ def retry_run(db: Session, ctx: YardContext, run_id: str) -> CommanderRun:
         raise AppError(ERR_RUN_STATE, "已取消的运行不能重试。", http_status=409)
 
     retried = 0
+    reclaimed = 0
     for st in subtasks:
         if st.status in (SUB_ERROR, SUB_SKIPPED):
+            reclaimed += int(st.input_tokens or 0) + int(st.output_tokens or 0)
             st.status = SUB_PENDING
             st.error_code = None
             st.output_excerpt = None
@@ -2582,6 +2646,11 @@ def retry_run(db: Session, ctx: YardContext, run_id: str) -> CommanderRun:
             st.finished_at = None
             db.add(st)
             retried += 1
+    if reclaimed:
+        # 子任务的 token 清零了，运行级总数必须同扣：否则重试一轮后 tokens_total 里还
+        # 掺着上一轮的失败账，预算闸一上来就按虚高值判
+        run.tokens_total = max(0, int(run.tokens_total or 0) - reclaimed)
+        run.budget_status = ""
     if retried == 0:
         raise AppError(
             "COMMANDER_NOTHING_TO_RETRY",

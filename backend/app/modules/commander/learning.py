@@ -251,14 +251,25 @@ def learn_from_run(
     subtasks: list[CommanderSubtask],
     failure_threshold: int = 2,
     record_failures: bool = True,
+    learn_workflows: bool = True,
 ) -> CommanderWorkflow | None:
-    """运行成功后沉淀工作流；失败子任务累计进黑名单。幂等。"""
+    """运行成功后沉淀工作流；失败子任务累计进黑名单。幂等。
+
+    两个开关各管各的：关掉工作流沉淀不该连失败黑名单一起停——黑名单是「别再派同一个
+    坑」的依据，比沉淀更常用到。
+    """
     if not run.yard_id or not run.id:
         return None
     ok_steps = [st for st in subtasks if st.status == SUB_OK]
     scene = (run.goal or "").strip()
     workflow: CommanderWorkflow | None = None
-    if ok_steps and scene and run.status in (RUN_COMPLETED, RUN_PARTIAL) and len(scene) >= 2:
+    if (
+        learn_workflows
+        and ok_steps
+        and scene
+        and run.status in (RUN_COMPLETED, RUN_PARTIAL)
+        and len(scene) >= 2
+    ):
         code = f"WF-{scene_code(scene)}"
         workflow = db.scalar(
             select(CommanderWorkflow).where(
@@ -506,16 +517,15 @@ def scan_yard(
                 .order_by(CommanderSubtask.seq)
             )
         )
-        if learn_workflows:
+        if learn_workflows or record_failures:
             learn_from_run(
                 db,
                 run=run,
                 subtasks=subtasks,
                 failure_threshold=failure_threshold,
                 record_failures=record_failures,
+                learn_workflows=learn_workflows,
             )
-        elif record_failures:
-            _record_failures(db, run=run, subtasks=subtasks, threshold=failure_threshold)
     workflows_after = (
         db.query(CommanderWorkflow).filter(CommanderWorkflow.yard_id == yard_id).count()
     )

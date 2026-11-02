@@ -454,7 +454,7 @@ def scan_assets(
         yard_id=ctx.yard_id,
         failure_threshold=int(cfg.get("failure_blacklist_threshold") or 2),
         learn_workflows=bool(cfg.get("auto_learn_workflows", True)),
-        record_failures=bool(cfg.get("auto_learn_workflows", True)),
+        record_failures=bool(cfg.get("auto_record_failures", True)),
         extract_skills=bool(cfg.get("auto_extract_skills", True)),
     )
     log_audit(

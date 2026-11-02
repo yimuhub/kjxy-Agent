@@ -228,3 +228,15 @@ def test_接口出参含自建助手工具并可一键全量挂载(db_session, y
 
     rejected = client.put("/api/v1/commander/identity", json={"bound_skills": ["skill:not-exist"]})
     assert rejected.status_code == 422
+
+
+def test_身份行只flush不在请求中途提交事务(db_session, yard):
+    """C9：本函数常在请求中途被调用，提交会把调用方写到一半的改动一起落库。"""
+    row = identity.ensure_commander_agent(db_session, yard_id=yard.id, actor_id="u-owner")
+    assert row is not None
+    assert row.id
+    # 同一事务内可直接取用（flush 后即可见）
+    assert db_session.get(YardAgent, row.id) is row
+    db_session.rollback()
+    # 没有任何中途提交：整笔回滚后身份行不该还留在库里
+    assert db_session.query(YardAgent).filter(YardAgent.id == row.id).first() is None

@@ -62,6 +62,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # 经验资产：成功运行自动沉淀工作流、从 Worker 样本萃取技能
     "auto_learn_workflows": True,
     "auto_extract_skills": True,
+    # 失败黑名单：独立开关，关掉工作流沉淀不应该连「别再派同一个坑」的依据也停掉
+    "auto_record_failures": True,
     # 同场景同错误累计多少次后进入失败黑名单（1–10）
     "failure_blacklist_threshold": 2,
     # 规划提示词可选模块与字符预算（核心契约与人格段始终保留）
@@ -104,6 +106,8 @@ class CommanderSettings(BaseModel):
     evaluator_supplier_model_id: str | None = Field(default=None, max_length=100)
     auto_learn_workflows: bool
     auto_extract_skills: bool
+    # 默认值让 3.54 之前写入的设置对象仍能通过校验（缺字段即按开启处理）
+    auto_record_failures: bool = True
     failure_blacklist_threshold: int = Field(ge=1, le=10)
     prompt_modules: list[Literal["delivery", "cost", "concise", "risk"]]
     prompt_max_chars: int = Field(ge=2000, le=8000)
