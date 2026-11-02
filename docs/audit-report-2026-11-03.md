@@ -322,4 +322,22 @@
 | S-6 演示账号无生产硬闸 | ✅ 已修 | `seed.guard_demo_data_writes()` 统一闸门，`app.db.seed` 与 `app.db.repair_demo_passwords` 共用（后者此前完全无闸，可在生产库把四个账号重置为 `admin123`）；新增 `seed.active_demo_usernames()` 供启动自查，`main._startup_wiring()` 在 `is_production` 时扫描存量库并以 WARNING 报出仍能用文档弱口令登录的用户名。6 条测试 |
 | 顺带：v3.53.0 遗留的 mypy 错误 | ✅ 已修 | `commander.service` 原子占位对 `Result` 取 `.rowcount` 报 attr-defined；按库内既有写法显式 `execution_options(synchronize_session=False)` + rowcount 判定，`mypy app` 恢复全绿（该问题会让 CI 的 mypy 门禁红，属 3.53.0 收口疏漏） |
 
-**仍未处理（转入排期）**：「下个迭代」的 F-4 租约原子性与 F-5 进程内配额/限流（多副本部署形态才需要）、C3 token 预算低估、C5/K1+S-3 cluster SSRF、S-4 JWT 角色滞留、S-7~S-10、C6~C10/C14~C16、FE-3~FE-13（FE-12 已在 3.53.0 完成）。三条部署指引仍适用；其中 `/metrics` 现在默认关闭，需要观测的部署显式开启后仍要保证端口不对公网暴露。
+**仍未处理（转入排期）**：「下个迭代」的 F-4 租约原子性与 F-5 进程内配额/限流（多副本部署形态才需要）、C5/K1+S-3 cluster SSRF、S-4 JWT 角色滞留、S-7~S-10、C10、C16、K2~K5、FE-3~FE-11/FE-13（C3/C6/C7/C8/C9/C14/C15 已在 3.55.0 完成，见下节；FE-12 已在 3.53.0 完成）。三条部署指引仍适用；其中 `/metrics` 现在默认关闭，需要观测的部署显式开启后仍要保证端口不对公网暴露。
+
+---
+
+## 十一、整改状态（v3.55.0，2026-11-03）
+
+「下个迭代」里指挥官成本与正确性的 6 项落地（C3/C8/C6/C7/C9/C14/C15）。逐条对应：
+
+| 报告项 | 状态 | 落点 |
+| --- | --- | --- |
+| C3 失败/补救轮 token 全丢 | ✅ 已修 | `service._subtask_ledger_tokens()` 按 `llm_calls` 账本的 task_id 前缀族（`cmd-<run>-<seq>-` 助手执行、`cmd-self-<run>-<seq>-` 指挥官亲自执行）取该子任务累计用量；`_run_one` 每轮开始时取基线、结束时（成功分支与异常分支都在 `db.rollback()` **之前**）取增量，最后一轮与 `result` 自报值按 input/output 分量取较大者入账。取大而不是相加：最后一轮两边都记，相加会重复；文档链路 `chat-doc-*`/`chat-deck-*` 不带 seq、只出现在自报值里，取大不会漏。失败分支同样把增量写进子任务行并随返回值计入 `tokens_total`（此前固定返回 0）。`_commander_answer` 的 task_id 从 `cmd-run-<run>` 改为 `cmd-self-<run>-<seq>`，代执行的花费才归得对——该前缀只此一处使用，无外部引用 |
+| C8 `retry_run` 总数虚高 | ✅ 已修 | 清零 error/skipped 子任务 token 时累计 `reclaimed`，同额从 `run.tokens_total` 扣回（`max(0, …)`）并清空 `budget_status`；测试用「500 子任务 + 7 汇总」验证重试后只剩 7 |
+| C7 死分支与强制自执行 | ✅ 已修 | 删掉 `action = "self"` 之后那个永不成立的 `if action is None: break`。补救队列（原执行者重试 → 换人 → 建人 → 亲自执行）见底即退出，走 `_capability_gap_message`；`self` 作为队列里的正常一步仍会执行一次。同一改动让 `test_remediation_exhausted_reports_capability_gap` 的轮数从 5 降到 3，测试按新口径断言 |
+| C6 黑名单挂在工作流开关上 | ✅ 已修 | 新增设置项 `auto_record_failures`（默认 `true`；Pydantic 字段带默认值，3.54 之前写入的设置对象缺该键仍能通过校验，不会整套退回默认值）。`learn_from_run` 增加 `learn_workflows` 参数，`scan_yard` 与 `execute_run` 分别传两个开关；`/commander/assets/scan` 改读 `auto_record_failures`。设置页把「记录失败黑名单」独立成开关，并修正「自动萃取技能 / 失败阈值」此前被 `auto_learn_workflows` 联动禁用的错误关系 |
+| C9 `ensure_commander_agent` 事务边界 | ✅ 已修 | 复活软删行与首建均改为 `flush()`；首建插入包进 SAVEPOINT，撞唯一约束只回滚这一条插入并回查对方行（与 C11 同一口径），去掉多余的 `db.refresh`（主键与时间戳都是 Python 侧默认值）。测试断言整笔 `rollback()` 后身份行不在库里，即没有中途提交 |
+| C14 调度状态与库不同步 | ✅ 已修 | 预算兜底与超时兜底把 pending 子任务改写成 `skipped` 时同步 `state[seq]`，不再在下一轮把它们当 pending 重复派发 |
+| C15 `_is_transient` 猜正文数字 | ✅ 已修 | 只认异常类型（`TimeoutError`/`ConnectionError`）与 provider 给出的 `details.category`，无分类时才看 HTTP 状态。分类优先是必要的：`providers_openai` 把各种上游失败统一写成 502，只看状态会把 `auth`/`provider_4xx` 也拖进重试；正文匹配会让「第 500 亩」「429 元」这类答复文本触发重试 |
+
+**口径说明（不隐瞒）**：账本增量只覆盖带 seq 的 task_id 前缀族，`_deliver_document` 走的是对话文档链路（`chat-doc-*`/`chat-deck-*`），其失败轮用量仍只能靠自报值兜住——本轮不改文档链路的任务号命名（牵涉对话侧归集口径，另议）。上游报错的那次调用在账本里 `input_tokens/output_tokens` 为空，因此「调用直接失败、一个字节都没返回」的那一轮仍按 0 计，与配额记账口径一致，不虚报成本。
