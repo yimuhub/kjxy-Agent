@@ -38,7 +38,14 @@ test.describe('v3.29 用量统计与可读性升级', () => {
     await page.goto('/tasks')
 
     await expect(page.getByRole('columnheader', { name: '任务名称' })).toBeVisible()
-    const firstTitle = page.locator('.el-table__body-wrapper tbody tr').first().locator('td').first()
+    const taskCard = page
+      .locator('.el-card')
+      .filter({ has: page.getByRole('columnheader', { name: '任务名称' }) })
+    const firstTitle = taskCard
+      .locator('.el-table__body-wrapper tbody tr')
+      .first()
+      .locator('td')
+      .first()
     await expect(firstTitle).not.toHaveText('')
     await expect(firstTitle.locator('.task-title')).toBeVisible()
   })

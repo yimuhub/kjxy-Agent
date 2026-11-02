@@ -19,8 +19,8 @@ test.describe('认证与导航', () => {
     const topLevel = page.locator(
       '#main-nav > .el-menu > .el-menu-item-group > ul > li',
     )
-    // 默认布局：工作台 2 + 能力协作 2 + 知识数据 6 + 管理与统计 3（问答已并入对话）
-    await expect(topLevel).toHaveCount(13)
+    // 默认布局：工作台 3 + 能力协作 2 + 知识数据 6 + 管理与统计 3（问答已并入对话）
+    await expect(topLevel).toHaveCount(14)
 
     // 自我升级（/evolution）必须是一级可见入口，不能只藏在折叠菜单里
     await expect(page.getByRole('menuitem', { name: '自我升级' })).toBeVisible()

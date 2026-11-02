@@ -11,13 +11,16 @@ import asyncio
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.deps import CurrentUser, YardContext, get_current_user, get_db_session
 from app.core.errors import AppError
 from app.core.responses import ok
 from app.modules.commander import metrics, service
-from app.modules.commander.models import RUN_QUEUED
+from app.modules.commander import settings as commander_settings
+from app.modules.commander.models import RUN_QUEUED, CommanderRun
+from app.modules.memory import service as memory_service
 
 router = APIRouter(prefix="/commander", tags=["commander"])
 
@@ -79,6 +82,68 @@ def commander_stats(
 ):
     ctx = _ctx(user)
     return ok({"stats": metrics.stats(db, ctx.yard_id, max(1, min(int(days), 365)))}, request)
+
+
+@router.get("/cost")
+def commander_cost(
+    request: Request,
+    days: int = 30,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+):
+    """按用途/模型聚合成本；数据来自既有 LLM 调用账本，不新增记账链路。"""
+    ctx = _ctx(user)
+    return ok(metrics.cost_stats(db, ctx.yard_id, max(1, min(int(days), 365))), request)
+
+
+@router.get("/overview")
+def commander_overview(
+    request: Request,
+    days: int = 30,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+):
+    """指挥台首页：设置快照、运行指标、成本、记忆计数与最近运行。"""
+    ctx = _ctx(user)
+    window_days = max(1, min(int(days), 365))
+    settings = commander_settings.settings_for(db, ctx.yard_id)
+    rows = list(
+        db.scalars(
+            select(CommanderRun)
+            .where(CommanderRun.yard_id == ctx.yard_id)
+            .order_by(CommanderRun.created_at.desc())
+            .limit(8)
+        )
+    )
+    runs: list[dict] = []
+    for run in rows:
+        _run, subtasks = service.get_run(db, ctx.yard_id, run.id)
+        runs.append(service.run_out(run, subtasks))
+    summaries = memory_service.list_memories(db, ctx, kind="summary", limit=1)
+    return ok(
+        {
+            "commander": {
+                "display_name": settings["display_name"],
+                "emoji": settings["emoji"],
+                "enabled": bool(settings["enabled"]),
+                "token_budget": int(settings["token_budget"]),
+                "max_parallel": int(settings["max_parallel"]),
+                "default_mode": bool(settings["default_mode"]),
+                "clarify_enabled": bool(settings["clarify_enabled"]),
+                "auto_remediate": bool(settings["auto_remediate"]),
+            },
+            "stats": metrics.stats(db, ctx.yard_id, window_days),
+            "cost": metrics.cost_stats(db, ctx.yard_id, window_days),
+            "memory": {
+                "counts": memory_service.count_memories(db, ctx),
+                "latest_summary": (
+                    memory_service.memory_out(summaries[0]) if summaries else None
+                ),
+            },
+            "runs": runs,
+        },
+        request,
+    )
 
 
 @router.post("/preview")

@@ -55,12 +55,16 @@ def _startup_wiring() -> None:
                 from app.modules.devices.worker_tasks import (
                     start_inline_scheduler as start_devices_poll,
                 )
+                from app.modules.memory.tasks import (
+                    start_inline_scheduler as start_memory_poll,
+                )
                 from app.modules.self_improve.worker_tasks import (
                     start_inline_scheduler as start_si_poll,
                 )
 
                 start_devices_poll()
                 start_si_poll()
+                start_memory_poll()
         except Exception as e:
             log.warning("inline schedulers start failed: %s", e)
 
@@ -147,7 +151,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="科技小院多智能体平台", version="3.42.0", lifespan=lifespan)
+    app = FastAPI(title="科技小院多智能体平台", version="3.43.0", lifespan=lifespan)
     app.add_middleware(RequestIDMiddleware)
     app.add_exception_handler(AppError, app_error_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)

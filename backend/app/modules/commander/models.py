@@ -64,6 +64,10 @@ class CommanderRun(Base, TimestampMixin):
     effective_parallel: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
     degraded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     tokens_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    #: 运行创建时的预算快照（0 = 未设置，按设置当前值兜底）
+    token_budget: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    #: ok|warning|exceeded；由执行器按 tokens_total/token_budget 更新
+    budget_status: Mapped[str] = mapped_column(String(12), nullable=False, default="")
     latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
     #: 发起人当轮角色快照：执行器自建 Session 时重建 YardContext（权限不放大）

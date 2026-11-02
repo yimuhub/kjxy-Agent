@@ -147,7 +147,12 @@ async def _run_chat_stream(
                 continue
             if kind == "step":
                 yield _frame("step", payload)
-            elif kind in ("commander-plan", "subtask-status", "commander-summary"):
+            elif kind in (
+                "commander-plan",
+                "subtask-status",
+                "commander-summary",
+                "commander-budget",
+            ):
                 yield _frame(kind, payload)
             elif kind == "result":
                 card = payload.get("payload")

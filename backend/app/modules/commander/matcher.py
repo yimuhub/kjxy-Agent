@@ -760,10 +760,10 @@ async def assign_agents(
             picks.append(_closest_pick(text, candidates, stats))
             continue
 
-        created = await _create_agent(db, ctx=ctx, text=text, settings=settings)
-        if created is not None:
+        new_agent = await _create_agent(db, ctx=ctx, text=text, settings=settings)
+        if new_agent is not None:
             created_today += 1
-            picks.append(_agent_pick(created, SOURCE_GENERATED))
+            picks.append(_agent_pick(new_agent, SOURCE_GENERATED))
             continue
 
         # 自动创建失败：回退到最接近的已发布候选

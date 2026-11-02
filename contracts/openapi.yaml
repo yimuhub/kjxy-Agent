@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.42.0
+  version: 3.43.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -10919,6 +10919,66 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/commander/cost:
+    get:
+      tags:
+      - v1
+      - commander
+      summary: Commander Cost
+      description: 按用途/模型聚合成本；数据来自既有 LLM 调用账本，不新增记账链路。
+      operationId: commander_cost_api_v1_commander_cost_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: days
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 30
+          title: Days
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/commander/overview:
+    get:
+      tags:
+      - v1
+      - commander
+      summary: Commander Overview
+      description: 指挥台首页：设置快照、运行指标、成本、记忆计数与最近运行。
+      operationId: commander_overview_api_v1_commander_overview_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: days
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 30
+          title: Days
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/commander/preview:
     post:
       tags:
@@ -11093,6 +11153,140 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/commander/memories:
+    get:
+      tags:
+      - v1
+      - commander-memory
+      summary: List Memories
+      operationId: list_memories_api_v1_commander_memories_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: scope_type
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Scope Type
+      - name: kind
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Kind
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 50
+          title: Limit
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 0
+          title: Offset
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/commander/memories/search:
+    post:
+      tags:
+      - v1
+      - commander-memory
+      summary: Search Memories
+      operationId: search_memories_api_v1_commander_memories_search_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MemorySearchRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/commander/memories/{memory_id}:
+    delete:
+      tags:
+      - v1
+      - commander-memory
+      summary: Delete Memory
+      operationId: delete_memory_api_v1_commander_memories__memory_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: memory_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Memory Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/commander/memories/summary:
+    post:
+      tags:
+      - v1
+      - commander-memory
+      summary: Summarize
+      operationId: summarize_api_v1_commander_memories_summary_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MemorySummaryRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
   /api/v1/asr/status:
     get:
       tags:
@@ -13585,6 +13779,41 @@ components:
           title: Note
       type: object
       title: MemberUpdateRequest
+    MemorySearchRequest:
+      properties:
+        query:
+          type: string
+          maxLength: 2000
+          minLength: 1
+          title: Query
+        top_k:
+          type: integer
+          maximum: 10.0
+          minimum: 1.0
+          title: Top K
+          default: 5
+        token_budget:
+          type: integer
+          maximum: 4000.0
+          minimum: 120.0
+          title: Token Budget
+          default: 800
+      additionalProperties: false
+      type: object
+      required:
+      - query
+      title: MemorySearchRequest
+    MemorySummaryRequest:
+      properties:
+        day:
+          anyOf:
+          - type: string
+            maxLength: 10
+          - type: 'null'
+          title: Day
+      additionalProperties: false
+      type: object
+      title: MemorySummaryRequest
     MessageSendRequest:
       properties:
         content:

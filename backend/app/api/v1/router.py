@@ -30,6 +30,7 @@ from app.modules.library.router import router as library_router
 from app.modules.llm.router import router as llm_router
 from app.modules.market.router import router as market_router
 from app.modules.mcp.router import router as mcp_router
+from app.modules.memory.router import router as memory_router
 from app.modules.pairing.router import router as pairing_router
 from app.modules.plugins.router import router as plugins_router
 from app.modules.policy.router import router as policy_router
@@ -91,6 +92,7 @@ router.include_router(chat_router)  # /chat/sessions（对话模式：会话+消
 router.include_router(chat_mention_router)  # /chat/mention-candidates（@ 点名候选集合资源）
 router.include_router(chat_media_router)  # /chat/transcribe（语音转写，v3.11）
 router.include_router(commander_router)  # /commander/runs（指挥官编排：执行/重试/取消）
+router.include_router(memory_router)  # /commander/memories（记忆检索/列表/日复盘，v3.43）
 router.include_router(asr_router)  # /asr/*（语音转写状态/本机模型/测试，v3.30）
 router.include_router(quota_router)  # /quota/*（分级额度策略、申请与审批，v3.32）
 router.include_router(pairing_router)  # /pairing（手机扫码配对：建码/交换/设备台账）

@@ -205,6 +205,11 @@ export interface CommanderRun {
   /** 创建时快照的会话授权模式（full = 完全控制，不再逐次审批） */
   approval_mode?: 'ask' | 'auto' | 'full' | string
   tokens_total?: number
+  token_budget?: number
+  budget_ratio?: number
+  budget_status?: 'ok' | 'warning' | 'exceeded' | string
+  budget_remaining?: number
+  memory_used?: boolean
   latency_ms?: number
   plan_fallback?: boolean
   /** 降级原因：clarify_disabled / parse_failed / llm_error；空串表示未降级 */
@@ -318,7 +323,17 @@ export const COMMANDER_SSE_EVENTS = {
   plan: 'commander-plan',
   subtaskStatus: 'subtask-status',
   summary: 'commander-summary',
+  budget: 'commander-budget',
 } as const
+
+/** 预算帧：跨过 80%/100% 时下发，前端即时提示但不阻塞执行 */
+export interface CommanderBudgetFrame {
+  run_id: string
+  tokens_total?: number
+  token_budget?: number
+  ratio?: number
+  status?: 'ok' | 'warning' | 'exceeded' | string
+}
 
 export interface CommanderPlanFrame {
   run_id: string

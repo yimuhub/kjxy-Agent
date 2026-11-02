@@ -29,6 +29,7 @@ from app.modules.commander.models import (
     CommanderRun,
     CommanderSubtask,
 )
+from app.modules.llm.models import LLMCall
 
 #: 澄清运行错误码（与 service.ERR_NEEDS_INPUT 同值；这里独立声明避免循环导入）
 NEEDS_INPUT_CODE = "COMMANDER_NEEDS_INPUT"
@@ -140,4 +141,72 @@ def stats(db: Session, yard_id: str, days: int = 30) -> dict[str, Any]:
     }
 
 
-__all__ = ["NEEDS_INPUT_CODE", "stats"]
+def cost_stats(db: Session, yard_id: str, days: int = 30) -> dict[str, Any]:
+    """按用途/模型聚合 LLM 调用成本，并给出指挥官运行级 token 总览。"""
+    window_days = max(1, min(int(days), 365))
+    cutoff = datetime.now(UTC) - timedelta(days=window_days)
+    rows = db.execute(
+        select(
+            func.coalesce(LLMCall.purpose, "platform").label("purpose"),
+            LLMCall.model.label("model"),
+            func.count().label("calls"),
+            func.coalesce(func.sum(LLMCall.input_tokens), 0).label("input_tokens"),
+            func.coalesce(func.sum(LLMCall.output_tokens), 0).label("output_tokens"),
+            func.coalesce(func.sum(LLMCall.estimated_cost), 0.0).label("cost"),
+        )
+        .where(LLMCall.yard_id == yard_id, LLMCall.created_at >= cutoff)
+        .group_by(func.coalesce(LLMCall.purpose, "platform"), LLMCall.model)
+        .order_by(func.coalesce(func.sum(LLMCall.input_tokens), 0).desc())
+    ).all()
+
+    by_purpose: dict[str, dict[str, Any]] = {}
+    by_model: dict[str, dict[str, Any]] = {}
+    total = {"calls": 0, "input_tokens": 0, "output_tokens": 0, "tokens": 0, "cost": 0.0}
+    for purpose, model, calls, input_tokens, output_tokens, cost in rows:
+        tokens = int(input_tokens or 0) + int(output_tokens or 0)
+        item = {
+            "calls": int(calls or 0),
+            "input_tokens": int(input_tokens or 0),
+            "output_tokens": int(output_tokens or 0),
+            "tokens": tokens,
+            "cost": round(float(cost or 0), 4),
+        }
+        purpose_item = by_purpose.setdefault(
+            str(purpose), {"purpose": str(purpose), "calls": 0, "tokens": 0, "cost": 0.0}
+        )
+        purpose_item["calls"] += item["calls"]
+        purpose_item["tokens"] += item["tokens"]
+        purpose_item["cost"] = round(purpose_item["cost"] + item["cost"], 4)
+        model_item = by_model.setdefault(
+            str(model), {"model": str(model), "calls": 0, "tokens": 0, "cost": 0.0}
+        )
+        model_item["calls"] += item["calls"]
+        model_item["tokens"] += item["tokens"]
+        model_item["cost"] = round(model_item["cost"] + item["cost"], 4)
+        for key in ("calls", "input_tokens", "output_tokens", "tokens"):
+            total[key] += item[key]
+        total["cost"] = round(total["cost"] + item["cost"], 4)
+
+    runs = list(
+        db.scalars(
+            select(CommanderRun).where(
+                CommanderRun.yard_id == yard_id,
+                CommanderRun.created_at >= cutoff,
+            )
+        )
+    )
+    return {
+        "window_days": window_days,
+        "total": total,
+        "by_purpose": sorted(by_purpose.values(), key=lambda x: x["tokens"], reverse=True),
+        "by_model": sorted(by_model.values(), key=lambda x: x["tokens"], reverse=True),
+        "commander": {
+            "runs": len(runs),
+            "tokens": sum(int(run.tokens_total or 0) for run in runs),
+            "completed": sum(1 for run in runs if run.status == RUN_COMPLETED),
+            "failed": sum(1 for run in runs if run.status in (RUN_FAILED, RUN_PARTIAL)),
+        },
+    }
+
+
+__all__ = ["NEEDS_INPUT_CODE", "cost_stats", "stats"]

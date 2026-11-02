@@ -13,6 +13,7 @@ import {
   COMMANDER_SSE_EVENTS,
   commanderApi,
   type CommanderArtifact,
+  type CommanderBudgetFrame,
   type CommanderClarifyPayload,
   type CommanderClarifyQuestion,
   type CommanderFailedItem,
@@ -134,6 +135,9 @@ export interface CommanderRunView {  runId: string
   effectiveParallel: number
   degraded: boolean
   tokensTotal: number
+  tokenBudget: number
+  budgetRatio: number
+  budgetStatus: string
   latencyMs: number | null
   answer: string
   artifacts: CommanderArtifact[]
@@ -165,6 +169,9 @@ function emptyCommanderRun(runId: string): CommanderRunView {
     effectiveParallel: 0,
     degraded: false,
     tokensTotal: 0,
+    tokenBudget: 0,
+    budgetRatio: 0,
+    budgetStatus: '',
     latencyMs: null,
     answer: '',
     artifacts: [],
@@ -1121,6 +1128,21 @@ function buildChatStore(scope: string) {
       if (started) startCommanderPoll(runId)
     }
 
+    function applyCommanderBudget(frame: CommanderBudgetFrame): void {
+      const runId = String(frame.run_id ?? '').trim()
+      if (!runId) return
+      const previous = commanderRuns.value[runId] ?? emptyCommanderRun(runId)
+      const tokens = Number(frame.tokens_total)
+      const budget = Number(frame.token_budget)
+      const ratio = Number(frame.ratio)
+      patchCommanderRun(runId, {
+        tokensTotal: Number.isFinite(tokens) ? tokens : previous.tokensTotal,
+        tokenBudget: Number.isFinite(budget) ? budget : previous.tokenBudget,
+        budgetRatio: Number.isFinite(ratio) ? ratio : previous.budgetRatio,
+        budgetStatus: String(frame.status ?? previous.budgetStatus ?? ''),
+      })
+    }
+
     function applyCommanderSubtaskStatus(frame: CommanderSubtaskStatusFrame): void {
       const runId = String(frame.run_id ?? '').trim()
       const subtaskId = String(frame.subtask_id || frame.id || '').trim()
@@ -1602,6 +1624,8 @@ function buildChatStore(scope: string) {
               applyCommanderSubtaskStatus(data as unknown as CommanderSubtaskStatusFrame)
             } else if (frame.event === COMMANDER_SSE_EVENTS.summary) {
               applyCommanderSummary(data as unknown as CommanderSummaryFrame)
+            } else if (frame.event === COMMANDER_SSE_EVENTS.budget) {
+              applyCommanderBudget(data as unknown as CommanderBudgetFrame)
             } else if (frame.event === CHAT_SSE_EVENTS.message) {
               const msg = asMessage(data)
               const incoming = (msg.payload ?? pendingCard) as unknown as {

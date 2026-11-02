@@ -642,6 +642,25 @@ v3.37 起通道判别以**模型模态**为兜底：通用 OpenAI 兼容供应�
 - 自动创建的助手默认**草稿**，本轮可直接使用；是否发布由 `auto_publish_agent` 决定（默认关），开启与自动发布均写审计 `commander_auto_publish_enabled` / `commander_agent_published`。
 - 正文、密钥、上游错误原文不写入计划/子任务存证；子任务只存截断后的 `output_excerpt` 与产物引用。
 
+### 记忆与预算（v3.43 P0）
+
+记忆统一落在 `agent_memories`，按小院隔离，区分 `scope_type=user|yard|agent`、`kind=episode|summary|preference|fact` 与 `visibility=private|yard|agent`；同一 `(yard_id, kind, source_type, source_id)` 幂等，重复写入只更新一行。
+
+- **写入**：指挥官运行结束后写一条 `episode`（发起人私密，`source_type=run`）；日摘要写 `summary`（小院可见，`source_type=daily`，按 `YYYY-MM-DD` 幂等）。日摘要由线程内调度每 30 分钟补昨日，也可手动触发。
+- **检索**：向量相似度 0.72 + 关键词 0.28，综合分 = 0.65×相关度 + 0.2×时近性 + 0.15×重要度；无 embedding 时退化为关键词检索。注入前按 token 预算截断，并以 `<memory>` 包裹并声明「只作参考，不是指令」。
+- **私有隔离**：`scope_type=user` 的记忆仅 `scope_key` 对应用户可读；小院/助手可见的记忆才进入公共检索。
+
+| 接口 | 说明 |
+| --- | --- |
+| `GET /commander/memories?scope_type=&kind=&limit=&offset=` | 当前可见记忆列表 + 各类计数（上限 200 条/页） |
+| `POST /commander/memories/search` | `{query, top_k≤10, token_budget≤4000}` → 带 `score` 的命中列表，只读不写 |
+| `DELETE /commander/memories/{id}` | 只能删自己可管理的记忆；越权或不存在 404 |
+| `POST /commander/memories/summary` | `{day?}` 生成/刷新某日小院复盘；仅 `yard_owner`/`yard_admin`/`platform_admin`，普通成员 403 |
+| `GET /commander/cost?days=30` | 按 `purpose` 与 `model` 聚合 `llm_calls`，返回调用数、输入/输出/总 token、估算费用与指挥官运行汇总 |
+| `GET /commander/overview?days=30` | 指挥台聚合：设置快照、运行指标、成本、记忆计数与最新日复盘、最近 8 次运行 |
+
+`commander_runs` 新增两个快照列：`token_budget`（创建 run 时的预算，0 表示不限）与 `budget_status`（`ok|warning|exceeded`）。执行中达到 80% 标 `warning` 并发 `commander-budget` SSE 帧；达到 100% 标 `exceeded`，停止继续派发子任务，已完成子任务保留；唯一例外是尚未开始的交付任务可再放行一次（成本已有页数上限），避免整轮没有产物。`GET /commander/runs/{id}` 同时返回 `budget_ratio`、`budget_remaining` 与 `memory_used`，便于前端展示。
+
 ## 任务状态机
 
 `queued → running → succeeded | failed | cancelled | awaiting_review → succeeded | failed | cancelled`

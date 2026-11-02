@@ -75,6 +75,7 @@ from app.modules.commander.models import (
 )
 from app.modules.llm.schemas import ChatMessage
 from app.modules.llm.service import complete_with_logging
+from app.modules.memory import service as memory_service
 from app.modules.quota import engine as quota_engine
 
 log = get_logger(__name__)
@@ -230,6 +231,21 @@ def subtask_out(st: CommanderSubtask) -> dict[str, Any]:
     }
 
 
+def _budget_view(run: CommanderRun) -> dict[str, Any]:
+    budget = int(getattr(run, "token_budget", 0) or 0)
+    used = int(run.tokens_total or 0)
+    ratio = round(used / budget, 4) if budget > 0 else 0.0
+    status = str(getattr(run, "budget_status", "") or "")
+    if not status and budget > 0:
+        status = "exceeded" if used >= budget else "warning" if ratio >= 0.8 else "ok"
+    return {
+        "token_budget": budget,
+        "budget_ratio": ratio,
+        "budget_status": status or "ok",
+        "budget_remaining": max(0, budget - used) if budget > 0 else 0,
+    }
+
+
 def run_out(run: CommanderRun, subtasks: list[CommanderSubtask]) -> dict[str, Any]:
     return {
         "id": run.id,
@@ -241,11 +257,13 @@ def run_out(run: CommanderRun, subtasks: list[CommanderSubtask]) -> dict[str, An
         "degraded": bool(run.degraded),
         "approval_mode": str(getattr(run, "approval_mode", None) or "ask"),
         "tokens_total": int(run.tokens_total or 0),
+        **_budget_view(run),
         "latency_ms": int(run.latency_ms or 0),
         "created_at": _iso(run.created_at),
         "plan_fallback": bool((run.plan_json or {}).get("fallback")),
         # 降级原因：clarify_disabled / parse_failed / llm_error；空串表示没有降级
         "plan_fallback_reason": str((run.plan_json or {}).get("fallback_reason") or ""),
+        "memory_used": bool((run.plan_json or {}).get("memory_used")),
         "clarify": list((run.plan_json or {}).get("clarify") or []),
         "subtasks": [subtask_out(st) for st in subtasks],
     }
@@ -486,14 +504,22 @@ async def create_plan_run(
     resolved_skills = _resolve_plan_skills(
         db, ctx, text=text, fmt=required_fmt, capabilities=check.capabilities
     )
+    # 记忆优先：把同类任务的历史复盘和用户偏好带进规划；检索失败不阻塞主流程
+    memory_hint = ""
+    try:
+        memory_hint = memory_service.retrieve_for_commander(db, ctx, text)
+    except Exception as exc:  # noqa: BLE001 - 记忆是增强，不能让规划挂掉
+        log.warning("commander memory retrieve failed: %s", exc)
     usage: dict[str, int] = {"input_tokens": 0, "output_tokens": 0}
     repaired = False
     plan_error: str | None = None
     plan_fallback = False
+    plan: Any
 
     if check.blocked:
         plan = _unrealizable_plan(text, check)
         plan["plan_repaired"] = False
+        plan["memory_used"] = bool(memory_hint)
         plan_fallback = True
         log.info("commander target unrealizable: verb=%s goal=%s", check.verb, text[:80])
     else:
@@ -508,8 +534,11 @@ async def create_plan_run(
             deliverable=required_fmt,
             capability_hint=feasibility.plan_hint(check),
             skills_hint="、".join(f"{skill.name}（{skill.code}）" for skill in resolved_skills),
+            memory_hint=memory_hint,
         )
         plan = planner.normalize_plan(raw_plan, max_subtasks=max_subtasks, fallback_goal=text)
+        if plan is not None:
+            plan["memory_used"] = bool(memory_hint)
 
     if not check.blocked:
         if plan is not None:
@@ -538,6 +567,7 @@ async def create_plan_run(
                     effective_parallel=int(settings["max_parallel"]),
                     degraded=False,
                     tokens_total=usage["input_tokens"] + usage["output_tokens"],
+                    token_budget=int(settings["token_budget"]),
                     latency_ms=0,
                     error_code=ERR_NEEDS_INPUT,
                     roles_json=list(ctx.roles),
@@ -590,6 +620,7 @@ async def create_plan_run(
             )
         plan["feasibility"] = check.to_json()
         plan["plan_repaired"] = repaired
+        plan["memory_used"] = bool(memory_hint)
 
     # 用户要文件但计划没覆盖时补齐交付子任务：宁可由指挥官确定性出文件，
     # 也不能让「模型只回一段大纲」当成完成。
@@ -653,6 +684,7 @@ async def create_plan_run(
         effective_parallel=int(settings["max_parallel"]),
         degraded=False,
         tokens_total=usage["input_tokens"] + usage["output_tokens"],
+        token_budget=int(settings["token_budget"]),
         latency_ms=0,
         roles_json=list(ctx.roles),
         approval_mode=approval_mode,
@@ -1337,9 +1369,22 @@ async def _invoke_agent(
 ) -> dict[str, Any]:
     """执行一个子任务。测试通过 monkeypatch 本函数控制成功/失败/并发时序。"""
     instruction = (subtask.instruction or subtask.title or "").strip()
+    # 执行前带上同类任务的历史经验；只给当前用户 + 本小院 + 该助手可读范围
+    memory_hint = ""
+    try:
+        memory_hint = memory_service.retrieve_for_agent(
+            db,
+            ctx,
+            instruction,
+            agent_code=str(subtask.agent_code or "commander"),
+        )
+    except Exception as exc:  # noqa: BLE001 - 记忆检索失败不阻塞子任务
+        log.warning("commander subtask memory retrieve failed: %s", exc)
     question = instruction
+    if memory_hint:
+        question = f"{instruction}\n\n{memory_hint}"
     if context:
-        question = f"{instruction}\n\n上游子任务结果（可直接引用）：\n{context}"
+        question = f"{question}\n\n上游子任务结果（可直接引用）：\n{context}"
     question = _with_delivery_contract(question)
 
     # 要文件的子任务走确定性文档链路：不依赖上游模型是否会调用工具
@@ -1351,8 +1396,9 @@ async def _invoke_agent(
             subtask.seq,
             fmt,
         )
+        doc_context = f"{context}\n\n{memory_hint}".strip() if memory_hint else context
         return await _deliver_document(
-            db, run=run, subtask=subtask, ctx=ctx, fmt=fmt, context=context
+            db, run=run, subtask=subtask, ctx=ctx, fmt=fmt, context=doc_context
         )
 
     if subtask.agent_source == SOURCE_COMMANDER or not subtask.agent_id:
@@ -1823,7 +1869,8 @@ async def _schedule(
     state = {int(st.seq): st.status for st in subtasks}
     inflight: dict[int, asyncio.Task] = {}
     tokens_total = int(run.tokens_total or 0)
-    budget = int(settings["token_budget"])
+    budget = int(getattr(run, "token_budget", 0) or settings["token_budget"])
+    last_budget_status = str(getattr(run, "budget_status", "") or "")
     # 预算兜底只放行一次交付任务，避免极端情况下反复进入同一分支空转
     delivery_recovery_used = False
     # 超时兜底只给交付任务开一次收尾窗口
@@ -1836,6 +1883,27 @@ async def _schedule(
 
     while True:
         db.refresh(run)
+
+        # 预算可见性：跨过 80%/100% 时更新状态并下发一帧，前端可即时提示
+        if budget > 0:
+            ratio = tokens_total / budget
+            status = "exceeded" if ratio >= 1 else "warning" if ratio >= 0.8 else "ok"
+            if status != last_budget_status:
+                last_budget_status = status
+                run.budget_status = status
+                db.add(run)
+                _safe_commit(db)
+                _emit(
+                    on_event,
+                    "commander-budget",
+                    {
+                        "run_id": run.id,
+                        "tokens_total": tokens_total,
+                        "token_budget": budget,
+                        "ratio": round(ratio, 4),
+                        "status": status,
+                    },
+                )
 
         # ① 依赖失败传播：error/skipped → 下游 skipped（不是 error）
         changed = False
@@ -2299,6 +2367,14 @@ async def execute_run(
         else:
             run.error_code = "COMMANDER_RUN_FAILED"
         _safe_commit(db)
+
+        # 运行结束沉淀一条用户私有情景记忆；失败也不影响交付汇总
+        try:
+            memory_service.record_run_episode(db, run=run, subtasks=subtasks)
+            _safe_commit(db)
+        except Exception as exc:  # noqa: BLE001 - 记忆是增强，不能把成功运行变成失败
+            db.rollback()
+            log.warning("commander memory episode failed run=%s: %s", run.id, exc)
 
         artifacts = _collect_artifacts(subtasks)
         summary = _summary_payload(run, subtasks, answer=answer, artifacts=artifacts, failed=failed)

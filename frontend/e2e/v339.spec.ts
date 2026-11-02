@@ -170,7 +170,7 @@ test.describe('计划卡编辑（v3.39）', () => {
       await page.locator('.new-btn').click()
       await expect(page.locator('.chat-empty')).toBeVisible()
 
-      const bar = page.locator('.commander-bar')
+      const bar = page.locator('.exec-seg')
       await bar.getByText('指挥官', { exact: true }).click()
       await page
         .locator('textarea')

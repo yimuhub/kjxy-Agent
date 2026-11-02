@@ -47,6 +47,7 @@ const LIBRARY_ROLES = ['yard_owner', 'yard_admin', 'platform_admin', 'expert']
 export const ALL_MENU_ATOMS: DiyMenuLeaf[] = [
   { key: 'dashboard', path: '/', title: '概览', iconName: 'Odometer' },
   { key: 'chat', path: '/chat', title: '智能对话', iconName: 'ChatDotRound', permission: 'chat:use' },
+  { key: 'commander', path: '/commander', title: '指挥官工作台', iconName: 'Compass', permission: 'chat:use' },
   { key: 'custom-agents', path: '/agents/custom', title: '我的智能体', iconName: 'UserFilled', permission: 'chat:use' },
   { key: 'teams', path: '/teams', title: '协作班组', iconName: 'Connection', permission: 'chat:use' },
   { key: 'agents', path: '/agents', title: '专业助手', iconName: 'Cpu', permission: 'chat:use' },
@@ -117,6 +118,7 @@ function buildDefaultMenuGroupsRaw(): DiyMenuGroup[] {
       items: [
         { key: 'dashboard', path: '/', title: '概览', iconName: 'Odometer' },
         { key: 'chat', path: '/chat', title: '智能对话', iconName: 'ChatDotRound', permission: 'chat:use' },
+        { key: 'commander', path: '/commander', title: '指挥官工作台', iconName: 'Compass', permission: 'chat:use' },
       ],
     },
     {
@@ -197,6 +199,7 @@ function buildFlatQuickGroupsRaw(): DiyMenuGroup[] {
       items: [
         { key: 'dashboard', path: '/', title: '概览', iconName: 'Odometer' },
         { key: 'chat', path: '/chat', title: '智能对话', iconName: 'ChatDotRound', permission: 'chat:use' },
+        { key: 'commander', path: '/commander', title: '指挥官工作台', iconName: 'Compass', permission: 'chat:use' },
         { key: 'custom-agents', path: '/agents/custom', title: '我的智能体', iconName: 'UserFilled', permission: 'chat:use' },
         { key: 'teams', path: '/teams', title: '协作班组', iconName: 'Connection', permission: 'chat:use' },
         { key: 'knowledge', path: '/knowledge', title: '知识库', iconName: 'Files', permission: 'knowledge:read' },
