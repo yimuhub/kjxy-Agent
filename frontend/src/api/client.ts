@@ -4,6 +4,9 @@ import type { ApiError } from '@/types/api'
 import { classifyResponseError, friendlyErrorMessage } from '@/utils/status'
 import { getMockAdapter, isMockEnabled } from './mock'
 
+/** 全局提示层级：必须高于页面悬浮伙伴（z-index 2601） */
+const TOAST_Z_INDEX = 2700
+
 export const TOKEN_KEY = 'ky_token'
 export const REFRESH_TOKEN_KEY = 'ky_refresh_token'
 
@@ -128,7 +131,9 @@ api.interceptors.response.use(
       // 不把原始英文细节抛给用户；opt-out 见 config.skipErrorToast
       if (!config?.skipErrorToast && error.response) {
         const { code, message } = extractErrorMessage(error)
-        ElMessage.error(friendlyErrorMessage(code, message))
+        // 悬浮指挥官伙伴常驻在 2600/2601，Element Plus 提示默认基数只有 2000：
+        // 不抬层级时，页面右下角报错会被小人盖住，用户以为「点了没反应」。
+        ElMessage.error({ message: friendlyErrorMessage(code, message), zIndex: TOAST_Z_INDEX })
       }
     }
     return Promise.reject(error)

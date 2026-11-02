@@ -197,12 +197,15 @@ def commander_overview(
     ctx = _ctx(user)
     window_days = max(1, min(int(days), 365))
     settings = commander_settings.settings_for(db, ctx.yard_id)
+    manager = _is_manager(ctx)
+    # 运行详情带 goal/plan_json 与子任务指令、输出摘要：非管理者只看自己的运行，
+    # 与 run 级 require_run_access 的边界一致（否则普通成员能读全院的作业内容）。
+    visible = [CommanderRun.yard_id == ctx.yard_id]
+    if not manager:
+        visible.append(CommanderRun.user_id == ctx.user_id)
     rows = list(
         db.scalars(
-            select(CommanderRun)
-            .where(CommanderRun.yard_id == ctx.yard_id)
-            .order_by(CommanderRun.created_at.desc())
-            .limit(8)
+            select(CommanderRun).where(*visible).order_by(CommanderRun.created_at.desc()).limit(8)
         )
     )
     runs: list[dict] = []
@@ -210,7 +213,6 @@ def commander_overview(
         _run, subtasks = service.get_run(db, ctx.yard_id, run.id)
         runs.append(service.run_out(run, subtasks))
     summaries = memory_service.list_memories(db, ctx, kind="summary", limit=1)
-    manager = _is_manager(ctx)
     latest_eval = evaluator.latest_evaluation(db, ctx.yard_id) if manager else None
     snapshot_rows = snapshots.list_snapshots(db, ctx.yard_id, limit=5) if manager else []
     return ok(

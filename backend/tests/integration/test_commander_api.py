@@ -40,11 +40,13 @@ def other_hdr(yard):
     return _hdr("u-other", yard.id, ["viewer"])
 
 
-def _make_run(db, yard, *, status: str = "queued", sub_status: str = "pending"):
+def _make_run(
+    db, yard, *, status: str = "queued", sub_status: str = "pending", user_id: str = "u-creator"
+):
     run = CommanderRun(
         yard_id=yard.id,
         session_id="s-api",
-        user_id="u-creator",
+        user_id=user_id,
         goal="做一份提案",
         plan_json={"fallback": False, "subtasks": []},
         status=status,
@@ -96,6 +98,25 @@ def test_get_run_shape_and_owner_boundary(
     denied = client.get(url, headers=other_hdr)
     assert denied.status_code == 404
     assert denied.json()["error"]["code"] == "COMMANDER_RUN_NOT_FOUND"
+
+
+def test_overview_runs_scoped_to_creator_for_members(
+    client, db_session, yard, other_hdr, creator_hdr
+):
+    """C2：总览的「最近运行」带 goal 与子任务内容，普通成员只看自己的，管理者看全院。"""
+    mine = _make_run(db_session, yard, user_id="u-other")
+    theirs = _make_run(db_session, yard, user_id="u-third")
+    db_session.commit()
+
+    resp = client.get(f"{PREFIX}/commander/overview", headers=other_hdr)
+    assert resp.status_code == 200, resp.text
+    ids = [item["id"] for item in resp.json()["data"]["runs"]]
+    assert ids == [mine.id]
+
+    admin = client.get(f"{PREFIX}/commander/overview", headers=creator_hdr)
+    assert admin.status_code == 200, admin.text
+    admin_ids = {item["id"] for item in admin.json()["data"]["runs"]}
+    assert {mine.id, theirs.id} <= admin_ids
 
 
 def test_execute_returns_202_and_schedules(client, db_session, yard, creator_hdr, monkeypatch):

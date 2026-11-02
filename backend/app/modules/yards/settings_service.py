@@ -199,6 +199,29 @@ def get_setting(db: Session, yard_id: str, key: str) -> dict[str, Any]:
     return merged
 
 
+#: 密钥字段的对外标记名（历史契约，改名会动前端）
+_SECRET_FLAG_NAMES = {
+    "tavily_api_key": "tavily_configured",
+    "brave_api_key": "brave_configured",
+    "weather_api_key": "weather_api_key_configured",
+}
+
+
+def _mask_secrets(group: dict[str, Any]) -> dict[str, Any]:
+    """就地脱敏一个设置分组：明文密钥换成「是否已配置」。
+
+    写入侧的契约本来就是「空字符串=保持原密钥、明文不出仓」，读侧也必须一致——
+    否则把 search:manage 逐人授权给成员，成员就能直接拿走第三方 Key 在平台外盗刷。
+    """
+    for field, flag in _SECRET_FLAG_NAMES.items():
+        if field in group:
+            group[flag] = bool(str(group.pop(field) or "").strip())
+    # 之后新增的 *_api_key 字段自动脱敏，不再依赖手工登记
+    for field in [k for k in group if k.endswith("_api_key")]:
+        group[f"{field[: -len('_api_key')]}_configured"] = bool(str(group.pop(field) or "").strip())
+    return group
+
+
 def get_all(db: Session, yard_id: str) -> dict[str, dict[str, Any]]:
     return {key: get_setting(db, yard_id, key) for key in DEFAULTS}
 
@@ -518,14 +541,12 @@ def update_setting(
 
 def public_view(db: Session, yard_id: str) -> dict[str, dict[str, Any]]:
     """对外视图：密钥只暴露是否已配置。"""
-    data = get_all(db, yard_id)
-    search = data["search"]
-    search["tavily_configured"] = bool(search.pop("tavily_api_key", ""))
-    search["brave_configured"] = bool(search.pop("brave_api_key", ""))
-    farm_agent = data.get("farm_agent")
-    if farm_agent is not None:
-        farm_agent["weather_api_key_configured"] = bool(farm_agent.pop("weather_api_key", ""))
-    return data
+    return {name: _mask_secrets(group) for name, group in get_all(db, yard_id).items()}
+
+
+def public_setting(db: Session, yard_id: str, key: str) -> dict[str, Any]:
+    """单项设置的对外视图：与 public_view 同一口径，明文密钥不出仓。"""
+    return _mask_secrets(get_setting(db, yard_id, key))
 
 
 __all__ = [
@@ -539,6 +560,7 @@ __all__ = [
     "SI_UNITS",
     "get_all",
     "get_setting",
+    "public_setting",
     "public_view",
     "update_setting",
 ]

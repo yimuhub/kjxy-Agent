@@ -54,6 +54,25 @@ def test_get_settings_owner_admin_only(client, world):
     assert denied.status_code == 403
 
 
+def test_get_single_setting_never_echoes_api_key(client, world):
+    """S-1：GET /settings/{key} 走逐人授权权限点，出口必须与列表接口一样脱敏。"""
+    admin_token = _login(client, "set_admin", "Passw0rd123", world["yard"].id)
+    saved = client.put(
+        f"{PREFIX}/yards/current/settings/search",
+        json={"provider": "brave", "brave_api_key": "brave-secret"},
+        headers=_hdr(admin_token),
+    )
+    assert saved.status_code == 200, saved.text
+
+    single = client.get(f"{PREFIX}/yards/current/settings/search", headers=_hdr(admin_token))
+    assert single.status_code == 200, single.text
+    data = single.json()["data"]
+    assert "brave_api_key" not in data
+    assert "tavily_api_key" not in data
+    assert data["brave_configured"] is True
+    assert data["provider"] == "brave"
+
+
 def test_update_registration_and_search_settings(client, world):
     owner_token = _login(client, "set_owner", "Passw0rd123", world["yard"].id)
     admin_token = _login(client, "set_admin", "Passw0rd123", world["yard"].id)

@@ -150,12 +150,16 @@ def get_setting(
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db_session),
 ):
-    """单项设置：返回「默认值 + 已存值」的完整对象（指挥官设置页直接渲染）。"""
+    """单项设置：返回「默认值 + 已存值」的对象（指挥官设置页直接渲染）。
+
+    走 public_setting 而不是 get_setting：这个端点的权限是「逐人授权」的，
+    被授权的成员不该拿到第三方 API Key 明文——与列表接口同一套脱敏口径。
+    """
     permission = SETTINGS_PERMISSIONS.get(key)
     if permission is None:
         raise AppError("INVALID_REQUEST", f"未知设置项：{key}", http_status=400)
     _require(db, user, permission)
-    return ok(settings_service.get_setting(db, _yard_id(user), key), request)
+    return ok(settings_service.public_setting(db, _yard_id(user), key), request)
 
 
 @router.put("/yards/current/settings/{key}")

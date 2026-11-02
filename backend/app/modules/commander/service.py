@@ -36,8 +36,8 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, TypedDict
 
-from sqlalchemy import select
-from sqlalchemy.exc import OperationalError
+from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.core.deps import YardContext
@@ -102,6 +102,8 @@ ERR_RUN_STATE = "COMMANDER_RUN_STATE"
 ERR_DISABLED = "COMMANDER_DISABLED"
 #: 信息不足、等待用户澄清（不是失败，统计与重试都应忽略）
 ERR_NEEDS_INPUT = "COMMANDER_NEEDS_INPUT"
+#: 汇总消息写不进同一会话时重新取号的次数（并发写同一会话的 seq 会撞唯一约束）
+SUMMARY_SEQ_RETRIES = 3
 #: 自主补救轮尽：现有助手与工具能力不足（不是用户缺信息）
 ERR_CAPABILITY_GAP = "COMMANDER_CAPABILITY_GAP"
 
@@ -2309,11 +2311,23 @@ async def execute_run(
         ctx = _run_ctx(run)
         # 运行前配额预检：不足直接 429，不进入 running（避免跑到一半才失败）
         _precheck_quota(db, ctx)
-        run.status = RUN_RUNNING
-        run.error_code = None
-        run.degraded = False
-        run.effective_parallel = int(settings["max_parallel"])
-        run.max_parallel = int(settings["max_parallel"])
+        # 原子占位：只有把 queued 改成 running 的那一个任务才继续执行。
+        # 上面的读后判断在并发下会双跑（用户双击、前端重发、调度补跑都可能撞车），
+        # 抢输的一方直接 409，由调用方看到「正在执行中」而不是把在跑的 run 判死。
+        claimed = db.execute(
+            update(CommanderRun)
+            .where(CommanderRun.id == run.id, CommanderRun.status == RUN_QUEUED)
+            .values(
+                status=RUN_RUNNING,
+                error_code=None,
+                degraded=False,
+                effective_parallel=int(settings["max_parallel"]),
+                max_parallel=int(settings["max_parallel"]),
+            )
+        ).rowcount
+        if not claimed:
+            db.rollback()
+            raise AppError(ERR_RUN_BUSY, "该指挥官运行正在执行中。", http_status=409)
         _safe_commit(db)
         started = time.perf_counter()
         log_audit(
@@ -2456,7 +2470,9 @@ async def run_in_background(run_id: str) -> None:
         db = _get_session_factory()()
         try:
             run = db.get(CommanderRun, run_id)
-            if run is not None and run.status not in (RUN_CANCELLED, RUN_COMPLETED):
+            # 抢位失败（RUN_RUNNING）不是这次执行把 run 跑挂了：另一个任务还在跑，
+            # 写 FAILED 会把正在出的成品标成失败，用户看到误导性的 COMMANDER_EXECUTE_FAILED。
+            if run is not None and run.status not in (RUN_CANCELLED, RUN_COMPLETED, RUN_RUNNING):
                 run.status = RUN_FAILED
                 run.error_code = "COMMANDER_EXECUTE_FAILED"
                 _safe_commit(db)
@@ -2473,44 +2489,62 @@ async def run_in_background(run_id: str) -> None:
         if session is None or session.yard_id != run.yard_id:
             log.warning("commander run %s has no matching chat session", run_id)
             return
-        current = db.scalar(
-            select(chat_models.ChatMessage.seq)
-            .where(chat_models.ChatMessage.session_id == run.session_id)
-            .order_by(chat_models.ChatMessage.seq.desc())
-            .limit(1)
-        )
-        seq = int(current or 0) + 1
-        message = chat_models.ChatMessage(
-            session_id=run.session_id,
-            yard_id=run.yard_id,
-            seq=seq,
-            role="assistant",
-            content=summary["answer"] or "指挥官已完成本轮任务。",
-            status="ok",
-            routed_by="commander",
-            choice_json={
-                "kind": "commander",
-                "id": run.id,
-                "name": "指挥官",
-                "run_id": run.id,
-            },
-            reason="指挥官编排",
-            payload_json={
-                "type": "commander_summary",
-                "run_id": run.id,
-                "answer": summary["answer"],
-                "artifacts": summary["artifacts"],
-                "failed": summary["failed"],
-                "tokens_total": summary["tokens_total"],
-            },
-            token_usage_json={
-                "input_tokens": 0,
-                "output_tokens": 0,
-                "total_tokens": int(summary["tokens_total"] or 0),
-                "model": "commander",
-            },
-        )
-        db.add(message)
+        choice_json = {
+            "kind": "commander",
+            "id": run.id,
+            "name": "指挥官",
+            "run_id": run.id,
+        }
+        payload_json = {
+            "type": "commander_summary",
+            "run_id": run.id,
+            "answer": summary["answer"],
+            "artifacts": summary["artifacts"],
+            "failed": summary["failed"],
+            "tokens_total": summary["tokens_total"],
+        }
+        usage_json = {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": int(summary["tokens_total"] or 0),
+            "model": "commander",
+        }
+        # 同一会话并发写入时 (session_id, seq) 唯一约束会撞车：撞了就重新取号再试，
+        # 否则这条汇总整条丢失——用户看到运行完成，对话里却没有成品。
+        for attempt in range(SUMMARY_SEQ_RETRIES):
+            current = db.scalar(
+                select(chat_models.ChatMessage.seq)
+                .where(chat_models.ChatMessage.session_id == run.session_id)
+                .order_by(chat_models.ChatMessage.seq.desc())
+                .limit(1)
+            )
+            savepoint = db.begin_nested()
+            try:
+                db.add(
+                    chat_models.ChatMessage(
+                        session_id=run.session_id,
+                        yard_id=run.yard_id,
+                        seq=int(current or 0) + 1,
+                        role="assistant",
+                        content=summary["answer"] or "指挥官已完成本轮任务。",
+                        status="ok",
+                        routed_by="commander",
+                        choice_json=choice_json,
+                        reason="指挥官编排",
+                        payload_json=payload_json,
+                        token_usage_json=usage_json,
+                    )
+                )
+                db.flush()
+            except IntegrityError:
+                savepoint.rollback()
+                if attempt == SUMMARY_SEQ_RETRIES - 1:
+                    log.warning(
+                        "commander run %s: summary message kept colliding on session seq", run_id
+                    )
+                continue
+            savepoint.commit()
+            break
         _safe_commit(db)
     finally:
         db.close()

@@ -286,3 +286,21 @@
 | 桌面壳 | tauri.conf/capabilities/lib.rs 安全配置 | 关键面 |
 | 未提交改动 | 28 个文件 diff 逐行（结论：后端为纯格式化+版本号，前端为 v3.52 功能改动已含在专项内） | 全部 |
 
+---
+
+## 九、整改状态（v3.53.0，2026-11-03）
+
+「七、交付前修复优先级清单」的**必须处理**项已全部落地，逐条对应：
+
+| 报告项 | 状态 | 落点 |
+| --- | --- | --- |
+| S-1 设置单查接口明文回显 API Key | ✅ 已修 | `settings_service._mask_secrets()` + `public_setting()`；`GET /yards/current/settings/{key}` 走脱敏出口，新增的 `*_api_key` 字段自动纳入；单测 + 集成测试覆盖（含「内部 `get_setting` 仍取明文」反向断言） |
+| C1 commander 执行器竞态 | ✅ 已修 | `execute_run` 条件更新原子占位（`WHERE status='queued'` 看 rowcount）+ `run_in_background` 兜底名单补 `RUN_RUNNING`；两条并发回归测试 |
+| C2 `/commander/overview` 越权可见性 | ✅ 已修 | 非管理者按 `CommanderRun.user_id == ctx.user_id` 过滤「最近运行」，与 run 级 `require_run_access` 对齐；越权回归测试 |
+| FE-1 / FE-2 / F-6 仓库卫生 | ✅ 已处理 | `frontend/tmp-checks/`、`vite.e2e.config.ts`、`playwright.e2e.config.ts` 写入 `.gitignore`（隔离 E2E 仍在用，收口时删除本地文件） |
+| `make contract` 契约漂移 | ✅ 已重生成 | `contracts/openapi.yaml` 随版本面同步（361 路径，无接口增减） |
+| C11 并发首建 IntegrityError | ✅ 已修 | `run_iteration` 插入包 SAVEPOINT，撞 `(yard_id, month_key)` 后回查返回对方行；回归测试 |
+| C13 消息 seq 竞态（顺带处理） | ✅ 已修 | 汇总消息取号 + 插入包 SAVEPOINT，撞 `(session_id, seq)` 最多重试三次取号，不再整条丢失；回归测试 |
+| FE-12 全局提示被伙伴面板盖住 | ✅ 已修 | `api/client.ts` 统一错误 toast 显式 `zIndex: 2700` |
+
+**未处理（按报告口径转入排期）**：「交付前建议处理」的 F-3 幂等时间桶、S-6 演示账号生产硬闸、F-1 defusedxml、C4 `_safe_commit` 丢写语义、C12 时区口径、S-2 DNS 重绑定、S-5 `/metrics` 加闸，以及「下个迭代」的 F-4/F-5 多实例项、C3 token 预算低估、C5/K1+S-3 cluster SSRF、S-4/S-7~S-10、C6~C10/C14~C16、FE-3~FE-13（FE-12 除外，已完成）。三条部署指引仍适用。

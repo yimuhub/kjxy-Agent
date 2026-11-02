@@ -122,6 +122,14 @@ def test_search_settings_validation_and_key_masking(db_session, people):
     assert view["search"]["tavily_configured"] is True
     assert "tavily_api_key" not in view["search"]
 
+    # 单查接口挂的是「逐人授权」的权限点，被授权的成员同样不该看到明文
+    single = settings_service.public_setting(db_session, yard.id, "search")
+    assert single["tavily_configured"] is True
+    assert "tavily_api_key" not in single
+    # 运行时自己读配置仍要拿到明文，脱敏只发生在对外出口
+    raw = settings_service.get_setting(db_session, yard.id, "search")
+    assert raw["tavily_api_key"] == "tv-secret"
+
 
 def test_search_settings_reject_bad_url(db_session, people):
     yard, owner, _, _ = people

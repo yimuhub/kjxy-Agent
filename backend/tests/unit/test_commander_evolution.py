@@ -20,12 +20,14 @@ from app.core.errors import (
 from app.core.middleware import RequestIDMiddleware
 from app.modules.commander import planner, prompt_modules, reports
 from app.modules.commander import settings as commander_settings
+from app.modules.commander.evolution_models import CommanderIteration
 from app.modules.commander.governance_models import CommanderSnapshot
 from app.modules.commander.models import CommanderRun, CommanderSubtask
 from app.modules.commander.router import router as commander_router
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import sessionmaker
 
 
 def _ctx(roles: list[str] | None = None, user_id: str = "u-admin") -> YardContext:
@@ -138,6 +140,47 @@ def test_daily_and_weekly_reports_are_deterministic(db_session):
     assert "## 五、下周建议" in weekly["markdown"]
     assert weekly["metrics"]["runs"] == 1
     assert weekly["evaluation"] is None
+
+
+def test_run_iteration_returns_rival_row_on_concurrent_first_create(db_session, monkeypatch):
+    """C11：同月并发首建撞 (yard_id, month_key) 唯一约束时返回对方那条，而不是抛 500。"""
+    ctx = _ctx()
+    real_create = reports.snapshots.create_snapshot
+    planted = {"done": False}
+
+    def plant(*args, **kwargs):
+        snapshot = real_create(*args, **kwargs)
+        # 在「查过没有」与「插入」之间插入对手的行：真实场景是定时任务与手动触发撞车
+        if not planted["done"]:
+            planted["done"] = True
+            rival = sessionmaker(bind=db_session.get_bind())()
+            try:
+                rival.add(
+                    CommanderIteration(
+                        yard_id=ctx.yard_id,
+                        month_key="2026-11",
+                        version_label="V-202611-9",
+                        persona="balanced",
+                        summary="另一个任务先写入了",
+                        report_md="# 对手",
+                        metrics_json={},
+                        changes_json={},
+                        created_by="u-rival",
+                    )
+                )
+                rival.commit()
+            finally:
+                rival.close()
+        return snapshot
+
+    monkeypatch.setattr(reports.snapshots, "create_snapshot", plant)
+    row, created = reports.run_iteration(db_session, ctx=ctx, month="2026-11")
+    db_session.commit()
+
+    assert created is False
+    assert row.version_label == "V-202611-9"
+    assert row.summary == "另一个任务先写入了"
+    assert db_session.query(CommanderIteration).count() == 1
 
 
 def test_run_iteration_is_idempotent_and_snapshots(db_session):

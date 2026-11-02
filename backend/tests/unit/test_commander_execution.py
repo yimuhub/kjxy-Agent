@@ -14,7 +14,7 @@ from app.modules.commander import service as commander_service
 from app.modules.commander.models import CommanderRun, CommanderSubtask
 from app.modules.llm.schemas import LLMRequest, LLMResponse
 from app.modules.yards.repository import create_yard
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, select, update
 from sqlalchemy.orm import sessionmaker
 
 
@@ -301,6 +301,70 @@ def test_cancel_finished_run_is_conflict(env):
 
 
 @pytest.mark.asyncio
+async def test_run_in_background_retries_summary_seq_on_conflict(env, monkeypatch):
+    """C13：并发写同一会话撞 (session_id, seq) 时重新取号，汇总消息不能整条丢失。"""
+    db, factory, yard = env
+    from app.modules.chat.models import ChatMessage, ChatSession
+    from sqlalchemy.exc import IntegrityError
+
+    session = ChatSession(yard_id=yard.id, created_by="u-exec", title="并发会话")
+    db.add(session)
+    db.commit()
+    run = _make_run(db, yard, specs=[(1, [])], session_id=session.id)
+    db.commit()
+
+    async def fake_invoke(_db, *, run, subtask, ctx, settings, context):
+        return {"answer": "结果", "input_tokens": 1, "output_tokens": 1, "artifacts": []}
+
+    monkeypatch.setattr(commander_service, "_invoke_agent", fake_invoke)
+
+    tripped = {"done": False}
+
+    def flaky_factory():
+        active = factory()
+        real_flush = active.flush
+
+        def flush(*args, **kwargs):
+            if not tripped["done"] and any(isinstance(o, ChatMessage) for o in active.new):
+                tripped["done"] = True
+                rival = factory()
+                try:
+                    rival.add(
+                        ChatMessage(
+                            session_id=session.id,
+                            yard_id=yard.id,
+                            seq=2,
+                            role="assistant",
+                            content="别的运行先落了一条",
+                            status="ok",
+                        )
+                    )
+                    rival.commit()
+                finally:
+                    rival.close()
+                raise IntegrityError("INSERT", {}, Exception("uq_chat_messages_session_seq"))
+            return real_flush(*args, **kwargs)
+
+        active.flush = flush
+        return active
+
+    monkeypatch.setattr(commander_service, "_session_factory", flaky_factory)
+    await commander_service.run_in_background(run.id)
+
+    db.expire_all()
+    rows = (
+        db.query(ChatMessage)
+        .filter(ChatMessage.session_id == session.id)
+        .order_by(ChatMessage.seq.asc())
+        .all()
+    )
+    assert [row.seq for row in rows] == [2, 3]
+    assert rows[1].role == "assistant"
+    assert rows[1].payload_json["run_id"] == run.id
+    assert rows[1].content
+
+
+@pytest.mark.asyncio
 async def test_run_in_background_writes_assistant_message(env, monkeypatch):
     db, _factory, yard = env
     from app.modules.chat.models import ChatMessage, ChatSession
@@ -526,6 +590,58 @@ async def test_execute_run_quota_precheck_blocks_before_running(env, monkeypatch
     db.expire_all()
     assert db.get(CommanderRun, run.id).status == "queued"
     assert [row.status for row in _subtasks(db, run.id)] == ["pending"]
+
+
+@pytest.mark.asyncio
+async def test_execute_run_claim_loses_when_another_task_already_started(env, monkeypatch):
+    """C1：读后判断与占位之间被别的任务抢跑时，条件更新必须让失败方 409，而不是双跑。"""
+    db, factory, yard = env
+    run = _make_run(db, yard, specs=[(1, [])])
+    run_id = run.id
+
+    def hijack(*_args, **_kwargs):
+        # 模拟另一个执行任务在「读到 queued」之后、「写入 running」之前完成占位
+        other = factory()
+        try:
+            other.execute(
+                update(CommanderRun).where(CommanderRun.id == run_id).values(status="running")
+            )
+            other.commit()
+        finally:
+            other.close()
+
+    monkeypatch.setattr(commander_service, "_precheck_quota", hijack)
+    with pytest.raises(AppError) as exc:
+        await commander_service.execute_run(run_id)
+    assert exc.value.code == commander_service.ERR_RUN_BUSY
+    assert exc.value.http_status == 409
+
+
+@pytest.mark.asyncio
+async def test_run_in_background_does_not_fail_a_running_run(env, monkeypatch):
+    """C1：抢位失败的一方兜底时不得把正在跑的 run 改写成 FAILED。"""
+    db, factory, yard = env
+    run = _make_run(db, yard, specs=[(1, [])])
+    run_id = run.id
+
+    async def busy(*_args, **_kwargs):
+        other = factory()
+        try:
+            other.execute(
+                update(CommanderRun).where(CommanderRun.id == run_id).values(status="running")
+            )
+            other.commit()
+        finally:
+            other.close()
+        raise AppError(commander_service.ERR_RUN_BUSY, "该指挥官运行正在执行中。", http_status=409)
+
+    monkeypatch.setattr(commander_service, "execute_run", busy)
+    await commander_service.run_in_background(run_id)
+
+    db.expire_all()
+    stored = db.get(CommanderRun, run_id)
+    assert stored.status == "running"
+    assert stored.error_code != "COMMANDER_EXECUTE_FAILED"
 
 
 @pytest.mark.asyncio

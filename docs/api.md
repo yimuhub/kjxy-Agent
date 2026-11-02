@@ -126,6 +126,7 @@ v3.33 搜索可用性：`/search/status` 新增 `sources` 逐源诊断（code/�
 | POST | /yards/current/registrations/{id}/approve | members:approve | 通过注册 |
 | POST | /yards/current/registrations/{id}/reject | members:approve | 拒绝注册（可带原因） |
 | GET | /yards/current/settings | settings:manage | 注册/安全/搜索设置（密钥脱敏） |
+| GET | /yards/current/settings/{key} | 该项权限点（可逐人授权） | 单项设置，出口同样脱敏：`*_api_key` 只回 `*_configured` 布尔（v3.53） |
 | PUT | /yards/current/settings/{key} | settings:manage / search:manage | 更新设置项 |
 | GET/POST | /yards/current/roles | roles:manage | 角色列表（含中文名/可编辑标记）/ 新建自定义角色 |
 | PUT/DELETE | /yards/current/roles/{code} | roles:manage | 修改 / 删除角色（保护型权限需负责人二次确认） |
@@ -666,7 +667,7 @@ v3.37 起通道判别以**模型模态**为兜底：通用 OpenAI 兼容供应�
 | `DELETE /commander/memories/{id}` | 只能删自己可管理的记忆；越权或不存在 404 |
 | `POST /commander/memories/summary` | `{day?}` 生成/刷新某日小院复盘；仅 `yard_owner`/`yard_admin`/`platform_admin`，普通成员 403 |
 | `GET /commander/cost?days=30` | 按 `purpose` 与 `model` 聚合 `llm_calls`，返回调用数、输入/输出/总 token、估算费用与指挥官运行汇总 |
-| `GET /commander/overview?days=30` | 指挥台聚合：设置快照、运行指标、成本、记忆计数与最新日复盘、最近 8 次运行；管理角色额外返回 `governance`（最新测评 + 快照列表 + 资产计数） |
+| `GET /commander/overview?days=30` | 指挥台聚合：设置快照、运行指标、成本、记忆计数与最新日复盘、最近 8 次运行；管理角色额外返回 `governance`（最新测评 + 快照列表 + 资产计数）。**「最近 8 次运行」按发起人收敛**（v3.53）：运行详情含目标、计划与子任务指令/摘要，非管理者只返回自己的运行，与 run 级 `require_run_access` 同一边界 |
 
 ### 监督测评与进化治理
 

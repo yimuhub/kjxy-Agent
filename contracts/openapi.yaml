@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.52.0
+  version: 3.53.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -1714,7 +1714,12 @@ paths:
       tags:
       - v1
       summary: Get Setting
-      description: 单项设置：返回「默认值 + 已存值」的完整对象（指挥官设置页直接渲染）。
+      description: '单项设置：返回「默认值 + 已存值」的对象（指挥官设置页直接渲染）。
+
+
+        走 public_setting 而不是 get_setting：这个端点的权限是「逐人授权」的，
+
+        被授权的成员不该拿到第三方 API Key 明文——与列表接口同一套脱敏口径。'
       operationId: get_setting_api_v1_yards_current_settings__key__get
       security:
       - HTTPBearer: []
