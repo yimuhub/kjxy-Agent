@@ -12,6 +12,7 @@ const ADMIN_ROLES = ['yard_owner', 'yard_admin', 'platform_admin']
 const Dashboard = () => import('@/views/Dashboard.vue')
 const ChatView = () => import('@/views/ChatView.vue')
 const CommanderView = () => import('@/views/CommanderView.vue')
+const PetView = () => import('@/views/PetView.vue')
 const KnowledgeView = () => import('@/views/KnowledgeView.vue')
 const TasksView = () => import('@/views/TasksView.vue')
 const ReviewView = () => import('@/views/ReviewView.vue')
@@ -78,6 +79,13 @@ const routes: RouteRecordRaw[] = [
     name: 'SsoCallback',
     component: SsoCallbackView,
     meta: { public: true, title: '单点登录' },
+  },
+  {
+    // 桌面伙伴：桌面壳独立透明窗口加载，公开路由、不要求登录
+    path: '/pet',
+    name: 'Pet',
+    component: PetView,
+    meta: { public: true, title: '桌面伙伴' },
   },
   {
     path: '/',

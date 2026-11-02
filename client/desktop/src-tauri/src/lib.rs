@@ -23,6 +23,7 @@ use std::time::Duration;
 
 use serde::Deserialize;
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tauri_plugin_shell::process::CommandChild;
 use tauri_plugin_shell::ShellExt;
 use tauri_plugin_updater::UpdaterExt;
@@ -31,10 +32,19 @@ use tauri_plugin_updater::UpdaterExt;
 const PORT_RANGE: std::ops::RangeInclusive<u16> = 18700..=18710;
 /// splash 轮询健康上限（秒）：PyInstaller 首启解压 + 迁移 + seed，慢机器要留足
 const HEALTH_TIMEOUT_SECS: u64 = 90;
+/// 桌面伙伴可选皮肤；Rust 侧只放行白名单，避免把任意字符串拼进窗口地址
+const PET_SKINS: &[&str] = &[
+    "sprout", "sunny", "taro", "mochi", "orbit", "ember", "panda",
+];
+const DEFAULT_PET_SKIN: &str = "sprout";
 
 struct EngineState {
     child: Mutex<Option<CommandChild>>,
     port: Mutex<Option<u16>>,
+    /// 主窗地址（含一次性引导令牌），用于关窗后从快捷键重新打开
+    main_url: Mutex<Option<String>>,
+    /// 最近一次选择的桌宠皮肤；快捷键切换显示时沿用
+    pet_skin: Mutex<String>,
 }
 
 /// 结束引擎进程树：PyInstaller onefile 会派生一个子进程，只杀父进程会留下监听端口。
@@ -237,6 +247,17 @@ fn ensure_bootstrap_token(dir: &PathBuf) -> Result<String, String> {
 
 fn engine_url(port: u16, token: &str) -> String {
     format!("http://127.0.0.1:{port}/#desktop_token={token}")
+}
+
+fn normalize_pet_skin(raw: Option<&str>) -> String {
+    match raw.map(str::trim) {
+        Some(skin) if PET_SKINS.contains(&skin) => skin.to_string(),
+        _ => DEFAULT_PET_SKIN.to_string(),
+    }
+}
+
+fn pet_page_url(port: u16, skin: &str) -> String {
+    format!("http://127.0.0.1:{port}/pet?skin={skin}")
 }
 
 fn health_ok(port: u16) -> bool {
@@ -470,8 +491,10 @@ fn start_local(app: &tauri::AppHandle, state: &EngineState, dir: &PathBuf) -> Re
     // 1) 先探已有引擎（AO 同款复用，避免重复拉起/关窗再开报错）
     for p in PORT_RANGE.clone() {
         if !port_free(p) && health_ok(p) {
+            let target = engine_url(p, &bootstrap);
             *state.port.lock().unwrap() = Some(p);
-            return open_main_window(app, &engine_url(p, &bootstrap));
+            *state.main_url.lock().unwrap() = Some(target.clone());
+            return open_main_window(app, &target);
         }
     }
     // 2) 找空闲端口并拉 sidecar
@@ -506,6 +529,10 @@ fn start_local(app: &tauri::AppHandle, state: &EngineState, dir: &PathBuf) -> Re
         while std::time::Instant::now() < deadline {
             if health_ok(port) {
                 let target = engine_url(port, &bootstrap);
+                {
+                    let state = handle.state::<EngineState>();
+                    *state.main_url.lock().unwrap() = Some(target.clone());
+                }
                 // 引擎就绪后开正式主窗（带标题栏/红绿灯/可缩放），再关掉无边框过渡页。
                 // 不能把过渡页直接导航成主界面，否则会一直是无边框小窗。
                 if let Err(e) = open_main_window(&handle, &target) {
@@ -605,6 +632,150 @@ async fn download_and_install(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// 桌面伙伴状态（设置页回显用）
+#[derive(serde::Serialize)]
+struct PetStatus {
+    visible: bool,
+    skin: String,
+}
+
+fn show_main_window_impl(app: &tauri::AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.show();
+        let _ = win.unminimize();
+        return win.set_focus().map_err(|e| e.to_string());
+    }
+    let url = app
+        .state::<EngineState>()
+        .main_url
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or("主界面尚未就绪，请稍候再试")?;
+    open_main_window(app, &url)
+}
+
+fn build_pet_window(
+    app: &tauri::AppHandle,
+    port: u16,
+    skin: &str,
+) -> Result<tauri::WebviewWindow, String> {
+    let url = pet_page_url(port, skin);
+    let parsed: tauri::Url = url.parse().map_err(|_| format!("非法桌宠地址：{url}"))?;
+    let mut builder = WebviewWindowBuilder::new(app, "pet", WebviewUrl::External(parsed))
+        .title("小院伙伴")
+        .inner_size(240.0, 320.0)
+        .min_inner_size(200.0, 240.0)
+        .resizable(false)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .shadow(false)
+        .focused(false);
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.transparent(true);
+    }
+    let win = builder.build().map_err(|e| e.to_string())?;
+    // 默认落右下角，离屏幕边缘留一点呼吸位；用户拖走后由系统记住位置
+    if let Ok(Some(monitor)) = win.current_monitor() {
+        let size = monitor.size();
+        let origin = monitor.position();
+        let x = origin.x + size.width as i32 - 264;
+        let y = origin.y + size.height as i32 - 352;
+        let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
+    }
+    Ok(win)
+}
+
+fn set_pet_visible_impl(
+    app: &tauri::AppHandle,
+    state: &EngineState,
+    visible: bool,
+    skin: Option<&str>,
+) -> Result<bool, String> {
+    if let Some(raw) = skin {
+        let next = normalize_pet_skin(Some(raw));
+        *state.pet_skin.lock().unwrap() = next;
+    }
+    let current_skin = state.pet_skin.lock().unwrap().clone();
+    if !visible {
+        if let Some(win) = app.get_webview_window("pet") {
+            win.hide().map_err(|e| e.to_string())?;
+        }
+        return Ok(false);
+    }
+    if let Some(win) = app.get_webview_window("pet") {
+        win.show().map_err(|e| e.to_string())?;
+        let _ = app.emit_to("pet", "pet:skin-changed", current_skin);
+        return Ok(true);
+    }
+    let port = state.port.lock().unwrap().ok_or("桌面伙伴仅在本机模式可用")?;
+    build_pet_window(app, port, &current_skin)?;
+    Ok(true)
+}
+
+fn set_pet_skin_impl(
+    app: &tauri::AppHandle,
+    state: &EngineState,
+    skin: &str,
+) -> Result<String, String> {
+    let next = normalize_pet_skin(Some(skin));
+    *state.pet_skin.lock().unwrap() = next.clone();
+    if app.get_webview_window("pet").is_some() {
+        let _ = app.emit_to("pet", "pet:skin-changed", next.clone());
+    }
+    Ok(next)
+}
+
+/// 设置页：显示/隐藏桌面伙伴；可在同一次调用里顺带切换皮肤。
+#[tauri::command]
+fn set_pet_visible(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, EngineState>,
+    visible: bool,
+    skin: Option<String>,
+) -> Result<bool, String> {
+    set_pet_visible_impl(&app, state.inner(), visible, skin.as_deref())
+}
+
+/// 桌宠/设置页：切换皮肤；桌宠窗口会收到 pet:skin-changed 事件。
+#[tauri::command]
+fn set_pet_skin(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, EngineState>,
+    skin: String,
+) -> Result<String, String> {
+    set_pet_skin_impl(&app, state.inner(), &skin)
+}
+
+/// 桌宠：点一下呼出主窗；主窗被关掉时用缓存的地址重建。
+#[tauri::command]
+fn show_main_window(app: tauri::AppHandle) -> Result<(), String> {
+    show_main_window_impl(&app)
+}
+
+/// 桌宠：收起自己（不销毁窗口，下次显示更快）
+#[tauri::command]
+fn hide_pet_window(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window("pet") {
+        win.hide().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn pet_status(app: tauri::AppHandle, state: tauri::State<'_, EngineState>) -> PetStatus {
+    let visible = app
+        .get_webview_window("pet")
+        .and_then(|win| win.is_visible().ok())
+        .unwrap_or(false);
+    PetStatus {
+        visible,
+        skin: state.pet_skin.lock().unwrap().clone(),
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -618,10 +789,13 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(EngineState {
             child: Mutex::new(None),
             port: Mutex::new(None),
+            main_url: Mutex::new(None),
+            pet_skin: Mutex::new(DEFAULT_PET_SKIN.to_string()),
         })
         .manage(UpdateState {
             pending: Mutex::new(None),
@@ -631,7 +805,12 @@ pub fn run() {
             check_for_updates,
             download_and_install,
             save_export,
-            open_mic_settings
+            open_mic_settings,
+            set_pet_visible,
+            set_pet_skin,
+            show_main_window,
+            hide_pet_window,
+            pet_status
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -648,12 +827,46 @@ pub fn run() {
             // 改成原生对话框提示，用户关闭后正常退出。
             let started = if cfg.mode == "remote" && !cfg.url.is_empty() {
                 // 连接服务器模式：不拉引擎，直接开窗（与移动/鸿蒙壳同一体验）
-                open_main_window(&handle, &cfg.url)
+                let opened = open_main_window(&handle, &cfg.url);
+                if opened.is_ok() {
+                    *state.main_url.lock().unwrap() = Some(cfg.url.clone());
+                }
+                opened
             } else {
                 start_local(&handle, &state, &dir)
             };
             if let Err(e) = started {
                 report_fatal(&handle, e);
+            }
+            // 全局快捷键：⌘/Ctrl+Shift+Space 呼出主窗；⌘/Ctrl+Shift+P 切换桌面伙伴
+            if let Err(e) = app.global_shortcut().on_shortcut(
+                "CmdOrCtrl+Shift+Space",
+                |app, _shortcut, event| {
+                    if event.state() == ShortcutState::Pressed {
+                        let _ = show_main_window_impl(app);
+                    }
+                },
+            ) {
+                eprintln!("[shortcut] 注册主窗快捷键失败：{e}");
+            }
+            if let Err(e) =
+                app.global_shortcut()
+                    .on_shortcut("CmdOrCtrl+Shift+P", |app, _shortcut, event| {
+                        if event.state() == ShortcutState::Pressed {
+                            let visible = app
+                                .get_webview_window("pet")
+                                .and_then(|win| win.is_visible().ok())
+                                .unwrap_or(false);
+                            let state = app.state::<EngineState>();
+                            if let Err(err) =
+                                set_pet_visible_impl(app, state.inner(), !visible, None)
+                            {
+                                eprintln!("[pet] 切换桌面伙伴失败：{err}");
+                            }
+                        }
+                    })
+            {
+                eprintln!("[shortcut] 注册桌宠快捷键失败：{e}");
             }
             // 升级静默检查（30 秒后）：本地/远程模式都跑，与启动路径解耦
             spawn_update_watcher(handle.clone());
@@ -702,5 +915,22 @@ mod export_tests {
         assert_eq!(third.file_name().unwrap().to_str().unwrap(), "a (2).md");
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn pet_skin_allowlist_rejects_unknown() {
+        assert_eq!(normalize_pet_skin(Some("panda")), "panda");
+        assert_eq!(normalize_pet_skin(Some("  orbit ")), "orbit");
+        assert_eq!(normalize_pet_skin(Some("bad")), DEFAULT_PET_SKIN);
+        assert_eq!(normalize_pet_skin(None), DEFAULT_PET_SKIN);
+        assert_eq!(PET_SKINS.len(), 7);
+    }
+
+    #[test]
+    fn pet_page_url_points_to_local_pet_route() {
+        assert_eq!(
+            pet_page_url(18700, "taro"),
+            "http://127.0.0.1:18700/pet?skin=taro"
+        );
     }
 }

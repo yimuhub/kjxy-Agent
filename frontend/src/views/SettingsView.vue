@@ -68,6 +68,15 @@
       </el-tab-pane>
 
       <el-tab-pane
+        v-if="desktopShell"
+        lazy
+        label="桌面伙伴"
+        name="desktop_pet"
+      >
+        <SettingsDesktopPet />
+      </el-tab-pane>
+
+      <el-tab-pane
         v-if="isOwner"
         lazy
         label="系统日志"
@@ -539,6 +548,7 @@ import SettingsNetwork from '@/components/settings/SettingsNetwork.vue'
 import SettingsSkillLab from '@/components/settings/SettingsSkillLab.vue'
   import SettingsAgentGenerate from '@/components/settings/SettingsAgentGenerate.vue'
 import SettingsCommander from '@/components/settings/SettingsCommander.vue'
+import SettingsDesktopPet from '@/components/settings/SettingsDesktopPet.vue'
 import SettingsSystemLogs from '@/components/settings/SettingsSystemLogs.vue'
 import SettingsOfficialLibrary from '@/components/settings/SettingsOfficialLibrary.vue'
 import SettingsAsr from '@/components/settings/SettingsAsr.vue'
@@ -551,10 +561,12 @@ import SettingsA2a from '@/components/settings/SettingsA2a.vue'
 import SettingsGrants from '@/components/settings/SettingsGrants.vue'
 import { useAuthStore } from '@/stores/auth'
 import { classifyError, type ViewState } from '@/utils/status'
+import { isDesktopShell } from '@/utils/desktop'
 
 
 const route = useRoute()
 const auth = useAuthStore()
+const desktopShell = isDesktopShell()
 /** 负责人可改系统角色与保护设置；管理员只能维护自定义角色与普通设置 */
 const isOwner = computed(
   () => auth.roles.includes('yard_owner') || auth.roles.includes('platform_admin'),
@@ -567,6 +579,7 @@ const TAB_NAMES = [
   'registration',
   'network',
   'commander',
+  'desktop_pet',
   'system_logs',
   'skills',
   'asr',
@@ -584,11 +597,12 @@ const TAB_NAMES = [
 ] as const
 type TabName = (typeof TAB_NAMES)[number]
 
-const availableTabs = computed<TabName[]>(() =>
-  isOwner.value
+const availableTabs = computed<TabName[]>(() => {
+  const allowed = isOwner.value
     ? [...TAB_NAMES]
-    : TAB_NAMES.filter(name => name !== 'grants' && name !== 'system_logs'),
-)
+    : TAB_NAMES.filter(name => name !== 'grants' && name !== 'system_logs')
+  return desktopShell ? allowed : allowed.filter(name => name !== 'desktop_pet')
+})
 
 function resolveTab(raw: unknown): TabName {
   return typeof raw === 'string' && (availableTabs.value as string[]).includes(raw)

@@ -121,6 +121,7 @@ declare module 'vue' {
     SettingsAgentGenerate: typeof import('./components/settings/SettingsAgentGenerate.vue')['default']
     SettingsAsr: typeof import('./components/settings/SettingsAsr.vue')['default']
     SettingsCommander: typeof import('./components/settings/SettingsCommander.vue')['default']
+    SettingsDesktopPet: typeof import('./components/settings/SettingsDesktopPet.vue')['default']
     SettingsDeviceAnalysis: typeof import('./components/settings/SettingsDeviceAnalysis.vue')['default']
     SettingsFarmAgent: typeof import('./components/settings/SettingsFarmAgent.vue')['default']
     SettingsGrants: typeof import('./components/settings/SettingsGrants.vue')['default']

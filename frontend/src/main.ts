@@ -8,6 +8,7 @@ import App from './App.vue'
 import { colResize } from './directives/columnResize'
 import router from './router'
 import { useAuthStore } from './stores/auth'
+import { syncDesktopPetOnStartup } from './utils/desktop'
 
 // 设计系统 v2「静夜玻璃」为暗色主题：在样式装载前给 html 挂 dark 类
 document.documentElement.classList.add('dark')
@@ -35,6 +36,8 @@ async function start() {
   await bootstrapDesktop(pinia)
   app.use(router)
   app.mount('#app')
+  // 桌面版：用户上次开启过桌面伙伴时，随主窗一起恢复
+  void syncDesktopPetOnStartup()
   // Vue Router 初始化时会按首次读取的地址恢复 hash，这里再抹一次
   void router.isReady().then(() => {
     if (window.location.hash.includes('desktop_token')) {

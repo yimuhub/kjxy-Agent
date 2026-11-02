@@ -1,6 +1,6 @@
 [package]
 name = "techyard-desktop"
-version = "3.46.0"
+version = "3.47.0"
 description = "科技小院桌面壳：本地引擎 sidecar + splash + 级联退出（Tauri 2）"
 edition = "2021"
 rust-version = "1.77"
@@ -13,12 +13,14 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["webview-data-url"] }
+tauri = { version = "2", features = ["webview-data-url", "macos-private-api"] }
 tauri-plugin-shell = "2"
 # 单实例：重复双击只聚焦已有窗口，不再拉起第二个引擎
 tauri-plugin-single-instance = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
+# 桌面伙伴：全局快捷键呼出主窗 / 切换桌宠
+tauri-plugin-global-shortcut = "2"
 # 自动升级：GitHub Releases 通道（latest.json + minisign 验签），见 README「升级链路」
 tauri-plugin-updater = "2"
 # blocking 模式在独立线程轮询 health，不引入 tokio 到主线程心智负担

@@ -1,13 +1,14 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "科技小院",
-  "version": "3.46.0",
+  "version": "3.47.0",
   "identifier": "cn.techyard.desktop",
   "build": {
     "frontendDist": "../dist-web"
   },
   "app": {
     "withGlobalTauri": true,
+    "macOSPrivateApi": true,
     "windows": [],
     "security": {
       "csp": null
