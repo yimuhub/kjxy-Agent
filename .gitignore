@@ -29,3 +29,8 @@ data/
 build/
 backend/build/
 backend/*.spec
+
+# 本地调试脚本与隔离 E2E 配置（只在开发机用，不入库）
+frontend/tmp-checks/
+frontend/vite.e2e.config.ts
+frontend/playwright.e2e.config.ts

@@ -129,10 +129,7 @@ def test_match_workflow_and_failure_threshold(db_session):
     assert score >= learning.MATCH_THRESHOLD
     assert "可复用" in learning.workflow_hint(workflow)
 
-    assert (
-        learning.match_workflow(db_session, yard_id="yard-p2", text="统计番茄产量趋势")
-        is None
-    )
+    assert learning.match_workflow(db_session, yard_id="yard-p2", text="统计番茄产量趋势") is None
 
     failed_one = _run(db_session, status="failed", index=1)
     _subtask(db_session, failed_one, status="error")
@@ -264,9 +261,7 @@ def test_asset_api_permissions_and_crud(db_session):
     assert archived.status_code == 200
     assert archived.json()["data"]["workflow"]["status"] == "archived"
 
-    missing = admin.put(
-        "/api/v1/commander/assets/workflows/not-found", json={"status": "active"}
-    )
+    missing = admin.put("/api/v1/commander/assets/workflows/not-found", json={"status": "active"})
     assert missing.status_code == 404
 
     scan = admin.post("/api/v1/commander/assets/scan")

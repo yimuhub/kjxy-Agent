@@ -71,9 +71,7 @@ def normalize_note(raw: str | None) -> str:
 
 def list_nodes(db: Session) -> list[ClusterNode]:
     return list(
-        db.scalars(
-            select(ClusterNode).order_by(ClusterNode.created_at.desc()).limit(MAX_NODES)
-        )
+        db.scalars(select(ClusterNode).order_by(ClusterNode.created_at.desc()).limit(MAX_NODES))
     )
 
 

@@ -258,12 +258,7 @@ def learn_from_run(
     ok_steps = [st for st in subtasks if st.status == SUB_OK]
     scene = (run.goal or "").strip()
     workflow: CommanderWorkflow | None = None
-    if (
-        ok_steps
-        and scene
-        and run.status in (RUN_COMPLETED, RUN_PARTIAL)
-        and len(scene) >= 2
-    ):
+    if ok_steps and scene and run.status in (RUN_COMPLETED, RUN_PARTIAL) and len(scene) >= 2:
         code = f"WF-{scene_code(scene)}"
         workflow = db.scalar(
             select(CommanderWorkflow).where(
@@ -362,9 +357,7 @@ def _record_failures(
         if run.id in seen:
             continue
         case.occurrences += 1
-        case.status = (
-            FAILURE_ACTIVE if case.occurrences >= threshold else FAILURE_WATCHING
-        )
+        case.status = FAILURE_ACTIVE if case.occurrences >= threshold else FAILURE_WATCHING
         case.source_run_id = run.id
         case.seen_run_ids_json = [*seen, run.id][-MAX_FAILURE_RUNS:]
         case.last_seen_at = _now()
@@ -502,9 +495,9 @@ def scan_yard(
             .limit(SCAN_RUN_LIMIT)
         )
     )
-    workflows_before = db.query(CommanderWorkflow).filter(
-        CommanderWorkflow.yard_id == yard_id
-    ).count()
+    workflows_before = (
+        db.query(CommanderWorkflow).filter(CommanderWorkflow.yard_id == yard_id).count()
+    )
     for run in runs:
         subtasks = list(
             db.scalars(
@@ -522,15 +515,11 @@ def scan_yard(
                 record_failures=record_failures,
             )
         elif record_failures:
-            _record_failures(
-                db, run=run, subtasks=subtasks, threshold=failure_threshold
-            )
-    workflows_after = db.query(CommanderWorkflow).filter(
-        CommanderWorkflow.yard_id == yard_id
-    ).count()
-    skills = (
-        extract_skills_for_yard(db, yard_id=yard_id, days=days) if extract_skills else []
+            _record_failures(db, run=run, subtasks=subtasks, threshold=failure_threshold)
+    workflows_after = (
+        db.query(CommanderWorkflow).filter(CommanderWorkflow.yard_id == yard_id).count()
     )
+    skills = extract_skills_for_yard(db, yard_id=yard_id, days=days) if extract_skills else []
     db.flush()
     return {
         "runs_scanned": len(runs),
@@ -624,9 +613,7 @@ def list_workflows(
         query = query.where(CommanderWorkflow.status == status)
     return list(
         db.scalars(
-            query.order_by(CommanderWorkflow.last_used_at.desc()).limit(
-                max(1, min(limit, 100))
-            )
+            query.order_by(CommanderWorkflow.last_used_at.desc()).limit(max(1, min(limit, 100)))
         )
     )
 
@@ -672,9 +659,7 @@ def get_workflow(db: Session, yard_id: str, workflow_id: str) -> CommanderWorkfl
     )
 
 
-def get_failure(
-    db: Session, yard_id: str, failure_id: str
-) -> CommanderFailureCase | None:
+def get_failure(db: Session, yard_id: str, failure_id: str) -> CommanderFailureCase | None:
     return db.scalar(
         select(CommanderFailureCase).where(
             CommanderFailureCase.id == failure_id,
@@ -773,16 +758,12 @@ def update_workflow(
     return row
 
 
-def update_failure_status(
-    row: CommanderFailureCase, *, status: str
-) -> CommanderFailureCase:
+def update_failure_status(row: CommanderFailureCase, *, status: str) -> CommanderFailureCase:
     row.status = status
     return row
 
 
-def update_skill_status(
-    row: CommanderSkillSnippet, *, status: str
-) -> CommanderSkillSnippet:
+def update_skill_status(row: CommanderSkillSnippet, *, status: str) -> CommanderSkillSnippet:
     row.status = status
     return row
 

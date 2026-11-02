@@ -146,6 +146,24 @@ export function defaultPetPanelRect(
   )
 }
 
+/**
+ * 页面输入条的右下角让位区（v3.52）：伙伴放大到 86px 后，默认落点会把对话页
+ * 30px 的发送圆钮整颗盖住——小人停在右下角时，输入条要把右侧让出来。
+ */
+export const COMPOSER_DOCK_ZONE = { width: 230, height: 150 }
+
+/** 伙伴矩形是否压在视口右下角的让位区内 */
+export function overlapsComposerDock(
+  rect: Pick<PetRect, 'x' | 'y' | 'width' | 'height'>,
+  viewportWidth: number,
+  viewportHeight: number,
+): boolean {
+  return (
+    rect.x + rect.width > viewportWidth - COMPOSER_DOCK_ZONE.width &&
+    rect.y + rect.height > viewportHeight - COMPOSER_DOCK_ZONE.height
+  )
+}
+
 export function readPetPanelRect(): PetRect | null {
   try {
     const raw = localStorage.getItem(PET_PANEL_RECT_KEY)

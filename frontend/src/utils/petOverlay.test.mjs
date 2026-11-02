@@ -5,6 +5,7 @@ import {
   PET_PANEL_MAX,
   PET_PANEL_MIN,
   clampPetPos,
+  overlapsComposerDock,
   clampPetRect,
   defaultPetPanelRect,
   defaultPetPos,
@@ -88,4 +89,15 @@ test('小屏幕放不下时，默认面板收回视口并保留最小可用尺�
   assert.ok(rect.width >= PET_PANEL_MIN.width)
   assert.ok(rect.x + rect.width <= 400)
   assert.ok(rect.y + rect.height <= 500)
+})
+
+test('伙伴停在右下角时判定为占住输入条，拖开后立刻解除', () => {
+  // 1440×900 下默认落点的真实矩形（头像含名称标签）
+  assert.equal(overlapsComposerDock({ x: 1335, y: 800, width: 86, height: 127 }, 1440, 900), true)
+  // 拖到左上、左下、右上都不该让页面输入条白白收窄
+  assert.equal(overlapsComposerDock({ x: 200, y: 200, width: 86, height: 127 }, 1440, 900), false)
+  assert.equal(overlapsComposerDock({ x: 20, y: 761, width: 86, height: 127 }, 1440, 900), false)
+  assert.equal(overlapsComposerDock({ x: 1335, y: 12, width: 86, height: 127 }, 1440, 900), false)
+  // 只压进让位区一条边也算占住
+  assert.equal(overlapsComposerDock({ x: 1200, y: 740, width: 86, height: 20 }, 1440, 900), true)
 })

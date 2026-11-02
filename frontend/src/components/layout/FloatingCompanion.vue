@@ -6,121 +6,142 @@
     :style="anchorStyle"
     data-companion
   >
-    <div
-      v-if="wide && !expanded && bubbleText"
-      class="companion-bubble"
-      data-companion-bubble
-    >
-      {{ bubbleText }}
-    </div>
-
-    <button
-      ref="handleRef"
-      class="companion-avatar"
-      type="button"
-      :aria-label="`${skin.name}指挥官：点击交流，拖动换位置`"
-      aria-haspopup="dialog"
-      :aria-expanded="expanded"
-      data-companion-handle
-      @pointerdown="onPointerDown"
-      @pointermove="onPointerMove"
-      @pointerup="onPointerUp"
-      @pointercancel="onPointerUp"
-      @contextmenu.prevent="cycleSkin"
-    >
-      <CommanderFigure
-        v-if="skin.figure === 'human'"
-        class="avatar-figure"
-        :skin="skin"
-        :mood="mood"
-        :size="58"
-      />
-      <span
-        v-else
-        class="avatar-face"
-        :style="{ background: skin.body, borderColor: skin.ear }"
+    <el-config-provider :z-index="POPPER_BASE_IN_COMPANION">
+      <div
+        v-if="wide && !expanded && bubbleText"
+        class="companion-bubble"
+        data-companion-bubble
       >
-        {{ skin.emoji }}
-      </span>
-      <span class="avatar-state">{{ MOOD_LABEL[mood] }}</span>
-    </button>
-
-    <section
-      v-if="expanded"
-      class="companion-panel"
-      :style="panelStyle"
-      role="dialog"
-      :aria-label="`${skin.name}指挥官`"
-      data-companion-panel
-    >
-      <header
-        class="panel-head"
-        data-companion-panel-drag
-        @pointerdown="onPanelDragStart"
-      >
-        <div class="panel-id">
-          <strong>{{ skin.name }}</strong>
-          <span class="panel-role">指挥官</span>
-          <small>{{ MOOD_LABEL[mood] }} · 历史 {{ historyCount }} 条</small>
-        </div>
-        <div class="panel-tools">
-          <button
-            type="button"
-            title="换一套形象（也可右键头像）"
-            @click="cycleSkin"
-          >
-            换肤
-          </button>
-          <button
-            type="button"
-            title="在指挥官工作台打开"
-            @click="goWorkbench"
-          >
-            工作台
-          </button>
-          <button
-            type="button"
-            aria-label="收起伙伴"
-            @click="expanded = false"
-          >
-            ×
-          </button>
-        </div>
-      </header>
-
-      <div class="panel-body">
-        <ChatPanel
-          :store="store"
-          panel-id="companion"
-          :label="`${skin.name}指挥官`"
-          :suggestions="SUGGESTIONS"
-          :max-width="'100%'"
-          empty-title="说要办的事，我来安排"
-          empty-sub="直接说目标：我会拆任务、找助手、调工具，做完把成品放回这里。历史一直在，随时回来接着说。"
-          placeholder="说一句目标，Enter 交给指挥官"
-          commander-only
-          :commander-enabled="commanderEnabled"
-          :default-preview-plan="previewPlan"
-        />
+        {{ bubbleText }}
       </div>
 
-      <span
-        class="panel-edge panel-edge-e"
-        data-companion-resize="e"
-        @pointerdown="onResizeStart('e', $event)"
-      />
-      <span
-        class="panel-edge panel-edge-s"
-        data-companion-resize="s"
-        @pointerdown="onResizeStart('s', $event)"
-      />
-      <span
-        class="panel-corner"
-        data-companion-resize="se"
-        aria-hidden="true"
-        @pointerdown="onResizeStart('se', $event)"
-      />
-    </section>
+      <button
+        ref="handleRef"
+        class="companion-avatar"
+        type="button"
+        :aria-label="`${skin.name}指挥官：点击交流，拖动换位置`"
+        aria-haspopup="dialog"
+        :aria-expanded="expanded"
+        data-companion-handle
+        @pointerdown="onPointerDown"
+        @pointermove="onPointerMove"
+        @pointerup="onPointerUp"
+        @pointercancel="onPointerUp"
+        @contextmenu.prevent="cycleSkin"
+      >
+        <CommanderFigure
+          v-if="skin.figure === 'human'"
+          class="avatar-figure"
+          :skin="skin"
+          :mood="mood"
+          :size="86"
+        />
+        <span
+          v-else
+          class="avatar-face"
+          :style="{ background: skin.body, borderColor: skin.ear }"
+        >
+          {{ skin.emoji }}
+        </span>
+        <span class="avatar-state">{{ MOOD_LABEL[mood] }}</span>
+      </button>
+
+      <section
+        v-if="expanded"
+        class="companion-panel"
+        :style="panelStyle"
+        role="dialog"
+        :aria-label="`${skin.name}指挥官`"
+        data-companion-panel
+      >
+        <header
+          class="panel-head"
+          data-companion-panel-drag
+          @pointerdown="onPanelDragStart"
+        >
+          <div class="panel-id">
+            <strong>{{ skin.name }}</strong>
+            <span class="panel-role">指挥官</span>
+            <small>{{ MOOD_LABEL[mood] }} · 历史 {{ historyCount }} 条</small>
+          </div>
+          <div class="panel-tools">
+            <button
+              type="button"
+              title="选大模型、挂技能与插件"
+              :aria-pressed="abilitiesOpen"
+              @click="abilitiesOpen = !abilitiesOpen"
+            >
+              能力
+            </button>
+            <button
+              type="button"
+              title="换一套形象（也可右键头像）"
+              @click="cycleSkin"
+            >
+              换肤
+            </button>
+            <button
+              type="button"
+              title="在指挥官工作台打开"
+              @click="goWorkbench"
+            >
+              工作台
+            </button>
+            <button
+              type="button"
+              aria-label="收起伙伴"
+              @click="expanded = false"
+            >
+              ×
+            </button>
+          </div>
+        </header>
+
+        <div
+          v-if="abilitiesOpen"
+          class="panel-abilities"
+          data-companion-abilities
+        >
+          <CommanderAbilities
+            compact
+            :can-manage="canManage"
+          />
+        </div>
+
+        <div class="panel-body">
+          <ChatPanel
+            :store="store"
+            panel-id="companion"
+            :label="`${skin.name}指挥官`"
+            :suggestions="SUGGESTIONS"
+            :max-width="'100%'"
+            empty-title="说要办的事，我来安排"
+            empty-sub="直接说目标：我会拆任务、找助手、调工具，做完把成品放回这里。历史一直在，随时回来接着说。"
+            placeholder="说一句目标，Enter 交给指挥官"
+            commander-only
+            :commander-enabled="commanderEnabled"
+            :default-preview-plan="previewPlan"
+          />
+        </div>
+
+        <span
+          class="panel-edge panel-edge-e"
+          data-companion-resize="e"
+          @pointerdown="onResizeStart('e', $event)"
+        />
+        <span
+          class="panel-edge panel-edge-s"
+          data-companion-resize="s"
+          @pointerdown="onResizeStart('s', $event)"
+        />
+        <span
+          class="panel-corner"
+          data-companion-resize="se"
+          aria-hidden="true"
+          @pointerdown="onResizeStart('se', $event)"
+        />
+      </section>
+    </el-config-provider>
   </div>
 </template>
 
@@ -135,8 +156,10 @@
   import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
   import { useRouter } from 'vue-router'
   import ChatPanel from '@/components/chat/ChatPanel.vue'
+  import CommanderAbilities from '@/components/commander/CommanderAbilities.vue'
   import CommanderFigure from '@/components/pet/CommanderFigure.vue'
   import { useChatStore } from '@/stores/chat'
+  import { useAuthStore } from '@/stores/auth'
   import { commanderApi } from '@/api/commander'
   import {
     COMPANION_SESSION_TITLE,
@@ -144,6 +167,7 @@
     readCompanionSessionId,
     writeCompanionSessionId,
   } from '@/utils/companionChat'
+  import { companionCoversCorner } from '@/utils/companionDock'
   import {
     MOOD_LABEL,
     greetingFor,
@@ -161,6 +185,7 @@
     clampPetRect,
     defaultPetPanelRect,
     defaultPetPos,
+    overlapsComposerDock,
     petOverlayEnabled,
     readPetPanelRect,
     readPetPos,
@@ -177,6 +202,11 @@
   } from '@/utils/petSkins'
 
   const COMPANION_SCOPE = 'floating-companion'
+  /**
+   * 伙伴本体是 z-index 2601 的常驻浮层，比 Element Plus 弹层默认基数（2000）还高。
+   * 不抬高就会「点开产物没反应、下拉展开了点在面板上」——弹窗与下拉其实开在面板背后。
+   */
+  const POPPER_BASE_IN_COMPANION = 2700
   const SUGGESTIONS = [
     '组织一次本周经营复盘，把结论写成文档给我',
     '给水稻叶黄问题安排诊断并出防治方案',
@@ -185,6 +215,11 @@
 
   const router = useRouter()
   const store = useChatStore(COMPANION_SCOPE)
+  const auth = useAuthStore()
+
+  /** 能力抽屉：非管理员也看得见，但只有管理员能改 */
+  const canManage = computed(() => auth.isYardAdmin())
+  const abilitiesOpen = ref(false)
 
   const enabled = ref(true)
   const wide = ref(true)
@@ -238,6 +273,21 @@
   function place(at: { x: number; y: number }): void {
     const { w, h } = viewport()
     pos.value = clampPetPos(at.x, at.y, w, h)
+  }
+
+  /**
+   * 告诉页面「小人此刻正停在右下角」：对话输入条据此让开右侧，
+   * 否则 86px 的头像会把 30px 的发送圆钮整颗盖住，用户点不下去。
+   */
+  function syncCornerCoverage(): void {
+    const el = handleRef.value
+    if (!visible.value || !el) {
+      companionCoversCorner.value = false
+      return
+    }
+    const rect = el.getBoundingClientRect()
+    const { w, h } = viewport()
+    companionCoversCorner.value = overlapsComposerDock(rect, w, h)
   }
 
   function fitPanel(next: typeof panel.value): void {
@@ -402,11 +452,15 @@
     wide.value = window.innerWidth >= 900
     place(pos.value)
     if (expanded.value) fitPanel(panel.value)
+    syncCornerCoverage()
   }
 
   watch(visible, value => {
     if (!value) expanded.value = false
   })
+
+  /** 头像每挪动一步都重算一次让位（拖动过程实时生效，拖离角落立刻恢复满宽）；post 保证读到移动后的真实矩形 */
+  watch([pos, visible], syncCornerCoverage, { flush: 'post' })
 
   async function loadCommanderSettings(): Promise<void> {
     try {
@@ -443,6 +497,7 @@
     const anchor = readPetPos() ?? defaultPetPos(w, h)
     pos.value = clampPetPos(anchor.x, anchor.y, w, h)
     panel.value = clampPetRect(readPetPanelRect() ?? defaultPetPanelRect(pos.value, w, h), w, h)
+    syncCornerCoverage()
     unlisten = subscribePetEvents(handleEvent)
     window.addEventListener('storage', onStorage)
     window.addEventListener('resize', onResize)
@@ -452,6 +507,7 @@
   })
 
   onBeforeUnmount(() => {
+    companionCoversCorner.value = false
     unlisten?.()
     stopPanelDrag?.()
     stopResize?.()
@@ -489,6 +545,10 @@
     font-size: 12px;
     line-height: 1.5;
     box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+
+    /* 气泡只是提示，不能替头像吃掉点击：否则正好压在对话输入区右下角的
+       「普通/指挥官」切换上，用户点下去没反应 */
+    pointer-events: none;
   }
 
   .companion-avatar {
@@ -623,6 +683,16 @@
     min-height: 0;
     display: flex;
     overflow: hidden;
+  }
+
+  /* 能力抽屉盖在对话上方：可滚动，不挤掉聊天区的最小可视高度 */
+  .panel-abilities {
+    flex: none;
+    max-height: 52%;
+    overflow: auto;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--ds-border);
+    background: var(--ds-field, #171d29);
   }
 
   .panel-body > * {

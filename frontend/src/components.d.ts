@@ -24,6 +24,7 @@ declare module 'vue' {
     ChatPanel: typeof import('./components/chat/ChatPanel.vue')['default']
     ChatPolicyPicker: typeof import('./components/chat/ChatPolicyPicker.vue')['default']
     ChatSteps: typeof import('./components/chat/ChatSteps.vue')['default']
+    CommanderAbilities: typeof import('./components/commander/CommanderAbilities.vue')['default']
     CommanderClarifyCard: typeof import('./components/chat/CommanderClarifyCard.vue')['default']
     CommanderClarifyForm: typeof import('./components/chat/CommanderClarifyForm.vue')['default']
     CommanderFigure: typeof import('./components/pet/CommanderFigure.vue')['default']

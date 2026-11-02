@@ -68,7 +68,8 @@ test.describe('指挥官设置（v3.39）', () => {
       await input.fill(String(target))
       await input.press('Tab')
 
-      await section.getByRole('button', { name: '保存' }).click()
+      // v3.52 起这一格还有「保存模型 / 保存技能与工具」，精确匹配小院级设置自己的保存
+      await section.getByRole('button', { name: '保存', exact: true }).click()
       await expect(
         page.locator('.el-message').filter({ hasText: '指挥官设置已保存' }).first(),
       ).toBeVisible()

@@ -210,9 +210,7 @@ def test_evolution_api_permissions_and_payloads(db_session):
     assert admin.get("/api/v1/commander/reports/daily").status_code == 200
     assert admin.get("/api/v1/commander/reports/daily", params={"day": "bad"}).status_code == 400
     assert admin.get("/api/v1/commander/reports/weekly").status_code == 200
-    assert (
-        admin.get("/api/v1/commander/reports/weekly", params={"week": "bad"}).status_code == 400
-    )
+    assert admin.get("/api/v1/commander/reports/weekly", params={"week": "bad"}).status_code == 400
 
     first = admin.post("/api/v1/commander/iterations/run", json={"month": "2026-09"})
     assert first.status_code == 200

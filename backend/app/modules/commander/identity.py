@@ -316,7 +316,8 @@ def build_executor_agent(
     """
     registry_tools = set(available_tool_codes())
     row = _current_row(db, ctx.yard_id)
-    skills, tools = ([], [])
+    skills: list[str] = []
+    tools: list[str] = []
     if row is not None:
         skills, tools = executor_bindings(db, yard_id=ctx.yard_id, text=question)
         tools = [code for code in tools if code in registry_tools]

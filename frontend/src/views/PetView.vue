@@ -41,7 +41,7 @@
           class="pet-figure"
           :skin="skin"
           :mood="mood"
-          :size="126"
+          :size="150"
         />
         <svg
           v-else
@@ -578,7 +578,7 @@
 
   .pet-stage {
     position: relative;
-    width: 156px;
+    width: 186px;
     display: flex;
     flex-direction: column;
     align-items: center;

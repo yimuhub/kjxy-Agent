@@ -664,8 +664,8 @@ fn build_pet_window(
     let parsed: tauri::Url = url.parse().map_err(|_| format!("非法桌宠地址：{url}"))?;
     let mut builder = WebviewWindowBuilder::new(app, "pet", WebviewUrl::External(parsed))
         .title("小院伙伴")
-        .inner_size(240.0, 320.0)
-        .min_inner_size(200.0, 240.0)
+        .inner_size(280.0, 372.0)
+        .min_inner_size(220.0, 280.0)
         .resizable(false)
         .decorations(false)
         .always_on_top(true)

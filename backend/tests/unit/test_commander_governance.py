@@ -107,8 +107,15 @@ def test_classify_persona_by_risk_budget():
     assert risk > 0.45
     assert parts["generated_agent_rate"] == 0.75
 
-    steady = {**base, "subtasks": {**base["subtasks"], "extra_attempts": 0, "remediated": 0,
-                                  "generated_agents_used": 0}}
+    steady = {
+        **base,
+        "subtasks": {
+            **base["subtasks"],
+            "extra_attempts": 0,
+            "remediated": 0,
+            "generated_agents_used": 0,
+        },
+    }
     persona, risk, _ = evaluator.classify_persona(steady)
     assert persona == "steady"
     assert risk <= 0.2
@@ -124,9 +131,7 @@ def test_planner_prompt_includes_persona():
 
 def test_run_evaluation_applies_persona_and_snapshot(db_session):
     _seed_aggressive_week(db_session)
-    row, created = asyncio.run(
-        evaluator.run_evaluation(db_session, _ctx(), use_llm=False)
-    )
+    row, created = asyncio.run(evaluator.run_evaluation(db_session, _ctx(), use_llm=False))
     db_session.commit()
 
     assert created is True
@@ -138,9 +143,7 @@ def test_run_evaluation_applies_persona_and_snapshot(db_session):
     assert commander_settings.settings_for(db_session, "yard-p1")["persona"] == "aggressive"
     assert db_session.query(CommanderSnapshot).filter_by(source="persona").count() == 1
 
-    again, created_again = asyncio.run(
-        evaluator.run_evaluation(db_session, _ctx(), use_llm=False)
-    )
+    again, created_again = asyncio.run(evaluator.run_evaluation(db_session, _ctx(), use_llm=False))
     assert created_again is False
     assert again.id == row.id
     assert db_session.query(CommanderEvaluation).count() == 1
@@ -246,9 +249,7 @@ def test_evaluation_and_snapshot_api_permissions(db_session):
     assert listed.status_code == 200
     assert len(listed.json()["data"]["items"]) == 1
 
-    created = admin.post(
-        "/api/v1/commander/snapshots", json={"label": "发布前", "reason": "手动"}
-    )
+    created = admin.post("/api/v1/commander/snapshots", json={"label": "发布前", "reason": "手动"})
     assert created.status_code == 200
     snapshot_id = created.json()["data"]["snapshot"]["id"]
     restore = admin.post(f"/api/v1/commander/snapshots/{snapshot_id}/restore")

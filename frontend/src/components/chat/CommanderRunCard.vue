@@ -130,13 +130,26 @@
           v-for="(item, i) in artifacts"
           :key="`${artifactTitle(item)}-${i}`"
         >
+          <button
+            v-if="isDocumentArtifact(item)"
+            type="button"
+            class="artifact-name artifact-name--preview"
+            data-artifact-preview
+            @click="previewArtifact(item)"
+          >
+            {{ artifactTitle(item) }}
+          </button>
           <a
-            v-if="artifactLink(item)"
-            :href="artifactLink(item)"
+            v-else-if="externalArtifactLink(item)"
+            class="artifact-name"
+            :href="externalArtifactLink(item)"
             target="_blank"
             rel="noopener noreferrer"
           >{{ artifactTitle(item) }}</a>
-          <span v-else>{{ artifactTitle(item) }}</span>
+          <span
+            v-else
+            class="artifact-name"
+          >{{ artifactTitle(item) }}</span>
           <span
             v-if="artifactFormat(item)"
             class="artifact-format"
@@ -202,6 +215,13 @@
   import SafeMarkdown from '@/components/teams/SafeMarkdown.vue'
   import type { CommanderRunView } from '@/stores/chat'
   import { saveBlobOrDownload } from '@/utils/download'
+  import {
+    artifactPreviewTarget,
+    artifactTitle,
+    externalArtifactLink,
+    isDocumentArtifact,
+    type ArtifactPreviewTarget,
+  } from '@/utils/commanderArtifacts'
 
   /**
    * 指挥官执行卡：运行中逐个子任务显示状态/耗时/Token，
@@ -219,6 +239,7 @@
   const emit = defineEmits<{
     (event: 'retry', runId: string): void
     (event: 'cancel', runId: string): void
+    (event: 'preview', card: ArtifactPreviewTarget): void
   }>()
 
   const downloading = ref('')
@@ -331,24 +352,13 @@
     return seconds >= 60 ? `${(seconds / 60).toFixed(1)} 分钟` : `${seconds.toFixed(1)} 秒`
   }
 
-  function artifactTitle(item: CommanderArtifact): string {
-    return item.title || item.name || item.filename || item.url || '未命名产物'
-  }
-
   function artifactFormat(item: CommanderArtifact): string {
     return item.format || item.mime || item.kind || item.type || ''
   }
 
-  /** 只放行 http(s) / 同源相对地址，javascript: 等一律不渲染成链接 */
-  function artifactLink(item: CommanderArtifact): string {
-    const raw = item.url || item.href || ''
-    if (!raw) return ''
-    try {
-      const url = new URL(raw, window.location.origin)
-      return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : ''
-    } catch {
-      return ''
-    }
+  function previewArtifact(item: CommanderArtifact): void {
+    const target = artifactPreviewTarget(item)
+    if (target) emit('preview', target)
   }
 
   async function downloadArtifact(item: CommanderArtifact): Promise<void> {
@@ -532,11 +542,30 @@
     flex-wrap: wrap;
     gap: 8px;
   }
-  .artifacts a {
+  .artifact-name {
     color: var(--ds-accent-text);
+    word-break: break-all;
+  }
+
+  .artifacts a.artifact-name {
     text-decoration: underline;
     text-underline-offset: 2px;
-    word-break: break-all;
+  }
+
+  /* 产物名是可点的预览按钮：外观跟链接一致，但不跳路由 */
+  .artifact-name--preview {
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .artifact-name--preview:hover {
+    opacity: 0.82;
   }
   .artifact-format {
     font-size: 11px;

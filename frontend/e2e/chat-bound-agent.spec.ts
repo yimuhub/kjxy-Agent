@@ -18,7 +18,11 @@ test.describe('单助手会话锁定', () => {
       '**/api/v1/chat/sessions/*/messages',
     ]) {
       await page.route(pattern, async route => {
-        bodies.push(route.request().postDataJSON() as Record<string, unknown>)
+        const request = route.request()
+        // 只认发送动作：打开会话时还有一批 GET /messages（无请求体），混进来会挡住断言
+        if (request.method() === 'POST') {
+          bodies.push(request.postDataJSON() as Record<string, unknown>)
+        }
         await route.abort()
       })
     }

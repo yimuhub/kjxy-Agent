@@ -57,7 +57,11 @@ test.describe('指挥官设置', () => {
 
       const five = page.locator('.settings-commander .el-radio-button', { hasText: '5' }).first()
       await five.click()
-      await page.locator('.settings-commander').getByRole('button', { name: '保存' }).click()
+      // v3.52 起这一格里还有「保存模型 / 保存技能与工具」，必须精确匹配小院级设置自己的保存
+      await page
+        .locator('.settings-commander')
+        .getByRole('button', { name: '保存', exact: true })
+        .click()
       await expect(
         page.locator('.el-message').filter({ hasText: '指挥官设置已保存' }).first(),
       ).toBeVisible()

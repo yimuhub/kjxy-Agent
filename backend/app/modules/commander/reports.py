@@ -83,9 +83,7 @@ def _aggregate(db: Session, yard_id: str, start: datetime, end: datetime) -> dic
     subtasks: list[CommanderSubtask] = []
     if run_ids:
         subtasks = list(
-            db.scalars(
-                select(CommanderSubtask).where(CommanderSubtask.run_id.in_(run_ids))
-            )
+            db.scalars(select(CommanderSubtask).where(CommanderSubtask.run_id.in_(run_ids)))
         )
     ok = sum(1 for st in subtasks if st.status == SUB_OK)
     failed = [st for st in subtasks if st.status == SUB_ERROR]
@@ -113,9 +111,7 @@ def _aggregate(db: Session, yard_id: str, start: datetime, end: datetime) -> dic
     return {
         "runs": len(runs),
         "status_counts": status_counts,
-        "completed": sum(
-            1 for run in runs if run.status in (RUN_COMPLETED, RUN_PARTIAL)
-        ),
+        "completed": sum(1 for run in runs if run.status in (RUN_COMPLETED, RUN_PARTIAL)),
         "failed_runs": sum(1 for run in runs if run.status == RUN_FAILED),
         "subtasks": len(subtasks),
         "ok": ok,
@@ -241,9 +237,7 @@ def weekly_optimization(
     persona = commander_settings.settings_for(db, yard_id).get("persona", "balanced")
     modules = commander_settings.settings_for(db, yard_id).get("prompt_modules") or []
     enabled_modules = ", ".join(str(item) for item in modules) or "无"
-    cost_delta = _delta_line(
-        round(data["llm_cost"], 4), round(previous["llm_cost"], 4)
-    )
+    cost_delta = _delta_line(round(data["llm_cost"], 4), round(previous["llm_cost"], 4))
     lines = [
         f"# 每周优化报告 {current_week}",
         "",
@@ -313,23 +307,33 @@ def weekly_optimization(
     }
 
 
-def _month_metrics(
-    db: Session, *, yard_id: str, start: datetime, end: datetime
-) -> dict[str, Any]:
+def _month_metrics(db: Session, *, yard_id: str, start: datetime, end: datetime) -> dict[str, Any]:
     data = _aggregate(db, yard_id, start, end)
     assets = _asset_delta(db, yard_id, start, end)
-    active_workflows = db.query(CommanderWorkflow).filter(
-        CommanderWorkflow.yard_id == yard_id,
-        CommanderWorkflow.status == WORKFLOW_ACTIVE,
-    ).count()
-    active_skills = db.query(CommanderSkillSnippet).filter(
-        CommanderSkillSnippet.yard_id == yard_id,
-        CommanderSkillSnippet.status == SKILL_ACTIVE,
-    ).count()
-    active_failures = db.query(CommanderFailureCase).filter(
-        CommanderFailureCase.yard_id == yard_id,
-        CommanderFailureCase.status == FAILURE_ACTIVE,
-    ).count()
+    active_workflows = (
+        db.query(CommanderWorkflow)
+        .filter(
+            CommanderWorkflow.yard_id == yard_id,
+            CommanderWorkflow.status == WORKFLOW_ACTIVE,
+        )
+        .count()
+    )
+    active_skills = (
+        db.query(CommanderSkillSnippet)
+        .filter(
+            CommanderSkillSnippet.yard_id == yard_id,
+            CommanderSkillSnippet.status == SKILL_ACTIVE,
+        )
+        .count()
+    )
+    active_failures = (
+        db.query(CommanderFailureCase)
+        .filter(
+            CommanderFailureCase.yard_id == yard_id,
+            CommanderFailureCase.status == FAILURE_ACTIVE,
+        )
+        .count()
+    )
     evaluations = list(
         db.scalars(
             select(CommanderEvaluation).where(
@@ -372,12 +376,7 @@ def run_iteration(
     cfg = settings or commander_settings.settings_for(db, ctx.yard_id)
     metrics = _month_metrics(db, yard_id=ctx.yard_id, start=start, end=end)
     persona = str(cfg.get("persona") or "balanced")
-    seq = (
-        db.query(CommanderIteration)
-        .filter(CommanderIteration.yard_id == ctx.yard_id)
-        .count()
-        + 1
-    )
+    seq = db.query(CommanderIteration).filter(CommanderIteration.yard_id == ctx.yard_id).count() + 1
     version_label = f"V-{month_key.replace('-', '')}-{seq}"
     label = f"月度迭代 {version_label}"
     snapshot = snapshots.create_snapshot(

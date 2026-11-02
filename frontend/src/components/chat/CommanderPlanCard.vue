@@ -257,6 +257,7 @@
       :run="run"
       @retry="emit('retry', runId)"
       @cancel="emit('cancel', runId)"
+      @preview="emit('preview', $event)"
     />
   </div>
 </template>
@@ -298,6 +299,8 @@
     (event: 'cancel', runId: string): void
     /** 计划保存成功：带后端回包（或本地兜底），由面板写回 store */
     (event: 'plan-updated', runId: string, run: CommanderRun): void
+    /** 产物点开预览：运行卡把文档三要素交给面板的预览弹窗 */
+    (event: 'preview', card: { session_id: string; attachment_id: string; filename: string }): void
   }>()
 
   const runId = computed(() => props.plan.run_id)

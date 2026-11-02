@@ -185,6 +185,7 @@
               @retry="onCommanderRetry"
               @cancel="onCommanderCancel"
               @plan-updated="onCommanderPlanUpdated"
+              @preview="openDocPreview"
             />
             <CommanderRunCard
               v-else-if="isCommanderSummaryMessage(row.m)"
@@ -192,6 +193,7 @@
               :run="store.commanderRun(commanderRunIdOf(row.m))"
               @retry="onCommanderRetry"
               @cancel="onCommanderCancel"
+              @preview="openDocPreview"
             />
             <!-- 高风险操作待批准：给出审批单号与去批准入口，不含糊地说「已经做了」 -->
             <div
@@ -591,7 +593,7 @@
                 @keyup="onKeyup"
               />
 
-              <div class="composer-toolbar">
+              <div class="composer-toolbar" :class="{ 'clear-dock': clearsDockForCompanion }">
                 <!-- 上传附件（照片/文档） -->
                 <button
                   class="tool-btn"
@@ -877,7 +879,7 @@
 </template>
 
 <script setup lang="ts">
-  import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
+  import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
   import { useRouter } from 'vue-router'
   import { ElInput, ElMessage, ElMessageBox } from 'element-plus'
   import {
@@ -951,6 +953,7 @@
   } from '@/api/commander'
   import type { MemberRoundRow } from '@/stores/chat'
   import type { ChatStoreInstance } from '@/stores/chat'
+  import { companionCoversCorner } from '@/utils/companionDock'
   import { canRecord, classifyMicError, WavRecorder } from '@/utils/wavRecorder'
   import { saveBlobOrDownload } from '@/utils/download'
 
@@ -1049,6 +1052,13 @@
       lockedLabel: '',
     },
   )
+
+  /**
+   * 悬浮指挥官停在右下角时，工具条把右侧让开：伙伴浮层（z-index 2600）盖在页面之上，
+   * 不让位的话发送圆钮整颗在小人身上，点下去只会打开伙伴面板。
+   * 伙伴自己那份对话（commanderOnly）不在页面角落，不需要让位。
+   */
+  const clearsDockForCompanion = computed(() => companionCoversCorner.value && !props.commanderOnly)
 
   const emit = defineEmits<{
     /** 一次发送结束（ok=false 表示服务端未收到，草稿已保留可重发） */
@@ -1701,13 +1711,16 @@
   })
 
   /** ---- 生成文档：预览（沙箱 iframe + srcdoc）与下载（带登录态的 blob） ---- */
+  /** 预览/下载只需要这三个字段：文档卡片与指挥官产物都满足 */
+  type DocTarget = Pick<ChatDocumentCard, 'session_id' | 'attachment_id' | 'filename'>
+
   const previewOpen = ref(false)
-  const previewCard = ref<ChatDocumentCard | null>(null)
+  const previewCard = ref<DocTarget | null>(null)
   const previewHtml = ref('')
   const previewLoading = ref(false)
   const downloadingId = ref('')
 
-  async function openDocPreview(card: ChatDocumentCard) {
+  async function openDocPreview(card: DocTarget) {
     previewCard.value = card
     previewOpen.value = true
     previewLoading.value = true
@@ -1721,7 +1734,7 @@
     }
   }
 
-  async function downloadDoc(card: ChatDocumentCard) {
+  async function downloadDoc(card: DocTarget) {
     if (downloadingId.value) return
     downloadingId.value = card.attachment_id
     try {
@@ -2843,6 +2856,11 @@
     flex-wrap: wrap;
     gap: 2px;
     padding: 2px 8px 8px;
+  }
+
+  /* 伙伴占住右下角时的让位宽度：头像 86px + 边界留白 */
+  .composer-toolbar.clear-dock {
+    padding-right: 104px;
   }
 
   /* 工具图标按钮：无边框，悬停才出现底色 */
