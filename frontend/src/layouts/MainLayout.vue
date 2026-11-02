@@ -382,6 +382,7 @@
   import GlobalOverview from '@/views/GlobalOverview.vue'
   import MenuDiyEditor from '@/components/layout/MenuDiyEditor.vue'
   import DesktopFirstRun from '@/components/desktop/DesktopFirstRun.vue'
+  import { publishPetEvent, sceneForRoute } from '@/utils/petCopilot'
   // 版本号只有 package.json 这一份事实来源：九处版本面已由 scripts/check_versions.py 对齐，
   // 这里再抄一个字符串就迟早会对不上（具名导入，打包时只带出 version 一个字段）。
   import { version as appVersionRaw } from '../../package.json'
@@ -436,6 +437,13 @@
   const menuStore = useMenuStore()
   const menuRef = ref<MenuExposed>()
   const diyDialogVisible = ref(false)
+
+  // 桌宠只根据路由名判断场景，不读取页面正文
+  watch(
+    () => route.name,
+    name => publishPetEvent({ type: 'scene', scene: sceneForRoute(name) }),
+    { immediate: true },
+  )
 
   /* ---------- 侧栏原地拖拽调序 ---------- */
   const sideDrag = ref<{

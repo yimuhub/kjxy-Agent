@@ -38,6 +38,14 @@
         <span class="note">开启后启动客户端时自动出现；关闭即收起</span>
       </el-form-item>
 
+      <el-form-item label="任务气泡">
+        <el-switch
+          v-model="bubbles"
+          @change="onBubblesChange"
+        />
+        <span class="note">任务开始、完成或失败时用气泡同步进度；不弹系统通知</span>
+      </el-form-item>
+
       <el-form-item label="桌面快捷键">
         <div class="shortcut-list">
           <span class="shortcut"><kbd>⌘/Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Space</kbd> 呼出工作台</span>
@@ -114,9 +122,11 @@
     setDesktopPetSkin,
     setDesktopPetVisible,
   } from '@/utils/desktop'
+  import { petMuted, setPetMuted } from '@/utils/petCopilot'
 
   const available = isDesktopShell()
   const enabled = ref(false)
+  const bubbles = ref(!petMuted())
   const skinId = ref<PetSkinId>(readStoredPetSkin())
   const busy = ref('')
 
@@ -178,9 +188,16 @@
     }
   }
 
+  function onBubblesChange(value: string | number | boolean): void {
+    setPetMuted(value !== true)
+  }
+
   function onStorage(event: StorageEvent): void {
     if (event.key === 'ky_pet_skin' && event.newValue) {
       skinId.value = readStoredPetSkin()
+    }
+    if (event.key === 'ky_pet_mute') {
+      bubbles.value = !petMuted()
     }
   }
 

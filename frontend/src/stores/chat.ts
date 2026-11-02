@@ -54,6 +54,7 @@ import type { QuotaBlockInfo } from '@/api/quota'
 import { skillApi, skillApiErrorText, skillLabApi } from '@/api/v3'
 import { friendlyErrorMessage } from '@/utils/status'
 import { apiTimeMs } from '@/utils/format'
+import { publishPetEvent } from '@/utils/petCopilot'
 import { openSseStream, type SseHandle } from '@/utils/sse'
 
 /** 后端未生成标题时的界面占位 */
@@ -1603,6 +1604,7 @@ function buildChatStore(scope: string) {
           resolve(outcome)
         }
 
+        publishPetEvent({ type: 'mood', mood: 'thinking', text: '我在理解你的需求' })
         handle = openSseStream({
           url: chatApi.streamUrl(sid),
           method: 'POST',
@@ -1613,19 +1615,50 @@ function buildChatStore(scope: string) {
               const um = data.user_message
               replaceLocalUser(localId, um ? asMessage(um) : undefined)
             } else if (frame.event === CHAT_SSE_EVENTS.step) {
-              liveSteps.value = (data.steps as ChatStep[] | undefined) ?? []
+              const steps = (data.steps as ChatStep[] | undefined) ?? []
+              liveSteps.value = steps
+              const active =
+                steps.find(step => step.status === 'running') ?? steps[steps.length - 1]
+              publishPetEvent({
+                type: 'mood',
+                mood: 'busy',
+                text: active?.title ? active.title.slice(0, 40) : '正在推进',
+              })
             } else if (frame.event === CHAT_SSE_EVENTS.card) {
               pendingCard = (data.payload as ChatCard | undefined) ?? null
             } else if (frame.event === CHAT_SSE_EVENTS.memberEvent) {
               applyMemberEvent(data as ChatMemberEvent)
             } else if (frame.event === COMMANDER_SSE_EVENTS.plan) {
               applyCommanderPlan(data as unknown as CommanderPlanFrame)
+              publishPetEvent({ type: 'mood', mood: 'busy', text: '计划已生成，开始安排助手' })
             } else if (frame.event === COMMANDER_SSE_EVENTS.subtaskStatus) {
-              applyCommanderSubtaskStatus(data as unknown as CommanderSubtaskStatusFrame)
+              const statusFrame = data as unknown as CommanderSubtaskStatusFrame
+              applyCommanderSubtaskStatus(statusFrame)
+              if (statusFrame.status === 'failed') {
+                publishPetEvent({ type: 'mood', mood: 'worried', text: '有个子任务失败，我在补救' })
+              } else {
+                publishPetEvent({
+                  type: 'mood',
+                  mood: 'busy',
+                  text: String(statusFrame.title ?? '正在执行子任务').slice(0, 40),
+                })
+              }
             } else if (frame.event === COMMANDER_SSE_EVENTS.summary) {
-              applyCommanderSummary(data as unknown as CommanderSummaryFrame)
+              const summaryFrame = data as unknown as CommanderSummaryFrame
+              applyCommanderSummary(summaryFrame)
+              if (summaryFrame.status === 'succeeded') {
+                publishPetEvent({ type: 'mood', mood: 'happy', text: '这轮完成了，产物收好了' })
+              } else if (summaryFrame.status === 'failed') {
+                publishPetEvent({ type: 'mood', mood: 'worried', text: '这轮遇到问题，我记下来了' })
+              }
             } else if (frame.event === COMMANDER_SSE_EVENTS.budget) {
-              applyCommanderBudget(data as unknown as CommanderBudgetFrame)
+              const budgetFrame = data as unknown as CommanderBudgetFrame
+              applyCommanderBudget(budgetFrame)
+              if (budgetFrame.status === 'exceeded') {
+                publishPetEvent({ type: 'mood', mood: 'worried', text: '预算到上限，先停新任务' })
+              } else if (budgetFrame.status === 'warning') {
+                publishPetEvent({ type: 'mood', mood: 'worried', text: '预算用到 80%，我会收紧一点' })
+              }
             } else if (frame.event === CHAT_SSE_EVENTS.message) {
               const msg = asMessage(data)
               const incoming = (msg.payload ?? pendingCard) as unknown as {
@@ -1662,11 +1695,25 @@ function buildChatStore(scope: string) {
               }
             } else if (frame.event === CHAT_SSE_EVENTS.error) {
               streamError.value = String(data.message ?? '执行失败')
+              publishPetEvent({
+                type: 'mood',
+                mood: 'worried',
+                text: streamError.value.slice(0, 40),
+              })
             } else if (frame.event === CHAT_SSE_EVENTS.end) {
-              finish(data.status === 'ok' ? 'ok' : 'failed')
+              const ok = data.status === 'ok'
+              publishPetEvent({
+                type: 'mood',
+                mood: ok ? 'happy' : 'worried',
+                text: ok ? '这轮完成了' : '这轮没跑完，我再看看日志',
+              })
+              finish(ok ? 'ok' : 'failed')
             }
           },
-          onFallback: () => finish('broken'),
+          onFallback: () => {
+            publishPetEvent({ type: 'mood', mood: 'worried', text: '连接中断了，先别走开' })
+            finish('broken')
+          },
         })
       })
     }
