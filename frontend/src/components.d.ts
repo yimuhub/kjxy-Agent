@@ -120,6 +120,7 @@ declare module 'vue' {
     SettingsA2a: typeof import('./components/settings/SettingsA2a.vue')['default']
     SettingsAgentGenerate: typeof import('./components/settings/SettingsAgentGenerate.vue')['default']
     SettingsAsr: typeof import('./components/settings/SettingsAsr.vue')['default']
+    SettingsCluster: typeof import('./components/settings/SettingsCluster.vue')['default']
     SettingsCommander: typeof import('./components/settings/SettingsCommander.vue')['default']
     SettingsDesktopPet: typeof import('./components/settings/SettingsDesktopPet.vue')['default']
     SettingsDeviceAnalysis: typeof import('./components/settings/SettingsDeviceAnalysis.vue')['default']

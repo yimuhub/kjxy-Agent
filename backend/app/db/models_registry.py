@@ -28,6 +28,7 @@ from app.modules.chat.models import (  # noqa: F401
     ChatParticipant,
     ChatSession,
 )
+from app.modules.cluster.models import ClusterNode  # noqa: F401
 from app.modules.commander.asset_models import (  # noqa: F401
     CommanderFailureCase,
     CommanderSkillSnippet,

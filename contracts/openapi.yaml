@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.47.0
+  version: 3.48.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -7611,6 +7611,151 @@ paths:
               schema: {}
       security:
       - HTTPBearer: []
+  /api/v1/cluster/nodes:
+    get:
+      tags:
+      - v1
+      - cluster
+      summary: List Nodes
+      operationId: list_nodes_api_v1_cluster_nodes_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+    post:
+      tags:
+      - v1
+      - cluster
+      summary: Create Node
+      operationId: create_node_api_v1_cluster_nodes_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClusterNodeCreate'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/cluster/nodes/{node_id}:
+    put:
+      tags:
+      - v1
+      - cluster
+      summary: Update Node
+      operationId: update_node_api_v1_cluster_nodes__node_id__put
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: node_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Node Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClusterNodeUpdate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - v1
+      - cluster
+      summary: Delete Node
+      operationId: delete_node_api_v1_cluster_nodes__node_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: node_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Node Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cluster/nodes/{node_id}/probe:
+    post:
+      tags:
+      - v1
+      - cluster
+      summary: Probe Node
+      operationId: probe_node_api_v1_cluster_nodes__node_id__probe_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: node_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Node Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cluster/probe-all:
+    post:
+      tags:
+      - v1
+      - cluster
+      summary: Probe All
+      operationId: probe_all_api_v1_cluster_probe_all_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
   /api/v1/agents:
     get:
       tags:
@@ -13271,6 +13416,55 @@ components:
       - old_password
       - new_password
       title: ChangePasswordRequest
+    ClusterNodeCreate:
+      properties:
+        name:
+          type: string
+          maxLength: 60
+          minLength: 1
+          title: Name
+        base_url:
+          type: string
+          maxLength: 300
+          minLength: 1
+          title: Base Url
+        note:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Note
+      additionalProperties: false
+      type: object
+      required:
+      - name
+      - base_url
+      title: ClusterNodeCreate
+    ClusterNodeUpdate:
+      properties:
+        name:
+          anyOf:
+          - type: string
+            maxLength: 60
+            minLength: 1
+          - type: 'null'
+          title: Name
+        base_url:
+          anyOf:
+          - type: string
+            maxLength: 300
+            minLength: 1
+          - type: 'null'
+          title: Base Url
+        note:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Note
+      additionalProperties: false
+      type: object
+      title: ClusterNodeUpdate
     ConnectorConfigIn:
       properties:
         url:

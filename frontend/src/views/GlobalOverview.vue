@@ -78,6 +78,62 @@
       </el-col>
     </el-row>
 
+    <el-card class="cluster-card">
+      <template #header>
+        <div class="card-head">
+          <span>集群节点（{{ cluster.summary.total }}）</span>
+          <el-button
+            link
+            type="primary"
+            @click="goClusterSettings"
+          >
+            管理节点 →
+          </el-button>
+        </div>
+      </template>
+      <AsyncState
+        :state="clusterState"
+        empty-text="还没有登记其他部署实例；可在系统设置 → 集群节点新增"
+        @retry="loadCluster"
+      >
+        <div class="cluster-chips">
+          <span class="cluster-chip online">在线 {{ cluster.summary.online }}</span>
+          <span class="cluster-chip degraded">版本不一致 {{ cluster.summary.degraded }}</span>
+          <span class="cluster-chip offline">离线 {{ cluster.summary.offline }}</span>
+          <span class="cluster-chip never">未探测 {{ cluster.summary.never }}</span>
+        </div>
+        <ul class="mini-list">
+          <li
+            v-for="node in cluster.items.slice(0, 5)"
+            :key="node.id"
+          >
+            <el-tag
+              size="small"
+              :type="node.status === 'online' ? 'success' : node.status === 'degraded' ? 'warning' : node.status === 'offline' ? 'danger' : 'info'"
+            >
+              {{ node.status_label }}
+            </el-tag>
+            <span class="mini-title">{{ node.name }}</span>
+            <span class="cluster-url">{{ node.base_url }}</span>
+            <span class="mini-title">{{ node.version || '—' }}</span>
+            <el-tag
+              v-if="node.stale"
+              size="small"
+              type="info"
+            >
+              已过期
+            </el-tag>
+          </li>
+        </ul>
+        <div
+          v-if="cluster.items.length > 5"
+          class="stat-desc"
+        >
+          仅展示最近 5 个，完整列表见系统设置。
+        </div>
+      </AsyncState>
+    </el-card>
+
     <el-card v-if="showDemoAccounts" class="switch-card">
       <template #header>快速切换体验小院功能</template>
       <div class="switch-row">
@@ -100,7 +156,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
-import { adminApi } from '@/api/modules'
+import { adminApi, clusterApi, type ClusterNodeList } from '@/api/modules'
 import { useAuthStore } from '@/stores/auth'
 import AsyncState from '@/components/AsyncState.vue'
 import { classifyError, type ViewState } from '@/utils/status'
@@ -113,8 +169,13 @@ const showDemoAccounts = !import.meta.env.PROD
 
 const statsState = ref<ViewState>('loading')
 const yardsState = ref<ViewState>('loading')
+const clusterState = ref<ViewState>('loading')
 const stats = reactive<AdminStats>({})
 const yardList = reactive<AdminYardList>({ count: 0, yards: [] })
+const cluster = reactive<ClusterNodeList>({
+  items: [],
+  summary: { total: 0, online: 0, degraded: 0, offline: 0, never: 0 },
+})
 
 const llmByProvider = computed(() =>
   Object.entries(stats.llm?.by_provider ?? {}).map(([provider, count]) => ({
@@ -135,9 +196,22 @@ function taskStatusLabel(status: string): string {
   return map[status] ?? status
 }
 
+async function loadCluster() {
+  clusterState.value = 'loading'
+  try {
+    const data = await clusterApi.list()
+    cluster.items = data.items
+    Object.assign(cluster.summary, data.summary)
+    clusterState.value = data.items.length ? 'ready' : 'empty'
+  } catch (e) {
+    clusterState.value = classifyError(e)
+  }
+}
+
 async function loadAll() {
   statsState.value = 'loading'
   yardsState.value = 'loading'
+  void loadCluster()
   try {
     Object.assign(stats, await adminApi.stats())
     statsState.value = 'ready'
@@ -152,6 +226,10 @@ async function loadAll() {
   } catch (e) {
     yardsState.value = classifyError(e)
   }
+}
+
+function goClusterSettings() {
+  router.push({ path: '/settings', query: { tab: 'cluster' } })
 }
 
 async function switchToYard() {
@@ -207,6 +285,49 @@ onMounted(loadAll)
 }
 .switch-card {
   margin-top: 4px;
+}
+.cluster-card {
+  margin-bottom: 16px;
+}
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.cluster-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.cluster-chip {
+  padding: 2px 10px;
+  border: 1px solid var(--ds-border);
+  border-radius: 999px;
+  background: var(--ds-field);
+  font-size: 12px;
+  color: var(--ds-text-2);
+}
+.cluster-chip.online {
+  border-color: rgba(76, 175, 120, 0.4);
+  color: #4caf78;
+}
+.cluster-chip.degraded {
+  border-color: rgba(230, 162, 60, 0.4);
+  color: #e0a030;
+}
+.cluster-chip.offline {
+  border-color: rgba(230, 90, 90, 0.4);
+  color: #e05a5a;
+}
+.cluster-url {
+  font-family: ui-monospace, monospace;
+  font-size: 11.5px;
+  color: var(--ds-text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 320px;
 }
 .switch-row {
   display: flex;

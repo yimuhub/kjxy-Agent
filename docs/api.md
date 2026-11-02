@@ -723,6 +723,24 @@ v3.37 起通道判别以**模型模态**为兜底：通用 OpenAI 兼容供应�
 
 `commander_runs` 新增两个快照列：`token_budget`（创建 run 时的预算，0 表示不限）与 `budget_status`（`ok|warning|exceeded`）。执行中达到 80% 标 `warning` 并发 `commander-budget` SSE 帧；达到 100% 标 `exceeded`，停止继续派发子任务，已完成子任务保留；唯一例外是尚未开始的交付任务可再放行一次（成本已有页数上限），避免整轮没有产物。`GET /commander/runs/{id}` 同时返回 `budget_ratio`、`budget_remaining` 与 `memory_used`，便于前端展示。
 
+## 多集群节点（v3.48）
+
+平台管理员登记其他部署实例，做版本与数据库迁移一致性体检。节点表只存名称、根地址、备注与探测结论，**不保存任何令牌或密钥**。
+
+| 接口 | 说明 |
+| --- | --- |
+| `GET /cluster/nodes` | 节点列表（最多 50）+ 汇总 `summary{total,online,degraded,offline}` |
+| `POST /cluster/nodes` | `{name, base_url, note?}`；名称/地址各自唯一，重复 409 |
+| `PUT /cluster/nodes/{id}` | 改名、改地址或备注；地址变更会清空旧探测结论 |
+| `DELETE /cluster/nodes/{id}` | 只移除登记，不影响远端实例 |
+| `POST /cluster/nodes/{id}/probe` | 单节点探测，返回 `{node}` |
+| `POST /cluster/probe-all` | 顺序探测全部节点，返回列表与汇总 |
+
+- 权限：全部接口仅 `platform_admin`；其他角色 403。新增/编辑/删除/探测写审计 `cluster_node_created`、`cluster_node_updated`、`cluster_node_deleted`、`cluster_node_probed`、`cluster_nodes_probed`。
+- 地址校验：仅 `http/https` 完整根地址，拒绝用户名/口令、查询串、片段、空白与控制字符，长度 ≤300；保存时去掉尾部斜杠。
+- 探测：`GET {base_url}/api/v1/meta`，3 秒超时且**不跟随重定向**；`version` 与 `migration_head` 都和本机一致为 `online`，可达但不一致为 `degraded`，超时/非 200/解析失败为 `offline`。
+- 结果字段：`status_label`、`stale`（超过 600 秒未探测）、`version`、`migration_head`、`latency_ms`、`last_checked_at`、`last_ok_at`、`last_error`（只留短错误文本，不保存响应正文/头）。
+
 ## 任务状态机
 
 `queued → running → succeeded | failed | cancelled | awaiting_review → succeeded | failed | cancelled`

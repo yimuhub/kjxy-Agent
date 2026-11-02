@@ -19,6 +19,7 @@ from app.modules.bots.router import router as bots_router
 from app.modules.chat.router import media_router as chat_media_router
 from app.modules.chat.router import mention_router as chat_mention_router
 from app.modules.chat.router import router as chat_router
+from app.modules.cluster.router import router as cluster_router
 from app.modules.commander.router import router as commander_router
 from app.modules.devices.router import router as devices_router
 from app.modules.evolution.router import router as evolution_router
@@ -83,6 +84,7 @@ router.include_router(audit_router)
 router.include_router(policy_router)
 router.include_router(plugins_router)
 router.include_router(admin_router)
+router.include_router(cluster_router)  # /cluster/nodes（平台管理员：多集群登记与版本体检 v3.48）
 router.include_router(agents_router)
 router.include_router(market_router)
 router.include_router(devices_router)

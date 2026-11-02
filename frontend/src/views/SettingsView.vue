@@ -77,6 +77,15 @@
       </el-tab-pane>
 
       <el-tab-pane
+        v-if="isPlatformAdmin"
+        lazy
+        label="集群节点"
+        name="cluster"
+      >
+        <SettingsCluster />
+      </el-tab-pane>
+
+      <el-tab-pane
         v-if="isOwner"
         lazy
         label="系统日志"
@@ -549,6 +558,7 @@ import SettingsSkillLab from '@/components/settings/SettingsSkillLab.vue'
   import SettingsAgentGenerate from '@/components/settings/SettingsAgentGenerate.vue'
 import SettingsCommander from '@/components/settings/SettingsCommander.vue'
 import SettingsDesktopPet from '@/components/settings/SettingsDesktopPet.vue'
+import SettingsCluster from '@/components/settings/SettingsCluster.vue'
 import SettingsSystemLogs from '@/components/settings/SettingsSystemLogs.vue'
 import SettingsOfficialLibrary from '@/components/settings/SettingsOfficialLibrary.vue'
 import SettingsAsr from '@/components/settings/SettingsAsr.vue'
@@ -571,6 +581,8 @@ const desktopShell = isDesktopShell()
 const isOwner = computed(
   () => auth.roles.includes('yard_owner') || auth.roles.includes('platform_admin'),
 )
+/** 集群节点注册表仅平台管理员可见（跨小院只读探测） */
+const isPlatformAdmin = computed(() => auth.roles.includes('platform_admin'))
 
 /** 与下方 el-tab-pane 的 name 一一对应；默认落第一个面板，避免落到不存在的 tab 只剩标签 */
 const TAB_NAMES = [
@@ -580,6 +592,7 @@ const TAB_NAMES = [
   'network',
   'commander',
   'desktop_pet',
+  'cluster',
   'system_logs',
   'skills',
   'asr',
@@ -598,10 +611,12 @@ const TAB_NAMES = [
 type TabName = (typeof TAB_NAMES)[number]
 
 const availableTabs = computed<TabName[]>(() => {
-  const allowed = isOwner.value
+  let allowed: TabName[] = isOwner.value
     ? [...TAB_NAMES]
     : TAB_NAMES.filter(name => name !== 'grants' && name !== 'system_logs')
-  return desktopShell ? allowed : allowed.filter(name => name !== 'desktop_pet')
+  if (!desktopShell) allowed = allowed.filter(name => name !== 'desktop_pet')
+  if (!isPlatformAdmin.value) allowed = allowed.filter(name => name !== 'cluster')
+  return allowed
 })
 
 function resolveTab(raw: unknown): TabName {

@@ -735,6 +735,92 @@ export const adminApi = {
   },
 }
 
+// ---------- 多集群节点（平台管理员） ----------
+
+export interface ClusterNode {
+  id: string
+  name: string
+  base_url: string
+  note: string
+  status: 'never' | 'online' | 'degraded' | 'offline' | string
+  status_label: string
+  stale: boolean
+  version: string
+  migration_head: string
+  latency_ms: number
+  last_checked_at?: string | null
+  last_ok_at?: string | null
+  last_error: string
+  created_at?: string | null
+}
+
+export interface ClusterNodeSummary {
+  total: number
+  online: number
+  degraded: number
+  offline: number
+  never: number
+}
+
+export interface ClusterNodeList {
+  items: ClusterNode[]
+  summary: ClusterNodeSummary
+}
+
+export interface ClusterNodeInput {
+  name: string
+  base_url: string
+  note?: string
+}
+
+export const clusterApi = {
+  list(): Promise<ClusterNodeList> {
+    return unwrap(api.get<ApiResponse<ClusterNodeList>>('/cluster/nodes'))
+  },
+  create(payload: ClusterNodeInput): Promise<{ node: ClusterNode }> {
+    return unwrap(
+      api.post<ApiResponse<{ node: ClusterNode }>>('/cluster/nodes', {
+        ...payload,
+        note: payload.note ?? '',
+      }),
+    )
+  },
+  update(
+    id: string,
+    payload: Partial<ClusterNodeInput>,
+  ): Promise<{ node: ClusterNode }> {
+    return unwrap(
+      api.put<ApiResponse<{ node: ClusterNode }>>(
+        `/cluster/nodes/${encodeURIComponent(id)}`,
+        payload,
+      ),
+    )
+  },
+  remove(id: string): Promise<{ deleted: boolean }> {
+    return unwrap(
+      api.delete<ApiResponse<{ deleted: boolean }>>(
+        `/cluster/nodes/${encodeURIComponent(id)}`,
+      ),
+    )
+  },
+  probe(id: string): Promise<{ node: ClusterNode }> {
+    return unwrap(
+      api.post<ApiResponse<{ node: ClusterNode }>>(
+        `/cluster/nodes/${encodeURIComponent(id)}/probe`,
+        undefined,
+        { timeout: 20_000 },
+      ),
+    )
+  },
+  probeAll(): Promise<ClusterNodeList> {
+    return unwrap(
+      api.post<ApiResponse<ClusterNodeList>>('/cluster/probe-all', undefined, {
+        timeout: 200_000,
+      }),
+    )
+  },
+}
+
 // ===== 协作班组（W2 契约，字段以 2026-10-21 实测为准） =====
 
 /** 班组成员定义（有序数组，2..8 个；顺序即接力顺序） */
