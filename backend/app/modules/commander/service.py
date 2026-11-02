@@ -170,12 +170,16 @@ def _get_session_factory() -> Callable[[], Session]:
 
 
 def _safe_commit(db: Session) -> None:
-    """进程内串行化提交；SQLite ``database is locked`` 按 0.05/0.1/0.2 秒重试。
+    """进程内串行化提交；SQLite ``database is locked`` 按 0.05/0.1/0.2 秒退避重试。
+
+    重试只适用于「本次提交没有待写内容」：commit 失败后的回滚会把这一事务里的新增与
+    改动一并丢掉，在本函数内无法重放。所以只要提交前确有脏数据，锁库就原样抛给调用方
+    走失败矩阵——不能回滚后再提交一个空事务，让调用方误以为已经落库。
 
     其它 ``OperationalError`` 原样抛出（连接串错误、表不存在等重试也无意义）。
-    重试 3 次仍锁库时抛出最后一次异常，由上层按失败矩阵处理。
     """
     for attempt in range(len(COMMIT_RETRY_DELAYS) + 1):
+        had_changes = bool(db.new or db.dirty or db.deleted)
         try:
             with _COMMIT_LOCK:
                 db.commit()
@@ -184,7 +188,7 @@ def _safe_commit(db: Session) -> None:
             db.rollback()
             if "database is locked" not in str(exc).lower():
                 raise
-            if attempt >= len(COMMIT_RETRY_DELAYS):
+            if had_changes or attempt >= len(COMMIT_RETRY_DELAYS):
                 raise
         time.sleep(COMMIT_RETRY_DELAYS[attempt])
 
@@ -2314,7 +2318,7 @@ async def execute_run(
         # 原子占位：只有把 queued 改成 running 的那一个任务才继续执行。
         # 上面的读后判断在并发下会双跑（用户双击、前端重发、调度补跑都可能撞车），
         # 抢输的一方直接 409，由调用方看到「正在执行中」而不是把在跑的 run 判死。
-        claimed = db.execute(
+        claim = db.execute(
             update(CommanderRun)
             .where(CommanderRun.id == run.id, CommanderRun.status == RUN_QUEUED)
             .values(
@@ -2324,8 +2328,9 @@ async def execute_run(
                 effective_parallel=int(settings["max_parallel"]),
                 max_parallel=int(settings["max_parallel"]),
             )
-        ).rowcount
-        if not claimed:
+            .execution_options(synchronize_session=False)
+        )
+        if not claim.rowcount:  # type: ignore[attr-defined]
             db.rollback()
             raise AppError(ERR_RUN_BUSY, "该指挥官运行正在执行中。", http_status=409)
         _safe_commit(db)

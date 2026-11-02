@@ -10,13 +10,15 @@
 
 只读检查模式（不写库）：
     ... python -m app.db.repair_demo_passwords --check
+
+生产环境拒绝执行：与 seed 同闸，非 development 需显式 SEED_ALLOW_PRODUCTION=YES。
 """
 
 import sys
 
 from app.core.logging import get_logger
 from app.core.security import hash_password, verify_password
-from app.db.seed import SEED_USERS
+from app.db.seed import SEED_USERS, guard_demo_data_writes
 from app.db.session import SessionLocal
 from app.modules.auth.repository import get_by_username
 
@@ -52,6 +54,8 @@ def repair(check_only: bool = False) -> dict:
 
 
 def main() -> int:
+    # 与 seed 同一道闸：这个脚本会把口令改回文档弱值，生产库误跑等于对外开放可猜账号
+    guard_demo_data_writes("python -m app.db.repair_demo_passwords")
     check_only = "--check" in sys.argv[1:]
     result = repair(check_only=check_only)
     print("演示账号密码状态：")

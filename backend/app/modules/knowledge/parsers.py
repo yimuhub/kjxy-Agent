@@ -306,13 +306,28 @@ class _HtmlToMarkdownParser(html.parser.HTMLParser):
         return clean_markdown_noise("\n\n".join(self._blocks))
 
 
+# 上传文档里的 XML 只允许纯数据：出现 DTD/实体声明即拒绝解析
+_XML_FORBIDDEN_MARKUP = re.compile(rb"<\s*!?DOCTYPE|<\s*!?ENTITY", re.IGNORECASE)
+
+
+def _xml_root(raw: bytes) -> ET.Element:
+    """拒绝带 DTD/实体声明的 XML：OOXML 部件本是纯数据，实体展开是 billion laughs 类 DoS 的前提。"""
+    if _XML_FORBIDDEN_MARKUP.search(raw):
+        raise AppError(
+            "DOCUMENT_PARSE_FAILED",
+            "文档内含 XML 实体声明，出于安全限制不予解析，请另存为标准文件后重新上传。",
+            http_status=422,
+        )
+    return ET.fromstring(raw)
+
+
 def _extract_xlsx(data: bytes) -> tuple[str, int | None, list[str]]:
     """无第三方重依赖解析 .xlsx 为各工作表 Markdown 表格。"""
     try:
         with zipfile.ZipFile(BytesIO(data)) as zf:
             shared: list[str] = []
             if "xl/sharedStrings.xml" in zf.namelist():
-                root = ET.fromstring(zf.read("xl/sharedStrings.xml"))
+                root = _xml_root(zf.read("xl/sharedStrings.xml"))
                 for si in root.iter(
                     "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}si"
                 ):
@@ -330,7 +345,7 @@ def _extract_xlsx(data: bytes) -> tuple[str, int | None, list[str]]:
             )
             pages: list[str] = []
             for idx, sf in enumerate(sheet_files, start=1):
-                sroot = ET.fromstring(zf.read(sf))
+                sroot = _xml_root(zf.read(sf))
                 rows: list[list[str]] = []
                 for row_el in sroot.iter(
                     "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}row"
@@ -354,6 +369,8 @@ def _extract_xlsx(data: bytes) -> tuple[str, int | None, list[str]]:
                     pages.append(f"## 工作表 {idx}\n\n{md_table}")
             full_text = "\n\n".join(pages).strip()
             return full_text, len(pages) or None, pages or [""]
+    except AppError:
+        raise
     except Exception as e:
         raise AppError(
             "DOCUMENT_PARSE_FAILED",
@@ -371,7 +388,7 @@ def _extract_pptx(data: bytes) -> tuple[str, int | None, list[str]]:
             )
             pages: list[str] = []
             for idx, sf in enumerate(slide_files, start=1):
-                root = ET.fromstring(zf.read(sf))
+                root = _xml_root(zf.read(sf))
                 texts = [
                     (t.text or "").strip()
                     for t in root.iter("{http://schemas.openxmlformats.org/drawingml/2006/main}t")
@@ -384,6 +401,8 @@ def _extract_pptx(data: bytes) -> tuple[str, int | None, list[str]]:
                     pages.append(slide_md)
             full_text = "\n\n".join(pages).strip()
             return full_text, len(pages) or None, pages or [""]
+    except AppError:
+        raise
     except Exception as e:
         raise AppError(
             "DOCUMENT_PARSE_FAILED",

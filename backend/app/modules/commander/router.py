@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core import timezone as business_time
 from app.core.deps import CurrentUser, YardContext, get_current_user, get_db_session
 from app.core.errors import AppError
 from app.core.responses import ok
@@ -622,7 +623,7 @@ def daily_report(
     ctx = _ctx(user)
     _require_manager(ctx, "仅小院负责人或管理员可查看日复盘。")
     try:
-        target = date.fromisoformat(day) if day else date.today()
+        target = date.fromisoformat(day) if day else business_time.business_today()
     except ValueError as exc:
         raise AppError("INVALID_REQUEST", "日期格式应为 YYYY-MM-DD。", http_status=400) from exc
     return ok(reports.daily_report(db, yard_id=ctx.yard_id, day=target), request)

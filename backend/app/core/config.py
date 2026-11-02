@@ -194,7 +194,11 @@ class Settings(BaseSettings):
         description="运维告警 webhook（POST JSON）；为空时通知降级为带 [ALERT] 标记的日志",
     )
     metrics_enabled: bool = Field(
-        default=True, description="是否在 /metrics 暴露 Prometheus 文本指标"
+        default=False,
+        description=(
+            "是否在 /metrics 暴露 Prometheus 文本指标。默认关闭：未鉴权时可读出 QPS、"
+            "耗时分布与部署形态；内网抓取时再显式打开"
+        ),
     )
     enforce_model_egress_guard: bool = Field(
         default=False,

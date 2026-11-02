@@ -36,7 +36,7 @@
 | POST/GET | /feedback | 提交反馈 / 查看反馈 |
 | GET/POST | /skills | Skill 列表 / 创建草稿 |
 | POST | /skills/{id}/review | Skill 审核流转 |
-| GET | /llm/status | 模型配置状态（无密钥） |
+| GET | /llm/status | 模型配置状态（无密钥；需登录，v3.54.0 起） |
 | GET | /tools | 工具列表 |
 | GET | /audit/logs | 审计日志 |
 | GET | /admin/stats | 运营概况 |

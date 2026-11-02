@@ -12,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core import timezone as business_time
 from app.core.config import settings
 from app.core.deps import YardContext
 from app.core.logging import get_logger
@@ -30,10 +31,13 @@ _stop_event = threading.Event()
 
 
 def _month_window(now: datetime) -> tuple[str, datetime, datetime]:
-    first = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    end = first
-    start = (first - timedelta(days=1)).replace(day=1)
-    return f"{start.year:04d}-{start.month:02d}", start, end
+    """上一个自然月的键与窗口；月界按业务时区切，与月度迭代报告的统计口径一致。"""
+    local = now.astimezone(business_time.business_tz())
+    first_of_month = local.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    previous = (first_of_month - timedelta(days=1)).replace(day=1)
+    month_key = f"{previous.year:04d}-{previous.month:02d}"
+    start, end = business_time.month_bounds(month_key)
+    return month_key, start, end
 
 
 def _yard_ids(db: Session, start: datetime, end: datetime) -> list[str]:

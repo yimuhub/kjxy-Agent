@@ -26,7 +26,8 @@ docker compose down
 ## 健康检查
 
 - API：`GET /health/live`（存活）、`GET /health/ready`（数据库+Redis+schema 就绪）、
-  `GET /health/worker`（Worker 心跳新鲜度，整改后新增）、`GET /metrics`（Prometheus 文本）。
+  `GET /health/worker`（Worker 心跳新鲜度，整改后新增）、`GET /metrics`（Prometheus 文本，
+  默认关闭：`METRICS_ENABLED=true` 才开放，且该端口不得暴露公网——指标未鉴权，能读出 QPS 与耗时分布）。
   生产环境下 `ready` 会校验 Alembic 版本是否为 head，旧 schema 直接 503。
 - Worker：compose 内置 healthcheck（`celery inspect ping`）；`/health/worker` 的 age_seconds
   超过 180s 视为 stale。周期任务（超时回收/心跳/月度重置）由 scheduler 服务承担，

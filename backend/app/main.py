@@ -109,6 +109,22 @@ def _startup_wiring() -> None:
         finally:
             db.close()
 
+        if settings.is_production:
+            # S-6：seed/repair 已经挡住在生产执行，但存量库里可能本来就躺着演示账号，
+            # 启动时扫一遍并高声提醒——弱口令的风险不在脚本，而在库里那批账号。
+            from app.db.seed import active_demo_usernames
+
+            scan_db = SessionLocal()
+            try:
+                weak = active_demo_usernames(scan_db)
+            finally:
+                scan_db.close()
+            if weak:
+                log.warning(
+                    "生产库仍有演示账号可用文档弱口令登录：%s —— 请立即改密或停用该账号",
+                    ", ".join(weak),
+                )
+
         # 官方技能库同步放到后台线程：没有配置源时立即返回，断网/超时都不阻塞启动
         def _sync_official_library() -> None:
             from app.db.session import SessionLocal
@@ -165,7 +181,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="科技小院多智能体平台", version="3.53.0", lifespan=lifespan)
+    app = FastAPI(title="科技小院多智能体平台", version="3.54.0", lifespan=lifespan)
     app.add_middleware(RequestIDMiddleware)
     app.add_exception_handler(AppError, app_error_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)

@@ -15,6 +15,7 @@ from app.modules.commander.models import CommanderRun, CommanderSubtask
 from app.modules.llm.schemas import LLMRequest, LLMResponse
 from app.modules.yards.repository import create_yard
 from sqlalchemy import create_engine, select, update
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 
 
@@ -831,3 +832,46 @@ async def test_tool_risk_blocked_stops_remediation_with_permission_hint(env, mon
     assert row.attempts == 1
     assert row.error_code == "TOOL_RISK_BLOCKED"
     assert "完全控制" in (row.output_excerpt or "")
+
+
+class _LockingDB:
+    """只覆盖 _safe_commit 用到的接口：三个脏数据集合 + commit/rollback。"""
+
+    def __init__(self, *, pending: bool, fail_first: bool = False) -> None:
+        self.new = ["obj"] if pending else []
+        self.dirty: list[str] = []
+        self.deleted: list[str] = []
+        self.commits = 0
+        self.rollbacks = 0
+        self._fail_first = fail_first
+
+    def commit(self) -> None:
+        self.commits += 1
+        if self.commits == 1:
+            raise OperationalError("COMMIT", {}, Exception("database is locked"))
+        if self._fail_first and self.commits == 2:
+            raise OperationalError("COMMIT", {}, Exception("database is locked"))
+
+    def rollback(self) -> None:
+        self.rollbacks += 1
+
+
+def test_safe_commit_raises_loudly_when_locked_with_pending_changes(monkeypatch) -> None:
+    """C4：commit 失败后回滚，本事务待写内容在函数内无法重放。
+
+    重试只能提交一个空事务并「成功返回」，调用方会误判已落库——所以有脏数据时必须抛出。
+    """
+    monkeypatch.setattr(commander_service.time, "sleep", lambda _seconds: None)
+    db = _LockingDB(pending=True)
+    with pytest.raises(OperationalError):
+        commander_service._safe_commit(db)  # type: ignore[arg-type]
+    assert db.commits == 1
+    assert db.rollbacks == 1
+
+
+def test_safe_commit_retries_lock_only_when_nothing_pending(monkeypatch) -> None:
+    monkeypatch.setattr(commander_service.time, "sleep", lambda _seconds: None)
+    db = _LockingDB(pending=False)
+    commander_service._safe_commit(db)  # type: ignore[arg-type]
+    assert db.commits == 2
+    assert db.rollbacks == 1

@@ -304,3 +304,22 @@
 | FE-12 全局提示被伙伴面板盖住 | ✅ 已修 | `api/client.ts` 统一错误 toast 显式 `zIndex: 2700` |
 
 **未处理（按报告口径转入排期）**：「交付前建议处理」的 F-3 幂等时间桶、S-6 演示账号生产硬闸、F-1 defusedxml、C4 `_safe_commit` 丢写语义、C12 时区口径、S-2 DNS 重绑定、S-5 `/metrics` 加闸，以及「下个迭代」的 F-4/F-5 多实例项、C3 token 预算低估、C5/K1+S-3 cluster SSRF、S-4/S-7~S-10、C6~C10/C14~C16、FE-3~FE-13（FE-12 除外，已完成）。三条部署指引仍适用。
+
+---
+
+## 十、整改状态（v3.54.0，2026-11-03）
+
+「交付前建议处理」7 项全部落地。逐条对应：
+
+| 报告项 | 状态 | 落点 |
+| --- | --- | --- |
+| F-1 xlsx/pptx XML 实体炸弹 | ✅ 已修 | 未引入 `defusedxml`（本机依赖树无此包、打包链要多带一份资源），改用报告认可的另一种口径：`parsers._xml_root()` 解析前拒 `<!DOCTYPE`/`<!ENTITY`。OOXML 部件是纯数据，转义后的同名字符串不受影响；`_extract_xlsx/_extract_pptx` 补 `except AppError: raise` 让拒绝原因不被通用「解析失败」吞掉。3 条测试（炸弹拒解析 ×2 + 正常文件不误伤） |
+| F-3 任务幂等键永不过期 | ✅ 已修 | `agent_generate_router._generate_idempotency_key()` 在内容哈希里加入 30 秒窗口桶。注意 `(yard_id, idempotency_key)` 有唯一约束，所以**必须换键而不是只加查询过滤**——否则同键重投会撞约束。同窗口内重复提交仍只算一次任务；测试覆盖桶边界、跨桶换键与键长（列长 64） |
+| C4 `_safe_commit` 静默丢写 | ✅ 已修 | 提交前先判断 `db.new/db.dirty/db.deleted`：确有脏数据时锁库即回滚并原样抛出（事务内容无法在本函数内重放，回滚后再提交空事务就是「假装成功」）；只有本来无待写内容时才按退避重试。2 条测试分别钉住这两条分支 |
+| C12 时区口径不一 | ✅ 已修 | 新增 `app/core/timezone.py` 作为唯一换算出口（默认 `Asia/Shanghai`，`TZ_BUSINESS` 可覆盖，取不到时区数据库时退回固定 +08:00）。接入点：日报告默认「今天」（`router.daily_report`）、日/周/月窗口（`reports._day_bounds/_week_bounds/_month_bounds/_previous_month`）、月度迭代窗口（`iterations_tasks._month_window`）、建人每日上限（`matcher.daily_created_count`）；周报告 key 也按业务日历取。6 条日切测试 + 既有报告断言按同一口径校正 |
+| S-2 web.fetch DNS 重绑定 | ✅ 已修 | 实测本依赖栈（httpx 0.28 + httpcore 1.0.9 的 anyio 后端）拿不到 `peername`（`get_extra_info("peername")` 恒为 None），因此「响应后复验对端 IP」这条不可用。改为**建连解析钉住**：`_check_url` 返回已校验的 `(host, port, ips)`，抓取期间 `socket.getaddrinfo` 命中该 (host, port) 时只返回校验过的地址，答案无交集则 `OSError` 失败关闭（httpx 侧表现为「目标站点不可达」）。钉只在当前抓取上下文生效（contextvar），重定向逐跳重钉。4 条离线测试。`net_guard` 对「解析失败域名」的 pass-through 保持原样——那条服务的是内网私有化投放里 DNS 不可用的正当场景，与本项的重绑定面不同 |
+| S-5 `/metrics`、`/llm/status` 无鉴权 | ✅ 已修 | `METRICS_ENABLED` 默认改 false（`validate` 口径写进字段描述、`.env.example`、`docs/operations.md`）；`GET /llm/status` 挂 `get_current_user`，未登录 401。前端调用点在模型中心页（登录态之后），行为无感。4 条测试 |
+| S-6 演示账号无生产硬闸 | ✅ 已修 | `seed.guard_demo_data_writes()` 统一闸门，`app.db.seed` 与 `app.db.repair_demo_passwords` 共用（后者此前完全无闸，可在生产库把四个账号重置为 `admin123`）；新增 `seed.active_demo_usernames()` 供启动自查，`main._startup_wiring()` 在 `is_production` 时扫描存量库并以 WARNING 报出仍能用文档弱口令登录的用户名。6 条测试 |
+| 顺带：v3.53.0 遗留的 mypy 错误 | ✅ 已修 | `commander.service` 原子占位对 `Result` 取 `.rowcount` 报 attr-defined；按库内既有写法显式 `execution_options(synchronize_session=False)` + rowcount 判定，`mypy app` 恢复全绿（该问题会让 CI 的 mypy 门禁红，属 3.53.0 收口疏漏） |
+
+**仍未处理（转入排期）**：「下个迭代」的 F-4 租约原子性与 F-5 进程内配额/限流（多副本部署形态才需要）、C3 token 预算低估、C5/K1+S-3 cluster SSRF、S-4 JWT 角色滞留、S-7~S-10、C6~C10/C14~C16、FE-3~FE-13（FE-12 已在 3.53.0 完成）。三条部署指引仍适用；其中 `/metrics` 现在默认关闭，需要观测的部署显式开启后仍要保证端口不对公网暴露。

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+from app.core import timezone as business_time
 from app.core.deps import (
     CurrentUser,
     YardContext,
@@ -121,16 +122,16 @@ def test_daily_and_weekly_reports_are_deterministic(db_session):
     _subtask(db_session, run, seq=2, status="error")
     db_session.commit()
 
-    daily = reports.daily_report(db_session, yard_id="yard-p3", day=now.date())
+    # 日界按业务时区切：UTC 16:00 之后的运行属于「明天」，取日历日要用同一口径
+    day = business_time.business_day_of(now)
+    daily = reports.daily_report(db_session, yard_id="yard-p3", day=day)
     assert "每日复盘" in daily["markdown"]
     assert daily["metrics"]["runs"] == 1
     assert daily["metrics"]["ok"] == 1
     assert daily["metrics"]["failed"] == 1
     assert "LLM_TIMEOUT" in daily["markdown"]
 
-    empty_day = reports.daily_report(
-        db_session, yard_id="yard-p3", day=now.date() - timedelta(days=3)
-    )
+    empty_day = reports.daily_report(db_session, yard_id="yard-p3", day=day - timedelta(days=3))
     assert empty_day["metrics"]["runs"] == 0
     assert "今日无运行" in empty_day["markdown"]
 

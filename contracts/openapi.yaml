@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.53.0
+  version: 3.54.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -6628,13 +6628,24 @@ paths:
       - v1
       - llm
       summary: Llm Status
+      description: '模型配置状态（不含密钥）。
+
+
+        S-5：挂登录——未登录时这个接口会泄露供应商、模型名与是否配好密钥，等于把部署形态
+
+        摆给外部探测者看。模型中心页本身就在登录态之后。'
       operationId: llm_status_api_v1_llm_status_get
       responses:
         '200':
           description: Successful Response
           content:
             application/json:
-              schema: {}
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Llm Status Api V1 Llm Status Get
+      security:
+      - HTTPBearer: []
   /api/v1/tools:
     get:
       tags:

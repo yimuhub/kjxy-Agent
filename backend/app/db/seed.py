@@ -89,6 +89,37 @@ def _is_development() -> bool:
     return settings.app_env.strip().lower() == "development"
 
 
+def guard_demo_data_writes(purpose: str) -> None:
+    """演示数据写库守卫：非开发环境必须显式 SEED_ALLOW_PRODUCTION=YES。
+
+    seed 与 repair_demo_passwords 都会把口令写成文档里的公开弱值，因此共用同一道闸——
+    生产库被误跑一次，等于对外发放一批可猜账号。
+    """
+    if _is_development() or os.environ.get("SEED_ALLOW_PRODUCTION") == "YES":
+        return
+    print(
+        f"拒绝执行 {purpose}：当前环境 app_env={settings.app_env} 非 development。"
+        "如确需执行，请显式设置 SEED_ALLOW_PRODUCTION=YES。",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
+def active_demo_usernames(db) -> list[str]:
+    """仍能用文档演示口令登录的用户名（生产启动自查用）。"""
+    from app.core.security import verify_password
+    from app.modules.auth.repository import get_by_username
+
+    documented = {username: password for username, password, _display, _role in SEED_USERS}
+    documented.update({username: DEMO_MEMBER_PASSWORD for username, _display, _role in DEMO_ROSTER})
+    hits: list[str] = []
+    for username, plain in documented.items():
+        user = get_by_username(db, username)
+        if user is not None and verify_password(plain, user.password_hash):
+            hits.append(username)
+    return hits
+
+
 def _admin_username() -> str:
     """允许服务器安装使用非弱口令用户名（默认 admin，供开发使用）。"""
     return os.environ.get("SEED_PLATFORM_ADMIN_USERNAME", "").strip() or "admin"
@@ -322,13 +353,7 @@ def seed(random_passwords: bool = False) -> None:
 
 def main() -> None:
     """入口守卫：非开发环境必须显式 SEED_ALLOW_PRODUCTION=YES 才允许执行。"""
-    if not _is_development() and os.environ.get("SEED_ALLOW_PRODUCTION") != "YES":
-        print(
-            f"拒绝执行 seed：当前环境 app_env={settings.app_env} 非 development。"
-            "如确需执行，请显式设置 SEED_ALLOW_PRODUCTION=YES。",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    guard_demo_data_writes("python -m app.db.seed")
     seed(random_passwords=os.environ.get("SEED_RANDOM_PASSWORDS") == "YES")
 
 

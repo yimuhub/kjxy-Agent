@@ -16,6 +16,7 @@ visibility=public 需要管理员（请求侧 403，见 agent_builder.ensure_vis
 from __future__ import annotations
 
 import hashlib
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
@@ -43,6 +44,19 @@ from app.modules.yards.quota import check_and_consume
 router = APIRouter(prefix="/generate", tags=["agents-generate"])
 
 _UTTERANCE_PREVIEW_CHARS = 40
+_IDEMPOTENCY_WINDOW_SECONDS = 30
+
+
+def _generate_idempotency_key(yard_id: str, user_id: str, utterance: str) -> str:
+    """内容哈希 + 30 秒时间桶。
+
+    ``tasks`` 在 (yard_id, idempotency_key) 上有唯一约束，且 ``TaskService.create``
+    命中同键即返回旧任务：键若不含时间，上一轮已结束的旧草稿会永久吃掉同一句话的
+    「重新生成」（还会让新任务撞唯一约束）。
+    """
+    bucket = int(datetime.now(UTC).timestamp()) // _IDEMPOTENCY_WINDOW_SECONDS
+    digest = hashlib.sha1(f"{yard_id}:{user_id}:{utterance}:{bucket}".encode()).hexdigest()
+    return f"agent-gen-{digest[:16]}"
 
 
 class AgentGeneratePreviewRequest(BaseModel):
@@ -104,10 +118,9 @@ def generate(
             "roles": list(ctx.roles or []),
         },
         request_id=ctx.request_id,
-        idempotency_key="agent-gen-"
-        + hashlib.sha1(
-            f"{ctx.yard_id}:{user.user_id}:{payload.utterance.strip()}".encode()
-        ).hexdigest()[:16],
+        idempotency_key=_generate_idempotency_key(
+            ctx.yard_id, user.user_id, payload.utterance.strip()
+        ),
     )
     log_audit(
         db,

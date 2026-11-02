@@ -24,6 +24,7 @@ from typing import Any
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.core import timezone as business_time
 from app.core.deps import YardContext
 from app.core.logging import get_logger
 from app.modules.agents import agent_builder, declarative
@@ -301,8 +302,8 @@ def best_candidate(
 
 
 def daily_created_count(db: Session, yard_id: str) -> int:
-    """当天（UTC 00:00 起）由指挥官自动创建的 Agent 数量，用于每日创建上限。"""
-    start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    """当天（业务时区 00:00 起）由指挥官自动创建的 Agent 数量，用于每日创建上限。"""
+    start = business_time.day_bounds(business_time.business_today())[0]
     count = db.scalar(
         select(func.count(YardAgent.id)).where(
             YardAgent.yard_id == yard_id,

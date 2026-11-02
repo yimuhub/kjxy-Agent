@@ -8,13 +8,14 @@
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core import timezone as business_time
 from app.core.deps import YardContext
 from app.modules.commander import evaluator, snapshots
 from app.modules.commander import settings as commander_settings
@@ -49,22 +50,16 @@ def _period(start: datetime, end: datetime) -> dict[str, str]:
 
 
 def _day_bounds(day: date) -> tuple[datetime, datetime]:
-    start = datetime.combine(day, time.min, tzinfo=UTC)
-    return start, start + timedelta(days=1)
+    """按业务时区切日界（库里时间戳仍是 UTC）：UTC 日界会让北京时间 0–8 点的日报报告「昨天」。"""
+    return business_time.day_bounds(day)
 
 
 def _month_bounds(month_key: str) -> tuple[datetime, datetime]:
-    year, month = (int(part) for part in month_key.split("-", 1))
-    start = datetime(year, month, 1, tzinfo=UTC)
-    if month == 12:
-        end = datetime(year + 1, 1, 1, tzinfo=UTC)
-    else:
-        end = datetime(year, month + 1, 1, tzinfo=UTC)
-    return start, end
+    return business_time.month_bounds(month_key)
 
 
 def _previous_month(today: date | None = None) -> str:
-    current = today or _now().date()
+    current = today or business_time.business_today()
     first = current.replace(day=1)
     prev = first - timedelta(days=1)
     return f"{prev.year:04d}-{prev.month:02d}"
@@ -216,14 +211,13 @@ def daily_report(db: Session, *, yard_id: str, day: date) -> dict[str, Any]:
 def _week_bounds(week_key: str) -> tuple[datetime, datetime]:
     year_text, week_text = week_key.split("-W", 1)
     monday = date.fromisocalendar(int(year_text), int(week_text), 1)
-    start = datetime.combine(monday, time.min, tzinfo=UTC)
-    return start, start + timedelta(days=7)
+    return business_time.week_bounds(monday)
 
 
 def weekly_optimization(
     db: Session, *, yard_id: str, week_key: str | None = None
 ) -> dict[str, Any]:
-    current_week = week_key or evaluator.period_bounds(_now())[2]
+    current_week = week_key or business_time.business_week_key()
     start, end = _week_bounds(current_week)
     prev_start = start - timedelta(days=7)
     data = _aggregate(db, yard_id, start, end)

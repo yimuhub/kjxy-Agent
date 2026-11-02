@@ -1,5 +1,7 @@
 """web.fetch 出网防护单测：内网/元数据拦截、重定向重验、正文提取（全离线）。"""
 
+import socket
+
 import httpx
 import pytest
 from app.core.errors import AppError
@@ -180,3 +182,40 @@ async def test_upstream_error_maps_to_blocked():
     with pytest.raises(AppError) as exc:
         await egress.fetch_public_url(f"http://{PUBLIC_IP}/slow")
     assert exc.value.code == "WEB_FETCH_BLOCKED"
+
+
+# ---------------------------------------------------------------------------
+# S-2：建连解析钉在刚校验过的地址上，堵住校验与实际连接之间的 DNS 重绑定窗口
+# ---------------------------------------------------------------------------
+
+
+def _answer(ip_text: str, port: int = 80) -> list:
+    return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (ip_text, port))]
+
+
+def test_dns_pin_keeps_only_validated_addresses(monkeypatch) -> None:
+    answers = _answer(PUBLIC_IP) + _answer("127.0.0.1")
+    monkeypatch.setattr(egress, "_REAL_GETADDRINFO", lambda *args, **kwargs: answers)
+    with egress._dns_pin("cdn.test", 80, frozenset({PUBLIC_IP})):
+        kept = egress._pinned_getaddrinfo("cdn.test", 80)
+    assert [item[4][0] for item in kept] == [PUBLIC_IP]
+
+
+def test_dns_pin_fails_closed_when_answers_move_off_the_validated_set(monkeypatch) -> None:
+    """重绑定典型形态：第二次解析只给内网地址——必须中止，而不是照着新答案连。"""
+    moved = _answer("169.254.169.254")
+    monkeypatch.setattr(egress, "_REAL_GETADDRINFO", lambda *args, **kwargs: moved)
+    with egress._dns_pin("rebind.test", 80, frozenset({PUBLIC_IP})), pytest.raises(OSError):
+        # asyncio 传给解析器的是 bytes 主机名
+        egress._pinned_getaddrinfo(b"rebind.test", 80)
+
+
+def test_dns_pin_leaves_other_hosts_untouched(monkeypatch) -> None:
+    monkeypatch.setattr(egress, "_REAL_GETADDRINFO", lambda *args, **kwargs: _answer("203.0.113.7"))
+    with egress._dns_pin("target.test", 80, frozenset({PUBLIC_IP})):
+        assert egress._pinned_getaddrinfo("unrelated.test", 443)[0][4][0] == "203.0.113.7"
+    assert egress._pinned_getaddrinfo("target.test", 8443)[0][4][0] == "203.0.113.7"
+
+
+def test_resolver_shim_is_installed_once() -> None:
+    assert socket.getaddrinfo is egress._pinned_getaddrinfo

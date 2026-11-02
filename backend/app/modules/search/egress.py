@@ -2,12 +2,15 @@
 
 与 ``app.core.net_guard`` 的区别：本模块只服务 ``web.fetch``，**任何**非公网地址
 （loopback / 私有段 / 链路本地 / 保留 / 组播 / 未指定 / 云元数据）一律拒绝，
-且每次重定向都重新解析并校验。不引入 bs4，正则剥离脚本与标签。
+且每次重定向都重新解析并校验。校验通过后会把建连解析钉在这批地址上（S-2：
+DNS 重绑定需要在校验与建连之间换答案，换了就失败关闭）。不引入 bs4，正则剥离脚本与标签。
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import contextvars
 import ipaddress
 import re
 import socket
@@ -61,13 +64,61 @@ def _is_public(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     )
 
 
-def _parse_ips(host: str, port: int) -> list[ipaddress.IPv4Address | ipaddress.IPv6Address]:
+_REAL_GETADDRINFO = socket.getaddrinfo
+
+#: 抓取期间的 DNS 钉（host, port, 已校验地址集合）；None 时解析直通，不影响其他调用方
+_DNSPin = tuple[str, int, frozenset[str]]
+_PINNED_DNS: contextvars.ContextVar[_DNSPin | None] = contextvars.ContextVar(
+    "ky_web_fetch_dns_pin", default=None
+)
+
+
+def _host_text(host: Any) -> str:
+    """asyncio 会把 host 以 bytes 传给解析器，端口也可能是服务名。"""
+    return host.decode() if isinstance(host, bytes) else str(host)
+
+
+def _pinned_getaddrinfo(host: Any, port: Any, *args: Any, **kwargs: Any) -> list:
+    """命中当前抓取目标时，只允许连到刚才校验过的那批地址。
+
+    校验与实际建连原本是两次独立解析：TTL=0 的域名可以在两次解析之间把 A 记录从公网
+    切到内网（DNS 重绑定），把内网服务正文回传给任意登录用户。交集为空说明答案已经
+    换了一批——失败关闭，而不是照着新答案连。
+    """
+    pin = _PINNED_DNS.get()
+    try:
+        wanted_port = int(port)
+    except (TypeError, ValueError):
+        wanted_port = -1
+    if pin is None or pin[0] != _host_text(host) or pin[1] != wanted_port:
+        return _REAL_GETADDRINFO(host, port, *args, **kwargs)
+    answers = _REAL_GETADDRINFO(host, port, *args, **kwargs)
+    kept = [item for item in answers if str(item[4][0]).split("%")[0] in pin[2]]
+    if not kept:
+        raise OSError("DNS 解析结果与校验时不一致，已中止连接")
+    return kept
+
+
+if socket.getaddrinfo is not _pinned_getaddrinfo:
+    socket.getaddrinfo = _pinned_getaddrinfo
+
+
+@contextlib.contextmanager
+def _dns_pin(host: str, port: int, ips: frozenset[str]):
+    token = _PINNED_DNS.set((host, port, ips))
+    try:
+        yield
+    finally:
+        _PINNED_DNS.reset(token)
+
+
+def _resolve_ips(host: str, port: int) -> list[ipaddress.IPv4Address | ipaddress.IPv6Address]:
     try:
         return [ipaddress.ip_address(host)]
     except ValueError:
         pass
     try:
-        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+        infos = _REAL_GETADDRINFO(host, port, type=socket.SOCK_STREAM)
     except OSError as e:
         raise _blocked("无法解析目标域名。") from e
     ips = []
@@ -82,8 +133,8 @@ def _parse_ips(host: str, port: int) -> list[ipaddress.IPv4Address | ipaddress.I
     return ips
 
 
-async def _check_url(url: str) -> None:
-    """scheme + 主机名 + 全量 IP 校验；不通过抛 WEB_FETCH_BLOCKED。"""
+async def _check_url(url: str) -> tuple[str, int, frozenset[str]]:
+    """scheme + 主机名 + 全量 IP 校验；返回可用于钉住建连的 (host, port, 已校验地址)。"""
     try:
         parsed = urlparse(url)
     except ValueError as e:
@@ -91,11 +142,12 @@ async def _check_url(url: str) -> None:
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         raise _blocked("仅允许抓取公网 HTTP(S) 地址。")
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
-    ips = await asyncio.to_thread(_parse_ips, parsed.hostname, port)
+    ips = await asyncio.to_thread(_resolve_ips, parsed.hostname, port)
     for ip in ips:
         if not _is_public(ip):
             log.warning("web.fetch blocked: %s -> %s", parsed.hostname, ip)
             raise _blocked("禁止访问内网、本机或云元数据地址。")
+    return parsed.hostname, port, frozenset(str(ip) for ip in ips)
 
 
 def _collapse(text: str) -> str:
@@ -173,31 +225,32 @@ async def fetch_public_url(url: str, max_chars: int = MAX_CHARS_LIMIT) -> dict[s
         trust_env=False,
     ) as client:
         for attempt in range(MAX_REDIRECTS + 1):
-            await _check_url(target)
-            try:
-                request = client.build_request("GET", target, headers=headers)
-                response = await client.send(request, stream=True)
-            except httpx.HTTPError as e:
-                raise _blocked("目标站点不可达或请求失败。") from e
-            try:
-                if response.status_code in REDIRECT_STATUSES:
-                    location = response.headers.get("location")
-                    if not location:
-                        raise _blocked("重定向缺少目标地址。")
-                    if attempt >= MAX_REDIRECTS:
-                        raise _blocked("重定向次数过多。")
-                    target = urljoin(target, location)
-                    continue
-                if response.status_code >= 400:
-                    raise _blocked(f"目标站点返回 {response.status_code}。")
+            host, port, ips = await _check_url(target)
+            with _dns_pin(host, port, ips):
+                try:
+                    request = client.build_request("GET", target, headers=headers)
+                    response = await client.send(request, stream=True)
+                except httpx.HTTPError as e:
+                    raise _blocked("目标站点不可达或请求失败。") from e
+                try:
+                    if response.status_code in REDIRECT_STATUSES:
+                        location = response.headers.get("location")
+                        if not location:
+                            raise _blocked("重定向缺少目标地址。")
+                        if attempt >= MAX_REDIRECTS:
+                            raise _blocked("重定向次数过多。")
+                        target = urljoin(target, location)
+                        continue
+                    if response.status_code >= 400:
+                        raise _blocked(f"目标站点返回 {response.status_code}。")
 
-                content_type = response.headers.get("content-type", "")
-                base_type = content_type.split(";")[0].strip().lower()
-                if base_type not in ALLOWED_CONTENT_TYPES:
-                    raise _blocked("仅支持抓取 HTML 或纯文本页面。")
-                raw = await _read_body(response)
-            finally:
-                await response.aclose()
+                    content_type = response.headers.get("content-type", "")
+                    base_type = content_type.split(";")[0].strip().lower()
+                    if base_type not in ALLOWED_CONTENT_TYPES:
+                        raise _blocked("仅支持抓取 HTML 或纯文本页面。")
+                    raw = await _read_body(response)
+                finally:
+                    await response.aclose()
             break
         else:  # pragma: no cover - 循环内必然 break 或抛错
             raise _blocked("重定向次数过多。")
