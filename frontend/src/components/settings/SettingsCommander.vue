@@ -393,6 +393,47 @@
             />
             <span class="note">同场景同错误累计达到该次数后，规划前提示规避方案</span>
           </el-form-item>
+
+          <el-divider content-position="left">
+            提示词模块
+          </el-divider>
+
+          <el-form-item label="执行风格模块">
+            <el-checkbox-group
+              v-model="cfg.prompt_modules"
+              :disabled="!canManage"
+            >
+              <el-checkbox
+                v-for="item in PROMPT_MODULE_OPTIONS"
+                :key="item.value"
+                :value="item.value"
+              >
+                {{ item.label }}
+              </el-checkbox>
+            </el-checkbox-group>
+            <span class="note block-note">
+              核心 JSON 契约与人格段始终生效；勾选模块按顺序追加，全不选只保留核心约束
+            </span>
+          </el-form-item>
+
+          <el-form-item label="提示词字符预算">
+            <el-input-number
+              v-model="cfg.prompt_max_chars"
+              :min="2000"
+              :max="8000"
+              :step="500"
+              :disabled="!canManage"
+            />
+            <el-button
+              class="num-inline"
+              size="small"
+              :loading="promptPreviewLoading"
+              @click="previewPrompt"
+            >
+              预览提示词
+            </el-button>
+            <span class="note">超出预算的可选模块会被截断，避免提示词随记忆与人格一起膨胀</span>
+          </el-form-item>
         </el-form>
 
         <el-alert
@@ -403,6 +444,25 @@
         />
       </el-card>
     </AsyncState>
+
+    <el-dialog
+      v-model="promptPreviewVisible"
+      title="规划系统提示词预览"
+      width="760px"
+      append-to-body
+    >
+      <div
+        v-if="promptPreview"
+        class="prompt-preview-meta"
+      >
+        <span>{{ promptPreview.chars }} / {{ promptPreview.max_chars }} 字符</span>
+        <span>约 {{ promptPreview.tokens }} tokens</span>
+        <span>
+          模块：{{ promptPreview.modules.filter(item => item.enabled).map(item => item.title).join('、') || '仅核心' }}
+        </span>
+      </div>
+      <pre class="prompt-preview-body">{{ promptPreview?.system || '' }}</pre>
+    </el-dialog>
   </div>
 </template>
 
@@ -413,10 +473,15 @@
     commanderApi,
     emptyCommanderStats,
     normalizeCommanderSettings,
+    type CommanderPromptModule,
     type CommanderSettings,
     type CommanderStats,
   } from '@/api/commander'
   import { llmSupplierApi, type LlmSupplier } from '@/api/modules'
+  import {
+    commanderWorkspaceApi,
+    type CommanderPromptPreview,
+  } from '@/api/commanderWorkspace'
   import AsyncState from '@/components/AsyncState.vue'
   import SupplierModelSelect from '@/components/settings/SupplierModelSelect.vue'
   import { useAuthStore } from '@/stores/auth'
@@ -430,6 +495,16 @@
   const saving = ref(false)
   const suppliers = ref<LlmSupplier[]>([])
   const cfg = reactive<CommanderSettings>(normalizeCommanderSettings())
+
+  const PROMPT_MODULE_OPTIONS: Array<{ value: CommanderPromptModule; label: string }> = [
+    { value: 'delivery', label: '交付优先' },
+    { value: 'cost', label: '成本纪律' },
+    { value: 'concise', label: '简洁表达' },
+    { value: 'risk', label: '风险预防' },
+  ]
+  const promptPreviewVisible = ref(false)
+  const promptPreviewLoading = ref(false)
+  const promptPreview = ref<CommanderPromptPreview | null>(null)
 
   /** 运行概况：独立状态，失败只在本区块显示占位文案 */
   const stats = ref<CommanderStats>(emptyCommanderStats())
@@ -571,6 +646,19 @@
     }
   }
 
+  /** 预览按已保存设置生成；提示改过模块后先保存再看效果 */
+  async function previewPrompt(): Promise<void> {
+    promptPreviewLoading.value = true
+    try {
+      promptPreview.value = await commanderWorkspaceApi.promptPreview()
+      promptPreviewVisible.value = true
+    } catch {
+      ElMessage.error('提示词预览加载失败，请稍后重试')
+    } finally {
+      promptPreviewLoading.value = false
+    }
+  }
+
   onMounted(() => {
     void loadAll()
   })
@@ -652,5 +740,28 @@
   .stat-label {
     font-size: 11.5px;
     color: var(--ds-text-3);
+  }
+
+  .prompt-preview-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+    margin-bottom: 10px;
+    font-size: 12px;
+    color: var(--ds-text-3);
+  }
+  .prompt-preview-body {
+    margin: 0;
+    max-height: 60vh;
+    overflow: auto;
+    padding: 12px 14px;
+    border: 1px solid var(--ds-border);
+    border-radius: 8px;
+    background: var(--ds-field);
+    font-family: var(--ds-font-mono, ui-monospace, monospace);
+    font-size: 12px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    word-break: break-word;
   }
 </style>

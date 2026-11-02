@@ -33,6 +33,7 @@ from app.modules.commander.asset_models import (  # noqa: F401
     CommanderSkillSnippet,
     CommanderWorkflow,
 )
+from app.modules.commander.evolution_models import CommanderIteration  # noqa: F401
 from app.modules.commander.governance_models import (  # noqa: F401
     CommanderEvaluation,
     CommanderSnapshot,

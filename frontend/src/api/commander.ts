@@ -86,7 +86,13 @@ export interface CommanderSettings {
   auto_extract_skills: boolean
   /** 同场景同错误累计多少次后进入失败黑名单（1..10） */
   failure_blacklist_threshold: number
+  /** 规划提示词的执行风格模块（核心契约与人格段不可关闭） */
+  prompt_modules: CommanderPromptModule[]
+  /** 规划系统提示词字符上限（2000..8000） */
+  prompt_max_chars: number
 }
+
+export type CommanderPromptModule = 'delivery' | 'cost' | 'concise' | 'risk'
 
 export type CommanderPersona = 'aggressive' | 'steady' | 'balanced'
 
@@ -127,6 +133,8 @@ export const DEFAULT_COMMANDER_SETTINGS: CommanderSettings = {
   auto_learn_workflows: true,
   auto_extract_skills: true,
   failure_blacklist_threshold: 2,
+  prompt_modules: ['delivery', 'cost', 'concise', 'risk'],
+  prompt_max_chars: 4500,
 }
 
 function intIn(value: unknown, fallback: number, min: number, max: number): number {
@@ -143,6 +151,17 @@ function personaOr(value: unknown, fallback: CommanderPersona): CommanderPersona
   return value === 'aggressive' || value === 'steady' || value === 'balanced'
     ? value
     : fallback
+}
+
+const PROMPT_MODULE_ORDER: CommanderPromptModule[] = ['delivery', 'cost', 'concise', 'risk']
+
+function promptModulesOr(
+  value: unknown,
+  fallback: CommanderPromptModule[],
+): CommanderPromptModule[] {
+  if (!Array.isArray(value)) return [...fallback]
+  const enabled = new Set(value.map(item => String(item)))
+  return PROMPT_MODULE_ORDER.filter(code => enabled.has(code))
 }
 
 function idOrNull(value: unknown): string | null {
@@ -198,6 +217,8 @@ export function normalizeCommanderSettings(
       1,
       10,
     ),
+    prompt_modules: promptModulesOr(src.prompt_modules, d.prompt_modules),
+    prompt_max_chars: intIn(src.prompt_max_chars, d.prompt_max_chars, 2000, 8000),
   }
 }
 

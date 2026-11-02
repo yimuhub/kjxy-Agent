@@ -616,6 +616,96 @@
           </el-card>
 
           <el-card
+            v-if="canManage"
+            shadow="never"
+            class="panel evolution-panel"
+          >
+            <template #header>
+              <div class="panel-head">
+                <div>
+                  <h2>进化报告</h2>
+                  <p>日复盘看细节、周报告调策略、月度迭代留版本，每次都能回滚。</p>
+                </div>
+                <div class="panel-actions">
+                  <el-button
+                    size="small"
+                    :loading="evolutionBusy === 'daily'"
+                    @click="openDailyReport"
+                  >
+                    日复盘
+                  </el-button>
+                  <el-button
+                    size="small"
+                    :loading="evolutionBusy === 'weekly'"
+                    @click="openWeeklyReport"
+                  >
+                    周优化
+                  </el-button>
+                  <el-button
+                    size="small"
+                    type="primary"
+                    :loading="evolutionBusy === 'iteration'"
+                    @click="createIteration"
+                  >
+                    生成月度迭代
+                  </el-button>
+                </div>
+              </div>
+            </template>
+
+            <div
+              v-if="iterations.length"
+              class="iteration-list"
+            >
+              <div
+                v-for="item in iterations"
+                :key="item.id"
+                class="iteration-row"
+              >
+                <div class="iteration-main">
+                  <div class="iteration-title">
+                    <el-tag
+                      size="small"
+                      effect="plain"
+                    >
+                      {{ item.version_label }}
+                    </el-tag>
+                    <strong>{{ item.month_key }}</strong>
+                    <span class="muted">{{ personaText(item.persona) }}</span>
+                  </div>
+                  <p class="iteration-summary">
+                    {{ item.summary }}
+                  </p>
+                </div>
+                <div class="iteration-actions">
+                  <el-button
+                    link
+                    type="primary"
+                    @click="openIteration(item)"
+                  >
+                    查看报告
+                  </el-button>
+                  <el-button
+                    link
+                    type="warning"
+                    :disabled="!item.snapshot_id"
+                    :loading="restoringId === item.snapshot_id"
+                    @click="restoreIteration(item)"
+                  >
+                    回滚
+                  </el-button>
+                </div>
+              </div>
+            </div>
+            <p
+              v-else
+              class="search-hint"
+            >
+              还没有月度版本；点「生成月度迭代」为上一个完整月建一版，并自动保存迭代前快照。
+            </p>
+          </el-card>
+
+          <el-card
             shadow="never"
             class="panel"
           >
@@ -678,6 +768,7 @@
     type CommanderAssets,
     type CommanderEvaluation,
     type CommanderFailureCase,
+    type CommanderIteration,
     type CommanderMemoryItem,
     type CommanderOverview,
     type CommanderSkillSnippet,
@@ -710,6 +801,8 @@
   const assets = ref<CommanderAssets | null>(null)
   const assetTab = ref('workflows')
   const assetBusy = ref('')
+  const iterations = ref<CommanderIteration[]>([])
+  const evolutionBusy = ref('')
 
   const SCORE_LABELS: Record<string, string> = {
     persona: '人格一致性',
@@ -759,6 +852,7 @@
       manual: '手动创建',
       persona: '人格调整前',
       restore: '回滚前备份',
+      monthly: '月度迭代前',
     }
     return labels[String(source || '')] || '自动备份'
   }
@@ -975,7 +1069,7 @@
     }
   }
 
-  async function restoreSnapshot(item: CommanderSnapshot): Promise<void> {
+  async function restoreSnapshot(item: Pick<CommanderSnapshot, 'id' | 'label'>): Promise<void> {
     try {
       await ElMessageBox.confirm(
         `将把指挥官设置回滚到「${item.label || '该快照'}」，当前状态会先自动备份。`,
@@ -994,6 +1088,79 @@
       ElMessage.error('回滚失败，请稍后重试')
     } finally {
       restoringId.value = ''
+    }
+  }
+
+  async function openDailyReport(): Promise<void> {
+    evolutionBusy.value = 'daily'
+    try {
+      const data = await commanderWorkspaceApi.dailyReport()
+      reportTitle.value = `日复盘 · ${data.day}`
+      reportText.value = data.markdown
+      reportVisible.value = true
+    } catch {
+      ElMessage.error('日复盘加载失败，请稍后重试')
+    } finally {
+      evolutionBusy.value = ''
+    }
+  }
+
+  async function openWeeklyReport(): Promise<void> {
+    evolutionBusy.value = 'weekly'
+    try {
+      const data = await commanderWorkspaceApi.weeklyReport()
+      reportTitle.value = `周优化报告 · ${data.week_key}`
+      reportText.value = data.markdown
+      reportVisible.value = true
+    } catch {
+      ElMessage.error('周优化报告加载失败，请稍后重试')
+    } finally {
+      evolutionBusy.value = ''
+    }
+  }
+
+  function openIteration(item: CommanderIteration): void {
+    reportTitle.value = `月度迭代 · ${item.version_label}`
+    reportText.value = item.report_md || item.summary || '报告内容为空'
+    reportVisible.value = true
+  }
+
+  async function createIteration(): Promise<void> {
+    try {
+      await ElMessageBox.confirm(
+        '将以上一个完整月的数据生成月度迭代版本，并自动保存迭代前快照；同月重复生成不会覆盖已有版本。',
+        '生成月度迭代',
+        { type: 'info', confirmButtonText: '开始生成', cancelButtonText: '取消' },
+      )
+    } catch {
+      return
+    }
+    evolutionBusy.value = 'iteration'
+    try {
+      const data = await commanderWorkspaceApi.runIteration()
+      ElMessage.success(data.created ? '月度迭代已生成' : '该月份已有迭代版本')
+      await loadIterations()
+      openIteration(data.iteration)
+    } catch {
+      ElMessage.error('生成月度迭代失败，请稍后重试')
+    } finally {
+      evolutionBusy.value = ''
+    }
+  }
+
+  async function restoreIteration(item: CommanderIteration): Promise<void> {
+    if (!item.snapshot_id) return
+    await restoreSnapshot({ id: item.snapshot_id, label: item.version_label })
+  }
+
+  async function loadIterations(): Promise<void> {
+    if (!canManage.value) return
+    try {
+      const data = await commanderWorkspaceApi.listIterations()
+      iterations.value = data.items
+    } catch {
+      // 进化报告失败不影响主面板；保留空态即可
+      iterations.value = []
     }
   }
 
@@ -1070,6 +1237,7 @@
   onMounted(() => {
     void load()
     void loadAssets()
+    void loadIterations()
   })
 </script>
 
@@ -1484,6 +1652,45 @@
     font-size: 11.5px;
     line-height: 1.6;
     color: var(--ds-text-2);
+  }
+
+  .iteration-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .iteration-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 10px 12px;
+    border: 1px solid var(--ds-border);
+    border-radius: 10px;
+    background: var(--ds-field);
+  }
+  .iteration-main {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .iteration-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .iteration-summary {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--ds-text-2);
+  }
+  .iteration-actions {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
   }
 
   @media (max-width: 620px) {

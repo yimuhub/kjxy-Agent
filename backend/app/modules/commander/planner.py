@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 from app.core.deps import YardContext
 from app.core.logging import get_logger
 from app.modules.agents.models import YardAgent
-from app.modules.commander import deliverables
+from app.modules.commander import deliverables, prompt_modules
 from app.modules.llm.schemas import ChatMessage, LLMMetadata, LLMRequest
 from app.modules.llm.service import complete_with_logging
 
@@ -407,8 +407,8 @@ _PERSONA_GUIDANCE = {
 }
 
 
-def _system_prompt(persona: str = "balanced") -> str:
-    base = (
+def _core_prompt() -> str:
+    return (
         "你是「指挥官」的规划器。把用户目标拆成可由不同助手并行执行的最小任务 DAG。\n"
         "硬性要求：\n"
         "1. 只输出一个 JSON 对象，不要 Markdown、不要解释；\n"
@@ -438,7 +438,34 @@ def _system_prompt(persona: str = "balanced") -> str:
         '"agent_code":"...","depends_on":[],"expected_output":"..."}],'
         '"merge_notes":"..."}'
     )
-    return f"{base}\n{_PERSONA_GUIDANCE.get(persona, _PERSONA_GUIDANCE['balanced'])}"
+
+
+def _system_prompt(
+    persona: str = "balanced", settings: dict[str, Any] | None = None
+) -> str:
+    cfg = settings or {}
+    enabled = cfg.get("prompt_modules")
+    if not isinstance(enabled, list):
+        enabled = list(prompt_modules.DEFAULT_MODULES)
+    max_chars = int(cfg.get("prompt_max_chars") or prompt_modules.DEFAULT_MAX_CHARS)
+    guide = _PERSONA_GUIDANCE.get(persona, _PERSONA_GUIDANCE["balanced"])
+    return prompt_modules.compose(_core_prompt(), guide, enabled, max_chars)
+
+
+def preview_system_prompt(settings: dict[str, Any]) -> dict[str, Any]:
+    """设置页预览：返回当前人格下的完整系统提示与模块预算。"""
+    persona = str(settings.get("persona") or "balanced")
+    enabled = settings.get("prompt_modules")
+    if not isinstance(enabled, list):
+        enabled = list(prompt_modules.DEFAULT_MODULES)
+    text = _system_prompt(persona, settings)
+    return {
+        "system": text,
+        "chars": prompt_modules.char_count(text),
+        "tokens": prompt_modules.token_estimate(text),
+        "max_chars": int(settings.get("prompt_max_chars") or prompt_modules.DEFAULT_MAX_CHARS),
+        "modules": prompt_modules.module_list(enabled),
+    }
 
 
 def _user_prompt(
@@ -573,7 +600,7 @@ async def request_plan(
     """
     task_id = f"cmd-plan-{uuid.uuid4().hex[:10]}"
     messages = [
-        ChatMessage(role="system", content=_system_prompt(persona)),
+        ChatMessage(role="system", content=_system_prompt(persona, settings)),
         ChatMessage(
             role="user",
             content=_user_prompt(

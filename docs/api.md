@@ -704,6 +704,23 @@ v3.37 起通道判别以**模型模态**为兜底：通用 OpenAI 兼容供应�
 
 后台调度：桌面 inline 模式每 6 小时巡检近 8 天有运行的小院，逐院回填并重算技能，单院失败不影响其他小院。审计事件：`commander_assets_updated`、`commander_assets_scanned`、`commander_workflow_created`、`commander_workflow_updated`、`commander_failure_updated`、`commander_skill_updated`。
 
+### 进化报告与提示词模块（v3.46）
+
+日复盘、周优化与月度迭代全部确定性生成，不额外调用模型。周优化报告聚合当周测评、资产增量、成本对比与下周建议；月度迭代按 `(yard_id, month_key)` 幂等，写入 `commander_iterations` 并先生成 `commander_snapshots`（来源 `monthly`），可回滚到迭代前状态。进化锁开启时后台自动迭代跳过该小院，手动接口仍可用。
+
+规划提示词由「核心 JSON 契约 + 人格段 + 可选风格模块」组成：`delivery`（交付优先）、`cost`（成本纪律）、`concise`（简洁表达）、`risk`（风险预防）。核心与人格段不可关闭；可选模块按预算顺序追加，超出 `prompt_max_chars` 即停止，避免提示词随记忆与工作流膨胀。
+
+| 接口 | 说明 |
+| --- | --- |
+| `GET /commander/prompt-preview` | 返回当前设置下的完整系统提示词、字符数、token 估算、预算与四个模块的启用状态（只读） |
+| `GET /commander/reports/daily?day=YYYY-MM-DD` | 某日复盘：任务汇总、失败清单、成本统计、资产变化与优化标记；日期非法 400 |
+| `GET /commander/reports/weekly?week=YYYY-Www` | 周优化报告：测评结论、策略与人格、资产变化、成本效率、下周建议；周格式非法 400 |
+| `GET /commander/iterations?limit=24` | 月度版本列表（最多 60 条，按创建时间倒序） |
+| `GET /commander/iterations/latest` | 最新月度版本；没有时返回 `null` |
+| `POST /commander/iterations/run` | `{month?}` 生成月度迭代，默认上一个完整月；同月重复调用返回 `created=false` |
+
+审计事件：`commander_iteration_created`、`commander_iteration_viewed`。全部接口仅 `yard_owner`/`yard_admin`/`platform_admin` 可用，普通成员 403。
+
 `commander_runs` 新增两个快照列：`token_budget`（创建 run 时的预算，0 表示不限）与 `budget_status`（`ok|warning|exceeded`）。执行中达到 80% 标 `warning` 并发 `commander-budget` SSE 帧；达到 100% 标 `exceeded`，停止继续派发子任务，已完成子任务保留；唯一例外是尚未开始的交付任务可再放行一次（成本已有页数上限），避免整轮没有产物。`GET /commander/runs/{id}` 同时返回 `budget_ratio`、`budget_remaining` 与 `memory_used`，便于前端展示。
 
 ## 任务状态机

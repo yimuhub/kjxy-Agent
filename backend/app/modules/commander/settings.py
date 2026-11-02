@@ -64,6 +64,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "auto_extract_skills": True,
     # 同场景同错误累计多少次后进入失败黑名单（1–10）
     "failure_blacklist_threshold": 2,
+    # 规划提示词可选模块与字符预算（核心契约与人格段始终保留）
+    "prompt_modules": ["delivery", "cost", "concise", "risk"],
+    "prompt_max_chars": 4500,
 }
 
 
@@ -102,6 +105,8 @@ class CommanderSettings(BaseModel):
     auto_learn_workflows: bool
     auto_extract_skills: bool
     failure_blacklist_threshold: int = Field(ge=1, le=10)
+    prompt_modules: list[Literal["delivery", "cost", "concise", "risk"]]
+    prompt_max_chars: int = Field(ge=2000, le=8000)
 
 
 def defaults() -> dict[str, Any]:

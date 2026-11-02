@@ -117,7 +117,7 @@ export interface CommanderSnapshot {
   id: string
   label: string
   reason: string
-  source: 'manual' | 'persona' | 'restore' | string
+  source: 'manual' | 'persona' | 'restore' | 'monthly' | string
   persona?: CommanderPersona | null
   created_by?: string | null
   created_at?: string | null
@@ -189,6 +189,49 @@ export interface CommanderAssets {
   workflows: CommanderWorkflow[]
   failures: CommanderFailureCase[]
   skills: CommanderSkillSnippet[]
+}
+
+export interface CommanderPromptModule {
+  code: 'delivery' | 'cost' | 'concise' | 'risk' | string
+  title: string
+  content: string
+  enabled: boolean
+}
+
+export interface CommanderPromptPreview {
+  system: string
+  chars: number
+  tokens: number
+  max_chars: number
+  modules: CommanderPromptModule[]
+}
+
+export interface CommanderDailyReport {
+  day: string
+  period: { start: string; end: string }
+  markdown: string
+  metrics: Record<string, unknown>
+}
+
+export interface CommanderWeeklyReport {
+  week_key: string
+  period: { start: string; end: string }
+  markdown: string
+  metrics: Record<string, unknown>
+  evaluation: CommanderEvaluation | null
+}
+
+export interface CommanderIteration {
+  id: string
+  month_key: string
+  version_label: string
+  persona: CommanderPersona
+  summary: string
+  report_md: string
+  metrics: Record<string, unknown>
+  changes: Record<string, unknown>
+  snapshot_id?: string | null
+  created_at?: string | null
 }
 
 function unwrap<T>(promise: Promise<AxiosResponse<ApiResponse<T>>>): Promise<T> {
@@ -345,6 +388,45 @@ export const commanderWorkspaceApi = {
       api.put<ApiResponse<{ skill: CommanderSkillSnippet }>>(
         `/commander/assets/skills/${encodeURIComponent(id)}`,
         { status },
+      ),
+    )
+  },
+  promptPreview(): Promise<CommanderPromptPreview> {
+    return unwrap(api.get<ApiResponse<CommanderPromptPreview>>('/commander/prompt-preview'))
+  },
+  dailyReport(day?: string): Promise<CommanderDailyReport> {
+    return unwrap(
+      api.get<ApiResponse<CommanderDailyReport>>('/commander/reports/daily', {
+        params: day ? { day } : {},
+      }),
+    )
+  },
+  weeklyReport(week?: string): Promise<CommanderWeeklyReport> {
+    return unwrap(
+      api.get<ApiResponse<CommanderWeeklyReport>>('/commander/reports/weekly', {
+        params: week ? { week } : {},
+      }),
+    )
+  },
+  listIterations(limit = 12): Promise<{ items: CommanderIteration[] }> {
+    return unwrap(
+      api.get<ApiResponse<{ items: CommanderIteration[] }>>('/commander/iterations', {
+        params: { limit },
+      }),
+    )
+  },
+  latestIteration(): Promise<{ iteration: CommanderIteration | null }> {
+    return unwrap(
+      api.get<ApiResponse<{ iteration: CommanderIteration | null }>>(
+        '/commander/iterations/latest',
+      ),
+    )
+  },
+  runIteration(month?: string): Promise<{ iteration: CommanderIteration; created: boolean }> {
+    return unwrap(
+      api.post<ApiResponse<{ iteration: CommanderIteration; created: boolean }>>(
+        '/commander/iterations/run',
+        month ? { month } : {},
       ),
     )
   },

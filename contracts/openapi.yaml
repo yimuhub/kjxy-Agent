@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.45.0
+  version: 3.46.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -11296,6 +11296,156 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/commander/prompt-preview:
+    get:
+      tags:
+      - v1
+      - commander
+      summary: Prompt Preview
+      description: 当前人格与模块开关下的规划系统提示词预览（只读，不调用模型）。
+      operationId: prompt_preview_api_v1_commander_prompt_preview_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/commander/reports/daily:
+    get:
+      tags:
+      - v1
+      - commander
+      summary: Daily Report
+      description: 某日复盘报告；默认今天，确定性生成。
+      operationId: daily_report_api_v1_commander_reports_daily_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: day
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Day
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/commander/reports/weekly:
+    get:
+      tags:
+      - v1
+      - commander
+      summary: Weekly Report
+      description: 周优化报告：测评结论 + 资产增量 + 成本对比 + 下周建议。
+      operationId: weekly_report_api_v1_commander_reports_weekly_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: week
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Week
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/commander/iterations:
+    get:
+      tags:
+      - v1
+      - commander
+      summary: List Iterations
+      operationId: list_iterations_api_v1_commander_iterations_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 24
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/commander/iterations/latest:
+    get:
+      tags:
+      - v1
+      - commander
+      summary: Latest Iteration
+      operationId: latest_iteration_api_v1_commander_iterations_latest_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/commander/iterations/run:
+    post:
+      tags:
+      - v1
+      - commander
+      summary: Run Iteration
+      description: 生成月度迭代版本（默认上一个完整月）；同月幂等。
+      operationId: run_iteration_api_v1_commander_iterations_run_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IterationRunRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
   /api/v1/commander/preview:
     post:
       tags:
@@ -13902,6 +14052,17 @@ components:
           title: Version
       type: object
       title: ItemInstallRequest
+    IterationRunRequest:
+      properties:
+        month:
+          anyOf:
+          - type: string
+            pattern: ^\d{4}-\d{2}$
+          - type: 'null'
+          title: Month
+      additionalProperties: false
+      type: object
+      title: IterationRunRequest
     KnowledgeAskRequest:
       properties:
         question:

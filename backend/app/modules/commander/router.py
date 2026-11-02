@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import date
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Request
@@ -19,7 +20,15 @@ from app.core.deps import CurrentUser, YardContext, get_current_user, get_db_ses
 from app.core.errors import AppError
 from app.core.responses import ok
 from app.modules.audit.service import log_audit
-from app.modules.commander import evaluator, learning, metrics, service, snapshots
+from app.modules.commander import (
+    evaluator,
+    learning,
+    metrics,
+    planner,
+    reports,
+    service,
+    snapshots,
+)
 from app.modules.commander import settings as commander_settings
 from app.modules.commander.models import RUN_QUEUED, CommanderRun
 from app.modules.memory import service as memory_service
@@ -110,6 +119,12 @@ class SkillUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     status: Literal["candidate", "active", "archived"]
+
+
+class IterationRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    month: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}$")
 
 
 def _is_manager(ctx: YardContext) -> bool:
@@ -509,6 +524,114 @@ def update_skill(
     )
     db.commit()
     return ok({"skill": learning.skill_out(row)}, request)
+
+
+@router.get("/prompt-preview")
+def prompt_preview(
+    request: Request,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+):
+    """当前人格与模块开关下的规划系统提示词预览（只读，不调用模型）。"""
+    ctx = _ctx(user)
+    _require_manager(ctx, "仅小院负责人或管理员可查看提示词预览。")
+    cfg = commander_settings.settings_for(db, ctx.yard_id)
+    return ok(planner.preview_system_prompt(cfg), request)
+
+
+@router.get("/reports/daily")
+def daily_report(
+    request: Request,
+    day: str | None = None,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+):
+    """某日复盘报告；默认今天，确定性生成。"""
+    ctx = _ctx(user)
+    _require_manager(ctx, "仅小院负责人或管理员可查看日复盘。")
+    try:
+        target = date.fromisoformat(day) if day else date.today()
+    except ValueError as exc:
+        raise AppError("INVALID_REQUEST", "日期格式应为 YYYY-MM-DD。", http_status=400) from exc
+    return ok(reports.daily_report(db, yard_id=ctx.yard_id, day=target), request)
+
+
+@router.get("/reports/weekly")
+def weekly_report(
+    request: Request,
+    week: str | None = None,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+):
+    """周优化报告：测评结论 + 资产增量 + 成本对比 + 下周建议。"""
+    ctx = _ctx(user)
+    _require_manager(ctx, "仅小院负责人或管理员可查看周优化报告。")
+    if week:
+        try:
+            year_text, week_text = week.split("-W", 1)
+            date.fromisocalendar(int(year_text), int(week_text), 1)
+        except (ValueError, TypeError) as exc:
+            raise AppError(
+                "INVALID_REQUEST", "周格式应为 YYYY-Www（如 2026-W45）。", http_status=400
+            ) from exc
+    return ok(reports.weekly_optimization(db, yard_id=ctx.yard_id, week_key=week), request)
+
+
+@router.get("/iterations")
+def list_iterations(
+    request: Request,
+    limit: int = 24,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+):
+    ctx = _ctx(user)
+    _require_manager(ctx, "仅小院负责人或管理员可查看月度版本。")
+    rows = reports.list_iterations(db, ctx.yard_id, limit=limit)
+    return ok({"items": [reports.iteration_out(row) for row in rows]}, request)
+
+
+@router.get("/iterations/latest")
+def latest_iteration(
+    request: Request,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+):
+    ctx = _ctx(user)
+    _require_manager(ctx, "仅小院负责人或管理员可查看月度版本。")
+    row = reports.latest_iteration(db, ctx.yard_id)
+    return ok({"iteration": reports.iteration_out(row) if row else None}, request)
+
+
+@router.post("/iterations/run")
+def run_iteration(
+    body: IterationRunRequest,
+    request: Request,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+):
+    """生成月度迭代版本（默认上一个完整月）；同月幂等。"""
+    ctx = _ctx(user)
+    _require_manager(ctx, "仅小院负责人或管理员可执行月度迭代。")
+    row, created = reports.run_iteration(db, ctx=ctx, month=body.month)
+    log_audit(
+        db,
+        yard_id=ctx.yard_id,
+        actor_id=ctx.user_id,
+        action="commander_iteration_created" if created else "commander_iteration_viewed",
+        resource_type="commander_iteration",
+        resource_id=row.id,
+        result="success",
+        request_id=ctx.request_id,
+        metadata={"month": row.month_key, "version": row.version_label},
+    )
+    db.commit()
+    return ok(
+        {
+            "iteration": reports.iteration_out(row),
+            "created": created,
+        },
+        request,
+    )
 
 
 @router.post("/preview")
