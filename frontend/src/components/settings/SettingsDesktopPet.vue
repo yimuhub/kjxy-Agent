@@ -46,6 +46,21 @@
         <span class="note">任务开始、完成或失败时用气泡同步进度；不弹系统通知</span>
       </el-form-item>
 
+      <el-form-item label="页面内悬浮伙伴">
+        <el-switch
+          v-model="overlay"
+          @change="onOverlayChange"
+        />
+        <span class="note">在网页端与桌面端的所有页面常驻，可拖到任意位置；点头像即可对话下指令</span>
+        <el-button
+          size="small"
+          class="reset-pos"
+          @click="resetOverlayPos"
+        >
+          重置位置
+        </el-button>
+      </el-form-item>
+
       <el-form-item label="桌面快捷键">
         <div class="shortcut-list">
           <span class="shortcut"><kbd>⌘/Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Space</kbd> 呼出工作台</span>
@@ -123,10 +138,16 @@
     setDesktopPetVisible,
   } from '@/utils/desktop'
   import { petMuted, setPetMuted } from '@/utils/petCopilot'
+  import {
+    petOverlayEnabled,
+    resetPetPos,
+    setPetOverlayEnabled,
+  } from '@/utils/petOverlay'
 
   const available = isDesktopShell()
   const enabled = ref(false)
   const bubbles = ref(!petMuted())
+  const overlay = ref(petOverlayEnabled())
   const skinId = ref<PetSkinId>(readStoredPetSkin())
   const busy = ref('')
 
@@ -192,12 +213,25 @@
     setPetMuted(value !== true)
   }
 
+  function onOverlayChange(value: string | number | boolean): void {
+    setPetOverlayEnabled(value === true)
+    ElMessage.success(value === true ? '悬浮伙伴已开启' : '悬浮伙伴已收起')
+  }
+
+  function resetOverlayPos(): void {
+    resetPetPos()
+    ElMessage.success('伙伴位置已重置到右下角')
+  }
+
   function onStorage(event: StorageEvent): void {
     if (event.key === 'ky_pet_skin' && event.newValue) {
       skinId.value = readStoredPetSkin()
     }
     if (event.key === 'ky_pet_mute') {
       bubbles.value = !petMuted()
+    }
+    if (event.key === 'ky_pet_overlay') {
+      overlay.value = petOverlayEnabled()
     }
   }
 

@@ -68,7 +68,6 @@
       </el-tab-pane>
 
       <el-tab-pane
-        v-if="desktopShell"
         lazy
         label="桌面伙伴"
         name="desktop_pet"
@@ -571,12 +570,10 @@ import SettingsA2a from '@/components/settings/SettingsA2a.vue'
 import SettingsGrants from '@/components/settings/SettingsGrants.vue'
 import { useAuthStore } from '@/stores/auth'
 import { classifyError, type ViewState } from '@/utils/status'
-import { isDesktopShell } from '@/utils/desktop'
 
 
 const route = useRoute()
 const auth = useAuthStore()
-const desktopShell = isDesktopShell()
 /** 负责人可改系统角色与保护设置；管理员只能维护自定义角色与普通设置 */
 const isOwner = computed(
   () => auth.roles.includes('yard_owner') || auth.roles.includes('platform_admin'),
@@ -611,11 +608,12 @@ const TAB_NAMES = [
 type TabName = (typeof TAB_NAMES)[number]
 
 const availableTabs = computed<TabName[]>(() => {
-  let allowed: TabName[] = isOwner.value
+  // 桌面伙伴页在浏览器里也要能进：桌面窗口开关自动置灰，
+  // 但「页面内悬浮伙伴」「任务气泡」「皮肤」在网页端同样生效。
+  const allowed: TabName[] = isOwner.value
     ? [...TAB_NAMES]
     : TAB_NAMES.filter(name => name !== 'grants' && name !== 'system_logs')
-  if (!desktopShell) allowed = allowed.filter(name => name !== 'desktop_pet')
-  if (!isPlatformAdmin.value) allowed = allowed.filter(name => name !== 'cluster')
+  if (!isPlatformAdmin.value) return allowed.filter(name => name !== 'cluster')
   return allowed
 })
 

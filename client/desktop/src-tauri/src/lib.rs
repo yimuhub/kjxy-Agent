@@ -34,7 +34,7 @@ const PORT_RANGE: std::ops::RangeInclusive<u16> = 18700..=18710;
 const HEALTH_TIMEOUT_SECS: u64 = 90;
 /// 桌面伙伴可选皮肤；Rust 侧只放行白名单，避免把任意字符串拼进窗口地址
 const PET_SKINS: &[&str] = &[
-    "sprout", "sunny", "taro", "mochi", "orbit", "ember", "panda",
+    "sprout", "sunny", "taro", "mochi", "orbit", "ember", "panda", "farmer",
 ];
 const DEFAULT_PET_SKIN: &str = "sprout";
 
@@ -923,7 +923,7 @@ mod export_tests {
         assert_eq!(normalize_pet_skin(Some("  orbit ")), "orbit");
         assert_eq!(normalize_pet_skin(Some("bad")), DEFAULT_PET_SKIN);
         assert_eq!(normalize_pet_skin(None), DEFAULT_PET_SKIN);
-        assert_eq!(PET_SKINS.len(), 7);
+        assert_eq!(PET_SKINS.len(), 8);
     }
 
     #[test]

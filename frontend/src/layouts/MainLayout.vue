@@ -344,6 +344,7 @@
 
     <!-- 桌面安装包首启：一次性模型接入向导（纯浏览器访问时不出现） -->
     <DesktopFirstRun />
+    <FloatingCompanion />
   </el-container>
 </template>
 
@@ -382,6 +383,7 @@
   import GlobalOverview from '@/views/GlobalOverview.vue'
   import MenuDiyEditor from '@/components/layout/MenuDiyEditor.vue'
   import DesktopFirstRun from '@/components/desktop/DesktopFirstRun.vue'
+  import FloatingCompanion from '@/components/layout/FloatingCompanion.vue'
   import { publishPetEvent, sceneForRoute } from '@/utils/petCopilot'
   // 版本号只有 package.json 这一份事实来源：九处版本面已由 scripts/check_versions.py 对齐，
   // 这里再抄一个字符串就迟早会对不上（具名导入，打包时只带出 version 一个字段）。

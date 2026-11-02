@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { menuApi, type MenuConfig } from '@/api/v3'
+import { collectMenuKeys, surfaceMissingAtoms } from '@/utils/menuAtoms'
 import { useAuthStore } from '@/stores/auth'
 
 /**
@@ -417,6 +418,8 @@ export function buildPresetGroups(id: string): DiyMenuGroup[] | null {
 
 // v4：恢复「自我升级」一级入口后再次提升版本号，旧布局（缺该入口且标题被钉死）一次性重建
 const STORAGE_KEY_PREFIX = 'kjxy_menu_diy_v4_'
+/** 已补齐过的功能入口：用户再次隐藏后不再重复补 */
+const SEEN_KEY_PREFIX = 'kjxy_menu_surfaced_v1_'
 
 function cloneGroups(groups: DiyMenuGroup[]): DiyMenuGroup[] {
   return JSON.parse(JSON.stringify(groups)) as DiyMenuGroup[]
@@ -479,6 +482,41 @@ export const useMenuStore = defineStore('menu-diy', () => {
     return serverConfig.value?.role_modes?.[role] ?? serverConfig.value?.default_mode ?? 'standard'
   }
 
+  function seenKey(): string {
+    return `${SEEN_KEY_PREFIX}${storageKey.value}`
+  }
+
+  /**
+   * 老缓存布局里缺失的新功能入口补一次（指挥官工作台等）；
+   * 补齐过的 key 记进 seen 标记，用户之后主动隐藏就不再弹回来。
+   */
+  function surfaceNewAtoms(cached: DiyMenuGroup[]): DiyMenuGroup[] {
+    let seen: string[] = []
+    try {
+      const rawSeen = localStorage.getItem(seenKey())
+      seen = rawSeen ? (JSON.parse(rawSeen) as string[]) : []
+    } catch {
+      seen = []
+    }
+    const result = surfaceMissingAtoms<DiyMenuGroup, DiyMenuLeaf>(
+      cached,
+      ALL_MENU_ATOMS,
+      buildDefaultMenuGroups(),
+      seen,
+    )
+    writeSeen(result.seen)
+    return result.groups
+  }
+
+  /** 记下当前布局里已有的入口，作为「新功能补齐」的判断基线 */
+  function writeSeen(keys: string[]): void {
+    try {
+      localStorage.setItem(seenKey(), JSON.stringify(keys))
+    } catch {
+      /* 存储不可用时本次补齐仍生效，下次启动会再补一次 */
+    }
+  }
+
   async function loadServerConfig(): Promise<void> {
     try {
       serverConfig.value = await menuApi.get()
@@ -497,11 +535,13 @@ export const useMenuStore = defineStore('menu-diy', () => {
         const mode = serverModeForRole()
         groups.value = buildModeGroups(mode)
         currentMode.value = mode
+        // 记下基线，之后版本新增的入口才能被识别为「新功能」并补回
+        writeSeen(collectMenuKeys(groups.value))
         return
       }
       const parsed = JSON.parse(raw)
       if (Array.isArray(parsed) && parsed.length > 0) {
-        groups.value = normalizeAndMergeGroups(parsed)
+        groups.value = surfaceNewAtoms(normalizeAndMergeGroups(parsed))
       } else {
         groups.value = buildDefaultMenuGroups()
       }

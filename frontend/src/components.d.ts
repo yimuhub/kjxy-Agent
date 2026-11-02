@@ -94,6 +94,7 @@ declare module 'vue' {
     ElTooltip: typeof import('element-plus/es')['ElTooltip']
     ElUpload: typeof import('element-plus/es')['ElUpload']
     FarmAgentPanel: typeof import('./components/farm/FarmAgentPanel.vue')['default']
+    FloatingCompanion: typeof import('./components/layout/FloatingCompanion.vue')['default']
     GrantMatrix: typeof import('./components/settings/GrantMatrix.vue')['default']
     LibraryItemCard: typeof import('./components/library/LibraryItemCard.vue')['default']
     MemberPermissionDialog: typeof import('./components/settings/MemberPermissionDialog.vue')['default']

@@ -197,6 +197,40 @@
             opacity="0.85"
           />
 
+          <g
+            v-if="skin.ears === 'straw'"
+            class="pet-hat"
+          >
+            <path
+              d="M54 46c0-20 12-30 26-30s26 10 26 30z"
+              :fill="skin.ear"
+            />
+            <rect
+              x="54"
+              y="36"
+              width="52"
+              height="6"
+              rx="3"
+              :fill="skin.accent"
+              opacity="0.8"
+            />
+            <ellipse
+              cx="80"
+              cy="47"
+              rx="56"
+              ry="12"
+              :fill="skin.ear"
+            />
+            <ellipse
+              cx="80"
+              cy="45"
+              rx="56"
+              ry="10"
+              :fill="skin.bodyDark"
+              opacity="0.18"
+            />
+          </g>
+
           <g class="pet-eyes">
             <ellipse
               cx="65"

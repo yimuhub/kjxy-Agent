@@ -252,6 +252,9 @@ interface TauriEventApi {
   emit?: (event: string, payload?: unknown) => Promise<void>
 }
 
+/** 同一页面内的订阅者（BroadcastChannel 不会回送给发送方，悬浮伙伴需要本页面直收） */
+const localHandlers = new Set<(event: PetEvent) => void>()
+
 function tauriEvents(): TauriEventApi | null {
   if (typeof window === 'undefined') return null
   const api = (window as unknown as { __TAURI__?: { event?: TauriEventApi } }).__TAURI__
@@ -274,6 +277,7 @@ export function publishPetEvent(
     rememberPetScene(payload.scene)
   }
   writeJson(EVENT_KEY, payload)
+  for (const local of localHandlers) local(payload)
   try {
     const channel = new BroadcastChannel(CHANNEL_NAME)
     channel.postMessage(payload)
@@ -311,6 +315,7 @@ export function subscribePetEvents(handler: (event: PetEvent) => void): () => vo
   } catch {
     channel = null
   }
+  localHandlers.add(deliver)
 
   const onStorage = (event: StorageEvent): void => {
     if (event.key === EVENT_KEY && event.newValue) {
@@ -337,6 +342,7 @@ export function subscribePetEvents(handler: (event: PetEvent) => void): () => vo
 
   return () => {
     closed = true
+    localHandlers.delete(deliver)
     try {
       channel?.close()
     } catch {

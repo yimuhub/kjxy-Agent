@@ -1,4 +1,4 @@
-/** 桌面伙伴皮肤：7 套配色与耳朵形态，全部用内联 SVG 绘制，不依赖外部图片。 */
+/** 桌面伙伴皮肤：8 套配色与耳朵形态，全部用内联 SVG 绘制，不依赖外部图片。 */
 
 export type PetSkinId =
   | 'sprout'
@@ -8,8 +8,9 @@ export type PetSkinId =
   | 'orbit'
   | 'ember'
   | 'panda'
+  | 'farmer'
 
-export type PetEars = 'leaf' | 'round' | 'cat' | 'rabbit' | 'helmet' | 'fox' | 'panda'
+export type PetEars = 'leaf' | 'round' | 'cat' | 'rabbit' | 'helmet' | 'fox' | 'panda' | 'straw'
 
 export interface PetSkin {
   id: PetSkinId
@@ -116,6 +117,19 @@ export const PET_SKINS: PetSkin[] = [
     ear: '#30353d',
     cheek: '#f3a9ad',
     accent: '#4d5560',
+  },
+  {
+    id: 'farmer',
+    name: '田伯',
+    tagline: '地里的事交给我',
+    ears: 'straw',
+    emoji: '🌾',
+    body: '#d99a5b',
+    bodyDark: '#b87b3d',
+    belly: '#fdf1dd',
+    ear: '#c9973f',
+    cheek: '#e0886f',
+    accent: '#6b8f4e',
   },
 ]
 
