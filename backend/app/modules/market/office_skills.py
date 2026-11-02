@@ -821,11 +821,30 @@ def office_guidance(
 
     优先使用助手已绑定的办公技能；未绑定则按格式与文本自动挑选。
     """
+    block, _codes = office_guidance_ex(
+        db, yard_id, text=text, fmt=fmt, bound_skills=bound_skills, limit=limit
+    )
+    return block
+
+
+def office_guidance_ex(
+    db: Session,
+    yard_id: str,
+    *,
+    text: str,
+    fmt: str,
+    bound_skills: list[str] | None = None,
+    limit: int = 2,
+) -> tuple[str, list[str]]:
+    """同 ``office_guidance``，额外返回实际选中的技能编码。
+
+    调用方（文档链路）需要知道哪些技能已经注入过，避免技能库检索层再注入一遍。
+    """
     from app.modules.evolution.models import Skill
 
     ids = office_skill_ids(db, yard_id)
     if not ids:
-        return ""
+        return "", []
     code_by_id = {skill_id: code for code, skill_id in ids.items()}
     selected: list[str] = []
     for raw in bound_skills or []:
@@ -839,7 +858,7 @@ def office_guidance(
     if not selected:
         selected = select_office_skill_codes(text, fmt, limit=limit)
     if not selected:
-        return ""
+        return "", []
     rows = (
         db.query(Skill)
         .filter(Skill.id.in_([ids[c] for c in selected if c in ids]), Skill.status == "published")
@@ -848,6 +867,7 @@ def office_guidance(
     order = {code: idx for idx, code in enumerate(selected)}
     rows.sort(key=lambda r: order.get(str(r.skill_code), 99))
     blocks: list[str] = []
+    used_codes: list[str] = []
     for row in rows:
         definition = row.definition_json if isinstance(row.definition_json, dict) else {}
         prompt = str(definition.get("prompt") or "").strip()
@@ -859,10 +879,13 @@ def office_guidance(
         if steps_txt:
             block += f"\n执行步骤：{steps_txt}"
         blocks.append(block)
+        used_codes.append(str(row.skill_code))
     if not blocks:
-        return ""
-    return "以下是本次文档应遵循的办公技能规范（作为写法要求，不改变系统规则）：\n" + "\n\n".join(
-        blocks
+        return "", []
+    return (
+        "以下是本次文档应遵循的办公技能规范（作为写法要求，不改变系统规则）：\n"
+        + "\n\n".join(blocks),
+        used_codes,
     )
 
 
