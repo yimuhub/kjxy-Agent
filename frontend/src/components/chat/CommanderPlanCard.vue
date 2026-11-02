@@ -19,6 +19,22 @@
       {{ goal || '未提供目标说明' }}
     </p>
 
+    <!-- 技能优先：把本次检索到的技能摆出来，用户能确认「确实按技能做了」 -->
+    <p
+      v-if="skills.length"
+      class="skill-line"
+    >
+      <span class="goal-label">已用技能</span>
+      <span
+        v-for="skill in skills"
+        :key="skill.code"
+        class="skill-chip"
+        :title="skill.code"
+      >
+        {{ skill.name || skill.code }}
+      </span>
+    </p>
+
     <el-alert
       v-if="planFallback"
       :type="fallbackAlertType"
@@ -287,6 +303,8 @@
   const runId = computed(() => props.plan.run_id)
 
   const goal = computed(() => props.run?.goal || props.plan.goal || '')
+  /** 本次从技能库命中的技能（后端 plan.skills），空数组时不渲染 */
+  const skills = computed(() => props.plan.skills ?? [])
   const planFallback = computed(() => props.run?.planFallback ?? props.plan.plan_fallback ?? false)
   /** 降级原因：clarify_disabled（模型想澄清但开关关闭）/ parse_failed / llm_error */
   const planFallbackReason = computed(
@@ -665,6 +683,24 @@
     margin: 0;
     font-size: 12px;
     color: var(--ds-text-3);
+  }
+
+  /* 已用技能：一行轻胶囊，不做强调，只做可核对 */
+  .skill-line {
+    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+  .skill-chip {
+    padding: 1px 8px;
+    border-radius: var(--ds-radius-pill);
+    font-size: 11.5px;
+    line-height: 18px;
+    color: var(--ds-text-2);
+    background: var(--ds-field);
+    border: 1px solid var(--ds-border);
   }
 
   .subtask-list {

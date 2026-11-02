@@ -258,6 +258,8 @@ export interface CommanderPlanPayload {
   plan_fallback_reason?: string
   /** 后端未来可能下发；当前实现缺省时由设置 preview_plan 兜底 */
   preview?: boolean
+  /** 技能优先：本次从技能库检索并注入的技能（用于界面展示「用了哪些技能」） */
+  skills?: Array<{ code: string; name: string }>
   status?: CommanderRunStatus
   degraded?: boolean
   max_parallel?: number
