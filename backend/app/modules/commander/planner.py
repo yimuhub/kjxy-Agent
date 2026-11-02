@@ -451,6 +451,8 @@ def _user_prompt(
     capability_hint: str = "",
     skills_hint: str = "",
     memory_hint: str = "",
+    workflow_hint: str = "",
+    failure_hint: str = "",
 ) -> str:
     lines = [f"用户目标：{user_content[:CONTEXT_CAP]}"]
     if capability_hint:
@@ -459,6 +461,16 @@ def _user_prompt(
         lines.append(
             f"技能库已匹配技能：{skills_hint}；"
             "相关子任务必须写明按该技能的方法执行（步骤、版式、质检要求），不要另起一套。"
+        )
+    if workflow_hint:
+        lines.append(
+            "成熟工作流（同场景已成功过，可复用；与当前目标不符时以当前目标为准）：\n"
+            f"{workflow_hint[:2000]}"
+        )
+    if failure_hint:
+        lines.append(
+            "失败黑名单（同类场景已知坑，必须规避；不要原样重试）：\n"
+            f"{failure_hint[:1200]}"
         )
     if deliverable:
         lines.append(
@@ -550,6 +562,8 @@ async def request_plan(
     capability_hint: str = "",
     skills_hint: str = "",
     memory_hint: str = "",
+    workflow_hint: str = "",
+    failure_hint: str = "",
     persona: str = "balanced",
 ) -> tuple[dict[str, Any] | None, dict[str, int], bool, str | None]:
     """调用规划模型；返回 (原始 JSON, token 用量, 是否走了修复调用, 失败原因)。
@@ -571,6 +585,8 @@ async def request_plan(
                 capability_hint=capability_hint,
                 skills_hint=skills_hint,
                 memory_hint=memory_hint,
+                workflow_hint=workflow_hint,
+                failure_hint=failure_hint,
             ),
         ),
     ]

@@ -80,6 +80,12 @@ export interface CommanderSettings {
   evaluator_auto_persona: boolean
   evaluator_supplier_id: string | null
   evaluator_supplier_model_id: string | null
+  /** 成功运行自动沉淀标准工作流 */
+  auto_learn_workflows: boolean
+  /** 从 Worker 成功样本萃取技能片段 */
+  auto_extract_skills: boolean
+  /** 同场景同错误累计多少次后进入失败黑名单（1..10） */
+  failure_blacklist_threshold: number
 }
 
 export type CommanderPersona = 'aggressive' | 'steady' | 'balanced'
@@ -118,6 +124,9 @@ export const DEFAULT_COMMANDER_SETTINGS: CommanderSettings = {
   evaluator_auto_persona: true,
   evaluator_supplier_id: null,
   evaluator_supplier_model_id: null,
+  auto_learn_workflows: true,
+  auto_extract_skills: true,
+  failure_blacklist_threshold: 2,
 }
 
 function intIn(value: unknown, fallback: number, min: number, max: number): number {
@@ -181,6 +190,14 @@ export function normalizeCommanderSettings(
     evaluator_auto_persona: boolOr(src.evaluator_auto_persona, d.evaluator_auto_persona),
     evaluator_supplier_id: idOrNull(src.evaluator_supplier_id),
     evaluator_supplier_model_id: idOrNull(src.evaluator_supplier_model_id),
+    auto_learn_workflows: boolOr(src.auto_learn_workflows, d.auto_learn_workflows),
+    auto_extract_skills: boolOr(src.auto_extract_skills, d.auto_extract_skills),
+    failure_blacklist_threshold: intIn(
+      src.failure_blacklist_threshold,
+      d.failure_blacklist_threshold,
+      1,
+      10,
+    ),
   }
 }
 

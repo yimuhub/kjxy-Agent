@@ -84,6 +84,7 @@ export interface CommanderOverview {
   governance: {
     latest_evaluation: CommanderEvaluation | null
     snapshots: CommanderSnapshot[]
+    assets?: CommanderAssetCounts
   }
   runs: CommanderRun[]
 }
@@ -120,6 +121,74 @@ export interface CommanderSnapshot {
   persona?: CommanderPersona | null
   created_by?: string | null
   created_at?: string | null
+}
+
+export interface CommanderAssetCounts {
+  workflows: number
+  failures: number
+  skills: number
+}
+
+export interface CommanderWorkflowStep {
+  title: string
+  instruction: string
+  expected_output?: string
+  agent_code?: string
+}
+
+export interface CommanderWorkflow {
+  id: string
+  code: string
+  name: string
+  scene: string
+  preconditions: string
+  steps: CommanderWorkflowStep[]
+  cost_baseline_tokens: number
+  success_count: number
+  failure_count: number
+  version: number
+  status: 'active' | 'draft' | 'archived' | string
+  source: 'auto' | 'manual' | string
+  last_used_at?: string | null
+  created_at?: string | null
+}
+
+export interface CommanderFailureCase {
+  id: string
+  signature: string
+  scene: string
+  error_code: string
+  error_message: string
+  root_cause: string
+  avoidance: string
+  occurrences: number
+  status: 'watching' | 'active' | 'resolved' | string
+  last_seen_at?: string | null
+  created_at?: string | null
+}
+
+export interface CommanderSkillSnippet {
+  id: string
+  code: string
+  name: string
+  scene: string
+  content: string
+  source_agent_code: string
+  sample_count: number
+  success_count: number
+  success_rate: number
+  status: 'candidate' | 'active' | 'archived' | string
+  source: 'auto' | 'manual' | string
+  version: number
+  evidence: Array<Record<string, unknown>>
+  created_at?: string | null
+}
+
+export interface CommanderAssets {
+  counts: CommanderAssetCounts
+  workflows: CommanderWorkflow[]
+  failures: CommanderFailureCase[]
+  skills: CommanderSkillSnippet[]
 }
 
 function unwrap<T>(promise: Promise<AxiosResponse<ApiResponse<T>>>): Promise<T> {
@@ -215,6 +284,67 @@ export const commanderWorkspaceApi = {
     return unwrap(
       api.post<ApiResponse<{ backup: CommanderSnapshot; settings: CommanderSettings }>>(
         `/commander/snapshots/${encodeURIComponent(id)}/restore`,
+      ),
+    )
+  },
+  assets(): Promise<CommanderAssets> {
+    return unwrap(api.get<ApiResponse<CommanderAssets>>('/commander/assets'))
+  },
+  scanAssets(): Promise<CommanderAssets & { runs_scanned: number; workflows_created: number; skills_seen: number }> {
+    return unwrap(
+      api.post<
+        ApiResponse<
+          CommanderAssets & { runs_scanned: number; workflows_created: number; skills_seen: number }
+        >
+      >('/commander/assets/scan'),
+    )
+  },
+  createWorkflow(body: {
+    name: string
+    scene: string
+    preconditions?: string
+    steps: CommanderWorkflowStep[]
+  }): Promise<{ workflow: CommanderWorkflow }> {
+    return unwrap(
+      api.post<ApiResponse<{ workflow: CommanderWorkflow }>>('/commander/assets/workflows', body),
+    )
+  },
+  updateWorkflow(
+    id: string,
+    body: {
+      status?: 'active' | 'draft' | 'archived'
+      name?: string
+      scene?: string
+      preconditions?: string
+      steps?: CommanderWorkflowStep[]
+    },
+  ): Promise<{ workflow: CommanderWorkflow }> {
+    return unwrap(
+      api.put<ApiResponse<{ workflow: CommanderWorkflow }>>(
+        `/commander/assets/workflows/${encodeURIComponent(id)}`,
+        body,
+      ),
+    )
+  },
+  updateFailure(
+    id: string,
+    status: 'watching' | 'active' | 'resolved',
+  ): Promise<{ failure: CommanderFailureCase }> {
+    return unwrap(
+      api.put<ApiResponse<{ failure: CommanderFailureCase }>>(
+        `/commander/assets/failures/${encodeURIComponent(id)}`,
+        { status },
+      ),
+    )
+  },
+  updateSkill(
+    id: string,
+    status: 'candidate' | 'active' | 'archived',
+  ): Promise<{ skill: CommanderSkillSnippet }> {
+    return unwrap(
+      api.put<ApiResponse<{ skill: CommanderSkillSnippet }>>(
+        `/commander/assets/skills/${encodeURIComponent(id)}`,
+        { status },
       ),
     )
   },

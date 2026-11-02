@@ -426,6 +426,196 @@
           </el-card>
 
           <el-card
+            v-if="canManage"
+            shadow="never"
+            class="panel assets-panel"
+          >
+            <template #header>
+              <div class="panel-head">
+                <div>
+                  <h2>经验资产</h2>
+                  <p>成功流程复用、失败场景避坑、Worker 技能入库，全部按小院隔离。</p>
+                </div>
+                <div class="panel-actions">
+                  <el-button
+                    size="small"
+                    :loading="assetBusy === 'scan'"
+                    @click="scanAssets"
+                  >
+                    扫描沉淀
+                  </el-button>
+                </div>
+              </div>
+            </template>
+
+            <div class="asset-counts">
+              <div class="asset-count">
+                <strong>{{ assetCounts.workflows }}</strong>
+                <span>标准工作流</span>
+              </div>
+              <div class="asset-count">
+                <strong>{{ assetCounts.failures }}</strong>
+                <span>失败黑名单</span>
+              </div>
+              <div class="asset-count">
+                <strong>{{ assetCounts.skills }}</strong>
+                <span>生效技能</span>
+              </div>
+            </div>
+
+            <el-tabs
+              v-model="assetTab"
+              class="asset-tabs"
+            >
+              <el-tab-pane
+                label="工作流"
+                name="workflows"
+              >
+                <div
+                  v-if="workflows.length"
+                  class="asset-list"
+                >
+                  <div
+                    v-for="item in workflows"
+                    :key="item.id"
+                    class="asset-row"
+                  >
+                    <div class="asset-main">
+                      <div class="asset-title">
+                        <strong>{{ item.name }}</strong>
+                        <el-tag
+                          size="small"
+                          effect="plain"
+                        >
+                          {{ item.code }} · v{{ item.version }}
+                        </el-tag>
+                      </div>
+                      <span class="muted">
+                        {{ item.steps.length }} 步 · 成功 {{ item.success_count }} 次
+                        · {{ compact(item.cost_baseline_tokens) }} tokens
+                      </span>
+                      <p class="asset-scene">
+                        {{ item.scene }}
+                      </p>
+                    </div>
+                    <el-button
+                      link
+                      :type="item.status === 'active' ? 'warning' : 'primary'"
+                      :loading="assetBusy === item.id"
+                      @click="toggleWorkflow(item)"
+                    >
+                      {{ item.status === 'active' ? '下线' : '启用' }}
+                    </el-button>
+                  </div>
+                </div>
+                <p
+                  v-else
+                  class="search-hint"
+                >
+                  还没有工作流；成功跑一轮同类任务后会自动沉淀。
+                </p>
+              </el-tab-pane>
+
+              <el-tab-pane
+                :label="`失败黑名单 ${assetCounts.failures}`"
+                name="failures"
+              >
+                <div
+                  v-if="failures.length"
+                  class="asset-list"
+                >
+                  <div
+                    v-for="item in failures"
+                    :key="item.id"
+                    class="asset-row"
+                  >
+                    <div class="asset-main">
+                      <div class="asset-title">
+                        <el-tag
+                          size="small"
+                          :type="item.status === 'active' ? 'danger' : 'info'"
+                          effect="plain"
+                        >
+                          {{ item.error_code }}
+                        </el-tag>
+                        <strong>{{ failureStatusLabel(item.status) }}</strong>
+                        <span class="muted">累计 {{ item.occurrences }} 次</span>
+                      </div>
+                      <p class="asset-scene">
+                        {{ item.scene }}
+                      </p>
+                      <p class="asset-fix">
+                        规避：{{ item.avoidance }}
+                      </p>
+                    </div>
+                    <el-button
+                      link
+                      :type="item.status === 'resolved' ? 'primary' : 'success'"
+                      :loading="assetBusy === item.id"
+                      @click="toggleFailure(item)"
+                    >
+                      {{ item.status === 'resolved' ? '重新启用' : '标记已解决' }}
+                    </el-button>
+                  </div>
+                </div>
+                <p
+                  v-else
+                  class="search-hint"
+                >
+                  暂无达到阈值的失败场景；同类错误累计到阈值后会自动入列。
+                </p>
+              </el-tab-pane>
+
+              <el-tab-pane
+                :label="`技能片段 ${assetCounts.skills}`"
+                name="skills"
+              >
+                <div
+                  v-if="skills.length"
+                  class="asset-list"
+                >
+                  <div
+                    v-for="item in skills"
+                    :key="item.id"
+                    class="asset-row"
+                  >
+                    <div class="asset-main">
+                      <div class="asset-title">
+                        <strong>{{ item.name }}</strong>
+                        <el-tag
+                          size="small"
+                          :type="item.status === 'active' ? 'success' : 'info'"
+                          effect="plain"
+                        >
+                          {{ skillStatusLabel(item.status) }}
+                        </el-tag>
+                      </div>
+                      <span class="muted">
+                        {{ item.source_agent_code }} · {{ item.sample_count }} 个样本
+                        · 成功率 {{ Math.round((item.success_rate || 0) * 100) }}%
+                      </span>
+                    </div>
+                    <el-button
+                      link
+                      :type="item.status === 'active' ? 'warning' : 'primary'"
+                      :loading="assetBusy === item.id"
+                      @click="toggleSkill(item)"
+                    >
+                      {{ item.status === 'active' ? '归档' : '转正' }}
+                    </el-button>
+                  </div>
+                </div>
+                <p
+                  v-else
+                  class="search-hint"
+                >
+                  暂无技能片段；同一 Worker 同类任务稳定成功 2 次后自动转正。
+                </p>
+              </el-tab-pane>
+            </el-tabs>
+          </el-card>
+
+          <el-card
             shadow="never"
             class="panel"
           >
@@ -485,10 +675,14 @@
   import { useAuthStore } from '@/stores/auth'
   import {
     commanderWorkspaceApi,
+    type CommanderAssets,
     type CommanderEvaluation,
+    type CommanderFailureCase,
     type CommanderMemoryItem,
     type CommanderOverview,
+    type CommanderSkillSnippet,
     type CommanderSnapshot,
+    type CommanderWorkflow,
   } from '@/api/commanderWorkspace'
   import {
     COMMANDER_PERSONA_LABELS,
@@ -513,6 +707,9 @@
   const reportVisible = ref(false)
   const reportTitle = ref('测评报告')
   const reportText = ref('')
+  const assets = ref<CommanderAssets | null>(null)
+  const assetTab = ref('workflows')
+  const assetBusy = ref('')
 
   const SCORE_LABELS: Record<string, string> = {
     persona: '人格一致性',
@@ -528,6 +725,17 @@
   const snapshots = computed<CommanderSnapshot[]>(
     () => overview.value?.governance?.snapshots || [],
   )
+  const workflows = computed<CommanderWorkflow[]>(() => assets.value?.workflows || [])
+  const failures = computed<CommanderFailureCase[]>(() => assets.value?.failures || [])
+  const skills = computed<CommanderSkillSnippet[]>(() => assets.value?.skills || [])
+  const assetCounts = computed(() => {
+    const counts = assets.value?.counts || overview.value?.governance?.assets
+    return {
+      workflows: Number(counts?.workflows || 0),
+      failures: Number(counts?.failures || 0),
+      skills: Number(counts?.skills || 0),
+    }
+  })
 
   const personaLabel = computed(() => {
     const persona = overview.value?.commander.persona || 'balanced'
@@ -558,6 +766,24 @@
   function personaText(persona?: string | null): string {
     const key = String(persona || 'balanced') as CommanderPersona
     return COMMANDER_PERSONA_LABELS[key] || '平衡型'
+  }
+
+  function failureStatusLabel(status?: string): string {
+    const labels: Record<string, string> = {
+      watching: '观察中',
+      active: '已验证的坑',
+      resolved: '已解决',
+    }
+    return labels[String(status || '')] || '观察中'
+  }
+
+  function skillStatusLabel(status?: string): string {
+    const labels: Record<string, string> = {
+      candidate: '候选',
+      active: '已转正',
+      archived: '已归档',
+    }
+    return labels[String(status || '')] || '候选'
   }
 
   const canManage = computed(() =>
@@ -771,7 +997,80 @@
     }
   }
 
-  onMounted(load)
+  async function loadAssets(): Promise<void> {
+    if (!canManage.value) return
+    try {
+      assets.value = await commanderWorkspaceApi.assets()
+    } catch {
+      ElMessage.error('经验资产加载失败，请稍后重试')
+    }
+  }
+
+  async function scanAssets(): Promise<void> {
+    assetBusy.value = 'scan'
+    try {
+      const data = await commanderWorkspaceApi.scanAssets()
+      assets.value = data
+      ElMessage.success(
+        `已扫描 ${data.runs_scanned} 次运行，新增 ${data.workflows_created} 个工作流`,
+      )
+      await load()
+    } catch {
+      ElMessage.error('扫描沉淀失败，请稍后重试')
+    } finally {
+      assetBusy.value = ''
+    }
+  }
+
+  async function toggleWorkflow(item: CommanderWorkflow): Promise<void> {
+    assetBusy.value = item.id
+    try {
+      const status = item.status === 'active' ? 'archived' : 'active'
+      await commanderWorkspaceApi.updateWorkflow(item.id, { status })
+      ElMessage.success(status === 'active' ? '工作流已启用' : '工作流已下线')
+      await loadAssets()
+      await load()
+    } catch {
+      ElMessage.error('工作流更新失败')
+    } finally {
+      assetBusy.value = ''
+    }
+  }
+
+  async function toggleFailure(item: CommanderFailureCase): Promise<void> {
+    assetBusy.value = item.id
+    try {
+      const status = item.status === 'resolved' ? 'active' : 'resolved'
+      await commanderWorkspaceApi.updateFailure(item.id, status)
+      ElMessage.success(status === 'resolved' ? '已标记为已解决' : '已重新启用')
+      await loadAssets()
+      await load()
+    } catch {
+      ElMessage.error('失败案例更新失败')
+    } finally {
+      assetBusy.value = ''
+    }
+  }
+
+  async function toggleSkill(item: CommanderSkillSnippet): Promise<void> {
+    assetBusy.value = item.id
+    try {
+      const status = item.status === 'active' ? 'archived' : 'active'
+      await commanderWorkspaceApi.updateSkill(item.id, status)
+      ElMessage.success(status === 'active' ? '技能已转正' : '技能已归档')
+      await loadAssets()
+      await load()
+    } catch {
+      ElMessage.error('技能片段更新失败')
+    } finally {
+      assetBusy.value = ''
+    }
+  }
+
+  onMounted(() => {
+    void load()
+    void loadAssets()
+  })
 </script>
 
 <style scoped>
@@ -1087,6 +1386,104 @@
     color: var(--ds-text-2);
     white-space: pre-wrap;
     word-break: break-word;
+  }
+
+  .asset-counts {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .asset-count {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 6px;
+    border: 1px solid var(--ds-border);
+    border-radius: var(--ds-radius-chip, 8px);
+    background: var(--ds-bg-1);
+    text-align: center;
+  }
+
+  .asset-count strong {
+    font-size: 19px;
+    font-weight: 650;
+    color: var(--ds-text-1);
+  }
+
+  .asset-count span {
+    font-size: 11px;
+    color: var(--ds-text-3);
+  }
+
+  .asset-tabs {
+    margin-top: 10px;
+  }
+
+  .asset-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-height: 320px;
+    overflow-y: auto;
+    padding-right: 2px;
+  }
+
+  .asset-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    padding-bottom: 9px;
+    border-bottom: 1px dashed var(--ds-border);
+  }
+
+  .asset-row:last-child {
+    padding-bottom: 0;
+    border-bottom: 0;
+  }
+
+  .asset-main {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+  }
+
+  .asset-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+
+  .asset-title strong {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--ds-text-1);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 240px;
+  }
+
+  .asset-scene {
+    margin: 0;
+    font-size: 11.5px;
+    line-height: 1.6;
+    color: var(--ds-text-3);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .asset-fix {
+    margin: 0;
+    font-size: 11.5px;
+    line-height: 1.6;
+    color: var(--ds-text-2);
   }
 
   @media (max-width: 620px) {

@@ -28,6 +28,11 @@ from app.modules.chat.models import (  # noqa: F401
     ChatParticipant,
     ChatSession,
 )
+from app.modules.commander.asset_models import (  # noqa: F401
+    CommanderFailureCase,
+    CommanderSkillSnippet,
+    CommanderWorkflow,
+)
 from app.modules.commander.governance_models import (  # noqa: F401
     CommanderEvaluation,
     CommanderSnapshot,

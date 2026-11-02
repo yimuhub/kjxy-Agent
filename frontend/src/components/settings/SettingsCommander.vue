@@ -359,6 +359,40 @@
               留空表示跟随模型中心的默认对话模型；只列已启用且模态匹配的模型
             </span>
           </el-form-item>
+
+          <el-divider content-position="left">
+            经验资产
+          </el-divider>
+
+          <el-form-item label="自动沉淀工作流">
+            <el-switch
+              v-model="cfg.auto_learn_workflows"
+              :disabled="!canManage"
+            />
+            <span class="note">
+              成功运行后提炼步骤模板；同类任务规划时优先复用，失败场景同步进黑名单
+            </span>
+          </el-form-item>
+
+          <el-form-item label="自动萃取技能">
+            <el-switch
+              v-model="cfg.auto_extract_skills"
+              :disabled="!canManage || !cfg.auto_learn_workflows"
+            />
+            <span class="note">
+              从 Worker 稳定成功的样本萃取技能；至少 2 个样本且成功率 ≥80% 才转正
+            </span>
+          </el-form-item>
+
+          <el-form-item label="失败入黑名单阈值">
+            <el-input-number
+              v-model="cfg.failure_blacklist_threshold"
+              :min="1"
+              :max="10"
+              :disabled="!canManage || !cfg.auto_learn_workflows"
+            />
+            <span class="note">同场景同错误累计达到该次数后，规划前提示规避方案</span>
+          </el-form-item>
         </el-form>
 
         <el-alert

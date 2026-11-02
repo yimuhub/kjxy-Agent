@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
@@ -17,7 +18,8 @@ from sqlalchemy.orm import Session
 from app.core.deps import CurrentUser, YardContext, get_current_user, get_db_session
 from app.core.errors import AppError
 from app.core.responses import ok
-from app.modules.commander import evaluator, metrics, service, snapshots
+from app.modules.audit.service import log_audit
+from app.modules.commander import evaluator, learning, metrics, service, snapshots
 from app.modules.commander import settings as commander_settings
 from app.modules.commander.models import RUN_QUEUED, CommanderRun
 from app.modules.memory import service as memory_service
@@ -68,6 +70,46 @@ class SnapshotCreateRequest(BaseModel):
 
     label: str = Field(default="", max_length=60)
     reason: str = Field(default="", max_length=200)
+
+
+class WorkflowStepIn(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    title: str = Field(min_length=1, max_length=200)
+    instruction: str = Field(min_length=1, max_length=2000)
+    expected_output: str = Field(default="", max_length=1000)
+    agent_code: str = Field(default="", max_length=100)
+
+
+class WorkflowCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    name: str = Field(min_length=1, max_length=200)
+    scene: str = Field(min_length=1, max_length=4000)
+    preconditions: str = Field(default="", max_length=2000)
+    steps: list[WorkflowStepIn] = Field(min_length=1, max_length=20)
+
+
+class WorkflowUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    status: Literal["active", "draft", "archived"] | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    scene: str | None = Field(default=None, min_length=1, max_length=4000)
+    preconditions: str | None = Field(default=None, max_length=2000)
+    steps: list[WorkflowStepIn] | None = Field(default=None, min_length=1, max_length=20)
+
+
+class FailureUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    status: Literal["watching", "active", "resolved"]
+
+
+class SkillUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    status: Literal["candidate", "active", "archived"]
 
 
 def _is_manager(ctx: YardContext) -> bool:
@@ -173,6 +215,7 @@ def commander_overview(
                     evaluator.evaluation_out(latest_eval) if latest_eval is not None else None
                 ),
                 "snapshots": [snapshots.snapshot_out(row) for row in snapshot_rows],
+                "assets": learning.asset_counts(db, ctx.yard_id) if manager else {},
             },
             "runs": runs,
         },
@@ -285,6 +328,187 @@ def restore_snapshot(
         },
         request,
     )
+
+
+def _assets_payload(db: Session, yard_id: str) -> dict:
+    return {
+        "counts": learning.asset_counts(db, yard_id),
+        "workflows": [learning.workflow_out(row) for row in learning.list_workflows(db, yard_id)],
+        "failures": [learning.failure_out(row) for row in learning.list_failures(db, yard_id)],
+        "skills": [learning.skill_out(row) for row in learning.list_skills(db, yard_id)],
+    }
+
+
+@router.get("/assets")
+def asset_overview(
+    request: Request,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+):
+    """经验资产总览：工作流、失败黑名单、技能片段与计数。"""
+    ctx = _ctx(user)
+    _require_manager(ctx, "仅小院负责人或管理员可查看经验资产。")
+    return ok(_assets_payload(db, ctx.yard_id), request)
+
+
+@router.post("/assets/scan")
+def scan_assets(
+    request: Request,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+):
+    """手动回填近 30 天运行并重算技能；受小院学习开关约束。"""
+    ctx = _ctx(user)
+    _require_manager(ctx, "仅小院负责人或管理员可触发经验沉淀。")
+    cfg = commander_settings.settings_for(db, ctx.yard_id)
+    result = learning.scan_yard(
+        db,
+        yard_id=ctx.yard_id,
+        failure_threshold=int(cfg.get("failure_blacklist_threshold") or 2),
+        learn_workflows=bool(cfg.get("auto_learn_workflows", True)),
+        record_failures=bool(cfg.get("auto_learn_workflows", True)),
+        extract_skills=bool(cfg.get("auto_extract_skills", True)),
+    )
+    log_audit(
+        db,
+        yard_id=ctx.yard_id,
+        actor_id=ctx.user_id,
+        action="commander_assets_scanned",
+        resource_type="commander_asset",
+        resource_id=None,
+        result="success",
+        request_id=ctx.request_id,
+        metadata=result,
+    )
+    db.commit()
+    return ok({**result, **_assets_payload(db, ctx.yard_id)}, request)
+
+
+@router.post("/assets/workflows")
+def create_workflow(
+    body: WorkflowCreateRequest,
+    request: Request,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+):
+    ctx = _ctx(user)
+    _require_manager(ctx, "仅小院负责人或管理员可创建工作流。")
+    row = learning.create_workflow(
+        db,
+        yard_id=ctx.yard_id,
+        name=body.name,
+        scene=body.scene,
+        preconditions=body.preconditions,
+        steps=[step.model_dump() for step in body.steps],
+        created_by=ctx.user_id,
+    )
+    log_audit(
+        db,
+        yard_id=ctx.yard_id,
+        actor_id=ctx.user_id,
+        action="commander_workflow_created",
+        resource_type="commander_workflow",
+        resource_id=row.id,
+        result="success",
+        request_id=ctx.request_id,
+        metadata={"code": row.code, "steps": len(row.steps_json or [])},
+    )
+    db.commit()
+    return ok({"workflow": learning.workflow_out(row)}, request)
+
+
+@router.put("/assets/workflows/{workflow_id}")
+def update_workflow(
+    workflow_id: str,
+    body: WorkflowUpdateRequest,
+    request: Request,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+):
+    ctx = _ctx(user)
+    _require_manager(ctx, "仅小院负责人或管理员可修改工作流。")
+    row = learning.get_workflow(db, ctx.yard_id, workflow_id)
+    if row is None:
+        raise AppError("COMMANDER_ASSET_NOT_FOUND", "工作流不存在。", http_status=404)
+    learning.update_workflow(
+        row,
+        status=body.status,
+        name=body.name,
+        scene=body.scene,
+        preconditions=body.preconditions,
+        steps=[step.model_dump() for step in body.steps] if body.steps is not None else None,
+    )
+    log_audit(
+        db,
+        yard_id=ctx.yard_id,
+        actor_id=ctx.user_id,
+        action="commander_workflow_updated",
+        resource_type="commander_workflow",
+        resource_id=row.id,
+        result="success",
+        request_id=ctx.request_id,
+        metadata={"status": row.status, "version": row.version},
+    )
+    db.commit()
+    return ok({"workflow": learning.workflow_out(row)}, request)
+
+
+@router.put("/assets/failures/{failure_id}")
+def update_failure(
+    failure_id: str,
+    body: FailureUpdateRequest,
+    request: Request,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+):
+    ctx = _ctx(user)
+    _require_manager(ctx, "仅小院负责人或管理员可处理失败黑名单。")
+    row = learning.get_failure(db, ctx.yard_id, failure_id)
+    if row is None:
+        raise AppError("COMMANDER_ASSET_NOT_FOUND", "失败案例不存在。", http_status=404)
+    learning.update_failure_status(row, status=body.status)
+    log_audit(
+        db,
+        yard_id=ctx.yard_id,
+        actor_id=ctx.user_id,
+        action="commander_failure_updated",
+        resource_type="commander_failure",
+        resource_id=row.id,
+        result="success",
+        request_id=ctx.request_id,
+        metadata={"status": row.status},
+    )
+    db.commit()
+    return ok({"failure": learning.failure_out(row)}, request)
+
+
+@router.put("/assets/skills/{skill_id}")
+def update_skill(
+    skill_id: str,
+    body: SkillUpdateRequest,
+    request: Request,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+):
+    ctx = _ctx(user)
+    _require_manager(ctx, "仅小院负责人或管理员可管理技能片段。")
+    row = learning.get_skill(db, ctx.yard_id, skill_id)
+    if row is None:
+        raise AppError("COMMANDER_ASSET_NOT_FOUND", "技能片段不存在。", http_status=404)
+    learning.update_skill_status(row, status=body.status)
+    log_audit(
+        db,
+        yard_id=ctx.yard_id,
+        actor_id=ctx.user_id,
+        action="commander_skill_updated",
+        resource_type="commander_skill",
+        resource_id=row.id,
+        result="success",
+        request_id=ctx.request_id,
+        metadata={"status": row.status},
+    )
+    db.commit()
+    return ok({"skill": learning.skill_out(row)}, request)
 
 
 @router.post("/preview")

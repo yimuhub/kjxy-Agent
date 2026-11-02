@@ -562,6 +562,9 @@ v3.37 起通道判别以**模型模态**为兜底：通用 OpenAI 兼容供应�
 | `evaluator_enabled` | `true` | 每周一自动跑独立考官测评（仅近 8 天有运行的小院） |
 | `evaluator_auto_persona` | `true` | 允许测评按风险分自动切换人格；样本少于 3 次运行不切换 |
 | `evaluator_supplier_id` / `evaluator_supplier_model_id` | `null` | 考官模型绑定；空 = 复用规划模型 |
+| `auto_learn_workflows` | `true` | 成功运行自动沉淀标准工作流；失败子任务累计进黑名单 |
+| `auto_extract_skills` | `true` | 从 Worker 成功样本萃取技能片段；关闭后既有资产仍可读取与手动维护 |
+| `failure_blacklist_threshold` | `2` | 同场景同错误累计达到该次数后进入失败黑名单（1–10） |
 
 ### 会话执行模式
 
@@ -663,7 +666,7 @@ v3.37 起通道判别以**模型模态**为兜底：通用 OpenAI 兼容供应�
 | `DELETE /commander/memories/{id}` | 只能删自己可管理的记忆；越权或不存在 404 |
 | `POST /commander/memories/summary` | `{day?}` 生成/刷新某日小院复盘；仅 `yard_owner`/`yard_admin`/`platform_admin`，普通成员 403 |
 | `GET /commander/cost?days=30` | 按 `purpose` 与 `model` 聚合 `llm_calls`，返回调用数、输入/输出/总 token、估算费用与指挥官运行汇总 |
-| `GET /commander/overview?days=30` | 指挥台聚合：设置快照、运行指标、成本、记忆计数与最新日复盘、最近 8 次运行；管理角色额外返回 `governance`（最新测评 + 快照列表） |
+| `GET /commander/overview?days=30` | 指挥台聚合：设置快照、运行指标、成本、记忆计数与最新日复盘、最近 8 次运行；管理角色额外返回 `governance`（最新测评 + 快照列表 + 资产计数） |
 
 ### 监督测评与进化治理
 
@@ -679,6 +682,27 @@ v3.37 起通道判别以**模型模态**为兜底：通用 OpenAI 兼容供应�
 | `POST /commander/snapshots/{id}/restore` | 回滚到指定快照；先自动备份当前状态，返回 `backup` 与回滚后的设置 |
 
 测评指标全部来自只读聚合：运行/子任务成功率、重试与补救、自动创建助手数、产物数、预算事件、错误码、模型成本、记忆数量与 P90 耗时。考官模型不可用或输出不合法时自动退化为确定性规则评分，报告照常生成。人格只影响规划提示措辞与自主补救轮数（进取 +1、稳健 −1，范围 1–10），审批与风险闸门不因人格放宽。审计事件：`commander_evaluation_created`、`commander_evaluation_refreshed`、`commander_persona_changed`、`commander_snapshot_restored`。
+
+### 经验资产（工作流 / 失败黑名单 / 技能片段）
+
+运行结束后，指挥官把「同类目标 + 成功步骤」沉淀为标准工作流，把同场景失败累计为黑名单，并从 Worker 稳定成功的样本萃取技能。规划前按场景相似度匹配：命中活跃工作流注入步骤提示，命中活跃黑名单注入规避方案；稳健型人格额外要求优先复用工作流。全部资产按小院隔离，普通成员 403。
+
+| 资产 | 关键字段与规则 |
+| --- | --- |
+| 标准工作流 `commander_workflows` | `code/name/scene/preconditions/steps[]/cost_baseline_tokens/version`，成功次数与失败次数随运行更新；同一 `(yard_id, code)` 唯一，同一 run 只计一次；人工下线后不会被自动学习复活 |
+| 失败黑名单 `commander_failure_cases` | `scene/error_code/error_message/root_cause/avoidance/occurrences/status`；状态 `watching → active` 由阈值控制，负责人可标记 `resolved`，复发会自动重新启用 |
+| 技能片段 `commander_skill_snippets` | `code/name/scene/content/source_agent_code/sample_count/success_rate/evidence[]`；至少 2 个样本、成功率 ≥80% 且来自 ≥2 次运行才自动转正，否则保持 `candidate`；归档后不自动复活 |
+
+| 接口 | 说明 |
+| --- | --- |
+| `GET /commander/assets` | 资产总览：三类计数 + 各自列表（工作流按最近使用、黑名单按次数、技能按成功率） |
+| `POST /commander/assets/scan` | 回填近 30 天运行并重算技能；受 `auto_learn_workflows` / `auto_extract_skills` 开关约束，返回扫描运行数与新增工作流数 |
+| `POST /commander/assets/workflows` | 手动创建工作流 `{name, scene, preconditions?, steps[]}`；`steps[]` 含 `title/instruction/expected_output?/agent_code?` |
+| `PUT /commander/assets/workflows/{id}` | 修改名称/场景/前置/步骤，或切换 `active|draft|archived`；步骤变更时版本 +1 |
+| `PUT /commander/assets/failures/{id}` | 切换 `watching|active|resolved` |
+| `PUT /commander/assets/skills/{id}` | 切换 `candidate|active|archived` |
+
+后台调度：桌面 inline 模式每 6 小时巡检近 8 天有运行的小院，逐院回填并重算技能，单院失败不影响其他小院。审计事件：`commander_assets_updated`、`commander_assets_scanned`、`commander_workflow_created`、`commander_workflow_updated`、`commander_failure_updated`、`commander_skill_updated`。
 
 `commander_runs` 新增两个快照列：`token_budget`（创建 run 时的预算，0 表示不限）与 `budget_status`（`ok|warning|exceeded`）。执行中达到 80% 标 `warning` 并发 `commander-budget` SSE 帧；达到 100% 标 `exceeded`，停止继续派发子任务，已完成子任务保留；唯一例外是尚未开始的交付任务可再放行一次（成本已有页数上限），避免整轮没有产物。`GET /commander/runs/{id}` 同时返回 `budget_ratio`、`budget_remaining` 与 `memory_used`，便于前端展示。
 

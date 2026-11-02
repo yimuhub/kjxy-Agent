@@ -59,6 +59,11 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # 测评模型单独绑定（空 = 跟随规划模型，保持可独立审计）
     "evaluator_supplier_id": None,
     "evaluator_supplier_model_id": None,
+    # 经验资产：成功运行自动沉淀工作流、从 Worker 样本萃取技能
+    "auto_learn_workflows": True,
+    "auto_extract_skills": True,
+    # 同场景同错误累计多少次后进入失败黑名单（1–10）
+    "failure_blacklist_threshold": 2,
 }
 
 
@@ -94,6 +99,9 @@ class CommanderSettings(BaseModel):
     evaluator_auto_persona: bool
     evaluator_supplier_id: str | None = Field(default=None, max_length=36)
     evaluator_supplier_model_id: str | None = Field(default=None, max_length=100)
+    auto_learn_workflows: bool
+    auto_extract_skills: bool
+    failure_blacklist_threshold: int = Field(ge=1, le=10)
 
 
 def defaults() -> dict[str, Any]:

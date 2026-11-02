@@ -53,7 +53,7 @@ from app.modules.agents.models import (
 )
 from app.modules.audit.service import log_audit
 from app.modules.chat import models as chat_models
-from app.modules.commander import deliverables, feasibility, matcher, planner
+from app.modules.commander import deliverables, feasibility, learning, matcher, planner
 from app.modules.commander import settings as commander_settings
 from app.modules.commander.models import (
     RUN_CANCELLED,
@@ -510,6 +510,24 @@ async def create_plan_run(
         memory_hint = memory_service.retrieve_for_commander(db, ctx, text)
     except Exception as exc:  # noqa: BLE001 - 记忆是增强，不能让规划挂掉
         log.warning("commander memory retrieve failed: %s", exc)
+    # 经验资产：优先复用成熟工作流，并把同场景踩过的坑带进规划
+    workflow_hint = ""
+    failure_hint = ""
+    matched_workflow = None
+    matched_failures = 0
+    try:
+        matched = learning.match_workflow(db, yard_id=ctx.yard_id, text=text)
+        if matched is not None:
+            matched_workflow, _score = matched
+            workflow_hint = learning.workflow_hint(matched_workflow)
+            if str(settings.get("persona") or "balanced") == "steady":
+                workflow_hint += "\n当前人格稳健：优先复用该工作流，减少新方案与重试。"
+            learning.mark_workflow_used(db, matched_workflow)
+        failures = learning.retrieve_failures(db, yard_id=ctx.yard_id, text=text)
+        matched_failures = len(failures)
+        failure_hint = learning.failure_hint(failures)
+    except Exception as exc:  # noqa: BLE001 - 资产检索失败不阻塞规划
+        log.warning("commander learning retrieve failed: %s", exc)
     usage: dict[str, int] = {"input_tokens": 0, "output_tokens": 0}
     repaired = False
     plan_error: str | None = None
@@ -535,11 +553,15 @@ async def create_plan_run(
             capability_hint=feasibility.plan_hint(check),
             skills_hint="、".join(f"{skill.name}（{skill.code}）" for skill in resolved_skills),
             memory_hint=memory_hint,
+            workflow_hint=workflow_hint,
+            failure_hint=failure_hint,
             persona=str(settings.get("persona") or "balanced"),
         )
         plan = planner.normalize_plan(raw_plan, max_subtasks=max_subtasks, fallback_goal=text)
         if plan is not None:
             plan["memory_used"] = bool(memory_hint)
+            plan["workflow_used"] = matched_workflow.code if matched_workflow else None
+            plan["failure_used"] = matched_failures
 
     if not check.blocked:
         if plan is not None:
@@ -2382,6 +2404,33 @@ async def execute_run(
         except Exception as exc:  # noqa: BLE001 - 记忆是增强，不能把成功运行变成失败
             db.rollback()
             log.warning("commander memory episode failed run=%s: %s", run.id, exc)
+
+        # 经验资产：成功沉淀工作流，失败累计黑名单，Worker 样本萃取技能
+        try:
+            if settings.get("auto_learn_workflows", True):
+                learning.learn_from_run(
+                    db,
+                    run=run,
+                    subtasks=subtasks,
+                    failure_threshold=int(settings.get("failure_blacklist_threshold") or 2),
+                )
+            if settings.get("auto_extract_skills", True):
+                learning.extract_skills_for_yard(db, yard_id=run.yard_id)
+            _safe_commit(db)
+            log_audit(
+                db,
+                yard_id=run.yard_id,
+                actor_id=run.user_id,
+                action="commander_assets_updated",
+                resource_type="commander_run",
+                resource_id=run.id,
+                result="success",
+                request_id=ctx.request_id,
+                metadata={"status": run.status},
+            )
+        except Exception as exc:  # noqa: BLE001 - 资产学习失败不改变运行结果
+            db.rollback()
+            log.warning("commander asset learning failed run=%s: %s", run.id, exc)
 
         artifacts = _collect_artifacts(subtasks)
         summary = _summary_payload(run, subtasks, answer=answer, artifacts=artifacts, failed=failed)
