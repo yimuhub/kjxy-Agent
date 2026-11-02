@@ -535,6 +535,7 @@ async def create_plan_run(
             capability_hint=feasibility.plan_hint(check),
             skills_hint="、".join(f"{skill.name}（{skill.code}）" for skill in resolved_skills),
             memory_hint=memory_hint,
+            persona=str(settings.get("persona") or "balanced"),
         )
         plan = planner.normalize_plan(raw_plan, max_subtasks=max_subtasks, fallback_goal=text)
         if plan is not None:
@@ -1599,6 +1600,12 @@ async def _run_one(
             context = _dependency_context(db, run_id, list(subtask.depends_on_json or []))
             auto_remediate = bool(settings.get("auto_remediate", True))
             max_rounds = max(1, int(settings.get("remediate_rounds") or 1)) if auto_remediate else 1
+            # 人格只调整「试错额度」：进取型多给一轮，稳健型少给一轮，风险闸门不变
+            persona = str(settings.get("persona") or "balanced")
+            if auto_remediate and persona == "aggressive":
+                max_rounds = min(10, max_rounds + 1)
+            elif auto_remediate and persona == "steady":
+                max_rounds = max(1, max_rounds - 1)
             queue = _remediation_queue(subtask)
             remediations = list(subtask.remediation_json or [])
             used_retry = False

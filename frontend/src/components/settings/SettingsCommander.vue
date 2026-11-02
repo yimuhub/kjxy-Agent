@@ -268,6 +268,80 @@
             <span class="note">默认 120000；超出后停止新子任务并汇总已有结果</span>
           </el-form-item>
 
+          <el-divider content-position="left">
+            测评与进化
+          </el-divider>
+
+          <el-form-item label="当前人格">
+            <el-radio-group
+              v-model="cfg.persona"
+              :disabled="!canManage"
+            >
+              <el-radio-button value="aggressive">
+                进取型
+              </el-radio-button>
+              <el-radio-button value="balanced">
+                平衡型
+              </el-radio-button>
+              <el-radio-button value="steady">
+                稳健保守型
+              </el-radio-button>
+            </el-radio-group>
+            <span class="note">周测评会给出建议；手动修改立即生效</span>
+          </el-form-item>
+
+          <el-form-item label="锁定人格">
+            <el-switch
+              v-model="cfg.persona_locked"
+              :disabled="!canManage"
+            />
+            <span class="note">锁定后测评仍出报告，但不会自动改变人格标签</span>
+          </el-form-item>
+
+          <el-form-item label="进化锁">
+            <el-switch
+              v-model="cfg.evolution_lock"
+              :disabled="!canManage"
+            />
+            <span class="note">
+              一键暂停人格自动调整与后续自动进化；解锁后恢复
+            </span>
+          </el-form-item>
+
+          <el-form-item label="每周自动测评">
+            <el-switch
+              v-model="cfg.evaluator_enabled"
+              :disabled="!canManage"
+            />
+            <span class="note">每周一为最近有运行的小院生成一份监督测评报告</span>
+          </el-form-item>
+
+          <el-form-item label="测评可调整人格">
+            <el-switch
+              v-model="cfg.evaluator_auto_persona"
+              :disabled="!canManage || cfg.persona_locked || cfg.evolution_lock"
+            />
+            <span class="note">关闭后只出报告，不自动切换人格；锁定人格或进化锁优先生效</span>
+          </el-form-item>
+
+          <el-form-item label="测评模型">
+            <SupplierModelSelect
+              :suppliers="suppliers"
+              :modalities="TEXT_MODALITIES"
+              allow-default
+              value-mode="id"
+              :supplier-id="cfg.evaluator_supplier_id || ''"
+              :model-id="cfg.evaluator_supplier_model_id || ''"
+              :disabled="!canManage"
+              placeholder="跟随规划模型（点此指定）"
+              @update:supplier-id="onEvaluatorSupplierPicked"
+              @update:model-id="onEvaluatorModelPicked"
+            />
+            <span class="note block-note">
+              测评独立计费，用途码为 commander_eval；留空则跟随规划/汇总模型
+            </span>
+          </el-form-item>
+
           <el-form-item label="规划/汇总模型">
             <SupplierModelSelect
               :suppliers="suppliers"
@@ -396,6 +470,14 @@
 
   function onModelPicked(value: string): void {
     cfg.supplier_model_id = value || null
+  }
+
+  function onEvaluatorSupplierPicked(value: string): void {
+    cfg.evaluator_supplier_id = value || null
+  }
+
+  function onEvaluatorModelPicked(value: string): void {
+    cfg.evaluator_supplier_model_id = value || null
   }
 
   async function loadSuppliers(): Promise<void> {

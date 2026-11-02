@@ -28,6 +28,10 @@ from app.modules.chat.models import (  # noqa: F401
     ChatParticipant,
     ChatSession,
 )
+from app.modules.commander.governance_models import (  # noqa: F401
+    CommanderEvaluation,
+    CommanderSnapshot,
+)
 from app.modules.commander.models import (  # noqa: F401
     CommanderRun,
     CommanderSubtask,

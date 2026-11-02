@@ -68,6 +68,26 @@ export interface CommanderSettings {
   token_budget: number
   supplier_id: string | null
   supplier_model_id: string | null
+  /** 人格标签：由周度测评判定，也可手动指定 */
+  persona: CommanderPersona
+  /** 锁定人格后测评只出报告、不自动改画像 */
+  persona_locked: boolean
+  /** 进化锁：暂停人格自动调整与后续自动进化 */
+  evolution_lock: boolean
+  /** 每周自动测评 */
+  evaluator_enabled: boolean
+  /** 测评报告是否允许自动调整人格 */
+  evaluator_auto_persona: boolean
+  evaluator_supplier_id: string | null
+  evaluator_supplier_model_id: string | null
+}
+
+export type CommanderPersona = 'aggressive' | 'steady' | 'balanced'
+
+export const COMMANDER_PERSONA_LABELS: Record<CommanderPersona, string> = {
+  aggressive: '进取型',
+  steady: '稳健保守型',
+  balanced: '平衡型',
 }
 
 export const DEFAULT_COMMANDER_SETTINGS: CommanderSettings = {
@@ -91,6 +111,13 @@ export const DEFAULT_COMMANDER_SETTINGS: CommanderSettings = {
   token_budget: 120000,
   supplier_id: null,
   supplier_model_id: null,
+  persona: 'balanced',
+  persona_locked: false,
+  evolution_lock: false,
+  evaluator_enabled: true,
+  evaluator_auto_persona: true,
+  evaluator_supplier_id: null,
+  evaluator_supplier_model_id: null,
 }
 
 function intIn(value: unknown, fallback: number, min: number, max: number): number {
@@ -101,6 +128,12 @@ function intIn(value: unknown, fallback: number, min: number, max: number): numb
 
 function boolOr(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback
+}
+
+function personaOr(value: unknown, fallback: CommanderPersona): CommanderPersona {
+  return value === 'aggressive' || value === 'steady' || value === 'balanced'
+    ? value
+    : fallback
 }
 
 function idOrNull(value: unknown): string | null {
@@ -141,6 +174,13 @@ export function normalizeCommanderSettings(
     token_budget: intIn(src.token_budget, d.token_budget, 1000, 2_000_000),
     supplier_id: idOrNull(src.supplier_id),
     supplier_model_id: idOrNull(src.supplier_model_id),
+    persona: personaOr(src.persona, d.persona),
+    persona_locked: boolOr(src.persona_locked, d.persona_locked),
+    evolution_lock: boolOr(src.evolution_lock, d.evolution_lock),
+    evaluator_enabled: boolOr(src.evaluator_enabled, d.evaluator_enabled),
+    evaluator_auto_persona: boolOr(src.evaluator_auto_persona, d.evaluator_auto_persona),
+    evaluator_supplier_id: idOrNull(src.evaluator_supplier_id),
+    evaluator_supplier_model_id: idOrNull(src.evaluator_supplier_model_id),
   }
 }
 

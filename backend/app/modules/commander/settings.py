@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.orm import Session
@@ -48,6 +48,17 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # 规划/汇总模型绑定（空 = 跟随模型中心全局默认）
     "supplier_id": None,
     "supplier_model_id": None,
+    # 人格：由周度测评判定，可手动锁定；影响规划口吻与自主补救轮数
+    "persona": "balanced",
+    "persona_locked": False,
+    # 进化锁：暂停人格自动调整与后续自动进化，测评仍可只读运行
+    "evolution_lock": False,
+    # 监督测评：每周自动出报告；可按开关决定是否允许报告调整人格
+    "evaluator_enabled": True,
+    "evaluator_auto_persona": True,
+    # 测评模型单独绑定（空 = 跟随规划模型，保持可独立审计）
+    "evaluator_supplier_id": None,
+    "evaluator_supplier_model_id": None,
 }
 
 
@@ -76,6 +87,13 @@ class CommanderSettings(BaseModel):
     token_budget: int = Field(ge=1000, le=2_000_000)
     supplier_id: str | None = Field(default=None, max_length=36)
     supplier_model_id: str | None = Field(default=None, max_length=100)
+    persona: Literal["aggressive", "steady", "balanced"]
+    persona_locked: bool
+    evolution_lock: bool
+    evaluator_enabled: bool
+    evaluator_auto_persona: bool
+    evaluator_supplier_id: str | None = Field(default=None, max_length=36)
+    evaluator_supplier_model_id: str | None = Field(default=None, max_length=100)
 
 
 def defaults() -> dict[str, Any]:

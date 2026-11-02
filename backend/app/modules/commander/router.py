@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.core.deps import CurrentUser, YardContext, get_current_user, get_db_session
 from app.core.errors import AppError
 from app.core.responses import ok
-from app.modules.commander import metrics, service
+from app.modules.commander import evaluator, metrics, service, snapshots
 from app.modules.commander import settings as commander_settings
 from app.modules.commander.models import RUN_QUEUED, CommanderRun
 from app.modules.memory import service as memory_service
@@ -54,6 +54,29 @@ class PlanEditRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     subtasks: list[PlanSubtaskIn] = Field(min_length=1, max_length=12)
+
+
+class EvaluationRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    use_llm: bool = True
+    force: bool = False
+
+
+class SnapshotCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    label: str = Field(default="", max_length=60)
+    reason: str = Field(default="", max_length=200)
+
+
+def _is_manager(ctx: YardContext) -> bool:
+    return bool(set(ctx.roles or []) & {"yard_owner", "yard_admin", "platform_admin"})
+
+
+def _require_manager(ctx: YardContext, message: str = "仅小院负责人或管理员可执行该操作。") -> None:
+    if not _is_manager(ctx):
+        raise AppError("FORBIDDEN", message, http_status=403)
 
 
 def _ctx(user: CurrentUser) -> YardContext:
@@ -120,6 +143,9 @@ def commander_overview(
         _run, subtasks = service.get_run(db, ctx.yard_id, run.id)
         runs.append(service.run_out(run, subtasks))
     summaries = memory_service.list_memories(db, ctx, kind="summary", limit=1)
+    manager = _is_manager(ctx)
+    latest_eval = evaluator.latest_evaluation(db, ctx.yard_id) if manager else None
+    snapshot_rows = snapshots.list_snapshots(db, ctx.yard_id, limit=5) if manager else []
     return ok(
         {
             "commander": {
@@ -131,16 +157,131 @@ def commander_overview(
                 "default_mode": bool(settings["default_mode"]),
                 "clarify_enabled": bool(settings["clarify_enabled"]),
                 "auto_remediate": bool(settings["auto_remediate"]),
+                "persona": settings["persona"],
+                "persona_locked": bool(settings["persona_locked"]),
+                "evolution_lock": bool(settings["evolution_lock"]),
+                "evaluator_enabled": bool(settings["evaluator_enabled"]),
             },
             "stats": metrics.stats(db, ctx.yard_id, window_days),
             "cost": metrics.cost_stats(db, ctx.yard_id, window_days),
             "memory": {
                 "counts": memory_service.count_memories(db, ctx),
-                "latest_summary": (
-                    memory_service.memory_out(summaries[0]) if summaries else None
+                "latest_summary": (memory_service.memory_out(summaries[0]) if summaries else None),
+            },
+            "governance": {
+                "latest_evaluation": (
+                    evaluator.evaluation_out(latest_eval) if latest_eval is not None else None
                 ),
+                "snapshots": [snapshots.snapshot_out(row) for row in snapshot_rows],
             },
             "runs": runs,
+        },
+        request,
+    )
+
+
+@router.get("/evaluations")
+def list_evaluations(
+    request: Request,
+    limit: int = 12,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+):
+    """历史测评报告；只对负责人/管理员开放。"""
+    ctx = _ctx(user)
+    _require_manager(ctx, "仅小院负责人或管理员可查看测评报告。")
+    rows = evaluator.list_evaluations(db, ctx.yard_id, limit=limit)
+    return ok({"items": [evaluator.evaluation_out(row) for row in rows]}, request)
+
+
+@router.get("/evaluations/latest")
+def latest_evaluation(
+    request: Request,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+):
+    ctx = _ctx(user)
+    _require_manager(ctx, "仅小院负责人或管理员可查看测评报告。")
+    row = evaluator.latest_evaluation(db, ctx.yard_id)
+    return ok({"evaluation": evaluator.evaluation_out(row) if row is not None else None}, request)
+
+
+@router.post("/evaluations/run")
+async def run_evaluation(
+    body: EvaluationRunRequest,
+    request: Request,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+):
+    """手动触发本周测评；``use_llm=false`` 时只跑确定性规则评分。"""
+    ctx = _ctx(user)
+    _require_manager(ctx)
+    row, created = await evaluator.run_evaluation(db, ctx, use_llm=body.use_llm, force=body.force)
+    db.commit()
+    return ok(
+        {
+            "evaluation": evaluator.evaluation_out(row),
+            "created": created,
+            "settings": commander_settings.settings_for(db, ctx.yard_id),
+        },
+        request,
+    )
+
+
+@router.get("/snapshots")
+def list_snapshots(
+    request: Request,
+    limit: int = 20,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+):
+    ctx = _ctx(user)
+    _require_manager(ctx, "仅小院负责人或管理员可查看快照。")
+    rows = snapshots.list_snapshots(db, ctx.yard_id, limit=limit)
+    return ok({"items": [snapshots.snapshot_out(row) for row in rows]}, request)
+
+
+@router.post("/snapshots")
+def create_snapshot(
+    body: SnapshotCreateRequest,
+    request: Request,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+):
+    ctx = _ctx(user)
+    _require_manager(ctx, "仅小院负责人或管理员可创建快照。")
+    row = snapshots.create_snapshot(
+        db,
+        yard_id=ctx.yard_id,
+        label=body.label,
+        reason=body.reason,
+        created_by=ctx.user_id,
+    )
+    db.commit()
+    return ok({"snapshot": snapshots.snapshot_out(row)}, request)
+
+
+@router.post("/snapshots/{snapshot_id}/restore")
+def restore_snapshot(
+    snapshot_id: str,
+    request: Request,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+):
+    ctx = _ctx(user)
+    _require_manager(ctx, "仅小院负责人或管理员可回滚快照。")
+    backup, settings = snapshots.restore_snapshot(
+        db,
+        yard_id=ctx.yard_id,
+        snapshot_id=snapshot_id,
+        actor_id=ctx.user_id,
+        request_id=ctx.request_id,
+    )
+    db.commit()
+    return ok(
+        {
+            "backup": snapshots.snapshot_out(backup),
+            "settings": settings,
         },
         request,
     )

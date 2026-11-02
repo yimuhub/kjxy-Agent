@@ -52,6 +52,9 @@ def _startup_wiring() -> None:
         # 桌面单机模式：standalone 永不启动 beat，连接器轮询/自我总结巡检走进程内 daemon 线程
         try:
             if settings.tasks_inline_mode:
+                from app.modules.commander.evaluator_tasks import (
+                    start_inline_scheduler as start_eval_poll,
+                )
                 from app.modules.devices.worker_tasks import (
                     start_inline_scheduler as start_devices_poll,
                 )
@@ -65,6 +68,7 @@ def _startup_wiring() -> None:
                 start_devices_poll()
                 start_si_poll()
                 start_memory_poll()
+                start_eval_poll()
         except Exception as e:
             log.warning("inline schedulers start failed: %s", e)
 
@@ -151,7 +155,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="科技小院多智能体平台", version="3.43.0", lifespan=lifespan)
+    app = FastAPI(title="科技小院多智能体平台", version="3.44.0", lifespan=lifespan)
     app.add_middleware(RequestIDMiddleware)
     app.add_exception_handler(AppError, app_error_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)

@@ -556,6 +556,12 @@ v3.37 起通道判别以**模型模态**为兜底：通用 OpenAI 兼容供应�
 | `critic_enabled` | `false` | 汇总前额外质检（预留） |
 | `token_budget` | `120000` | 单轮运行 token 预算 |
 | `supplier_id` / `supplier_model_id` | `null` | 规划/汇总模型绑定；空 = 跟随模型中心全局默认 |
+| `persona` | `balanced` | 人格画像：`aggressive`（进取）/`balanced`（平衡）/`steady`（稳健）；影响规划提示与补救援救轮数，不放松任何风险闸门 |
+| `persona_locked` | `false` | 开启后测评报告仍生成，但不自动改人格 |
+| `evolution_lock` | `false` | 总进化锁：暂停测评自动改人格（报告与快照照常） |
+| `evaluator_enabled` | `true` | 每周一自动跑独立考官测评（仅近 8 天有运行的小院） |
+| `evaluator_auto_persona` | `true` | 允许测评按风险分自动切换人格；样本少于 3 次运行不切换 |
+| `evaluator_supplier_id` / `evaluator_supplier_model_id` | `null` | 考官模型绑定；空 = 复用规划模型 |
 
 ### 会话执行模式
 
@@ -657,7 +663,22 @@ v3.37 起通道判别以**模型模态**为兜底：通用 OpenAI 兼容供应�
 | `DELETE /commander/memories/{id}` | 只能删自己可管理的记忆；越权或不存在 404 |
 | `POST /commander/memories/summary` | `{day?}` 生成/刷新某日小院复盘；仅 `yard_owner`/`yard_admin`/`platform_admin`，普通成员 403 |
 | `GET /commander/cost?days=30` | 按 `purpose` 与 `model` 聚合 `llm_calls`，返回调用数、输入/输出/总 token、估算费用与指挥官运行汇总 |
-| `GET /commander/overview?days=30` | 指挥台聚合：设置快照、运行指标、成本、记忆计数与最新日复盘、最近 8 次运行 |
+| `GET /commander/overview?days=30` | 指挥台聚合：设置快照、运行指标、成本、记忆计数与最新日复盘、最近 8 次运行；管理角色额外返回 `governance`（最新测评 + 快照列表） |
+
+### 监督测评与进化治理
+
+独立考官按 ISO 周测评指挥官的运行质量，输出五维评分与人格建议；报告落 `commander_evaluations`，同周重复运行只刷新原报告。人格变更受 `persona_locked`、`evolution_lock`、`evaluator_auto_persona` 与「至少 3 次运行」共同约束，改前自动写 `commander_snapshots`（来源 `persona`）。快照保存设置与人格，回滚前再自动备份当前状态（来源 `restore`）。全部接口仅 `yard_owner`/`yard_admin`/`platform_admin` 可调用，普通成员 403。
+
+| 接口 | 说明 |
+| --- | --- |
+| `GET /commander/evaluations?limit=12` | 历史测评报告（含五维分、综合分、优势/短板/建议与证据指标） |
+| `GET /commander/evaluations/latest` | 最新一份测评；没有时返回 `null` |
+| `POST /commander/evaluations/run` | `{use_llm?: true, force?: false}` 立即测评；`force=false` 时同周已有报告直接返回 `created=false` |
+| `GET /commander/snapshots?limit=20` | 版本快照列表（手动 / 人格调整前 / 回滚前备份） |
+| `POST /commander/snapshots` | `{label?, reason?}` 手动创建设置+人格快照 |
+| `POST /commander/snapshots/{id}/restore` | 回滚到指定快照；先自动备份当前状态，返回 `backup` 与回滚后的设置 |
+
+测评指标全部来自只读聚合：运行/子任务成功率、重试与补救、自动创建助手数、产物数、预算事件、错误码、模型成本、记忆数量与 P90 耗时。考官模型不可用或输出不合法时自动退化为确定性规则评分，报告照常生成。人格只影响规划提示措辞与自主补救轮数（进取 +1、稳健 −1，范围 1–10），审批与风险闸门不因人格放宽。审计事件：`commander_evaluation_created`、`commander_evaluation_refreshed`、`commander_persona_changed`、`commander_snapshot_restored`。
 
 `commander_runs` 新增两个快照列：`token_budget`（创建 run 时的预算，0 表示不限）与 `budget_status`（`ok|warning|exceeded`）。执行中达到 80% 标 `warning` 并发 `commander-budget` SSE 帧；达到 100% 标 `exceeded`，停止继续派发子任务，已完成子任务保留；唯一例外是尚未开始的交付任务可再放行一次（成本已有页数上限），避免整轮没有产物。`GET /commander/runs/{id}` 同时返回 `budget_ratio`、`budget_remaining` 与 `memory_used`，便于前端展示。
 

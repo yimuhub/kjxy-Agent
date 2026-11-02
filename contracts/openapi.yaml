@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.43.0
+  version: 3.44.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -10979,6 +10979,162 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/commander/evaluations:
+    get:
+      tags:
+      - v1
+      - commander
+      summary: List Evaluations
+      description: 历史测评报告；只对负责人/管理员开放。
+      operationId: list_evaluations_api_v1_commander_evaluations_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 12
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/commander/evaluations/latest:
+    get:
+      tags:
+      - v1
+      - commander
+      summary: Latest Evaluation
+      operationId: latest_evaluation_api_v1_commander_evaluations_latest_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/commander/evaluations/run:
+    post:
+      tags:
+      - v1
+      - commander
+      summary: Run Evaluation
+      description: 手动触发本周测评；``use_llm=false`` 时只跑确定性规则评分。
+      operationId: run_evaluation_api_v1_commander_evaluations_run_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EvaluationRunRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/commander/snapshots:
+    get:
+      tags:
+      - v1
+      - commander
+      summary: List Snapshots
+      operationId: list_snapshots_api_v1_commander_snapshots_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 20
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - v1
+      - commander
+      summary: Create Snapshot
+      operationId: create_snapshot_api_v1_commander_snapshots_post
+      security:
+      - HTTPBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SnapshotCreateRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/commander/snapshots/{snapshot_id}/restore:
+    post:
+      tags:
+      - v1
+      - commander
+      summary: Restore Snapshot
+      operationId: restore_snapshot_api_v1_commander_snapshots__snapshot_id__restore_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: snapshot_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Snapshot Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/commander/preview:
     post:
       tags:
@@ -13273,6 +13429,19 @@ components:
       required:
       - environment
       title: EnvironmentRequest
+    EvaluationRunRequest:
+      properties:
+        use_llm:
+          type: boolean
+          title: Use Llm
+          default: true
+        force:
+          type: boolean
+          title: Force
+          default: false
+      additionalProperties: false
+      type: object
+      title: EvaluationRunRequest
     FactoryApplyRequest:
       properties:
         codes:
@@ -15600,6 +15769,21 @@ components:
       type: object
       title: SkillSuggest
       description: AI 技能总结请求（v1.3-B C1）：可选关注点提示，纯文本 ≤200 字。
+    SnapshotCreateRequest:
+      properties:
+        label:
+          type: string
+          maxLength: 60
+          title: Label
+          default: ''
+        reason:
+          type: string
+          maxLength: 200
+          title: Reason
+          default: ''
+      additionalProperties: false
+      type: object
+      title: SnapshotCreateRequest
     SourceCreateRequest:
       properties:
         name:

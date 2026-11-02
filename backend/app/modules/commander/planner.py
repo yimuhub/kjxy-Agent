@@ -391,8 +391,24 @@ def catalog_lines(agents: list[YardAgent]) -> list[str]:
     return lines
 
 
-def _system_prompt() -> str:
-    return (
+_PERSONA_GUIDANCE = {
+    "aggressive": (
+        "当前人格：进取型。优先尝试新方案，允许在可控成本内多做一次探索；"
+        "但高风险、不可逆或大额成本动作仍必须保守，并明确写出回退路径。"
+    ),
+    "steady": (
+        "当前人格：稳健保守型。优先复用成熟流程与已验证助手，减少新方案与重试；"
+        "信息不足时优先做合理假设并给出低风险路径，避免额外调用。"
+    ),
+    "balanced": (
+        "当前人格：平衡型。按任务风险分配试错额度：低风险任务可探索，"
+        "高风险任务走成熟流程，质量、速度、成本三者兼顾。"
+    ),
+}
+
+
+def _system_prompt(persona: str = "balanced") -> str:
+    base = (
         "你是「指挥官」的规划器。把用户目标拆成可由不同助手并行执行的最小任务 DAG。\n"
         "硬性要求：\n"
         "1. 只输出一个 JSON 对象，不要 Markdown、不要解释；\n"
@@ -422,6 +438,7 @@ def _system_prompt() -> str:
         '"agent_code":"...","depends_on":[],"expected_output":"..."}],'
         '"merge_notes":"..."}'
     )
+    return f"{base}\n{_PERSONA_GUIDANCE.get(persona, _PERSONA_GUIDANCE['balanced'])}"
 
 
 def _user_prompt(
@@ -533,6 +550,7 @@ async def request_plan(
     capability_hint: str = "",
     skills_hint: str = "",
     memory_hint: str = "",
+    persona: str = "balanced",
 ) -> tuple[dict[str, Any] | None, dict[str, int], bool, str | None]:
     """调用规划模型；返回 (原始 JSON, token 用量, 是否走了修复调用, 失败原因)。
 
@@ -541,7 +559,7 @@ async def request_plan(
     """
     task_id = f"cmd-plan-{uuid.uuid4().hex[:10]}"
     messages = [
-        ChatMessage(role="system", content=_system_prompt()),
+        ChatMessage(role="system", content=_system_prompt(persona)),
         ChatMessage(
             role="user",
             content=_user_prompt(

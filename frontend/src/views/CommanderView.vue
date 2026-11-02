@@ -6,6 +6,35 @@
           指挥官 · 指挥台
         </p>
         <h1>{{ displayName }}工作台</h1>
+        <div class="head-tags">
+          <el-tag
+            size="small"
+            effect="plain"
+          >
+            {{ personaLabel }}
+          </el-tag>
+          <el-tag
+            v-if="overview?.commander.persona_locked"
+            size="small"
+            type="info"
+          >
+            人格已锁定
+          </el-tag>
+          <el-tag
+            v-if="overview?.commander.evolution_lock"
+            size="small"
+            type="warning"
+          >
+            进化锁开启
+          </el-tag>
+          <el-tag
+            v-if="overview && !overview.commander.evaluator_enabled"
+            size="small"
+            type="info"
+          >
+            自动测评关闭
+          </el-tag>
+        </div>
         <p class="sub">
           预算、运行质量、记忆与成本集中在这里；深度指令仍进入对话页下达。
         </p>
@@ -200,6 +229,133 @@
         <div class="column">
           <el-card
             shadow="never"
+            class="panel governance-panel"
+          >
+            <template #header>
+              <div class="panel-head">
+                <div>
+                  <h2>监督测评</h2>
+                  <p>独立考官按周打分；报告只作建议，是否改人格由锁与开关决定。</p>
+                </div>
+                <div
+                  v-if="canManage"
+                  class="panel-actions"
+                >
+                  <el-button
+                    size="small"
+                    :loading="runningEval"
+                    @click="runEvaluation"
+                  >
+                    立即测评
+                  </el-button>
+                  <el-button
+                    size="small"
+                    :loading="snapshotBusy"
+                    @click="createSnapshot"
+                  >
+                    创建快照
+                  </el-button>
+                </div>
+              </div>
+            </template>
+
+            <template v-if="latestEvaluation">
+              <div class="eval-head">
+                <div class="eval-title">
+                  <el-tag
+                    size="small"
+                    :type="latestEvaluation.persona_applied ? 'success' : 'info'"
+                  >
+                    {{ latestEvaluation.persona_label }}
+                  </el-tag>
+                  <strong>{{ latestEvaluation.week_key }}</strong>
+                  <span class="muted">
+                    {{ latestEvaluation.source === 'llm' ? '模型测评' : '规则测评' }}
+                    · {{ formatTime(latestEvaluation.created_at) }}
+                  </span>
+                </div>
+                <div class="eval-total">
+                  <strong>{{ latestEvaluation.total }}</strong>
+                  <span>综合分</span>
+                </div>
+              </div>
+
+              <div class="score-chips">
+                <div
+                  v-for="(label, key) in SCORE_LABELS"
+                  :key="key"
+                  class="score-chip"
+                >
+                  <span>{{ label }}</span>
+                  <strong>{{ latestEvaluation.scores[key] ?? '—' }}</strong>
+                </div>
+              </div>
+
+              <p class="eval-summary">
+                {{ latestEvaluation.summary || '报告已生成，点击查看完整内容。' }}
+              </p>
+              <div
+                v-if="latestEvaluation.persona_reason"
+                class="eval-reason"
+              >
+                人格处理：{{ reasonLabel(latestEvaluation.persona_reason) }}
+              </div>
+              <el-button
+                link
+                type="primary"
+                @click="openReport(latestEvaluation)"
+              >
+                查看完整报告
+              </el-button>
+            </template>
+            <el-empty
+              v-else
+              description="还没有测评报告；点「立即测评」先出一份"
+              :image-size="64"
+            />
+
+            <div class="snapshot-block">
+              <div class="snapshot-head">
+                <span>版本快照</span>
+                <span class="muted">回滚前会自动备份当前状态</span>
+              </div>
+              <div
+                v-if="snapshots.length"
+                class="snapshot-list"
+              >
+                <div
+                  v-for="item in snapshots"
+                  :key="item.id"
+                  class="snapshot-row"
+                >
+                  <div class="snapshot-info">
+                    <strong>{{ item.label || '指挥官快照' }}</strong>
+                    <span class="muted">
+                      {{ formatTime(item.created_at) }} · {{ snapshotSourceLabel(item.source) }}
+                    </span>
+                  </div>
+                  <el-button
+                    v-if="canManage"
+                    link
+                    type="warning"
+                    :loading="restoringId === item.id"
+                    @click="restoreSnapshot(item)"
+                  >
+                    回滚
+                  </el-button>
+                </div>
+              </div>
+              <p
+                v-else
+                class="search-hint"
+              >
+                还没有快照；需要保留当前配置时先创建一份。
+              </p>
+            </div>
+          </el-card>
+
+          <el-card
+            shadow="never"
             class="panel"
           >
             <template #header>
@@ -310,20 +466,35 @@
         </div>
       </section>
     </template>
+
+    <el-dialog
+      v-model="reportVisible"
+      :title="reportTitle"
+      width="760px"
+      append-to-body
+    >
+      <pre class="report-body">{{ reportText }}</pre>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
   import { computed, onMounted, ref } from 'vue'
   import { useRouter } from 'vue-router'
-  import { ElMessage } from 'element-plus'
+  import { ElMessage, ElMessageBox } from 'element-plus'
   import { useAuthStore } from '@/stores/auth'
   import {
     commanderWorkspaceApi,
+    type CommanderEvaluation,
     type CommanderMemoryItem,
     type CommanderOverview,
+    type CommanderSnapshot,
   } from '@/api/commanderWorkspace'
-  import type { CommanderRun } from '@/api/commander'
+  import {
+    COMMANDER_PERSONA_LABELS,
+    type CommanderPersona,
+    type CommanderRun,
+  } from '@/api/commander'
 
   const router = useRouter()
   const auth = useAuthStore()
@@ -336,6 +507,58 @@
   const searched = ref(false)
   const query = ref('')
   const results = ref<CommanderMemoryItem[]>([])
+  const runningEval = ref(false)
+  const snapshotBusy = ref(false)
+  const restoringId = ref('')
+  const reportVisible = ref(false)
+  const reportTitle = ref('测评报告')
+  const reportText = ref('')
+
+  const SCORE_LABELS: Record<string, string> = {
+    persona: '人格一致性',
+    scheduling: '决策调度',
+    cost: '成本管控',
+    recovery: '故障处理',
+    learning: '跨 Agent 学习',
+  }
+
+  const latestEvaluation = computed<CommanderEvaluation | null>(
+    () => overview.value?.governance?.latest_evaluation || null,
+  )
+  const snapshots = computed<CommanderSnapshot[]>(
+    () => overview.value?.governance?.snapshots || [],
+  )
+
+  const personaLabel = computed(() => {
+    const persona = overview.value?.commander.persona || 'balanced'
+    return COMMANDER_PERSONA_LABELS[persona] || '平衡型'
+  })
+
+  function reasonLabel(reason?: string | null): string {
+    const labels: Record<string, string> = {
+      applied: '已按建议调整人格',
+      same: '与当前人格一致，无需调整',
+      persona_locked: '人格已锁定，仅存档建议',
+      evolution_locked: '进化锁开启，暂停自动调整',
+      auto_persona_off: '自动切换人格已关闭',
+      insufficient_samples: '样本不足，暂不切换',
+    }
+    return labels[String(reason || '')] || '仅生成报告'
+  }
+
+  function snapshotSourceLabel(source?: string): string {
+    const labels: Record<string, string> = {
+      manual: '手动创建',
+      persona: '人格调整前',
+      restore: '回滚前备份',
+    }
+    return labels[String(source || '')] || '自动备份'
+  }
+
+  function personaText(persona?: string | null): string {
+    const key = String(persona || 'balanced') as CommanderPersona
+    return COMMANDER_PERSONA_LABELS[key] || '平衡型'
+  }
 
   const canManage = computed(() =>
     auth.roles.some(role => ['yard_owner', 'yard_admin', 'platform_admin'].includes(role)),
@@ -492,6 +715,62 @@
     void router.push('/chat')
   }
 
+  function openReport(item: CommanderEvaluation): void {
+    reportTitle.value = `测评报告 · ${item.week_key} · ${personaText(item.persona)}`
+    reportText.value = item.report_md || item.summary || '报告内容为空'
+    reportVisible.value = true
+  }
+
+  async function runEvaluation(): Promise<void> {
+    runningEval.value = true
+    try {
+      const data = await commanderWorkspaceApi.runEvaluation({ use_llm: true, force: true })
+      ElMessage.success(data.created ? '测评报告已生成' : '测评报告已刷新')
+      await load()
+      openReport(data.evaluation)
+    } catch {
+      ElMessage.error('测评失败，请稍后重试')
+    } finally {
+      runningEval.value = false
+    }
+  }
+
+  async function createSnapshot(): Promise<void> {
+    snapshotBusy.value = true
+    try {
+      const label = `手动快照 · ${new Date().toLocaleString('zh-CN')}`
+      await commanderWorkspaceApi.createSnapshot({ label, reason: '手动创建' })
+      ElMessage.success('快照已创建')
+      await load()
+    } catch {
+      ElMessage.error('创建快照失败')
+    } finally {
+      snapshotBusy.value = false
+    }
+  }
+
+  async function restoreSnapshot(item: CommanderSnapshot): Promise<void> {
+    try {
+      await ElMessageBox.confirm(
+        `将把指挥官设置回滚到「${item.label || '该快照'}」，当前状态会先自动备份。`,
+        '回滚快照',
+        { type: 'warning', confirmButtonText: '确认回滚', cancelButtonText: '取消' },
+      )
+    } catch {
+      return
+    }
+    restoringId.value = item.id
+    try {
+      await commanderWorkspaceApi.restoreSnapshot(item.id)
+      ElMessage.success('已回滚到该快照')
+      await load()
+    } catch {
+      ElMessage.error('回滚失败，请稍后重试')
+    } finally {
+      restoringId.value = ''
+    }
+  }
+
   onMounted(load)
 </script>
 
@@ -530,6 +809,14 @@
     margin: 6px 0 0;
     font-size: 13px;
     color: var(--ds-text-3);
+  }
+
+  .head-tags {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 8px;
   }
 
   .head-actions {
@@ -652,6 +939,160 @@
     font-size: 11.5px;
     font-weight: 400;
     color: var(--ds-text-3);
+  }
+
+  .panel-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  .eval-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .eval-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+
+  .eval-title strong {
+    font-size: 13px;
+    color: var(--ds-text-1);
+  }
+
+  .eval-total {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    line-height: 1.1;
+    flex-shrink: 0;
+  }
+
+  .eval-total strong {
+    font-size: 22px;
+    font-weight: 650;
+    color: var(--ds-text-1);
+  }
+
+  .eval-total span {
+    font-size: 11px;
+    color: var(--ds-text-3);
+  }
+
+  .score-chips {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 6px;
+    margin-top: 12px;
+  }
+
+  .score-chip {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px 6px;
+    border: 1px solid var(--ds-border);
+    border-radius: var(--ds-radius-chip, 8px);
+    background: var(--ds-bg-1);
+    text-align: center;
+  }
+
+  .score-chip span {
+    font-size: 10.5px;
+    color: var(--ds-text-3);
+    white-space: nowrap;
+  }
+
+  .score-chip strong {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--ds-text-1);
+  }
+
+  .eval-summary {
+    margin: 12px 0 0;
+    font-size: 12.5px;
+    line-height: 1.7;
+    color: var(--ds-text-2);
+  }
+
+  .eval-reason {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--ds-text-3);
+  }
+
+  .snapshot-block {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px dashed var(--ds-border);
+  }
+
+  .snapshot-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--ds-text-1);
+  }
+
+  .snapshot-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 10px;
+    max-height: 220px;
+    overflow-y: auto;
+  }
+
+  .snapshot-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .snapshot-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .snapshot-info strong {
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--ds-text-1);
+  }
+
+  .report-body {
+    margin: 0;
+    max-height: 62vh;
+    overflow: auto;
+    padding: 14px;
+    border-radius: 10px;
+    background: var(--ds-bg-1);
+    font-family: var(--ds-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    font-size: 12.5px;
+    line-height: 1.7;
+    color: var(--ds-text-2);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  @media (max-width: 620px) {
+    .score-chips {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
   }
 
   .run-table {
