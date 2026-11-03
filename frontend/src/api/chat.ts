@@ -838,7 +838,9 @@ export const chatApi = {
       api.post<ApiResponse<{ user_message: ChatMessage; assistant_message: ChatMessage }>>(
         `/chat/sessions/${sessionId}/qa`,
         { question, top_k: topK },
-        silentCfg,
+        // 检索 + 生成同步返回，慢模型可到 60 秒以上；全局 30 秒会提前掐断，
+        // 表现为“页面一直没有回答”，但服务端其实已落库
+        { ...silentCfg, timeout: 180_000 },
       ),
     )
   },

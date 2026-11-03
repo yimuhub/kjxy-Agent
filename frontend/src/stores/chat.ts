@@ -1546,6 +1546,8 @@ function buildChatStore(scope: string) {
       } catch (err) {
         messages.value = messages.value.filter(m => m.id !== localId)
         toastError(err)
+        // 请求可能在服务端已落库后才断（超时/网络抖动）：回读一次，避免页面与服务端不一致
+        if (activeId.value === sid) void loadMessages().catch(() => undefined)
         return false
       } finally {
         sending.value = false
