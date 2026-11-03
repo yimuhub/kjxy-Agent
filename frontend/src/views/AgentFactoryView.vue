@@ -385,6 +385,8 @@ const asTeamName = ref('')
 
 let stream: SseHandle | null = null
 let pollTimer: number | undefined
+let pollFailures = 0
+let pollStartedAt = 0
 
 /* ---------- 状态展示 ---------- */
 const stepActive = computed(() => {
@@ -569,6 +571,8 @@ function stopWatch() {
     clearInterval(pollTimer)
     pollTimer = undefined
   }
+  pollFailures = 0
+  pollStartedAt = 0
 }
 
 function watchProgress(taskId: string, runId: string) {
@@ -608,18 +612,32 @@ function watchProgress(taskId: string, runId: string) {
   })
 }
 
-/** SSE 重连失败降级：5s 轮询 run 状态 */
+/** SSE 重连失败降级：5s 轮询 run 状态（连续失败 5 次或超过 30 分钟即停） */
 function startPolling(runId: string) {
   if (pollTimer) return
+  pollFailures = 0
+  pollStartedAt = Date.now()
   pollTimer = window.setInterval(async () => {
+    if (Date.now() - pollStartedAt > 30 * 60 * 1000) {
+      stopWatch()
+      generating.value = false
+      ElMessage.error('工厂运行超时，请稍后在运行记录里查看结果')
+      return
+    }
     try {
       const d = await factoryApi.run(runId)
+      pollFailures = 0
       currentRun.value = d
       if (d.status === 'completed' || d.status === 'failed') {
         await onPollDone(d)
       }
     } catch {
-      /* 网络抖动等下一轮 */
+      pollFailures += 1
+      if (pollFailures >= 5) {
+        stopWatch()
+        generating.value = false
+        ElMessage.error('工厂运行状态刷新失败，请稍后重试')
+      }
     }
   }, 5000)
 }

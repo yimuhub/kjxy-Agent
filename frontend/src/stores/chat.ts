@@ -1301,6 +1301,7 @@ function buildChatStore(scope: string) {
     function startCommanderPoll(runId: string): void {
       if (!runId || commanderTimers.has(runId)) return
       const sessionId = activeId.value
+      const startedAt = Date.now()
       let inFlight = false
       let failures = 0
       const refreshMessages = (): void => {
@@ -1312,6 +1313,12 @@ function buildChatStore(scope: string) {
       }
       const tick = async (): Promise<void> => {
         if (inFlight) return
+        // 后端长期卡在 queued/running 时不能无限轮询；30 分钟后停并提示
+        if (Date.now() - startedAt > 30 * 60 * 1000) {
+          patchCommanderRun(runId, { error: '运行状态长时间未更新，请稍后在任务中心查看' })
+          stopCommanderPoll(runId)
+          return
+        }
         inFlight = true
         try {
           const run = await commanderApi.getRun(runId)

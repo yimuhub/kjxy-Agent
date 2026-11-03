@@ -50,6 +50,29 @@
       </div>
     </el-alert>
 
+    <el-alert
+      v-else-if="statusFailed"
+      class="plugin-alert"
+      type="error"
+      show-icon
+      :closable="false"
+    >
+      <template #title>
+        工作区状态加载失败
+      </template>
+      <div class="alert-body">
+        <span>插件授权与目录限制暂时不可用，请稍后重试。</span>
+        <el-button
+          size="small"
+          type="primary"
+          plain
+          @click="reloadAll"
+        >
+          重新加载
+        </el-button>
+      </div>
+    </el-alert>
+
     <div class="workspace-grid">
       <el-card
         class="projects-card"
@@ -392,6 +415,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { AxiosError } from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 import { formatDateTime } from '@/utils/format'
@@ -410,6 +434,7 @@ const canWrite = computed(() => auth.hasPermission('workspace:write'))
 
 const loading = ref(false)
 const status = ref<WorkspaceStatus | null>(null)
+const statusFailed = ref(false)
 const projects = ref<WorkspaceProject[]>([])
 const selectedId = ref('')
 const selected = computed(() => projects.value.find(row => row.id === selectedId.value) || null)
@@ -469,14 +494,24 @@ function goLibrary() {
   router.push('/library')
 }
 
+function apiErrorCode(err: unknown): string {
+  if (err instanceof AxiosError) {
+    const body = err.response?.data as { error?: { code?: string } } | undefined
+    return body?.error?.code || ''
+  }
+  return ''
+}
+
 async function loadStatus() {
   try {
     status.value = await workspaceApi.status()
+    statusFailed.value = false
     if (!pluginId.value || !authorizedPlugins.value.some(row => row.plugin_id === pluginId.value)) {
       pluginId.value = authorizedPlugins.value[0]?.plugin_id || ''
     }
   } catch {
     status.value = null
+    statusFailed.value = true
   }
 }
 
@@ -490,7 +525,7 @@ async function loadProjects() {
 async function reloadAll() {
   loading.value = true
   try {
-    await Promise.all([loadStatus(), loadProjects()])
+    await Promise.allSettled([loadStatus(), loadProjects()])
     const current = projects.value.find(row => row.id === selectedId.value)
     if (current) await selectProject(current)
   } finally {
@@ -560,7 +595,7 @@ async function previewChange() {
 }
 
 async function applyPending() {
-  if (!pendingChange.value) return
+  if (!pendingChange.value || applying.value) return
   applying.value = true
   const target = pendingChange.value.path
   try {
@@ -575,6 +610,7 @@ async function applyPending() {
 }
 
 async function applyExisting(row: WorkspaceChange) {
+  if (applying.value) return
   applying.value = true
   try {
     await workspaceApi.apply(row.id)
@@ -599,7 +635,9 @@ async function rollback(row: WorkspaceChange) {
   try {
     await workspaceApi.rollback(row.id)
     ElMessage.success('已回滚')
-  } catch {
+  } catch (err) {
+    // 只有「文件已被改动」才需要二次确认强制回滚；其他错误（过期、权限、网络）不能硬来
+    if (apiErrorCode(err) !== 'WORKSPACE_FILE_CHANGED') return
     try {
       await ElMessageBox.confirm(
         '文件在应用后又被修改，强制回滚会丢弃这些改动，继续吗？',

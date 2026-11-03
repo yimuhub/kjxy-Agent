@@ -50,6 +50,8 @@ const DEFAULT_MAX_RETRIES = 3
 const BASE_RETRY_DELAY_MS = 1000
 const MAX_RETRY_DELAY_MS = 15_000
 const DEFAULT_IDLE_TIMEOUT_MS = 45_000
+/** 连接维持多久才算「健康」：短命连接不能重置失败计数，否则上限失效 */
+const HEALTHY_CONNECTION_MS = 10_000
 
 interface ParsedBlock {
   frame: SseFrame
@@ -109,6 +111,7 @@ export function openSseStream(options: SseOptions): SseHandle {
       const conn = new AbortController()
       let idleTimer: number | undefined
       let received = false
+      const connectedAt = Date.now()
       const abortOnOuter = () => conn.abort()
       outer.signal.addEventListener('abort', abortOnOuter, { once: true })
 
@@ -156,7 +159,10 @@ export function openSseStream(options: SseOptions): SseHandle {
       } catch (err) {
         if (closed || outer.signal.aborted) return
         if (err instanceof DOMException && err.name === 'AbortError' && closed) return
-        if (received) consecutiveFailures = 0
+        // 只有维持足够久的连接才算健康并清零；秒断秒连的流仍受 maxRetries 约束
+        if (received && Date.now() - connectedAt >= HEALTHY_CONNECTION_MS) {
+          consecutiveFailures = 0
+        }
         consecutiveFailures += 1
         if (!allowRetry || consecutiveFailures > maxRetries) {
           onFallback?.()

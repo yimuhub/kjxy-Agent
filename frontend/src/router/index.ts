@@ -250,15 +250,21 @@ router.beforeEach(async to => {
     const query = to.fullPath !== '/' ? { redirect: to.fullPath } : undefined
     return { path: '/login', query }
   }
+  let meFailed = false
   if (!auth.meLoaded || !auth.permissionsLoaded) {
     try {
       await auth.fetchMe()
     } catch {
-      /* 401 由 client 拦截器统一处理 */
+      // 401 由 client 拦截器统一处理；网络/服务异常不能当成「无权限」
+      meFailed = true
     }
   }
   const required = to.meta.roles as string[] | undefined
   const permission = to.meta.permission as string | undefined
+  if ((required || permission) && meFailed) {
+    ElMessage.error('账号权限加载失败，请检查网络后重试')
+    return false
+  }
   if ((required && !auth.hasAnyRole(required)) || (permission && !auth.hasPermission(permission))) {
     ElMessage.warning('你没有权限访问该页面')
     return '/forbidden'

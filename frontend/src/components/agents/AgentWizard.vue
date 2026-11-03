@@ -370,6 +370,7 @@
   let taskId = ''
   let stream: SseHandle | null = null
   let pollTimer: number | undefined
+  let pollFailures = 0
 
   const summary = ref<AgentGenerateTaskSummary | null>(null)
   interface BlueprintView {
@@ -525,9 +526,11 @@
 
   function startPolling(id: string): void {
     if (pollTimer) return
+    pollFailures = 0
     pollTimer = window.setInterval(async () => {
       try {
         const row = await agentGenerateApi.task(id)
+        pollFailures = 0
         if (row.status === 'succeeded' || row.status === 'failed') {
           if (pollTimer) {
             window.clearInterval(pollTimer)
@@ -536,7 +539,10 @@
           await onTaskDone()
         }
       } catch {
-        /* 网络抖动等下一轮 */
+        pollFailures += 1
+        if (pollFailures >= 5) {
+          fail('生成状态刷新失败，请稍后重试。')
+        }
       }
     }, 5000)
   }

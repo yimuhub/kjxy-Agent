@@ -274,6 +274,7 @@
   const testResult = ref<AsrTestResult | null>(null)
   const testFileRef = ref<HTMLInputElement | null>(null)
   let poll: ReturnType<typeof setInterval> | undefined
+  let pollFailures = 0
 
   const EFFECTIVE_META: Record<string, { label: string; type: 'success' | 'info' | 'warning' }> = {
     local: { label: '本机离线', type: 'success' },
@@ -304,6 +305,7 @@
   function stopPolling() {
     if (poll) clearInterval(poll)
     poll = undefined
+    pollFailures = 0
   }
 
   function ensurePolling() {
@@ -311,8 +313,20 @@
       m => m.state.status === 'downloading' || m.state.status === 'verifying',
     )
     if (busy && !poll) {
+      pollFailures = 0
       poll = setInterval(() => {
-        void loadStatus()
+        void (async () => {
+          try {
+            await loadStatus()
+            pollFailures = 0
+          } catch {
+            pollFailures += 1
+            if (pollFailures >= 5) {
+              stopPolling()
+              state.value = 'error'
+            }
+          }
+        })()
       }, 1500)
     } else if (!busy) {
       stopPolling()
