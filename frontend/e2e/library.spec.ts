@@ -53,10 +53,10 @@ test.describe('插件与技能库', () => {
     })
   })
 
-  test('官方库页签在未配置源时给出空态而不是报错', async ({ page }) => {
+  test('插件中心页签在未配置源时给出空态而不是报错', async ({ page }) => {
     await login(page, 'admin', 'admin123')
     await page.goto('/library')
-    await page.getByRole('tab', { name: '官方库' }).click()
+    await page.getByRole('tab', { name: '插件中心' }).click()
     await expect(page.getByText(/还没有配置官方库源|官方库源/).first()).toBeVisible({
       timeout: 15_000,
     })

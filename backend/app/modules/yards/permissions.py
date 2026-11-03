@@ -211,7 +211,6 @@ PERMISSIONS: dict[str, frozenset[str]] = {
             "tools:execute",
             "chat:use",
             "runtime:read",
-            "workspace:read",
             "devices:read",
             "org:read",
         }
