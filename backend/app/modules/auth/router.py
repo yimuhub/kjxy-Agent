@@ -73,9 +73,23 @@ def _request_id(request: Request) -> str:
 
 
 def _client_ip(request: Request) -> str:
-    if request.client is not None and request.client.host:
-        return request.client.host
-    return "unknown"
+    """取限流键用的客户端 IP。
+
+    直连部署取 socket 对端；配置了 ``trusted_proxy_count``（受信反代链长度）
+    时按规范取 X-Forwarded-For 倒数第 N 跳——只信自家代理链，不盲信客户端
+    可伪造的整条 XFF（审计 S-8：反代部署下全网共享一个桶会误锁无辜用户）。
+    """
+    socket_ip = request.client.host if request.client else None
+    proxy_hops = max(0, int(getattr(settings, "trusted_proxy_count", 0) or 0))
+    if proxy_hops == 0:
+        return socket_ip or "unknown"
+    if socket_ip == "testclient":
+        return socket_ip
+    forwarded = request.headers.get("x-forwarded-for", "")
+    parts = [p.strip() for p in forwarded.split(",") if p.strip()]
+    if len(parts) >= proxy_hops:
+        return parts[-proxy_hops]
+    return socket_ip or "unknown"
 
 
 @router.post("/auth/login")  # 公开接口（无全局 security，默认无需令牌）

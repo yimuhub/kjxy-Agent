@@ -4,7 +4,6 @@
 - _push_weekly_report：本周幂等（重复生成不重复推送）、审计锚点落库。
 """
 
-
 from app.modules.commander import export as commander_export
 from app.modules.commander import reports
 from app.modules.yards.repository import create_yard
@@ -72,3 +71,53 @@ def test_weekly_push_idempotent(db_session):
     assert len(rows) == 1
     assert rows[0].metadata_json.get("week_key") == report["week_key"] or rows[0].resource_id
     assert report["markdown"].startswith("# 每周优化报告")
+
+
+def test_run_member_revoked(db_session):
+    """C16：小院有成员记录时，发起人不在其中即视为已移出；空成员表不触发。"""
+    from app.modules.commander import service as commander_service
+    from app.modules.commander.models import CommanderRun
+    from app.modules.yards.models import YardMembership
+
+    yard = create_yard(db_session, name="成员重验小院")
+    db_session.add(YardMembership(yard_id=yard.id, user_id="someone-else", role="operator"))
+    run = CommanderRun(
+        yard_id=yard.id,
+        user_id="u-left",
+        session_id="sess-test",
+        goal="测试运行",
+        status="queued",
+        roles_json=["operator"],
+        plan_json={"subtasks": []},
+    )
+    db_session.add(run)
+    db_session.commit()
+    assert commander_service.run_member_revoked(db_session, run) is True
+
+    db_session.add(YardMembership(yard_id=yard.id, user_id="u-ok", role="operator"))
+    run_ok = CommanderRun(
+        yard_id=yard.id,
+        user_id="u-ok",
+        session_id="sess-ok",
+        goal="正常",
+        status="queued",
+        roles_json=["operator"],
+        plan_json={"subtasks": []},
+    )
+    db_session.add(run_ok)
+    db_session.commit()
+    assert commander_service.run_member_revoked(db_session, run_ok) is False
+
+    bare = create_yard(db_session, name="裸小院")
+    bare_run = CommanderRun(
+        yard_id=bare.id,
+        user_id="u1",
+        session_id="s2",
+        goal="g",
+        status="queued",
+        roles_json=["operator"],
+        plan_json={"subtasks": []},
+    )
+    db_session.add(bare_run)
+    db_session.commit()
+    assert commander_service.run_member_revoked(db_session, bare_run) is False

@@ -25,6 +25,13 @@ from app.modules.auth.repository import get_by_username
 log = get_logger(__name__)
 
 
+def _assert_not_production() -> None:
+    from app.core.config import settings
+
+    if settings.is_production:
+        raise RuntimeError("拒绝执行：生产环境禁止重置演示账号密码。")
+
+
 def repair(check_only: bool = False) -> dict:
     """返回 {username: 状态}；状态 in ok(已修复)/already(已是文档密码)/missing(用户不存在)。"""
     from app.db import models_registry  # noqa: F401  # 确保所有模型已注册

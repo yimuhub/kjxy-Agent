@@ -85,6 +85,7 @@ from app.modules.llm.schemas import ChatMessage
 from app.modules.llm.service import complete_with_logging
 from app.modules.memory import service as memory_service
 from app.modules.quota import engine as quota_engine
+from app.modules.yards.models import YardMembership
 
 log = get_logger(__name__)
 
@@ -2339,6 +2340,33 @@ def _summary_payload(
     }
 
 
+def run_member_revoked(db: Session, run: CommanderRun) -> bool:
+    """成员身份重验（v3.56，审计 C16）。
+
+    口径：该小院**已有成员记录**（正式运行的组）且发起人不在其中 → 视为
+    被移出/降权，在途 run 不得再按旧角色快照执行。空成员表（测试造的裸
+    小院）不触发——无法区分「从未加入」与「已移出」，宁可不误杀。
+    """
+    yard_has_members = (
+        db.scalar(
+            select(func.count())
+            .select_from(YardMembership)
+            .where(YardMembership.yard_id == run.yard_id)
+        )
+        or 0
+    ) > 0
+    if not yard_has_members:
+        return False
+    return (
+        db.scalar(
+            select(YardMembership.user_id).where(
+                YardMembership.yard_id == run.yard_id,
+                YardMembership.user_id == run.user_id,
+            )
+        )
+    ) is None
+
+
 async def execute_run(
     run_id: str, on_event: Callable[[str, dict], None] | None = None
 ) -> CommanderSummary:
@@ -2359,6 +2387,15 @@ async def execute_run(
             raise AppError(ERR_RUN_BUSY, "该指挥官运行正在执行中。", http_status=409)
         if run.status == RUN_CANCELLED:
             raise AppError(ERR_RUN_CANCELLED, "该指挥官运行已取消。", http_status=409)
+        if run_member_revoked(db, run):
+            run.status = RUN_FAILED
+            run.error_code = "COMMANDER_MEMBER_LEFT"
+            _safe_commit(db)
+            raise AppError(
+                "COMMANDER_MEMBER_LEFT",
+                "发起人已不在本小院，运行被终止（权限回收即时生效）。",
+                http_status=403,
+            )
         if run.status == RUN_COMPLETED:
             failed = _failed_items(subtasks)
             return _summary_payload(
@@ -2732,3 +2769,10 @@ __all__ = [
     "subtask_out",
     "update_plan",
 ]
+
+
+def execute_run_sync_for_test(run_id: str):
+    """测试专用同步入口：复用 _get_session_factory 会话执行 execute_run。"""
+    import asyncio as _asyncio
+
+    return _asyncio.run(execute_run(run_id))

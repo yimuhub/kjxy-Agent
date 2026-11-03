@@ -49,6 +49,7 @@ from app.modules.market import installer
 from app.modules.market.github_source import search_github_skills
 from app.modules.market.skill_template import SkillSpec, dump_markdown, validate_skill_spec
 from app.modules.search.service import search_web
+from app.modules.yards import redis_quota
 from app.modules.yards.settings_service import get_setting
 
 log = get_logger(__name__)
@@ -219,14 +220,16 @@ def _max_sources(settings: dict[str, Any]) -> int:
 
 
 def quota_snapshot(db: Session, yard_id: str) -> dict[str, Any]:
-    """今日生成配额快照。"""
+    """今日生成配额快照（Redis 跨进程计数优先，回落进程内 dict）。"""
     limit = _daily_limit(db, yard_id)
-    used = _quota.get((yard_id, _today()), 0)
+    redis_used = redis_quota.get_daily(f"skill_gen:{yard_id}")
+    used = redis_used if redis_used is not None else _quota.get((yard_id, _today()), 0)
     return {"used": used, "limit": limit, "remaining": max(0, limit - used)}
 
 
 def _ensure_quota(yard_id: str, limit: int) -> None:
-    used = _quota.get((yard_id, _today()), 0)
+    redis_used = redis_quota.get_daily(f"skill_gen:{yard_id}")
+    used = redis_used if redis_used is not None else _quota.get((yard_id, _today()), 0)
     if limit > 0 and used >= limit:
         raise AppError(
             "SKILL_QUOTA_EXCEEDED",
@@ -238,6 +241,10 @@ def _ensure_quota(yard_id: str, limit: int) -> None:
 
 def _consume_quota(yard_id: str) -> None:
     key = (yard_id, _today())
+    redis_value = redis_quota.incr_daily(f"skill_gen:{yard_id}")
+    if redis_value is not None:
+        _quota[key] = redis_value
+        return
     _quota[key] = _quota.get(key, 0) + 1
 
 

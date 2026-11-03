@@ -7,7 +7,13 @@
     <div class="abilities-head">
       <h4>大模型</h4>
       <span class="abilities-note">
-        {{ modelFollowing ? '跟随模型中心的小院默认模型' : `已单独指定：${modelSummary}` }}
+        {{
+          modelLoadError
+            ? '模型绑定加载失败，请重试'
+            : modelFollowing
+              ? '跟随模型中心的小院默认模型'
+              : `已单独指定：${modelSummary}`
+        }}
       </span>
     </div>
     <div class="model-row">
@@ -225,7 +231,10 @@
   const readableSupplierName = ref('')
   const readableModelName = ref('')
 
-  const modelFollowing = computed(() => !savedSupplier.value && !savedChoice.value)
+  const modelLoadError = ref(false)
+  const modelFollowing = computed(
+    () => !modelLoadError.value && !savedSupplier.value && !savedChoice.value,
+  )
 
   const modelSummary = computed(() => {
     const name =
@@ -255,6 +264,7 @@
 
   async function loadModel(): Promise<void> {
     modelLoading.value = true
+    modelLoadError.value = false
     try {
       const data = await llmBindingApi.list({
         scope_type: 'agent',
@@ -268,12 +278,10 @@
       readableSupplierName.value = first?.supplier_name ?? ''
       readableModelName.value = first?.model_name ?? first?.model_key ?? savedChoice.value
     } catch {
+      // 加载失败 ≠ 未绑定：保留 error 态，避免把「未知」误导成「跟随模型中心」
+      modelLoadError.value = true
       savedSupplier.value = ''
       savedChoice.value = ''
-      modelSupplier.value = ''
-      modelChoice.value = ''
-      readableSupplierName.value = ''
-      readableModelName.value = ''
     } finally {
       modelLoading.value = false
     }
@@ -397,12 +405,21 @@
 
   /** 与后端已保存清单比对，决定「保存」是否可用 */
   const identityDirty = computed(() => {
-    const savedSkills = identity.value.skills.map(item => item.code).join(',')
+    // 比较前排序：集合语义，勾选顺序不影响「有没有改」（FE-5）
+    const savedSkills = identity.value.skills
+      .map(item => item.code)
+      .slice()
+      .sort()
+      .join(',')
     const savedTools = identity.value.tools
       .filter(item => item.bound)
       .map(item => item.code)
+      .slice()
+      .sort()
       .join(',')
-    return boundDraft.value.join(',') !== savedSkills || toolDraft.value.join(',') !== savedTools
+    const draftSkills = boundDraft.value.slice().sort().join(',')
+    const draftTools = toolDraft.value.slice().sort().join(',')
+    return draftSkills !== savedSkills || draftTools !== savedTools
   })
 
   function applyIdentity(next: CommanderIdentity): void {

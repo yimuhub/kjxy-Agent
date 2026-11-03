@@ -19,9 +19,10 @@ import json
 import re
 import time
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
@@ -194,9 +195,21 @@ def run_due_jobs(db: Session, *, now: datetime | None = None, limit: int = 20) -
         lease = _as_utc(job.lease_until)
         if lease is not None and lease > now:
             continue  # 其他实例正持有租约
-        stats["due"] += 1
-        job.lease_until = now + timedelta(seconds=LEASE_SECONDS)
+        # 原子抢租（v3.56）：UPDATE 带租约条件，按 rowcount 判定——多实例/
+        # beat+inline 双调度同时到期时只有一个能抢到，杜绝双跑双倍 LLM 消耗。
+        claimed = cast(CursorResult[Any], db.execute(
+            update(YardJob)
+            .where(
+                YardJob.id == job.id,
+                or_(YardJob.lease_until.is_(None), YardJob.lease_until <= now),
+            )
+            .values(lease_until=now + timedelta(seconds=LEASE_SECONDS))
+        ))
         db.flush()
+        if claimed.rowcount != 1:
+            continue  # 竞态落败：别的实例刚抢到
+        stats["due"] += 1
+        db.refresh(job)
         try:
             run = _execute(
                 db,

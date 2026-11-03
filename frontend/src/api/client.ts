@@ -11,6 +11,9 @@ export const TOKEN_KEY = 'ky_token'
 export const REFRESH_TOKEN_KEY = 'ky_refresh_token'
 
 /** axios 实例：baseURL /api/v1，自动带 Bearer 与 X-Request-ID */
+/** 错误 toast 同文案去重（挂载期并发失败只弹一条） */
+const _lastToast: { text: string; at: number } = { text: '', at: 0 }
+
 export const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE ?? '/api/v1',
   timeout: 30_000,
@@ -131,9 +134,17 @@ api.interceptors.response.use(
       // 不把原始英文细节抛给用户；opt-out 见 config.skipErrorToast
       if (!config?.skipErrorToast && error.response) {
         const { code, message } = extractErrorMessage(error)
+        const text = friendlyErrorMessage(code, message)
+        // 同文案 2.5s 去重：挂载期并发失败（同一组件同时打 4 个接口）不再叠 4 条
+        const now = Date.now()
+        if (text === _lastToast.text && now - _lastToast.at < 2500) {
+          return Promise.reject(error)
+        }
+        _lastToast.text = text
+        _lastToast.at = now
         // 悬浮指挥官伙伴常驻在 2600/2601，Element Plus 提示默认基数只有 2000：
         // 不抬层级时，页面右下角报错会被小人盖住，用户以为「点了没反应」。
-        ElMessage.error({ message: friendlyErrorMessage(code, message), zIndex: TOAST_Z_INDEX })
+        ElMessage.error({ message: text, zIndex: TOAST_Z_INDEX })
       }
     }
     return Promise.reject(error)

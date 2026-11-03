@@ -151,6 +151,12 @@ class Settings(BaseSettings):
         description="政策模块开关：第三期（采集/匹配/申报）。设为 False 关闭入口。",
     )
 
+    #: 受信反代链长度（审计 S-8）：0=直连部署取 socket 对端；N=前面有 N 台自家
+    #: 反代/负载均衡，登录限流键取 X-Forwarded-For 倒数第 N 跳（不盲信整条 XFF）
+    trusted_proxy_count: int = Field(
+        default=0,
+        description="受信反代/负载均衡层数；反代部署设为实际层数，登录限流才按真实客户端 IP 计数",
+    )
     login_rate_limit_max_attempts: int = Field(
         default=10, description="登录限流：滑动窗口内允许的失败尝试次数"
     )

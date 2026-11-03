@@ -267,7 +267,20 @@ def _ensure_demo_owner(db) -> None:
     db.commit()
 
 
+def _assert_not_production() -> None:
+    """生产环境硬闸：演示账号（弱口令）绝不能进生产库（审计 S-6）。"""
+    from app.core.config import settings
+
+    if settings.is_production:
+        raise RuntimeError(
+            "拒绝执行：当前是生产环境（APP_ENV=production）。"
+            "seed 会创建 admin123/yard123 等演示弱口令账号，属于上线事故。"
+            "正式环境请用成员邀请流程建号。"
+        )
+
+
 def seed(random_passwords: bool = False) -> None:
+    _assert_not_production()
     from app.modules.auth.repository import create_user, get_by_username
     from app.modules.yards.repository import (
         add_membership,

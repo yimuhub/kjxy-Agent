@@ -154,7 +154,7 @@ def attach_all_bindings(db: Session, *, yard_id: str, actor_id: str) -> YardAgen
     row.allowed_tools = available_tool_codes()
     row.updated_by = actor_id
     db.add(row)
-    db.commit()
+    db.flush()
     db.refresh(row)
     return row
 
@@ -239,7 +239,7 @@ def set_bindings(
         row.allowed_tools = _dedup(str(c) for c in allowed_tools if str(c).strip())
     row.updated_by = actor_id
     db.add(row)
-    db.commit()
+    db.flush()
     from app.modules.audit.service import log_audit
 
     log_audit(

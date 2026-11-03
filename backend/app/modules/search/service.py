@@ -32,6 +32,7 @@ from app.modules.search.providers_builtin import (
     create_builtin_provider,
     reset_runtime_state,
 )
+from app.modules.yards import redis_quota
 from app.modules.yards.settings_service import get_setting
 
 log = get_logger(__name__)
@@ -168,12 +169,15 @@ def _daily_limit(db: Session, yard_id: str) -> int:
 
 def quota_snapshot(db: Session, yard_id: str) -> dict[str, Any]:
     limit = _daily_limit(db, yard_id)
-    used = _quota.get((yard_id, _today()), 0)
+    # 跨进程计数（F-5）：Redis 可用读 Redis，否则回落进程内 dict
+    redis_used = redis_quota.get_daily(f"search:{yard_id}")
+    used = redis_used if redis_used is not None else _quota.get((yard_id, _today()), 0)
     return {"used": used, "limit": limit, "remaining": max(0, limit - used)}
 
 
 def _ensure_quota(yard_id: str, limit: int) -> None:
-    used = _quota.get((yard_id, _today()), 0)
+    redis_used = redis_quota.get_daily(f"search:{yard_id}")
+    used = redis_used if redis_used is not None else _quota.get((yard_id, _today()), 0)
     if limit > 0 and used >= limit:
         raise AppError(
             "SEARCH_QUOTA_EXCEEDED",
@@ -185,6 +189,10 @@ def _ensure_quota(yard_id: str, limit: int) -> None:
 
 def _consume_quota(yard_id: str) -> None:
     key = (yard_id, _today())
+    redis_value = redis_quota.incr_daily(f"search:{yard_id}")
+    if redis_value is not None:
+        _quota[key] = redis_value  # 本进程缓存与跨进程口径同步
+        return
     _quota[key] = _quota.get(key, 0) + 1
 
 
