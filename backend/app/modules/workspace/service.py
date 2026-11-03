@@ -11,9 +11,9 @@
 from __future__ import annotations
 
 import difflib
-import fnmatch
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -22,6 +22,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from sqlalchemy import or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.deps import YardContext
@@ -138,6 +139,45 @@ def _normalize_rel(raw: str) -> str:
     return rel
 
 
+_GLOB_CACHE: dict[str, re.Pattern[str]] = {}
+
+
+def _glob_regex(pattern: str) -> re.Pattern[str] | None:
+    """把白名单模式编译为锚定项目根的 glob：``*``/``?`` 不跨目录，``**`` 可跨目录。"""
+    cached = _GLOB_CACHE.get(pattern)
+    if cached is not None:
+        return cached
+    text = pattern.strip().replace("\\", "/")
+    if text.startswith("./"):
+        text = text[2:]
+    text = text.lstrip("/")
+    if not text:
+        return None
+    out: list[str] = []
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if char == "*":
+            if text.startswith("**/", index):
+                out.append("(?:.*/)?")
+                index += 3
+            elif text.startswith("**", index):
+                out.append(".*")
+                index += 2
+            else:
+                out.append("[^/]*")
+                index += 1
+        elif char == "?":
+            out.append("[^/]")
+            index += 1
+        else:
+            out.append(re.escape(char))
+            index += 1
+    compiled = re.compile("".join(out))
+    _GLOB_CACHE[pattern] = compiled
+    return compiled
+
+
 def _matches_allowed(rel: str, patterns: list[str] | None) -> bool:
     if not patterns:
         return True
@@ -146,7 +186,8 @@ def _matches_allowed(rel: str, patterns: list[str] | None) -> bool:
             return True
         if pattern.endswith("/**") and rel.startswith(pattern[:-3].rstrip("/") + "/"):
             return True
-        if PurePosixPath(rel).match(pattern) or fnmatch.fnmatchcase(rel, pattern):
+        compiled = _glob_regex(pattern)
+        if compiled is not None and compiled.fullmatch(rel):
             return True
     return False
 
@@ -198,6 +239,22 @@ def _sha_file(target: Path) -> str | None:
     return _sha_bytes(target.read_bytes())
 
 
+def _write_atomic(target: Path, content: str) -> None:
+    """同目录临时文件 + os.replace：任何失败都不会留下半截文件。"""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    handle, temp_name = tempfile.mkstemp(prefix=".kjxy-", dir=str(target.parent))
+    os.close(handle)
+    temp = Path(temp_name)
+    try:
+        with temp.open("w", encoding="utf-8", newline="") as out:
+            out.write(content)
+        if target.exists():
+            os.chmod(temp, target.stat().st_mode & 0o777)
+        os.replace(temp, target)
+    finally:
+        temp.unlink(missing_ok=True)
+
+
 def _diff(rel: str, before: str, after: str) -> tuple[str, int, int, bool]:
     chunks = list(
         difflib.unified_diff(
@@ -232,17 +289,19 @@ def _git(root: Path, *args: str) -> str | None:
         return None
     if completed.returncode != 0:
         return None
-    return completed.stdout.decode("utf-8", errors="replace").strip()
+    # 不 strip：git restore 成功时没有输出，strip 后会被误判为失败
+    return completed.stdout.decode("utf-8", errors="replace")
 
 
 def _git_head(root: Path) -> str | None:
-    if _git(root, "rev-parse", "--is-inside-work-tree") != "true":
+    inside = (_git(root, "rev-parse", "--is-inside-work-tree") or "").strip()
+    if inside != "true":
         return None
-    return _git(root, "rev-parse", "HEAD")
+    return (_git(root, "rev-parse", "HEAD") or "").strip() or None
 
 
 def _is_git(root: Path) -> bool:
-    return _git(root, "rev-parse", "--is-inside-work-tree") == "true"
+    return (_git(root, "rev-parse", "--is-inside-work-tree") or "").strip() == "true"
 
 
 def _project(db: Session, ctx: YardContext, project_id: str) -> WorkspaceProject:
@@ -398,7 +457,16 @@ def create_project(
         updated_by=ctx.user_id,
     )
     db.add(row)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError as e:
+        db.rollback()
+        raise AppError(
+            "WORKSPACE_PROJECT_EXISTS",
+            "同名工作区已存在。",
+            http_status=409,
+            details={"name": clean_name},
+        ) from e
     _audit(db, ctx, "workspace_project_created", row.id, metadata={"root": str(root)})
     return serialize_project(row, with_git=True)
 
@@ -519,18 +587,7 @@ def apply_change(db: Session, ctx: YardContext, change_id: str) -> dict[str, Any
             details={"path": rel, "current_sha": current_sha, "preview_sha": change.before_sha},
         )
     after = change.after_content
-    target.parent.mkdir(parents=True, exist_ok=True)
-    handle, temp_name = tempfile.mkstemp(prefix=".kjxy-", dir=str(target.parent))
-    os.close(handle)
-    temp = Path(temp_name)
-    try:
-        with temp.open("w", encoding="utf-8", newline="") as out:
-            out.write(after)
-        if target.exists():
-            os.chmod(temp, target.stat().st_mode & 0o777)
-        os.replace(temp, target)
-    finally:
-        temp.unlink(missing_ok=True)
+    _write_atomic(target, after)
     if _sha_bytes(target.read_bytes()) != change.after_sha:
         raise _fail("WORKSPACE_APPLY_FAILED", "写入后校验不一致。", status=500)
     change.status = CHANGE_STATUS_APPLIED
@@ -568,26 +625,13 @@ def rollback_change(
             http_status=409,
             details={"path": rel, "current_sha": current_sha, "applied_sha": change.after_sha},
         )
-    restored_by_git = False
-    if change.git_head_before:
-        restored = _git(
-            Path(project.root_path),
-            "restore",
-            "--source",
-            change.git_head_before,
-            "--worktree",
-            "--",
-            rel,
-        )
-        if restored:
-            restored_by_git = True
-    if not restored_by_git:
-        if change.before_existed and change.before_content is not None:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            with target.open("w", encoding="utf-8", newline="") as out:
-                out.write(change.before_content)
-        else:
-            target.unlink(missing_ok=True)
+    # 以预览时保存的快照为准：git restore 会把工作区里预览前的未提交改动一并抹掉
+    if change.before_existed and change.before_content is not None:
+        _write_atomic(target, change.before_content)
+    else:
+        target.unlink(missing_ok=True)
+    if _sha_file(target) != change.before_sha:
+        raise _fail("WORKSPACE_ROLLBACK_FAILED", "回滚后内容与预览前快照不一致。", status=500)
     change.status = CHANGE_STATUS_ROLLED_BACK
     change.rolled_back_by = ctx.user_id
     change.rolled_back_at = datetime.now(UTC)
@@ -596,7 +640,7 @@ def rollback_change(
         ctx,
         "workspace_change_rolled_back",
         change.id,
-        metadata={"project_id": project.id, "path": rel, "via_git": restored_by_git},
+        metadata={"project_id": project.id, "path": rel},
     )
     return serialize_change(change)
 

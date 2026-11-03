@@ -149,6 +149,58 @@ def test_path_allowed_globs_enforced(db_session, workspace_root):
     assert exc.value.code == "WORKSPACE_PATH_DENIED"
 
 
+def test_allowed_glob_star_does_not_cross_directories(db_session, workspace_root):
+    project = service.create_project(
+        db_session,
+        _ctx(),
+        name="narrow",
+        root_path=str(workspace_root),
+        description=None,
+        allowed_paths=["src/*.py"],
+    )
+    _grant(db_session, _plugin(db_session))
+    allowed = service.preview_change(
+        db_session,
+        _ctx(),
+        project_id=project["id"],
+        plugin_id="workspace_editor",
+        path="src/app.py",
+        content="x = 1\n",
+    )
+    assert allowed["path"] == "src/app.py"
+    with pytest.raises(AppError) as exc:
+        service.preview_change(
+            db_session,
+            _ctx(),
+            project_id=project["id"],
+            plugin_id="workspace_editor",
+            path="src/nested/app.py",
+            content="x = 1\n",
+        )
+    assert exc.value.code == "WORKSPACE_PATH_DENIED"
+
+
+def test_allowed_glob_double_star_crosses_directories(db_session, workspace_root):
+    project = service.create_project(
+        db_session,
+        _ctx(),
+        name="wide",
+        root_path=str(workspace_root),
+        description=None,
+        allowed_paths=["src/**/*.py"],
+    )
+    _grant(db_session, _plugin(db_session))
+    change = service.preview_change(
+        db_session,
+        _ctx(),
+        project_id=project["id"],
+        plugin_id="workspace_editor",
+        path="src/nested/app.py",
+        content="x = 1\n",
+    )
+    assert change["path"] == "src/nested/app.py"
+
+
 def test_symlink_escape_is_rejected(db_session, workspace_root, tmp_path):
     outside = tmp_path.parent / "ws-outside.txt"
     outside.write_text("secret", encoding="utf-8")
@@ -298,7 +350,8 @@ def test_rollback_refuses_when_file_changed_unless_forced(db_session, workspace_
     assert target.read_text(encoding="utf-8") == "original"
 
 
-def test_git_rollback_uses_restore(db_session, workspace_root):
+def test_git_rollback_restores_preview_snapshot_not_head(db_session, workspace_root):
+    """git 仓库里回滚以预览快照为准，不能抹掉预览前的未提交改动。"""
     if not (Path("/usr/bin/git").exists() or Path("/opt/homebrew/bin/git").exists()):
         pytest.skip("当前环境没有 git")
     row = _plugin(db_session)
@@ -321,6 +374,7 @@ def test_git_rollback_uses_restore(db_session, workspace_root):
         cwd=workspace_root,
         check=True,
     )
+    target.write_text("v1-uncommitted\n", encoding="utf-8")
     project = _project(db_session, workspace_root)
     change = service.preview_change(
         db_session,
@@ -334,7 +388,7 @@ def test_git_rollback_uses_restore(db_session, workspace_root):
     service.apply_change(db_session, _ctx(), change["id"])
     rolled = service.rollback_change(db_session, _ctx(), change["id"])
     assert rolled["status"] == "rolled_back"
-    assert target.read_text(encoding="utf-8") == "v1\n"
+    assert target.read_text(encoding="utf-8") == "v1-uncommitted\n"
 
 
 def test_binary_and_oversize_rejected(db_session, workspace_root):
