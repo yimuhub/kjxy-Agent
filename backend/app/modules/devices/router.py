@@ -34,7 +34,7 @@ from app.modules.devices.schemas import (
 
 router = APIRouter(prefix="/devices", tags=["devices"])
 
-_ADMIN_ROLES = {"platform_admin", "admin", "yard_admin"}
+_ADMIN_ROLES = {"platform_admin", "yard_admin"}
 
 
 def _member(ctx: YardContext = Depends(get_yard_context)) -> YardContext:

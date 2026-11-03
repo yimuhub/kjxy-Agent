@@ -19,7 +19,7 @@ from app.modules.bots.models import STATUS_CONFIGURED, STATUS_ERROR
 
 router = APIRouter(prefix="/bots", tags=["bots"])
 
-_ADMIN_ROLES = {"platform_admin", "admin", "yard_admin"}
+_ADMIN_ROLES = {"platform_admin", "yard_admin"}
 
 
 def _admin(ctx: YardContext = Depends(get_yard_context)) -> YardContext:

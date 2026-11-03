@@ -15,6 +15,7 @@ from app.modules.yards.permissions import (
     ALL_PERMISSIONS,
     PERMISSIONS,
     PROTECTED_PERMISSIONS,
+    RESERVED_ROLE_CODES,
     ROLE_LABELS,
     default_role_permissions,
 )
@@ -146,8 +147,8 @@ def create_custom_role(
             "角色编码需为 3–32 位小写字母/数字/下划线，且以字母开头。",
             http_status=400,
         )
-    if clean in PERMISSIONS:
-        raise AppError("ROLE_EXISTS", "系统角色编码不可复用。", http_status=409)
+    if clean in RESERVED_ROLE_CODES:
+        raise AppError("ROLE_EXISTS", "该角色编码为系统保留，不可复用。", http_status=409)
     count = len(
         db.scalars(
             select(YardRole).where(YardRole.yard_id == yard_id, YardRole.is_system.is_(False))

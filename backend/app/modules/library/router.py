@@ -31,7 +31,7 @@ from app.modules.library.schemas import (
 
 router = APIRouter(prefix="/library", tags=["library"])
 
-_library_gate = require_roles("platform_admin", "admin", "yard_admin", "yard_owner")
+_library_gate = require_roles("platform_admin", "yard_admin", "yard_owner")
 
 
 def _is_platform_admin(user: CurrentUser) -> bool:

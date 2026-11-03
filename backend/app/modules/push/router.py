@@ -22,7 +22,7 @@ from app.modules.push.schemas import PushChannelCreate, PushChannelUpdate
 
 router = APIRouter(prefix="/settings", tags=["push"])
 
-_ADMIN_ROLES = {"platform_admin", "admin", "yard_admin"}
+_ADMIN_ROLES = {"platform_admin", "yard_admin"}
 
 
 def _admin(ctx: YardContext = Depends(get_yard_context)) -> YardContext:

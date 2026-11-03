@@ -27,7 +27,7 @@ log = get_logger(__name__)
 
 router = APIRouter(tags=["llm-official"])
 
-_admin_only = require_roles("platform_admin", "admin", "yard_admin", "yard_owner")
+_admin_only = require_roles("platform_admin", "yard_admin", "yard_owner")
 
 
 def _actor(

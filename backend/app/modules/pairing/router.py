@@ -24,7 +24,7 @@ from app.modules.pairing.schemas import PairExchangeRequest
 
 router = APIRouter(prefix="/pairing", tags=["pairing"])
 
-_ADMIN_ROLES = {"platform_admin", "admin", "yard_admin"}
+_ADMIN_ROLES = {"platform_admin", "yard_admin"}
 
 #: 公开交换端点单 IP 限流：码是 token_urlsafe(16) + 5 分钟 TTL，爆破本就不可行；
 #: 这里挡的是扫描式试错与无效请求刷量。失败计数、成功清零。

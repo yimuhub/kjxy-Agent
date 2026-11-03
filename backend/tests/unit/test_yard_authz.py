@@ -91,6 +91,22 @@ def test_custom_role_strips_protected(db_session, people):
     assert out["permissions"] == ["knowledge:read"]
 
 
+@pytest.mark.parametrize("code", ["admin", "platform_admin", "yard_owner", "root"])
+def test_custom_role_cannot_reuse_reserved_codes(db_session, people, code):
+    yard, owner, _, _ = people
+    with pytest.raises(AppError) as exc:
+        roles_service.create_custom_role(
+            db_session,
+            yard_id=yard.id,
+            code=code,
+            name="伪管理员",
+            permissions=[],
+            actor_id=owner.id,
+            request_id="r-reserved",
+        )
+    assert exc.value.code == "ROLE_EXISTS"
+
+
 def test_owner_role_permissions_immutable(db_session, people):
     yard, owner, _, _ = people
     with pytest.raises(AppError) as e:

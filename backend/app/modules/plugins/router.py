@@ -26,7 +26,7 @@ from app.modules.plugins.schemas import (
 
 router = APIRouter(prefix="/plugins", tags=["plugins"])
 
-_admin_only = require_roles("platform_admin", "admin")
+_admin_only = require_roles("platform_admin")
 #: workflow 闸门：yard_admin（require_roles 内置 platform_admin 直通）
 _wf_admin_gate = require_roles("yard_admin")
 

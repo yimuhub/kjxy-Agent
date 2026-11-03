@@ -58,7 +58,7 @@ def _payload(**kw):
 
 @pytest.fixture()
 def admin_headers():
-    token = create_access_token(user_id="u-admin", yard_id=YARD, roles=["admin"])
+    token = create_access_token(user_id="u-admin", yard_id=YARD, roles=["yard_admin"])
     return {"Authorization": f"Bearer {token}"}
 
 

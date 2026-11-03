@@ -26,7 +26,7 @@ from app.modules.mcp.schemas import McpServerCreate, McpServerUpdate
 
 router = APIRouter(prefix="/settings", tags=["mcp"])
 
-_ADMIN_ROLES = {"platform_admin", "admin", "yard_admin"}
+_ADMIN_ROLES = {"platform_admin", "yard_admin"}
 
 
 def _admin(ctx: YardContext = Depends(get_yard_context)) -> YardContext:

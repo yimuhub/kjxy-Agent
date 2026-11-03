@@ -23,7 +23,7 @@ from app.modules.llm.models import LLMTrace
 
 router = APIRouter()
 
-_ADMIN_ROLES = {"platform_admin", "admin", "yard_admin", "yard_owner"}
+_ADMIN_ROLES = {"platform_admin", "yard_admin", "yard_owner"}
 
 
 def _admin(ctx: YardContext = Depends(get_yard_context)) -> YardContext:

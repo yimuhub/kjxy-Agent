@@ -245,6 +245,16 @@ ROLE_LABELS: dict[str, str] = {
 #: 可分配给成员的常规角色（负责人只能转让产生）
 ASSIGNABLE_ROLES: tuple[str, ...] = ("yard_admin", "expert", "operator", "viewer")
 
+#: 自定义角色不可占用的编码：内置角色 + 历史遗留/保留的超级角色名。
+#: 否则可建一个空权限的 "admin" 角色，仅凭 JWT 角色名通过 require_roles 闸门。
+RESERVED_ROLE_CODES: frozenset[str] = frozenset(PERMISSIONS) | {
+    "admin",
+    "owner",
+    "root",
+    "superuser",
+    "system",
+}
+
 #: 权限分组（系统设置 UI 用）
 PERMISSION_GROUPS: tuple[dict[str, object], ...] = (
     {
@@ -369,6 +379,7 @@ __all__ = [
     "PERMISSION_GROUPS",
     "PERMISSION_LABELS",
     "PROTECTED_PERMISSIONS",
+    "RESERVED_ROLE_CODES",
     "ROLE_LABELS",
     "default_role_permissions",
     "has_permission",

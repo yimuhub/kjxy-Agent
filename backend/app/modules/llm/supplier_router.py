@@ -37,7 +37,7 @@ from app.modules.llm.supplier_schemas import (
 
 router = APIRouter(tags=["llm-suppliers"])
 
-_admin_only = require_roles("platform_admin", "admin", "yard_admin", "yard_owner")
+_admin_only = require_roles("platform_admin", "yard_admin", "yard_owner")
 
 
 def _key_configured_dep():
