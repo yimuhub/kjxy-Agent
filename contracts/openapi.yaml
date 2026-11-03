@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.57.0
+  version: 3.58.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -9249,6 +9249,172 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/org/proposals:
+    post:
+      tags:
+      - v1
+      - org
+      summary: Create Proposal
+      description: 建组织推导任务并立即返回（202）：检索/建模在后台执行。
+      operationId: create_proposal_api_v1_org_proposals_post
+      security:
+      - HTTPBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrgProposalCreate'
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - v1
+      - org
+      summary: List Proposals
+      operationId: list_proposals_api_v1_org_proposals_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 20
+          - type: 'null'
+          title: Status
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 20
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/org/proposals/{proposal_id}:
+    get:
+      tags:
+      - v1
+      - org
+      summary: Get Proposal
+      operationId: get_proposal_api_v1_org_proposals__proposal_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: proposal_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Proposal Id
+      - name: parent_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 36
+          - type: 'null'
+          title: Parent Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/org/proposals/{proposal_id}/apply:
+    post:
+      tags:
+      - v1
+      - org
+      summary: Apply Proposal
+      operationId: apply_proposal_api_v1_org_proposals__proposal_id__apply_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: proposal_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Proposal Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrgProposalApply'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/org/proposals/{proposal_id}/discard:
+    post:
+      tags:
+      - v1
+      - org
+      summary: Discard Proposal
+      operationId: discard_proposal_api_v1_org_proposals__proposal_id__discard_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: proposal_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Proposal Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/market/catalog:
     get:
       tags:
@@ -15033,6 +15199,27 @@ components:
       additionalProperties: false
       type: object
       title: OrgPositionUpdate
+    OrgProposalApply:
+      properties:
+        parent_id:
+          anyOf:
+          - type: string
+            maxLength: 36
+          - type: 'null'
+          title: Parent Id
+      additionalProperties: false
+      type: object
+      title: OrgProposalApply
+    OrgProposalCreate:
+      properties:
+        instruction:
+          type: string
+          maxLength: 2000
+          title: Instruction
+          default: ''
+      additionalProperties: false
+      type: object
+      title: OrgProposalCreate
     OrgUnitCreate:
       properties:
         name:

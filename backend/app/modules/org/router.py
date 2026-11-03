@@ -6,19 +6,31 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import JSONResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.deps import CurrentUser, get_db_session, require_yard_permission
+from app.core.deps import CurrentUser, YardContext, get_db_session, require_yard_permission
 from app.core.errors import AppError
 from app.core.responses import ok
 from app.modules.audit.service import log_audit
-from app.modules.org import service
+from app.modules.org import (  # noqa: F401 - 注册任务 handler
+    proposal_service,
+    proposal_tasks,
+    service,
+)
+from app.modules.org.models import PROPOSAL_STATUSES, OrgProposal
 from app.modules.org.schemas import (
     OrgPositionCreate,
     OrgPositionUpdate,
+    OrgProposalApply,
+    OrgProposalCreate,
     OrgUnitCreate,
     OrgUnitUpdate,
 )
+from app.modules.tasks.router import _enqueue_or_inline
+from app.modules.tasks.service import TaskService
+from app.modules.yards.quota import check_and_consume
 
 router = APIRouter(prefix="/org", tags=["org"])
 
@@ -234,3 +246,184 @@ def delete_position(
     )
     _commit(db)
     return ok({"deleted": True}, request)
+
+
+# ---------------------------------------------------------------------------
+# 知识库 → 组织架构提案
+# ---------------------------------------------------------------------------
+
+
+def _proposal_summary(row: OrgProposal) -> dict[str, object]:
+    payload = row.proposal_json or {}
+    return {
+        "id": row.id,
+        "title": row.title,
+        "status": row.status,
+        "summary": payload.get("summary", ""),
+        "units": len(payload.get("units") or []),
+        "agents": len(payload.get("agent_suggestions") or []),
+        "evidence_count": len(row.evidence_json or []),
+        "task_id": row.task_id,
+        "error_message": row.error_message,
+        "created_at": row.created_at,
+        "applied_at": row.applied_at,
+    }
+
+
+@router.post("/proposals", status_code=202)
+def create_proposal(
+    body: OrgProposalCreate,
+    request: Request,
+    user: CurrentUser = Depends(require_yard_permission("org:manage")),
+    db: Session = Depends(get_db_session),
+):
+    """建组织推导任务并立即返回（202）：检索/建模在后台执行。"""
+    yard_id = _yard_id(user)
+    check_and_consume(db, yard_id, "tasks")
+    row = OrgProposal(
+        yard_id=yard_id,
+        title="",
+        instruction=body.instruction.strip(),
+        status="generating",
+        created_by=user.user_id,
+    )
+    db.add(row)
+    db.flush()
+    ctx = YardContext(
+        yard_id=yard_id,
+        user_id=user.user_id,
+        roles=list(user.roles or []),
+        request_id=user.request_id,
+    )
+    task = TaskService.create(
+        db,
+        ctx,
+        task_type=proposal_service.TASK_TYPE,
+        input={
+            "proposal_id": row.id,
+            "instruction": row.instruction,
+            "roles": list(user.roles or []),
+        },
+        request_id=user.request_id,
+    )
+    row.task_id = task.id
+    log_audit(
+        db,
+        yard_id=yard_id,
+        actor_id=user.user_id,
+        action="org_proposal_requested",
+        resource_type="org_proposal",
+        resource_id=row.id,
+        result="success",
+        request_id=user.request_id,
+        metadata={"task_id": task.id},
+    )
+    _commit(db)
+    _enqueue_or_inline(db, task)
+    return JSONResponse(
+        status_code=202,
+        content=ok({"proposal_id": row.id, "task_id": task.id}, request),
+    )
+
+
+@router.get("/proposals")
+def list_proposals(
+    request: Request,
+    status: str | None = Query(default=None, max_length=20),
+    limit: int = Query(default=20, ge=1, le=100),
+    user: CurrentUser = Depends(require_yard_permission("org:read")),
+    db: Session = Depends(get_db_session),
+):
+    yard_id = _yard_id(user)
+    stmt = select(OrgProposal).where(OrgProposal.yard_id == yard_id)
+    if status:
+        if status not in PROPOSAL_STATUSES:
+            raise AppError("INVALID_REQUEST", "status 不合法。", http_status=400)
+        stmt = stmt.where(OrgProposal.status == status)
+    rows = db.execute(stmt.order_by(OrgProposal.created_at.desc()).limit(limit)).scalars().all()
+    return ok([_proposal_summary(row) for row in rows], request)
+
+
+@router.get("/proposals/{proposal_id}")
+def get_proposal(
+    proposal_id: str,
+    request: Request,
+    parent_id: str | None = Query(default=None, max_length=36),
+    user: CurrentUser = Depends(require_yard_permission("org:read")),
+    db: Session = Depends(get_db_session),
+):
+    row = proposal_service.get_proposal(db, _yard_id(user), proposal_id)
+    return ok(proposal_service.serialize(db, row, parent_id=parent_id), request)
+
+
+@router.post("/proposals/{proposal_id}/apply")
+def apply_proposal(
+    proposal_id: str,
+    body: OrgProposalApply,
+    request: Request,
+    user: CurrentUser = Depends(require_yard_permission("org:manage")),
+    db: Session = Depends(get_db_session),
+):
+    yard_id = _yard_id(user)
+    ctx = YardContext(
+        yard_id=yard_id,
+        user_id=user.user_id,
+        roles=list(user.roles or []),
+        request_id=user.request_id,
+    )
+    result = proposal_service.apply_proposal(
+        db, ctx=ctx, proposal_id=proposal_id, parent_id=body.parent_id
+    )
+    row = proposal_service.get_proposal(db, yard_id, proposal_id)
+    log_audit(
+        db,
+        yard_id=yard_id,
+        actor_id=user.user_id,
+        action="org_proposal_applied",
+        resource_type="org_proposal",
+        resource_id=proposal_id,
+        result="success",
+        request_id=user.request_id,
+        metadata=result.get("result") or {},
+    )
+    _commit(db)
+    return ok(
+        {
+            "already_applied": result.get("already_applied"),
+            "result": result.get("result"),
+            "proposal": proposal_service.serialize(db, row, parent_id=body.parent_id),
+        },
+        request,
+    )
+
+
+@router.post("/proposals/{proposal_id}/discard")
+def discard_proposal(
+    proposal_id: str,
+    request: Request,
+    user: CurrentUser = Depends(require_yard_permission("org:manage")),
+    db: Session = Depends(get_db_session),
+):
+    yard_id = _yard_id(user)
+    row = proposal_service.discard_proposal(
+        db,
+        ctx=YardContext(
+            yard_id=yard_id,
+            user_id=user.user_id,
+            roles=list(user.roles or []),
+            request_id=user.request_id,
+        ),
+        proposal_id=proposal_id,
+    )
+    log_audit(
+        db,
+        yard_id=yard_id,
+        actor_id=user.user_id,
+        action="org_proposal_discarded",
+        resource_type="org_proposal",
+        resource_id=proposal_id,
+        result="success",
+        request_id=user.request_id,
+    )
+    _commit(db)
+    return ok(_proposal_summary(row), request)

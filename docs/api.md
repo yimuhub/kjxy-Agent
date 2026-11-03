@@ -765,6 +765,23 @@ token 统计口径（v3.55）：每个子任务按 `llm_calls` 账本的 task_id
 - 约束：最多 8 级；禁止把自己挂到自己或后代下（400 `ORG_CYCLE`）；父单元与 Agent 必须属于本小院（404 / 400 `ORG_AGENT_INVALID`）；编码格式 `[a-z0-9][a-z0-9_-]{1,59}`，重复 409 `ORG_CODE_DUPLICATE`。
 - 审计：`org_unit_created/updated/deleted`、`org_position_created/updated/deleted`。
 
+### 知识库推导组织架构
+
+从本小院知识库检索依据，异步生成「组织单元 + 岗位」建议；**建议在用户确认前不落组织表**。
+
+| 接口 | 说明 |
+| --- | --- |
+| `POST /org/proposals` | `{instruction?}`，返回 202 `{proposal_id, task_id}`；任务类型 `org_generate`，进度见任务事件（检索 → 生成 → 解析） |
+| `GET /org/proposals` | 建议列表（按创建时间倒序），含状态、摘要与 diff 计数 |
+| `GET /org/proposals/{id}` | 详情：`units`（拓扑序，父在前）、`positions`、`agent_suggestions`、`evidence`（chunk/document/title/页码/引用/分数）、`plan`（新建/已存在单元与岗位计数） |
+| `POST /org/proposals/{id}/apply` | `{parent_id?}`：把建议合并进组织架构；按单元名与岗位标题去重，重复应用幂等返回 `already_applied` |
+| `POST /org/proposals/{id}/discard` | 丢弃建议（仅 `ready` 可丢弃） |
+
+- 状态：`generating → ready → applied | discarded`，失败为 `failed`（附 `error`）。
+- 生成口径：最多 20 个单元、每单元 10 个岗位、8 条证据；父子关系按名称拓扑排序，父级无法解析或成环时降为顶层；全局单元名去重。
+- 证据：只引用本小院知识库命中片段，保存 `chunk_id` 与引用原文，便于回溯。
+- 权限：创建/应用/丢弃需 `org:manage`，查看需 `org:read`；生成消耗一次 `tasks` 配额。
+
 ## 任务状态机
 
 `queued → running → succeeded | failed | cancelled | awaiting_review → succeeded | failed | cancelled`

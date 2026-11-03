@@ -56,9 +56,24 @@ class OrgPositionUpdate(BaseModel):
     status: UnitStatus | None = None
 
 
+class OrgProposalCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    instruction: str = Field(default="", max_length=2000)
+
+
+class OrgProposalApply(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    #: 把提案挂到已有组织单元下；不传则作为顶层
+    parent_id: str | None = Field(default=None, max_length=36)
+
+
 __all__ = [
     "OrgPositionCreate",
     "OrgPositionUpdate",
+    "OrgProposalApply",
+    "OrgProposalCreate",
     "OrgUnitCreate",
     "OrgUnitUpdate",
     "UnitKind",

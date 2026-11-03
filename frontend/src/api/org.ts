@@ -88,6 +88,86 @@ export interface OrgPositionPayload {
   status?: OrgUnitStatus
 }
 
+export type OrgProposalStatus = 'generating' | 'ready' | 'applied' | 'discarded' | 'failed'
+
+export interface OrgProposalPosition {
+  title: string
+  responsibilities?: string
+  headcount?: number
+  action?: 'create' | 'existing'
+}
+
+export interface OrgProposalUnit {
+  name: string
+  kind: OrgUnitKind
+  parent_name?: string | null
+  description?: string
+  positions: OrgProposalPosition[]
+  agent_suggestion?: {
+    name: string
+    mission?: string
+    reason?: string
+  } | null
+  action?: 'create' | 'existing'
+}
+
+export interface OrgProposalEvidence {
+  chunk_id: string
+  document_id: string
+  title: string
+  page_number?: number | null
+  quote: string
+  score?: number
+}
+
+export interface OrgProposal {
+  id: string
+  title: string
+  status: OrgProposalStatus
+  instruction: string
+  summary: string
+  units: OrgProposalUnit[]
+  agent_suggestions: {
+    name: string
+    department: string
+    mission?: string
+    reason?: string
+  }[]
+  evidence: OrgProposalEvidence[]
+  evidence_count: number
+  model: string
+  prompt_version: string
+  token_usage: { input_tokens?: number; output_tokens?: number }
+  diff: {
+    items: OrgProposalUnit[]
+    counts: {
+      create_units?: number
+      existing_units?: number
+      create_positions?: number
+      existing_positions?: number
+    }
+  }
+  applied_result?: Record<string, number> | null
+  error_message: string
+  task_id?: string | null
+  created_at?: string
+  applied_at?: string | null
+}
+
+export interface OrgProposalSummary {
+  id: string
+  title: string
+  status: OrgProposalStatus
+  summary: string
+  units: number
+  agents: number
+  evidence_count: number
+  task_id?: string | null
+  error_message: string
+  created_at?: string
+  applied_at?: string | null
+}
+
 function unwrap<T>(promise: Promise<{ data: ApiResponse<T> }>): Promise<T> {
   return promise.then(res => res.data.data)
 }
@@ -120,5 +200,40 @@ export const orgApi = {
   },
   deletePosition(id: string): Promise<{ deleted: boolean }> {
     return unwrap(api.delete<ApiResponse<{ deleted: boolean }>>(`/org/positions/${id}`))
+  },
+  createProposal(instruction: string): Promise<{ proposal_id: string; task_id: string }> {
+    return unwrap(
+      api.post<ApiResponse<{ proposal_id: string; task_id: string }>>('/org/proposals', {
+        instruction,
+      }),
+    )
+  },
+  listProposals(): Promise<OrgProposalSummary[]> {
+    return unwrap(api.get<ApiResponse<OrgProposalSummary[]>>('/org/proposals'))
+  },
+  getProposal(id: string, parentId?: string | null): Promise<OrgProposal> {
+    return unwrap(
+      api.get<ApiResponse<OrgProposal>>(`/org/proposals/${id}`, {
+        params: parentId ? { parent_id: parentId } : {},
+      }),
+    )
+  },
+  applyProposal(
+    id: string,
+    parentId?: string | null,
+  ): Promise<{
+    already_applied: boolean
+    result: Record<string, number>
+    proposal: OrgProposal
+  }> {
+    return unwrap(
+      api.post<ApiResponse<{ already_applied: boolean; result: Record<string, number>; proposal: OrgProposal }>>(
+        `/org/proposals/${id}/apply`,
+        { parent_id: parentId ?? null },
+      ),
+    )
+  },
+  discardProposal(id: string): Promise<OrgProposalSummary> {
+    return unwrap(api.post<ApiResponse<OrgProposalSummary>>(`/org/proposals/${id}/discard`))
   },
 }

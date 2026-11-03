@@ -29,6 +29,13 @@
         >
           新建组织
         </el-button>
+        <el-button
+          v-if="canManage"
+          :loading="proposalBusy"
+          @click="openProposalDialog"
+        >
+          从知识库推导
+        </el-button>
       </div>
     </div>
 
@@ -479,17 +486,237 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <el-dialog
+      v-model="proposalDialogVisible"
+      append-to-body
+      align-center
+      draggable
+      title="从知识库推导组织架构"
+      width="min(1000px, 96vw)"
+      @closed="stopPolling"
+    >
+      <div v-if="proposalPhase === 'form'">
+        <el-alert
+          type="info"
+          show-icon
+          :closable="false"
+          title="先确认知识库里已有章程、介绍或岗位说明；推导结果只是建议，应用前不会改动现有组织。"
+        />
+        <el-form
+          label-width="88px"
+          class="proposal-form"
+        >
+          <el-form-item label="推导要求">
+            <el-input
+              v-model="proposalInstruction"
+              type="textarea"
+              :rows="4"
+              maxlength="2000"
+              show-word-limit
+              placeholder="例如：按合作社章程梳理理事会、技术部、市场部与各岗位；重点突出种植技术服务。"
+            />
+          </el-form-item>
+          <el-form-item label="挂到">
+            <el-select
+              v-model="proposalParentId"
+              class="full"
+              clearable
+              placeholder="不选则作为顶层组织"
+            >
+              <el-option
+                v-for="unit in tree?.flat ?? []"
+                :key="unit.id"
+                :label="unit.path"
+                :value="unit.id"
+              />
+            </el-select>
+          </el-form-item>
+        </el-form>
+        <p class="note">
+          系统会检索最多 8 条知识依据并调用当前模型生成建议，通常需要 10–60 秒。
+        </p>
+      </div>
+
+      <div v-else-if="proposalPhase === 'running'">
+        <el-skeleton
+          :rows="5"
+          animated
+        />
+        <p class="note">
+          正在检索知识库并设计组织架构，可以先关闭窗口，稍后重新打开查看结果…
+        </p>
+      </div>
+
+      <div v-else-if="proposalPhase === 'failed'">
+        <el-alert
+          type="error"
+          show-icon
+          :closable="false"
+          :title="proposalError || proposal?.error_message || '组织架构推导失败'"
+        />
+      </div>
+
+      <div v-else-if="proposal">
+        <div class="proposal-head">
+          <div>
+            <div class="detail-title">
+              {{ proposal.title }}
+            </div>
+            <p class="note">
+              {{ proposal.summary }}
+            </p>
+          </div>
+          <el-tag
+            effect="plain"
+            :type="proposal.status === 'applied' ? 'success' : 'warning'"
+          >
+            {{ proposal.status === 'applied' ? '已应用' : '待确认' }}
+          </el-tag>
+        </div>
+
+        <div class="proposal-counts">
+          <span>新建单元 {{ proposal.diff.counts.create_units ?? 0 }}</span>
+          <span>已有单元 {{ proposal.diff.counts.existing_units ?? 0 }}</span>
+          <span>新建岗位 {{ proposal.diff.counts.create_positions ?? 0 }}</span>
+          <span>已有岗位 {{ proposal.diff.counts.existing_positions ?? 0 }}</span>
+          <span>依据 {{ proposal.evidence_count }} 条</span>
+        </div>
+
+        <div class="proposal-units">
+          <div
+            v-for="unit in proposal.diff.items"
+            :key="unit.name"
+            class="proposal-unit"
+          >
+            <div class="unit-line">
+              <strong>{{ unit.name }}</strong>
+              <el-tag
+                size="small"
+                effect="plain"
+              >
+                {{ kindLabel(unit.kind) }}
+              </el-tag>
+              <el-tag
+                size="small"
+                :type="unit.action === 'create' ? 'success' : 'info'"
+                effect="plain"
+              >
+                {{ unit.action === 'create' ? '新建' : '已存在' }}
+              </el-tag>
+              <span
+                v-if="unit.parent_name"
+                class="note"
+              >上级：{{ unit.parent_name }}</span>
+            </div>
+            <div
+              v-if="unit.description"
+              class="unit-desc"
+            >
+              {{ unit.description }}
+            </div>
+            <div class="chip-row">
+              <el-tag
+                v-for="pos in unit.positions"
+                :key="pos.title"
+                size="small"
+                effect="plain"
+                :type="pos.action === 'create' ? 'success' : 'info'"
+              >
+                {{ pos.title }}{{ pos.headcount ? ` ×${pos.headcount}` : '' }}
+              </el-tag>
+            </div>
+            <div
+              v-if="unit.agent_suggestion"
+              class="agent-suggest"
+            >
+              🤖 建议 Agent：{{ unit.agent_suggestion.name }}
+              <span class="note">{{ unit.agent_suggestion.mission }}</span>
+            </div>
+          </div>
+        </div>
+
+        <el-collapse class="proposal-evidence">
+          <el-collapse-item
+            :title="`知识依据（${proposal.evidence.length} 条）`"
+            name="evidence"
+          >
+            <div
+              v-for="item in proposal.evidence"
+              :key="item.chunk_id"
+              class="evidence-item"
+            >
+              <div class="note">
+                《{{ item.title }}》{{ item.page_number ? ` 第${item.page_number}页` : '' }}
+              </div>
+              <blockquote>{{ item.quote }}</blockquote>
+            </div>
+          </el-collapse-item>
+        </el-collapse>
+      </div>
+
+      <template #footer>
+        <template v-if="proposalPhase === 'form'">
+          <el-button @click="proposalDialogVisible = false">
+            取消
+          </el-button>
+          <el-button
+            type="primary"
+            :loading="proposalBusy"
+            :disabled="proposalBusy"
+            @click="startProposal"
+          >
+            开始推导
+          </el-button>
+        </template>
+        <template v-else-if="proposalPhase === 'ready'">
+          <el-button @click="proposalDialogVisible = false">
+            稍后处理
+          </el-button>
+          <el-button
+            :loading="proposalBusy"
+            @click="discardProposal"
+          >
+            放弃
+          </el-button>
+          <el-button
+            type="primary"
+            :loading="proposalBusy"
+            @click="applyProposal"
+          >
+            应用建议
+          </el-button>
+        </template>
+        <template v-else-if="proposalPhase === 'failed'">
+          <el-button @click="proposalPhase = 'form'">
+            重新填写
+          </el-button>
+          <el-button
+            type="primary"
+            @click="proposalDialogVisible = false"
+          >
+            关闭
+          </el-button>
+        </template>
+        <template v-else>
+          <el-button @click="proposalDialogVisible = false">
+            后台运行
+          </el-button>
+        </template>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-  import { computed, onMounted, reactive, ref } from 'vue'
+  import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
   import { ElMessage, ElMessageBox } from 'element-plus'
   import { extractErrorMessage } from '@/api/client'
   import { declarativeApi, type DeclarativeAgent } from '@/api/modules'
   import {
     orgApi,
     type OrgPosition,
+    type OrgProposal,
     type OrgTree,
     type OrgUnit,
     type OrgUnitKind,
@@ -537,6 +764,17 @@
     agent_id: null as string | null,
     sort_order: 0,
   })
+
+  type ProposalPhase = 'form' | 'running' | 'ready' | 'failed'
+  const proposalDialogVisible = ref(false)
+  const proposalBusy = ref(false)
+  const proposalPhase = ref<ProposalPhase>('form')
+  const proposalInstruction = ref('')
+  const proposalParentId = ref<string | null>(null)
+  const proposal = ref<OrgProposal | null>(null)
+  const proposalError = ref('')
+  let proposalId = ''
+  let pollTimer: ReturnType<typeof setInterval> | null = null
 
   function findUnit(nodes: OrgUnit[], id: string): OrgUnit | null {
     for (const node of nodes) {
@@ -732,9 +970,119 @@
     }
   }
 
+  function kindLabel(kind: OrgUnitKind): string {
+    return UNIT_KINDS.find(item => item.value === kind)?.label ?? kind
+  }
+
+  function stopPolling(): void {
+    if (pollTimer) {
+      clearInterval(pollTimer)
+      pollTimer = null
+    }
+  }
+
+  function openProposalDialog(): void {
+    if (proposalId && proposalPhase.value === 'running') {
+      proposalDialogVisible.value = true
+      void pollProposal()
+      return
+    }
+    stopPolling()
+    proposalPhase.value = 'form'
+    proposal.value = null
+    proposalError.value = ''
+    proposalInstruction.value = ''
+    proposalParentId.value = selected.value?.id ?? null
+    proposalDialogVisible.value = true
+  }
+
+  async function startProposal(): Promise<void> {
+    proposalBusy.value = true
+    proposalError.value = ''
+    try {
+      const created = await orgApi.createProposal(proposalInstruction.value.trim())
+      proposalId = created.proposal_id
+      proposalPhase.value = 'running'
+      await pollProposal()
+    } catch (error) {
+      proposalPhase.value = 'failed'
+      proposalError.value = extractErrorMessage(error).message
+    } finally {
+      proposalBusy.value = false
+    }
+  }
+
+  async function pollProposal(): Promise<void> {
+    stopPolling()
+    if (!proposalId) return
+    const tick = async (): Promise<void> => {
+      try {
+        const data = await orgApi.getProposal(proposalId, proposalParentId.value)
+        proposal.value = data
+        if (data.status === 'ready') {
+          proposalPhase.value = 'ready'
+          stopPolling()
+        } else if (data.status === 'failed' || data.status === 'discarded') {
+          proposalPhase.value = 'failed'
+          proposalError.value = data.error_message || '组织架构推导失败'
+          stopPolling()
+        } else if (data.status === 'applied') {
+          proposalPhase.value = 'ready'
+          stopPolling()
+        }
+      } catch (error) {
+        proposalPhase.value = 'failed'
+        proposalError.value = extractErrorMessage(error).message
+        stopPolling()
+      }
+    }
+    await tick()
+    if (proposalPhase.value === 'running' && proposalDialogVisible.value) {
+      pollTimer = setInterval(() => {
+        void tick()
+      }, 1500)
+    }
+  }
+
+  async function applyProposal(): Promise<void> {
+    if (!proposal.value) return
+    proposalBusy.value = true
+    try {
+      const result = await orgApi.applyProposal(proposal.value.id, proposalParentId.value)
+      const counts = result.result || {}
+      ElMessage.success(
+        `已应用：新建 ${counts.created_units ?? 0} 个组织单元、${counts.created_positions ?? 0} 个岗位`,
+      )
+      proposalId = ''
+      proposalDialogVisible.value = false
+      await reload()
+    } catch (error) {
+      ElMessage.error(extractErrorMessage(error).message)
+    } finally {
+      proposalBusy.value = false
+    }
+  }
+
+  async function discardProposal(): Promise<void> {
+    if (!proposal.value) return
+    proposalBusy.value = true
+    try {
+      await orgApi.discardProposal(proposal.value.id)
+      ElMessage.success('已放弃本次建议')
+      proposalId = ''
+      proposalDialogVisible.value = false
+    } catch (error) {
+      ElMessage.error(extractErrorMessage(error).message)
+    } finally {
+      proposalBusy.value = false
+    }
+  }
+
   onMounted(async () => {
     await Promise.all([reload(), loadAgents()])
   })
+
+  onBeforeUnmount(stopPolling)
 </script>
 
 <style scoped>
@@ -887,6 +1235,88 @@
 
   .full {
     width: 100%;
+  }
+
+  .proposal-form {
+    margin-top: 16px;
+  }
+
+  .proposal-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 10px;
+  }
+
+  .proposal-counts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    margin: 10px 0 16px;
+    padding: 10px 12px;
+    border: 1px solid var(--ds-border);
+    border-radius: var(--ds-radius-control);
+    color: var(--ds-text-2);
+    font-size: 13px;
+    background: var(--ds-glass);
+  }
+
+  .proposal-units {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+
+  .proposal-unit {
+    padding: 12px 14px;
+    border: 1px solid var(--ds-border);
+    border-radius: var(--ds-radius-card);
+    background: var(--ds-glass);
+  }
+
+  .unit-line {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .unit-desc {
+    margin: 8px 0;
+    color: var(--ds-text-2);
+    line-height: 1.6;
+  }
+
+  .chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .agent-suggest {
+    margin-top: 8px;
+    color: var(--ds-text-2);
+    font-size: 13px;
+  }
+
+  .proposal-evidence {
+    margin-top: 4px;
+  }
+
+  .evidence-item {
+    margin-bottom: 12px;
+  }
+
+  .evidence-item blockquote {
+    margin: 6px 0 0;
+    padding: 8px 10px;
+    border-left: 3px solid var(--ds-accent);
+    border-radius: 0 var(--ds-radius-control) var(--ds-radius-control) 0;
+    background: var(--ds-glass);
+    color: var(--ds-text-2);
+    line-height: 1.6;
   }
 
   @media (max-width: 960px) {
