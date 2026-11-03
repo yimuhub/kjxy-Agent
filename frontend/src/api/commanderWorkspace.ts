@@ -422,6 +422,19 @@ export const commanderWorkspaceApi = {
       ),
     )
   },
+  /** 月度迭代报告导出 Word（blob，由调用方触发下载） */
+  async exportIteration(id: string, monthKey: string): Promise<void> {
+    const res = await api.get<Blob>(`/commander/iterations/${id}/export`, {
+      responseType: 'blob',
+      timeout: 120_000,
+    })
+    const url = URL.createObjectURL(res.data)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `指挥官月度迭代报告-${monthKey}.docx`
+    a.click()
+    URL.revokeObjectURL(url)
+  },
   runIteration(month?: string): Promise<{ iteration: CommanderIteration; created: boolean }> {
     return unwrap(
       api.post<ApiResponse<{ iteration: CommanderIteration; created: boolean }>>(

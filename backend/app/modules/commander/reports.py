@@ -288,7 +288,7 @@ def weekly_optimization(
         lines.append("- 本周运行平稳：保持成熟工作流复用，谨慎开启新方案。")
     if not data["runs"]:
         lines.append("- 本周无运行：下周先跑一条真实业务线，避免画像与资产空转。")
-    return {
+    report = {
         "week_key": current_week,
         "period": _period(start, end),
         "markdown": "\n".join(lines),
@@ -300,6 +300,68 @@ def weekly_optimization(
         },
         "evaluation": evaluator.evaluation_out(evaluation) if evaluation else None,
     }
+    _push_weekly_report(db, yard_id=yard_id, report=report, start=start, end=end)
+    return report
+
+
+def _push_weekly_report(
+    db: Session, *, yard_id: str, report: dict[str, Any], start: datetime, end: datetime
+) -> None:
+    """周报落定后向订阅 commander_weekly_report 的通道推送（本周幂等）。
+
+    幂等锚点：审计日志里本周已有 commander_weekly_pushed 即不再推——手动
+    反复查看周报不会骚扰推送群。推送失败绝不影响报告返回。
+    """
+    from app.modules.audit.models import AuditLog
+    from app.modules.audit.service import log_audit
+    from app.modules.push.models import EVENT_COMMANDER_WEEKLY
+    from app.modules.push.service import dispatch
+
+    try:
+        already = (
+            db.query(func.count(AuditLog.id))
+            .filter(
+                AuditLog.yard_id == yard_id,
+                AuditLog.action == "commander_weekly_pushed",
+                AuditLog.created_at >= start,
+                AuditLog.created_at < end,
+            )
+            .scalar()
+            or 0
+        )
+        if already:
+            return
+        metrics = report.get("metrics") or {}
+        dispatch(
+            db,
+            yard_id=yard_id,
+            event_type=EVENT_COMMANDER_WEEKLY,
+            payload={
+                "title": f"指挥官周报 {report.get('week_key', '')}",
+                "运行数": str(metrics.get("runs", 0)),
+                "子任务完成": f"{metrics.get('ok', 0)}/{metrics.get('subtasks', 0)}",
+                "LLM 成本": f"{round(float(metrics.get('llm_cost') or 0), 4)}",
+                "详情": "指挥台 → 周报页",
+            },
+            request_id=f"weekly:{report.get('week_key', '')}",
+        )
+        log_audit(
+            db,
+            yard_id=yard_id,
+            actor_id=None,
+            action="commander_weekly_pushed",
+            resource_type="commander_report",
+            resource_id=str(report.get("week_key") or ""),
+            result="success",
+            request_id=f"weekly:{report.get('week_key', '')}",
+            metadata={"week_key": report.get("week_key", "")},
+        )
+        db.flush()
+    except Exception as e:  # noqa: BLE001 - 推送与台账失败不影响周报返回
+        import logging
+
+        logging.getLogger(__name__).warning("commander weekly push failed: %s", e)
+        db.rollback()
 
 
 def _month_metrics(db: Session, *, yard_id: str, start: datetime, end: datetime) -> dict[str, Any]:

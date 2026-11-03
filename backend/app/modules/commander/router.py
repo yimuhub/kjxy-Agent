@@ -11,7 +11,7 @@ import asyncio
 from datetime import date
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -673,6 +673,51 @@ def latest_iteration(
     _require_manager(ctx, "仅小院负责人或管理员可查看月度版本。")
     row = reports.latest_iteration(db, ctx.yard_id)
     return ok({"iteration": reports.iteration_out(row) if row else None}, request)
+
+
+@router.get("/iterations/{iteration_id}/export")
+def export_iteration_docx(
+    iteration_id: str,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+):
+    ctx = _ctx(user)
+    """月度迭代报告导出 Word（复用 docs 渲染管线；report_md 结构可控）。"""
+    _require_manager(ctx, "仅小院负责人或管理员可导出月度版本。")
+    from app.modules.commander.evolution_models import CommanderIteration
+    from app.modules.docs.model import parse_model
+    from app.modules.docs.render_docx import to_docx
+    from app.modules.yards.models import Yard
+
+    row = db.scalar(
+        select(CommanderIteration).where(
+            CommanderIteration.id == iteration_id,
+            CommanderIteration.yard_id == ctx.yard_id,
+        )
+    )
+    if row is None:
+        raise AppError("ITERATION_NOT_FOUND", "月度版本不存在或无权访问。", http_status=404)
+
+    yard_name = str(db.scalar(select(Yard.name).where(Yard.id == ctx.yard_id)) or "")
+    from app.modules.commander import export as commander_export
+
+    raw = commander_export.iteration_report_doc(
+        row.report_md,
+        month_key=row.month_key,
+        version_label=row.version_label,
+        yard_name=yard_name,
+    )
+    data = to_docx(parse_model(raw))
+    from urllib.parse import quote as urlquote
+
+    filename = f"指挥官月度迭代报告-{row.month_key}.docx"
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{urlquote(filename, safe='')}"
+        },
+    )
 
 
 @router.post("/iterations/run")

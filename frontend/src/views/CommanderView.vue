@@ -687,6 +687,14 @@
                   </el-button>
                   <el-button
                     link
+                    type="success"
+                    :loading="exportingId === item.id"
+                    @click="exportIteration(item)"
+                  >
+                    导出 Word
+                  </el-button>
+                  <el-button
+                    link
                     type="warning"
                     :disabled="!item.snapshot_id"
                     :loading="restoringId === item.snapshot_id"
@@ -1151,6 +1159,20 @@
   async function restoreIteration(item: CommanderIteration): Promise<void> {
     if (!item.snapshot_id) return
     await restoreSnapshot({ id: item.snapshot_id, label: item.version_label })
+  }
+
+  const exportingId = ref('')
+  async function exportIteration(item: CommanderIteration): Promise<void> {
+    if (exportingId.value) return
+    exportingId.value = item.id
+    try {
+      await commanderWorkspaceApi.exportIteration(item.id, item.month_key)
+      ElMessage.success('报告已导出为 Word')
+    } catch {
+      /* 错误 toast 由 client 统一处理 */
+    } finally {
+      exportingId.value = ''
+    }
   }
 
   async function loadIterations(): Promise<void> {

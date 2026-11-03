@@ -31,7 +31,10 @@ EVENT_SELF_IMPROVE_RUN = "self_improve_run"
 #: v3.28：Agent 自动执行产出的告警与运行摘要
 EVENT_FARM_ALERT = "farm_alert"
 EVENT_FARM_AGENT_RUN = "farm_agent_run"
+#: v3.56：指挥官周报落地推送给负责人（本周幂等，见 reports.weekly_optimization）
+EVENT_COMMANDER_WEEKLY = "commander_weekly_report"
 VALID_EVENTS = (
+    EVENT_COMMANDER_WEEKLY,
     EVENT_DEVICE_ALERT,
     EVENT_WORKORDER_CREATED,
     EVENT_TEAM_RUN_FAILED,
@@ -50,6 +53,7 @@ EVENT_LABELS = {
     EVENT_SELF_IMPROVE_RUN: "自我总结运行完成",
     EVENT_FARM_ALERT: "农事预警",
     EVENT_FARM_AGENT_RUN: "Agent 自动执行",
+    EVENT_COMMANDER_WEEKLY: "指挥官周报已生成",
 }
 
 
