@@ -69,27 +69,26 @@ def _is_private(ip: _IP) -> bool:
     return bool(ip.is_private)
 
 
-def check_egress_url(url: str, *, context: str = "", allow_local: bool = False) -> None:
-    """校验 URL 是否允许服务端访问；不允许时抛 AppError(SSRF_BLOCKED)。
+def resolve_egress_ips(
+    url: str, *, context: str = "", allow_local: bool = False
+) -> tuple[str, int, frozenset[str]] | None:
+    """校验 URL 并返回 (host, port, 已校验地址集合)；域名不可解析时返回 None。
 
-    Args:
-        url: 待访问的目标地址。
-        context: 日志上下文（调用方标识）。
-        allow_local: 是否额外放行本机段（127.0.0.0/8、::1）。仅 LLM 供应商域
-            （保存/测试/运行时/模型探测）传 True；其余调用方保持默认严格。
+    返回的地址集合可交给 DNS 钉使用：校验与建连之间若解析答案变化（DNS 重绑定），
+    钉会失败关闭而不是照新答案连。
     """
     parsed = urlparse(url)
     if parsed.scheme not in _ALLOWED_SCHEMES or not parsed.hostname:
         raise AppError("SSRF_BLOCKED", "目标地址协议或主机名不合法。", http_status=400)
     enforce_public = settings.enforce_model_egress_guard
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
     try:
-        infos = socket.getaddrinfo(
-            parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80)
-        )
+        infos = socket.getaddrinfo(parsed.hostname, port)
     except socket.gaierror:
         # 域名无法解析：放行给 HTTP 客户端自然报“不可达”，避免离线/单测环境误伤
         log.debug("egress dns unresolvable (pass-through): %s", parsed.hostname)
-        return
+        return None
+    verified: set[str] = set()
     for info in infos:
         ip_str = str(info[4][0]).split("%")[0]
         try:
@@ -106,6 +105,7 @@ def check_egress_url(url: str, *, context: str = "", allow_local: bool = False) 
             if allow_local:
                 # 供应商域显式放行：本机推理服务（Ollama / LM Studio）是正当场景
                 log.info("loopback egress allowed (allow_local): %s -> %s", context or "egress", ip)
+                verified.add(ip_str)
                 continue
             log.warning("SSRF blocked (loopback, strict): %s -> %s", context, ip)
             raise AppError("SSRF_BLOCKED", _MSG_LOOPBACK_STRICT, http_status=400)
@@ -115,3 +115,17 @@ def check_egress_url(url: str, *, context: str = "", allow_local: bool = False) 
                 raise AppError("SSRF_BLOCKED", _MSG_ENFORCE_PRIVATE, http_status=400)
             # ADR-0003：内网私有化投放默认放行（allow_local 调用方同样在此分支放行）
             log.info("private egress allowed by policy: %s -> %s", context or "egress", ip)
+        verified.add(ip_str)
+    return parsed.hostname, port, frozenset(verified)
+
+
+def check_egress_url(url: str, *, context: str = "", allow_local: bool = False) -> None:
+    """校验 URL 是否允许服务端访问；不允许时抛 AppError(SSRF_BLOCKED)。
+
+    Args:
+        url: 待访问的目标地址。
+        context: 日志上下文（调用方标识）。
+        allow_local: 是否额外放行本机段（127.0.0.0/8、::1）。仅 LLM 供应商域
+            （保存/测试/运行时/模型探测）传 True；其余调用方保持默认严格。
+    """
+    resolve_egress_ips(url, context=context, allow_local=allow_local)

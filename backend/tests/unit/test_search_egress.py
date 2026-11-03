@@ -219,3 +219,12 @@ def test_dns_pin_leaves_other_hosts_untouched(monkeypatch) -> None:
 
 def test_resolver_shim_is_installed_once() -> None:
     assert socket.getaddrinfo is egress._pinned_getaddrinfo
+
+
+def test_public_pin_dns_fails_closed_for_other_callers(monkeypatch) -> None:
+    """自定义 HTTP 工具等调用方复用 pin_dns 时，同样享受“答案变了就中止”。"""
+    monkeypatch.setattr(
+        egress, "_REAL_GETADDRINFO", lambda *args, **kwargs: _answer("169.254.169.254")
+    )
+    with egress.pin_dns("rebind.test", 80, frozenset({PUBLIC_IP})), pytest.raises(OSError):
+        egress._pinned_getaddrinfo("rebind.test", 80)

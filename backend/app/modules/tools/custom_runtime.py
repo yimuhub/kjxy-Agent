@@ -73,10 +73,13 @@ async def _run_prompt(
 
 def _http_call_sync(row: ToolDefinition, params: dict[str, Any]) -> dict:
     """纯网络一轮（不碰 DB），由线程池调用，避免阻塞事件循环。"""
+    import contextlib
+
     import httpx
 
-    from app.core.net_guard import check_egress_url
+    from app.core.net_guard import resolve_egress_ips
     from app.modules.llm.supplier_crypto import decrypt_api_key
+    from app.modules.search.egress import pin_dns
 
     impl = row.impl_json or {}
     url = str(impl.get("url") or "").strip()
@@ -85,20 +88,24 @@ def _http_call_sync(row: ToolDefinition, params: dict[str, Any]) -> dict:
     method = str(impl.get("method") or "POST").upper()
     if method not in HTTP_ALLOWED_METHODS:
         raise AppError("TOOL_SPEC_INVALID", f"不支持的 HTTP 方法：{method}。", http_status=400)
-    check_egress_url(url, context=f"custom_tool:{row.code}")
+    # 校验与建连之间可能被 DNS 重绑定换答案：把解析结果钉住，答案变了就失败关闭
+    verified = resolve_egress_ips(url, context=f"custom_tool:{row.code}")
+    pinned = pin_dns(*verified) if verified else contextlib.nullcontext()
 
     headers: dict[str, str] = {}
     for name, cipher in (impl.get("headers_enc") or {}).items():
         headers[str(name)] = decrypt_api_key(str(cipher))
 
     try:
-        with httpx.Client(timeout=row.timeout_seconds or 20) as client:
-            request_kwargs: dict[str, Any] = {"headers": headers}
-            if method == "GET":
-                request_kwargs["params"] = params
-            else:
-                request_kwargs["json"] = params
-            resp = client.request(method, url, **request_kwargs)
+        with pinned:
+            # trust_env=False：环境变量代理会让连接绕过 DNS 钉与出网校验
+            with httpx.Client(timeout=row.timeout_seconds or 20, trust_env=False) as client:
+                request_kwargs: dict[str, Any] = {"headers": headers}
+                if method == "GET":
+                    request_kwargs["params"] = params
+                else:
+                    request_kwargs["json"] = params
+                resp = client.request(method, url, **request_kwargs)
     except httpx.TimeoutException as e:
         raise AppError(
             "TOOL_ERROR", f"工具请求超时（{row.timeout_seconds or 20} 秒）。", http_status=504

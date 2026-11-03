@@ -112,6 +112,17 @@ def _dns_pin(host: str, port: int, ips: frozenset[str]):
         _PINNED_DNS.reset(token)
 
 
+@contextlib.contextmanager
+def pin_dns(host: str, port: int, ips: frozenset[str]):
+    """把接下来对 host:port 的实际建连钉在校验过的地址上（防 DNS 重绑定）。
+
+    供 `web.fetch` 之外的出网调用方复用：调用方先按自身策略校验并给出地址集合，
+    这里只负责“答案换了就失败关闭”。
+    """
+    with _dns_pin(host, port, ips):
+        yield
+
+
 def _resolve_ips(host: str, port: int) -> list[ipaddress.IPv4Address | ipaddress.IPv6Address]:
     try:
         return [ipaddress.ip_address(host)]
