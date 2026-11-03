@@ -298,3 +298,186 @@ def test_windows_clipboard_roundtrip_does_not_strip(monkeypatch):
         "text": "  keep spaces\n",
         "truncated": False,
     }
+
+
+def test_linux_capabilities_follow_session_and_tools(monkeypatch):
+    from app.modules.local_runtime import bridge_linux
+
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.setattr(bridge_linux, "_has", lambda name: True)
+    assert not any(bridge_linux.capabilities().values())
+    assert bridge_linux.available() is False
+
+    monkeypatch.setenv("DISPLAY", ":0")
+    assert all(bridge_linux.capabilities().values())
+    assert bridge_linux.available() is True
+
+    # 只有 xdotool：输入可用，截屏/剪贴板/启动应用如实报缺失
+    monkeypatch.setattr(bridge_linux, "_has", lambda name: name == "xdotool")
+    caps = bridge_linux.capabilities()
+    assert caps["click"] and caps["type_text"] and caps["press_key"]
+    assert caps["list_windows"] is True
+    assert caps["screenshot"] is False
+    assert caps["clipboard_read"] is False
+    assert caps["open_app"] is False
+
+
+def test_linux_bridge_capabilities_dispatch(monkeypatch):
+    from app.modules.local_runtime import bridge_linux
+
+    monkeypatch.setattr(bridge_linux, "capabilities", lambda: {"screenshot": True})
+    assert bridge.capabilities("linux") == {"screenshot": True}
+
+
+def test_linux_screenshot_prefers_session_tool(monkeypatch):
+    from pathlib import Path
+
+    from app.modules.local_runtime import bridge_linux
+
+    seen: list[list[str]] = []
+
+    def fake_run(cmd, *, timeout=10.0, input_bytes=None, strip_output=True):
+        seen.append(cmd)
+        Path(cmd[-1]).write_bytes(b"\x89PNG-data")
+        return b""
+
+    monkeypatch.setattr(bridge_linux, "_run", fake_run)
+    monkeypatch.setattr(bridge_linux, "_has", lambda name: name in {"grim", "scrot"})
+
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
+    monkeypatch.delenv("DISPLAY", raising=False)
+    result = bridge_linux.execute("screenshot", {})
+    assert seen[-1][0] == "grim"
+    assert result["mime"] == "image/png"
+    assert result["size_bytes"] == 9
+
+    monkeypatch.delenv("WAYLAND_DISPLAY")
+    monkeypatch.setenv("DISPLAY", ":0")
+    bridge_linux.execute("screenshot", {})
+    assert seen[-1][0] == "scrot"
+
+
+def test_linux_clipboard_roundtrip_keeps_whitespace(monkeypatch):
+    from app.modules.local_runtime import bridge_linux
+
+    monkeypatch.setenv("DISPLAY", ":0")
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    monkeypatch.setattr(bridge_linux, "_has", lambda name: name == "xclip")
+    seen: list[tuple[list[str], bytes | None]] = []
+
+    def fake_run(cmd, *, timeout=10.0, input_bytes=None, strip_output=True):
+        seen.append((cmd, input_bytes))
+        return b"  keep spaces\n"
+
+    monkeypatch.setattr(bridge_linux, "_run", fake_run)
+    assert bridge_linux.execute("clipboard_read", {}) == {
+        "text": "  keep spaces\n",
+        "truncated": False,
+    }
+    assert bridge_linux.execute("clipboard_write", {"text": "a b"}) == {"written_chars": 3}
+    assert seen[-1][0] == ["xclip", "-selection", "clipboard", "-i"]
+    assert seen[-1][1] == b"a b"
+
+
+def test_linux_list_windows_parses_wmctrl(monkeypatch):
+    from app.modules.local_runtime import bridge_linux
+
+    monkeypatch.setenv("DISPLAY", ":0")
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    monkeypatch.setattr(bridge_linux, "_has", lambda name: name == "wmctrl")
+
+    def fake_run(cmd, *, timeout=10.0, input_bytes=None, strip_output=True):
+        return b"0x03a00003  0 host Terminal\n0x03a00004 -1 host   \n"
+
+    monkeypatch.setattr(bridge_linux, "_run", fake_run)
+    assert bridge_linux.execute("list_windows", {}) == {"apps": ["Terminal"], "count": 1}
+
+
+def test_linux_input_uses_xdotool(monkeypatch):
+    from app.modules.local_runtime import bridge_linux
+
+    monkeypatch.setenv("DISPLAY", ":0")
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    monkeypatch.setattr(bridge_linux, "_has", lambda name: name == "xdotool")
+    seen: list[list[str]] = []
+
+    def fake_run(cmd, *, timeout=10.0, input_bytes=None, strip_output=True):
+        seen.append(cmd)
+        return b""
+
+    monkeypatch.setattr(bridge_linux, "_run", fake_run)
+    assert bridge_linux.execute("click", {"x": 10, "y": 20}) == {"clicked": {"x": 10, "y": 20}}
+    assert seen[-1] == ["xdotool", "mousemove", "--sync", "10", "20", "click", "1"]
+
+    bridge_linux.execute("type_text", {"text": "--weird"})
+    assert seen[-1] == ["xdotool", "type", "--clearmodifiers", "--delay", "0", "--", "--weird"]
+
+    bridge_linux.execute("press_key", {"key": "c", "modifiers": ["command", "shift"]})
+    assert seen[-1] == ["xdotool", "key", "--clearmodifiers", "shift+ctrl+c"]
+
+
+def test_linux_input_uses_ydotool_keycodes(monkeypatch):
+    from app.modules.local_runtime import bridge_linux
+
+    monkeypatch.setenv("DISPLAY", ":0")
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    monkeypatch.setattr(bridge_linux, "_has", lambda name: name == "ydotool")
+    seen: list[list[str]] = []
+
+    def fake_run(cmd, *, timeout=10.0, input_bytes=None, strip_output=True):
+        seen.append(cmd)
+        return b""
+
+    monkeypatch.setattr(bridge_linux, "_run", fake_run)
+    bridge_linux.execute("press_key", {"key": "a", "modifiers": ["command", "shift"]})
+    assert seen[-1] == [
+        "ydotool",
+        "key",
+        "42:1",
+        "29:1",
+        "30:1",
+        "30:0",
+        "29:0",
+        "42:0",
+    ]
+
+
+def test_linux_missing_tools_raise_readable_errors(monkeypatch):
+    from app.modules.local_runtime import bridge_linux
+
+    monkeypatch.setenv("DISPLAY", ":0")
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    monkeypatch.setattr(bridge_linux, "_has", lambda name: False)
+    for action, params in (
+        ("screenshot", {}),
+        ("list_windows", {}),
+        ("type_text", {"text": "hi"}),
+    ):
+        with pytest.raises(bridge_linux.BridgeError) as exc:
+            bridge_linux.execute(action, params)
+        assert "缺少" in str(exc.value)
+
+
+def test_linux_open_app_prefers_gtk_launch(monkeypatch):
+    from app.modules.local_runtime import bridge_linux
+
+    monkeypatch.setenv("DISPLAY", ":0")
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    monkeypatch.setattr(bridge_linux, "_has", lambda name: name in {"gtk-launch", "gio"})
+    seen: list[list[str]] = []
+
+    def fake_run(cmd, *, timeout=10.0, input_bytes=None, strip_output=True):
+        seen.append(cmd)
+        return b""
+
+    monkeypatch.setattr(bridge_linux, "_run", fake_run)
+    assert bridge_linux.execute("open_app", {"name": "firefox"}) == {"opened": "firefox"}
+    assert seen[-1] == ["gtk-launch", "firefox"]
+
+
+def test_linux_unknown_action_raises(monkeypatch):
+    from app.modules.local_runtime import bridge_linux
+
+    with pytest.raises(bridge_linux.BridgeError):
+        bridge_linux.execute("run_shell", {})

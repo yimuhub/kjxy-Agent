@@ -509,11 +509,11 @@ v3.37 起通道判别以**模型模态**为兜底：通用 OpenAI 兼容供应�
 
 | 接口 | 说明 |
 | --- | --- |
-| `GET /local-runtime/status` | 当前系统（macos/windows/linux）、桥是否可用、动作目录、本小院本机能力插件（平台支持、权限、授权状态、可用动作） |
+| `GET /local-runtime/status` | 当前系统（macos/windows/linux）、桥是否可用、逐动作可用性（`bridge.capabilities`）、动作目录、本小院本机能力插件（平台支持、权限、授权状态、可用动作） |
 | `POST /local-runtime/plugins/{plugin_id}/actions/{action}` | 执行动作：`{params}`；依次校验启用状态、权限声明、平台、授权 scope_hash、参数白名单与限流，写审计 `local_runtime_action` |
 
 - **动作目录**：`screenshot`、`list_windows`、`click`、`type_text`、`press_key`、`clipboard_read`、`clipboard_write`、`open_app`。每个动作对应一项权限（屏幕读取/辅助功能/模拟操作/剪贴板），插件清单未声明即 403。
-- **平台**：macOS 桥用系统 `screencapture` / `osascript` / `pbcopy`，首次使用需授予屏幕录制与辅助功能权限；Windows 桥（v3.61）用系统 PowerShell（`-EncodedCommand` 传脚本、环境变量/临时文件传参）：截屏 `System.Drawing`、窗口 `Get-Process` 主窗口标题、输入 `UIAutomation ValuePattern` 并以转义后的 `SendKeys` 兜底、点击 `SetCursorPos`+`mouse_event`（先声明 DPI 感知）、剪贴板 `Get/Set-Clipboard`、打开应用 `Start-Process`；Linux 桥在 v3.62 接入。当前系统无桥时 409 `RUNTIME_PLATFORM_UNSUPPORTED`。
+- **平台**：macOS 桥用系统 `screencapture` / `osascript` / `pbcopy`，首次使用需授予屏幕录制与辅助功能权限；Windows 桥（v3.61）用系统 PowerShell（`-EncodedCommand` 传脚本、环境变量/临时文件传参）：截屏 `System.Drawing`、窗口 `Get-Process` 主窗口标题、输入 `UIAutomation ValuePattern` 并以转义后的 `SendKeys` 兜底、点击 `SetCursorPos`+`mouse_event`（先声明 DPI 感知）、剪贴板 `Get/Set-Clipboard`、打开应用 `Start-Process`；Linux 桥（v3.62）按会话选择工具：Wayland 截屏 `grim`、剪贴板 `wl-paste`/`wl-copy`、输入 `ydotool`；X11 截屏 `scrot`、窗口 `wmctrl`/`xdotool`、剪贴板 `xclip`/`xsel`、输入 `xdotool`；打开应用 `gtk-launch`/`gio`。缺失工具或无图形会话时，`bridge.capabilities` 逐动作返回 false，执行时返回可读的 502 错误。当前系统无桥时 409 `RUNTIME_PLATFORM_UNSUPPORTED`。
 - **安全**：仅执行固定目录动作，不提供任意命令入口；参数经白名单校验（坐标/按键/文本框长度/应用名），AppleScript 参数走 argv 不拼接脚本；限流 60 次/分钟/小院；审计只记动作、插件、耗时与结局，不记屏幕或剪贴板内容。
 - **权限**：`runtime:read` 查看、`runtime:use` 执行（负责人/管理员默认拥有，专家/操作员默认只读）。Agent 通过工具 `computer.use` 调用，属 `external_side_effect`，默认须人工审批；会话「完全控制」档可免审批但仍受上述闸门约束。
 

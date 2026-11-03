@@ -28,6 +28,8 @@ export interface RuntimeStatus {
   platform: string
   bridge: {
     available: boolean
+    /** v3.62：逐动作可用性；平台工具缺失时为 false */
+    capabilities?: Record<string, boolean>
     actions: RuntimeAction[]
   }
   plugins: RuntimePlugin[]

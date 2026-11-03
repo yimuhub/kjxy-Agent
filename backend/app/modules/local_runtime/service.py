@@ -172,6 +172,7 @@ def status(db: Session, ctx: YardContext) -> dict[str, Any]:
         "platform": platform,
         "bridge": {
             "available": bridge.available(platform),
+            "capabilities": bridge.capabilities(platform),
             "actions": [
                 {
                     "code": code,

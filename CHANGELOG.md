@@ -6,6 +6,26 @@
 
 开发中的修复先累积在这里；定版时把本段改名为 `## [3.x.y] - 日期`，同时一次改齐 9 处版本面。
 
+## [3.62.0] - 2026-11-03
+
+本机能力通道覆盖 Linux：同一套动作目录与授权台账，按 X11 / Wayland 会话选择现成工具，缺什么逐项报什么。
+
+### Linux 桥（后端）
+- **会话识别**：`WAYLAND_DISPLAY` 优先，其次 `DISPLAY`；无图形会话时整桥不可用，动作返回 409。
+- **截屏**：Wayland `grim`；X11 `scrot`；通用兜底 `gnome-screenshot`、ImageMagick `import`；沿用 8MB 上限。
+- **窗口**：`wmctrl -l` 解析标题，缺失时用 `xdotool search` 逐个取标题，最多 60 个。
+- **输入**：X11/XWayland 用 `xdotool`（点击、输入、组合键，文本以 `--` 终止选项）；纯 Wayland 用 `ydotool`（evdev 键码组合）。
+- **剪贴板**：Wayland `wl-paste --no-newline` / `wl-copy`；X11 `xclip`，`xsel` 兜底；读取不裁剪空白，沿用 100KB 上限。
+- **打开应用**：`gtk-launch`，无则 `gio launch`。
+- **逐动作能力**：`GET /local-runtime/status` 新增 `bridge.capabilities`，如实反映当前会话缺哪些工具；全部命令以 argv 执行，不经 shell。
+
+### 前端
+- 插件中心「本机能力」状态条显示「X/8 项动作可用」，悬停列出因缺工具暂不可用的动作。
+
+### 测试
+- 新增 10 条 Linux 用例：能力探测、会话切换、截图工具选择、剪贴板保空白、wmctrl 解析、xdotool 三类输入、ydotool 键码、缺工具报错、应用启动优先级。
+- 本地运行时单测 24 条全部通过；`ruff`、`mypy` 全量通过。
+
 ## [3.61.0] - 2026-11-03
 
 本机能力通道扩展到 Windows：同一套动作目录、权限与授权台账，底层换成 Windows 自带的 PowerShell + UIAutomation + Win32，不引入第三方二进制。

@@ -62,7 +62,13 @@
         <span class="runtime-meta">{{ platformLabel(runtime.platform) }}</span>
         <span class="runtime-meta">
           {{ runtime.plugins.length }} 个插件 · 已授权
-          {{ authorizedRuntime }} 个 · {{ runtime.bridge.actions.length }} 种动作
+          {{ authorizedRuntime }} 个
+        </span>
+        <span
+          class="runtime-meta"
+          :title="runtimeMissing.length ? `暂不可用：${runtimeMissing.join('、')}` : ''"
+        >
+          {{ runtimeReadyCount }}/{{ runtime.bridge.actions.length }} 项动作可用
         </span>
       </div>
       <span class="runtime-tip">本机动作需插件授权 + 工具审批，所有执行留审计</span>
@@ -494,6 +500,18 @@ const runtime = ref<RuntimeStatus | null>(null)
 const authorizedRuntime = computed(
   () => runtime.value?.plugins.filter(row => row.consent_granted).length ?? 0,
 )
+const runtimeReadyCount = computed(() => {
+  const caps = runtime.value?.bridge.capabilities
+  if (!caps) return runtime.value?.bridge.actions.length ?? 0
+  return Object.values(caps).filter(Boolean).length
+})
+const runtimeMissing = computed(() => {
+  const caps = runtime.value?.bridge.capabilities
+  if (!caps) return []
+  return (runtime.value?.bridge.actions ?? [])
+    .filter(action => !caps[action.code])
+    .map(action => action.label)
+})
 
 function platformLabel(platform: string): string {
   const labels: Record<string, string> = {
