@@ -445,3 +445,32 @@ def test_zip_download_urls_build_mirrors(monkeypatch):
         "https://github.com/owner/repo/archive/refs/heads/main.zip",
         "https://mirror-z.test/https://github.com/owner/repo/archive/refs/heads/main.zip",
     ]
+
+
+def test_preview_encodes_branch_and_path(monkeypatch):
+    """分支名里的 / 必须整体编码，文件路径的空格编码但保留分隔符。"""
+    raw_calls: list[str] = []
+
+    def fake_json(url: str):
+        if "/git/trees/" in url:
+            assert "/feature%2Fsoil" in url
+            return {"tree": [{"path": "skills/soil helper/SKILL.md", "type": "blob"}]}
+        return {
+            "default_branch": "feature/soil",
+            "license": {"spdx_id": "MIT"},
+            "stargazers_count": 3,
+        }
+
+    def fake_raw(url: str) -> str:
+        raw_calls.append(url)
+        return SKILL_MD
+
+    monkeypatch.setattr(gh, "_get_json", fake_json)
+    monkeypatch.setattr(gh, "_fetch_raw_text", fake_raw)
+    monkeypatch.setattr(gh, "RAW_BASE", "https://raw.test")
+
+    result = gh.preview_skill_from_repo("owner/repo")
+    assert result["ref"] == "feature/soil"
+    assert raw_calls == ["https://raw.test/owner/repo/feature%2Fsoil/skills/soil%20helper/SKILL.md"]
+    assert "feature%2Fsoil" in result["source_url"]
+    assert "skills/soil%20helper/SKILL.md" in result["source_url"]

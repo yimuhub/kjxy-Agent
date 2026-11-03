@@ -135,6 +135,39 @@ def require_permission(permission: str):
     return checker
 
 
+def require_platform_admin(message: str = "仅平台管理员可执行该操作。"):
+    """平台管理员闸门：JWT 角色 + 数据库现况双重校验。
+
+    JWT 里的 roles 是签发时的快照。撤权、停用、删号要即时生效，不能等 access
+    token 过期（默认 30 分钟）。platform_admin 只由部署名单 bootstrap 授予，
+    所以以「用户仍在库中、状态正常、用户名仍在名单内」为准；查不到用户即 401，
+    不再沿用 JWT 快照放行。
+    """
+
+    def checker(
+        user: CurrentUser = Depends(get_current_user),
+        db: Session = Depends(get_db_session),
+    ) -> CurrentUser:
+        # 延迟 import：deps 被几乎所有路由加载，避免启动期循环依赖
+        from app.core.config import settings
+        from app.modules.auth.models import User
+
+        if "platform_admin" not in user.roles:
+            raise AppError("FORBIDDEN", message, http_status=403)
+        row = db.get(User, user.user_id)
+        if row is None:
+            raise AppError("UNAUTHORIZED", "登录状态已失效，请重新登录。", http_status=401)
+        if row.status == "disabled":
+            raise AppError("ACCOUNT_DISABLED", "账号已停用，请联系管理员。", http_status=403)
+        if row.status == "pending":
+            raise AppError("ACCOUNT_PENDING", "账号正在等待审核。", http_status=403)
+        if row.username not in settings.platform_admin_username_list:
+            raise AppError("FORBIDDEN", message, http_status=403)
+        return user
+
+    return checker
+
+
 def require_yard_permission(permission: str):
     """小院级权限校验：DB 角色覆盖 + 个人授权 + 保护规则（唯一权限源）。
 

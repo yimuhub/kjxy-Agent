@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from time import perf_counter
 from typing import Any
@@ -13,6 +14,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
+from app.core.net_guard import check_egress_url
 from app.modules.cluster.models import (
     STATUS_DEGRADED,
     STATUS_NEVER,
@@ -23,6 +25,8 @@ from app.modules.cluster.models import (
 
 MAX_NODES = 50
 PROBE_TIMEOUT_SECONDS = 3.0
+#: 批量探测并发数：50 个节点串行最坏 150s，会占住请求线程；8 路并发压到 ~20s
+PROBE_WORKERS = 8
 STALE_SECONDS = 600
 
 STATUS_LABELS = {
@@ -70,9 +74,9 @@ def normalize_note(raw: str | None) -> str:
 
 
 def list_nodes(db: Session) -> list[ClusterNode]:
-    return list(
-        db.scalars(select(ClusterNode).order_by(ClusterNode.created_at.desc()).limit(MAX_NODES))
-    )
+    # 不按 MAX_NODES 裁剪：并发建节点把行数顶到上限之上时，被裁掉的节点会从
+    # 列表和 probe_all 里“消失”，但数据仍在库里——宁可多展示，不能假装不存在。
+    return list(db.scalars(select(ClusterNode).order_by(ClusterNode.created_at.desc())))
 
 
 def get_node(db: Session, node_id: str) -> ClusterNode:
@@ -107,6 +111,16 @@ def create_node(
     db.add(row)
     try:
         db.flush()
+        # 并发首建的竞态兜底：两个请求可能同时通过上面的 count 预检。落库后复核，
+        # 超限的一方回滚自己的插入（后到者失败），不让第 51 个悄悄生效。
+        total = db.scalar(select(func.count()).select_from(ClusterNode)) or 0
+        if total > MAX_NODES:
+            db.rollback()
+            raise AppError(
+                "CLUSTER_NODE_LIMIT",
+                f"集群节点最多 {MAX_NODES} 个。",
+                http_status=400,
+            )
     except IntegrityError as exc:
         db.rollback()
         raise AppError(
@@ -168,13 +182,21 @@ def migration_head(db: Session) -> str:
 
 
 def _fetch_meta(base_url: str) -> tuple[dict[str, Any], int]:
-    """GET /api/v1/meta（公开只读）；禁止跟随重定向，避免被带到内网其他服务。"""
+    """GET /api/v1/meta（公开只读）；禁止跟随重定向，避免被带到内网其他服务。
+
+    出网前过 ``check_egress_url``，与全项目「服务端出网必过 net_guard」契约一致：
+    链路本地/云元数据地址任何开关都阻断，环回默认阻断；内网私有段沿用 ADR-0003
+    默认放行（多实例内网部署是正当形态），纯公网部署由 ``enforce_model_egress_guard``
+    总闸一并收紧。校验按域名解析后的每个 IP 判定，挡的是首跳直达内网/元数据。
+    """
+    meta_url = f"{base_url.rstrip('/')}/api/v1/meta"
+    check_egress_url(meta_url, context="cluster_probe")
     started = perf_counter()
     with httpx.Client(
         timeout=httpx.Timeout(PROBE_TIMEOUT_SECONDS, connect=PROBE_TIMEOUT_SECONDS),
         follow_redirects=False,
     ) as client:
-        response = client.get(f"{base_url.rstrip('/')}/api/v1/meta")
+        response = client.get(meta_url)
     latency = round((perf_counter() - started) * 1000)
     if response.status_code != 200:
         raise RuntimeError(f"HTTP {response.status_code}")
@@ -190,6 +212,41 @@ def _safe_error(exc: Exception) -> str:
     return message[:280]
 
 
+def _apply_probe(
+    node: ClusterNode,
+    outcome: tuple[dict[str, Any], int] | Exception,
+    *,
+    expected_version: str,
+    expected_head: str,
+    checked: datetime,
+) -> None:
+    if isinstance(outcome, Exception):
+        node.status = STATUS_OFFLINE
+        node.latency_ms = 0
+        node.last_checked_at = checked
+        node.last_error = _safe_error(outcome)
+        # 离线时清掉上次的版本/迁移号：留着旧值会让界面把过期版本当成现况。
+        # 上次成功时间（last_ok_at）保留，用于「最后一次正常是什么时候」。
+        node.version = ""
+        node.migration_head = ""
+        return
+    data, latency = outcome
+    version = str(data.get("version") or "")[:40]
+    head = str(data.get("migration_head") or "")[:80]
+    mismatches: list[str] = []
+    if version != expected_version:
+        mismatches.append(f"版本 {version or '未知'} ≠ 本机 {expected_version}")
+    if head != expected_head:
+        mismatches.append(f"迁移 {head or '未知'} ≠ 本机 {expected_head or '未知'}")
+    node.status = STATUS_DEGRADED if mismatches else STATUS_ONLINE
+    node.version = version
+    node.migration_head = head
+    node.latency_ms = latency
+    node.last_checked_at = checked
+    node.last_ok_at = checked
+    node.last_error = "；".join(mismatches)[:300]
+
+
 def probe_node(
     db: Session,
     node: ClusterNode,
@@ -200,28 +257,38 @@ def probe_node(
     """探测一次并就地更新结论；不 commit，由调用方决定事务边界。"""
     checked = _now()
     try:
-        data, latency = _fetch_meta(node.base_url)
-        version = str(data.get("version") or "")[:40]
-        head = str(data.get("migration_head") or "")[:80]
-        mismatches: list[str] = []
-        if version != expected_version:
-            mismatches.append(f"版本 {version or '未知'} ≠ 本机 {expected_version}")
-        if head != expected_head:
-            mismatches.append(f"迁移 {head or '未知'} ≠ 本机 {expected_head or '未知'}")
-        node.status = STATUS_DEGRADED if mismatches else STATUS_ONLINE
-        node.version = version
-        node.migration_head = head
-        node.latency_ms = latency
-        node.last_checked_at = checked
-        node.last_ok_at = checked
-        node.last_error = "；".join(mismatches)[:300]
-    except Exception as exc:  # 网络/解析/超时都归为离线，原因只留短文本
-        node.status = STATUS_OFFLINE
-        node.latency_ms = 0
-        node.last_checked_at = checked
-        node.last_error = _safe_error(exc)
+        outcome: tuple[dict[str, Any], int] | Exception = _fetch_meta(node.base_url)
+    except Exception as exc:  # 网络/解析/超时/SSRF 拦截都归为离线，原因只留短文本
+        outcome = exc
+    _apply_probe(
+        node,
+        outcome,
+        expected_version=expected_version,
+        expected_head=expected_head,
+        checked=checked,
+    )
     db.flush()
     return node
+
+
+def _fetch_all(base_urls: list[str]) -> list[tuple[dict[str, Any], int] | Exception]:
+    """并发抓取全部节点元数据；网络失败按节点收集，绝不抛出。"""
+    if not base_urls:
+        return []
+    if len(base_urls) == 1:
+        try:
+            return [_fetch_meta(base_urls[0])]
+        except Exception as exc:  # noqa: BLE001 - 单节点也按离线结果返回
+            return [exc]
+    with ThreadPoolExecutor(max_workers=min(PROBE_WORKERS, len(base_urls))) as pool:
+        futures = [pool.submit(_fetch_meta, url) for url in base_urls]
+        results: list[tuple[dict[str, Any], int] | Exception] = []
+        for future in futures:
+            try:
+                results.append(future.result())
+            except Exception as exc:  # noqa: BLE001 - 逐节点归为离线
+                results.append(exc)
+        return results
 
 
 def probe_all(
@@ -230,14 +297,22 @@ def probe_all(
     expected_version: str,
     expected_head: str,
 ) -> tuple[list[ClusterNode], dict[str, int]]:
+    """批量探测：先并发跑完所有 HTTP 请求，再串行落库。
+
+    网络阶段不碰写事务，避免最坏 50×3s 的 I/O 占住请求线程和 SQLite 写锁。
+    """
     nodes = list_nodes(db)
-    for node in nodes:
-        probe_node(
-            db,
+    checked = _now()
+    outcomes = _fetch_all([node.base_url for node in nodes])
+    for node, outcome in zip(nodes, outcomes, strict=True):
+        _apply_probe(
             node,
+            outcome,
             expected_version=expected_version,
             expected_head=expected_head,
+            checked=checked,
         )
+    db.flush()
     summary = {
         "total": len(nodes),
         "online": sum(1 for row in nodes if row.status == STATUS_ONLINE),
@@ -248,8 +323,13 @@ def probe_all(
 
 
 def _is_stale(row: ClusterNode, now: datetime) -> bool:
+    """探测结论是否已超出可观测窗口（STALE_SECONDS）。
+
+    从未探测不算“过期”——那是“未探测”状态，界面另有标签；但库里有在线/降级
+    结论却缺时间戳（历史数据或手工导入）按过期处理，避免把陈旧版本当现况。
+    """
     if row.last_checked_at is None:
-        return False
+        return row.status in (STATUS_ONLINE, STATUS_DEGRADED)
     checked = row.last_checked_at
     if checked.tzinfo is None:
         checked = checked.replace(tzinfo=UTC)

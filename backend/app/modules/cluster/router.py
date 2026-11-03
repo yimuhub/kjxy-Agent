@@ -6,8 +6,11 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
-from app.core.deps import CurrentUser, get_current_user, get_db_session
-from app.core.errors import AppError
+from app.core.deps import (
+    CurrentUser,
+    get_db_session,
+    require_platform_admin,
+)
 from app.core.responses import ok
 from app.modules.audit.service import log_audit
 from app.modules.cluster import service
@@ -31,9 +34,7 @@ class ClusterNodeUpdate(BaseModel):
     note: str | None = Field(default=None, max_length=200)
 
 
-def _require_platform(user: CurrentUser) -> None:
-    if "platform_admin" not in user.roles:
-        raise AppError("FORBIDDEN", "仅平台管理员可管理集群节点。", http_status=403)
+_require_platform = require_platform_admin("仅平台管理员可管理集群节点。")
 
 
 def _summary(items: list[dict[str, object]]) -> dict[str, int]:
@@ -49,10 +50,9 @@ def _summary(items: list[dict[str, object]]) -> dict[str, int]:
 @router.get("/nodes")
 def list_nodes(
     request: Request,
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(_require_platform),
     db: Session = Depends(get_db_session),
 ):
-    _require_platform(user)
     items = [service.node_out(row) for row in service.list_nodes(db)]
     return ok({"items": items, "summary": _summary(items)}, request)
 
@@ -61,10 +61,9 @@ def list_nodes(
 def create_node(
     body: ClusterNodeCreate,
     request: Request,
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(_require_platform),
     db: Session = Depends(get_db_session),
 ):
-    _require_platform(user)
     row = service.create_node(
         db,
         name=body.name,
@@ -92,10 +91,9 @@ def update_node(
     node_id: str,
     body: ClusterNodeUpdate,
     request: Request,
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(_require_platform),
     db: Session = Depends(get_db_session),
 ):
-    _require_platform(user)
     row = service.update_node(
         db,
         node_id,
@@ -122,10 +120,9 @@ def update_node(
 def delete_node(
     node_id: str,
     request: Request,
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(_require_platform),
     db: Session = Depends(get_db_session),
 ):
-    _require_platform(user)
     service.delete_node(db, node_id)
     log_audit(
         db,
@@ -145,10 +142,9 @@ def delete_node(
 def probe_node(
     node_id: str,
     request: Request,
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(_require_platform),
     db: Session = Depends(get_db_session),
 ):
-    _require_platform(user)
     row = service.get_node(db, node_id)
     service.probe_node(
         db,
@@ -174,10 +170,9 @@ def probe_node(
 @router.post("/probe-all")
 def probe_all(
     request: Request,
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(_require_platform),
     db: Session = Depends(get_db_session),
 ):
-    _require_platform(user)
     rows, _ = service.probe_all(
         db,
         expected_version=request.app.version,

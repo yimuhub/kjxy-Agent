@@ -236,3 +236,33 @@ def test_pair_token_cannot_pass_regular_auth(client, yard):
     )
     assert resp.status_code == 401
     assert resp.json()["error"]["code"] == "UNAUTHORIZED"
+
+
+# ---------------------------------------------------------------------------
+# 公开交换端点限流（S-10）
+# ---------------------------------------------------------------------------
+
+
+def test_exchange_is_rate_limited(client, yard, monkeypatch):
+    from app.core.rate_limit import RateLimiter
+    from app.modules.pairing import router as pairing_router
+
+    monkeypatch.setattr(
+        pairing_router, "_exchange_limiter", RateLimiter(max_attempts=3, window_seconds=60)
+    )
+    payload = {"code": "x" * 32, "device_name": "扫描器"}
+    for _ in range(3):
+        resp = client.post("/api/v1/pairing/exchange", json=payload)
+        assert resp.status_code == 401  # 无效码按同一文案拒绝
+
+    blocked = client.post("/api/v1/pairing/exchange", json=payload)
+    assert blocked.status_code == 429
+    assert blocked.json()["error"]["code"] == "RATE_LIMITED"
+
+    # 成功交换会清零计数：换一个新限流器，用真实码验证成功后不再被拦
+    monkeypatch.setattr(
+        pairing_router, "_exchange_limiter", RateLimiter(max_attempts=1, window_seconds=60)
+    )
+    code, _ = _make_code(client)
+    ok = client.post("/api/v1/pairing/exchange", json={"code": code, "device_name": "新手机"})
+    assert ok.status_code == 200

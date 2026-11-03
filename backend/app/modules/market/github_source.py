@@ -325,7 +325,7 @@ def _build_definition(
     metadata: dict = raw_metadata if isinstance(raw_metadata, dict) else {}
     version = str(metadata.get("version") or "1.0.0")
 
-    source_url = f"https://github.com/{repo}/blob/{branch}/{path}"
+    source_url = f"https://github.com/{repo}/blob/{quote(branch, safe='')}/{quote(path, safe='/')}"
     return {
         "name": name,
         "description": truncate(description, 500),
@@ -377,7 +377,9 @@ def preview_skill_from_repo(repo: str, ref: str | None = None) -> dict[str, Any]
             http_status=404,
             details={"repo": full_name},
         )
-    raw_url = f"{RAW_BASE}/{full_name}/{branch}/{path}"
+    # raw 地址里 branch 是单个路径段：带 / 的分支名必须整体编码，否则会被当成
+    # 多级路径（口径与上面的 tree_ref 一致）；文件路径则保留分隔符。
+    raw_url = f"{RAW_BASE}/{full_name}/{quote(branch, safe='')}/{quote(path, safe='/')}"
     text = _fetch_raw_text(raw_url)
     meta, body = parse_frontmatter(text)
     meta = meta if isinstance(meta, dict) else {}

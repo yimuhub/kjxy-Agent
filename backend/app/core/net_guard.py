@@ -3,7 +3,9 @@
 对服务端发起的 HTTP(S) 目标做解析后 IP 校验：
 
 1. **永远禁止（与开关无关）**：link-local（含云元数据 169.254.0.0/16、fe80::/10）、
-   组播、保留段、未指定地址（0.0.0.0/::）——错误文案统一「禁止访问元数据或保留地址。」；
+   组播、保留段、未指定地址（0.0.0.0/::），以及落在「内网私有段」里但实际是云元数据的
+   地址（AWS IMDS IPv6 ``fd00:ec2::254``、阿里云 ``100.100.100.200``、Oracle
+   ``192.0.0.192``）——错误文案统一「禁止访问元数据或保留地址。」；
 2. **本机段（127.0.0.0/8、::1）**：按调用方分级。
    `allow_local=True`（LLM 供应商域：保存 / 测试 / 运行时 / 模型列表探测）放行——
    小院管理员配置供应商属可信输入，Ollama / LM Studio 这类本机推理服务是正当场景；
@@ -36,10 +38,31 @@ _MSG_ENFORCE_PRIVATE = "当前部署策略禁止访问内网地址。"
 
 _IP = ipaddress.IPv4Address | ipaddress.IPv6Address
 
+#: 云元数据地址：有的落在 ULA / 共享地址段，会被「内网私有段默认放行」规则误放行，
+#: 因此在任何模式下都先于私网判定阻断。
+#: - fd00:ec2::254：AWS IMDS IPv6（fc00::/7 ULA 内，is_private=True）
+#: - 100.100.100.200：阿里云元数据（100.64.0.0/10 共享地址段）
+#: - 192.0.0.192：Oracle Cloud 元数据
+_METADATA_NETWORKS = (
+    ipaddress.ip_network("fd00:ec2::/64"),
+    ipaddress.ip_network("100.100.100.200/32"),
+    ipaddress.ip_network("192.0.0.192/32"),
+)
+
+
+def _is_metadata(ip: _IP) -> bool:
+    return any(ip.version == net.version and ip in net for net in _METADATA_NETWORKS)
+
 
 def _is_always_blocked(ip: _IP) -> bool:
     """元数据 / 链路本地 / 组播 / 保留 / 未指定：任何开关都不放行。"""
-    return bool(ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified)
+    return bool(
+        _is_metadata(ip)
+        or ip.is_link_local
+        or ip.is_multicast
+        or ip.is_reserved
+        or ip.is_unspecified
+    )
 
 
 def _is_private(ip: _IP) -> bool:

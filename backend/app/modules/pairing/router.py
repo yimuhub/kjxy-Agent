@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.deps import YardContext, get_db_session, get_yard_context
 from app.core.errors import AppError
+from app.core.rate_limit import RateLimiter
 from app.core.responses import ok
 from app.modules.pairing import service
 from app.modules.pairing.schemas import PairExchangeRequest
@@ -24,6 +25,14 @@ from app.modules.pairing.schemas import PairExchangeRequest
 router = APIRouter(prefix="/pairing", tags=["pairing"])
 
 _ADMIN_ROLES = {"platform_admin", "admin", "yard_admin"}
+
+#: 公开交换端点单 IP 限流：码是 token_urlsafe(16) + 5 分钟 TTL，爆破本就不可行；
+#: 这里挡的是扫描式试错与无效请求刷量。失败计数、成功清零。
+_exchange_limiter = RateLimiter(max_attempts=30, window_seconds=60)
+
+
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
 
 
 def _admin(ctx: YardContext = Depends(get_yard_context)) -> YardContext:
@@ -50,10 +59,22 @@ def create_code(
 
 
 @router.post("/exchange", response_model=None)
-def exchange(payload: PairExchangeRequest, db: Session = Depends(get_db_session)):
-    device, token = service.exchange(
-        db, code=payload.code, device_name=payload.device_name, request_id="pair_exchange"
-    )
+def exchange(
+    payload: PairExchangeRequest,
+    request: Request,
+    db: Session = Depends(get_db_session),
+):
+    ip = _client_ip(request)
+    if not _exchange_limiter.is_allowed(ip):
+        raise AppError("RATE_LIMITED", "请求过于频繁，请稍后再试。", http_status=429)
+    try:
+        device, token = service.exchange(
+            db, code=payload.code, device_name=payload.device_name, request_id="pair_exchange"
+        )
+    except AppError:
+        _exchange_limiter.record_failure(ip)
+        raise
+    _exchange_limiter.reset(ip)
     return ok({"token": token, "device_id": device.id})
 
 

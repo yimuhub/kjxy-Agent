@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from app.core.deps import (
     CurrentUser,
     YardContext,
@@ -18,7 +19,9 @@ from app.core.errors import (
     validation_error_handler,
 )
 from app.core.middleware import RequestIDMiddleware
+from app.modules.auth.models import User
 from app.modules.cluster import service
+from app.modules.cluster.models import STATUS_ONLINE, ClusterNode
 from app.modules.cluster.router import router as cluster_router
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
@@ -35,6 +38,26 @@ def _ctx(roles: list[str] | None = None, user_id: str = "u-platform") -> YardCon
         roles=roles if roles is not None else ["platform_admin"],
         request_id="req-p5",
     )
+
+
+def _admin_user(
+    db,  # type: ignore[no-untyped-def]
+    *,
+    user_id: str = "u-platform",
+    username: str = "admin",
+    status: str = "active",
+) -> User:
+    """平台管理员闸门现在会回查数据库，测试必须给真实用户行。"""
+    row = User(
+        id=user_id,
+        username=username,
+        password_hash="x",
+        display_name="平台管理员",
+        status=status,
+    )
+    db.add(row)
+    db.flush()
+    return row
 
 
 def _client(db, ctx: YardContext) -> TestClient:  # type: ignore[no-untyped-def]
@@ -60,6 +83,7 @@ def _fake_meta(version: str = VERSION, head: str = HEAD):
 
 
 def test_cluster_node_crud_and_url_validation(db_session):
+    _admin_user(db_session)
     admin = _client(db_session, _ctx())
     assert admin.get("/api/v1/cluster/nodes").status_code == 200
 
@@ -110,6 +134,7 @@ def test_cluster_node_crud_and_url_validation(db_session):
 
 
 def test_probe_online_degraded_offline_and_stale(db_session, monkeypatch):
+    _admin_user(db_session)
     admin = _client(db_session, _ctx())
     monkeypatch.setattr(service, "migration_head", lambda _db: HEAD)
     node = admin.post(
@@ -159,6 +184,7 @@ def test_probe_all_summary_and_permissions(db_session, monkeypatch):
     )
 
     admin = _client(db_session, _ctx())
+    _admin_user(db_session)
     monkeypatch.setattr(service, "migration_head", lambda _db: HEAD)
     for index in range(2):
         admin.post(
@@ -179,3 +205,104 @@ def test_probe_all_summary_and_permissions(db_session, monkeypatch):
     raw = probed.text.lower()
     assert "password" not in raw
     assert "token" not in raw
+
+
+def test_probe_blocks_cloud_metadata_target(db_session, monkeypatch):
+    """探测出网必须过 net_guard：元数据地址在发请求前就被拦下。"""
+    monkeypatch.setattr(service, "migration_head", lambda _db: HEAD)
+    with pytest.raises(AppError) as exc:
+        service._fetch_meta("http://169.254.169.254")
+    assert exc.value.code == "SSRF_BLOCKED"
+    assert "元数据" in exc.value.message
+
+    with pytest.raises(AppError) as exc6:
+        service._fetch_meta("http://[fd00:ec2::254]")
+    assert exc6.value.code == "SSRF_BLOCKED"
+
+    _admin_user(db_session)
+    admin = _client(db_session, _ctx())
+    node = admin.post(
+        "/api/v1/cluster/nodes",
+        json={"name": "元数据探针", "base_url": "http://169.254.169.254"},
+    ).json()["data"]["node"]
+    probed = admin.post(f"/api/v1/cluster/nodes/{node['id']}/probe")
+    body = probed.json()["data"]["node"]
+    assert probed.status_code == 200
+    assert body["status"] == "offline"
+    assert "禁止访问元数据" in body["last_error"]
+
+
+def test_offline_clears_previous_version(db_session, monkeypatch):
+    _admin_user(db_session)
+    admin = _client(db_session, _ctx())
+    node = admin.post(
+        "/api/v1/cluster/nodes",
+        json={"name": "节点 B", "base_url": "https://b.example.com"},
+    ).json()["data"]["node"]
+
+    monkeypatch.setattr(service, "_fetch_meta", _fake_meta())
+    online = admin.post(f"/api/v1/cluster/nodes/{node['id']}/probe").json()["data"]["node"]
+    assert online["version"] == VERSION
+    assert online["last_ok_at"] is not None
+
+    def boom(_base_url: str):
+        raise TimeoutError("connect timeout")
+
+    monkeypatch.setattr(service, "_fetch_meta", boom)
+    offline = admin.post(f"/api/v1/cluster/nodes/{node['id']}/probe").json()["data"]["node"]
+    assert offline["status"] == "offline"
+    # 离线后不保留旧版本号，避免界面把过期版本当现况；上次成功时间仍可查
+    assert offline["version"] == ""
+    assert offline["migration_head"] == ""
+    assert offline["last_ok_at"] == online["last_ok_at"]
+
+
+def test_list_is_not_truncated_at_max_nodes(db_session):
+    """并发顶破上限时，多出来的节点仍要出现在列表里（不再被 limit 裁掉）。"""
+    from app.modules.cluster.models import STATUS_NEVER
+
+    for index in range(service.MAX_NODES + 2):
+        db_session.add(
+            ClusterNode(
+                name=f"溢出节点 {index}",
+                base_url=f"https://overflow{index}.example.com",
+                note="",
+                status=STATUS_NEVER,
+            )
+        )
+    db_session.flush()
+    assert len(service.list_nodes(db_session)) == service.MAX_NODES + 2
+
+
+def test_stale_semantics(db_session):
+    now = datetime.now(UTC)
+    never = ClusterNode(
+        name="从未探测", base_url="https://never.example.com", note="", status="never"
+    )
+    legacy = ClusterNode(
+        name="旧数据", base_url="https://legacy.example.com", note="", status=STATUS_ONLINE
+    )
+    db_session.add_all([never, legacy])
+    db_session.flush()
+    assert service._is_stale(never, now) is False
+    # 有在线结论却缺时间戳：按过期处理，不能把历史值当现况
+    assert service._is_stale(legacy, now) is True
+
+
+def test_platform_gate_rejects_missing_user(db_session):
+    admin = _client(db_session, _ctx())
+    assert admin.get("/api/v1/cluster/nodes").status_code == 401
+
+
+def test_platform_gate_rejects_user_outside_admin_list(db_session):
+    _admin_user(db_session, username="ops")
+    admin = _client(db_session, _ctx())
+    assert admin.get("/api/v1/cluster/nodes").status_code == 403
+
+
+def test_platform_gate_rejects_disabled_user(db_session):
+    _admin_user(db_session, status="disabled")
+    admin = _client(db_session, _ctx())
+    response = admin.get("/api/v1/cluster/nodes")
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "ACCOUNT_DISABLED"
