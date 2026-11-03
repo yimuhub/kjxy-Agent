@@ -637,18 +637,37 @@ def _brief(skill: Skill) -> dict[str, Any]:
 def _create_draft(db: Session, ctx: YardContext, spec: SkillSpec) -> Skill:
     """把规格落成**私有草稿**技能（owner=当前用户，visibility=private）。"""
     code = _unique_code(db, ctx.yard_id, spec.code)
-    return create_skill(
+    definition = _definition(spec)
+    skill = create_skill(
         db,
         ctx,
         code,
         spec.version,
-        _definition(spec),
+        definition,
         created_from="user_generated",
         request_id=ctx.request_id,
         visibility="private",
         owner_user_id=ctx.user_id,
         origin="skill_agent",
     )
+    # 生成即自检（v3.56）：静态检查报告写进草稿定义，审核者直接看到分数，
+    # 不用等到上架门禁才发现结构问题。纯静态、零 LLM 成本；失败不阻断生成。
+    try:
+        from app.modules.evolution import prepublish
+
+        report = prepublish.static_report(skill)
+        definition["auto_eval"] = {
+            "kind": "prepublish",
+            "score": report.get("score"),
+            "errors": report.get("errors"),
+            "warnings": report.get("warnings"),
+            "generated_at": report.get("generated_at"),
+        }
+        skill.definition_json = definition
+        db.flush()
+    except Exception as e:  # noqa: BLE001 - 自检失败不影响草稿生成
+        log.warning("技能草稿自检失败 code=%s: %s", code, e)
+    return skill
 
 
 # ---------------------------------------------------------------------------

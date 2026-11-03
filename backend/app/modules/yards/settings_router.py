@@ -55,6 +55,7 @@ SETTINGS_PERMISSIONS: dict[str, str] = {
     "skill_lab": "settings:manage",
     "self_improve": "settings:manage_protected",
     "agent_generate": "settings:manage",
+    "yard_profile": "settings:manage",
     "device_analysis": "settings:manage",
     # Agent 自动执行会创建告警/工单/台账，按管理型设置处理
     "farm_agent": "settings:manage",

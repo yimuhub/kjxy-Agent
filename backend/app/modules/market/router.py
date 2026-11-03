@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 from app.core.deps import (
     CurrentUser,
     YardContext,
+    get_current_user,
     get_db_session,
     get_yard_context,
     require_roles,
@@ -385,6 +386,41 @@ def github_preview(
 # ---------------------------------------------------------------------------
 # 一句话技能链路（v3.2）：检索 → 生成 → 安装
 # ---------------------------------------------------------------------------
+
+
+@router.get("/official/packs")
+def official_packs_list(
+    request: Request,
+    types: str = "",
+    ctx: YardContext = Depends(get_yard_context),
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+):
+    """官方技能包目录：带本院启用状态与画像推荐标记（登录即可看）。"""
+    from app.modules.market import official_packs
+
+    types_list = [t.strip() for t in (types or "").split(",") if t.strip()]
+    return ok(official_packs.list_official_packs(db, ctx.yard_id, types_list), request)
+
+
+@router.post("/official/packs/{pack_key}/sync")
+def official_pack_sync(
+    pack_key: str,
+    request: Request,
+    ctx: YardContext = Depends(get_yard_context),
+    user: CurrentUser = Depends(_market_install_gate),
+    db: Session = Depends(get_db_session),
+):
+    """一键启用官方技能包：published 直通、幂等（负责人/管理员，market:install）。"""
+    from app.modules.market import official_packs
+
+    result = official_packs.sync_official_pack(db, ctx, pack_key)
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return ok(result, request)
 
 
 @router.post("/agent/request")

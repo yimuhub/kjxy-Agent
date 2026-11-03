@@ -4,7 +4,6 @@
 - _push_weekly_report：本周幂等（重复生成不重复推送）、审计锚点落库。
 """
 
-from types import SimpleNamespace
 
 from app.modules.commander import export as commander_export
 from app.modules.commander import reports

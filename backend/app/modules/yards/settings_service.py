@@ -66,6 +66,10 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "daily_limit": 10,  # 每成员每日生成次数（0 = 不限）
         "use_web": True,  # 生成前先联网取证；关闭则直接按本地知识设计
     },
+    # v3.56 小院画像：官方技能库按此推荐（口径对齐 market.official_catalog.YARD_TYPES）
+    "yard_profile": {
+        "types": ["general"],
+    },
     "device_analysis": {
         "enabled": True,  # 有启用设备的小院默认每天分析一次
         "schedule": {"preset": "daily"},
@@ -134,6 +138,18 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "allow_member_customize": True,
     },
 }
+
+#: 与 market.official_catalog.YARD_TYPES 保持一致（避免循环 import，测试对齐）
+OFFICIAL_YARD_TYPES = (
+    "rice",
+    "aquaculture",
+    "fruit",
+    "vegetable",
+    "tea",
+    "livestock",
+    "smart_agri",
+    "general",
+)
 
 REGISTRATION_MODES = {"closed", "approval", "open"}
 SEARCH_PROVIDERS = {"auto", "searxng", "tavily", "brave"}
@@ -346,6 +362,15 @@ def _validate(key: str, value: dict[str, Any], merged: dict[str, Any]) -> None:
             ) from e
         if not 1000 <= budget <= 10_000_000 or not 7 <= retain <= 365:
             raise AppError("INVALID_REQUEST", "自我总结预算/保留期超出允许范围。", http_status=400)
+    elif key == "yard_profile":
+        types = merged.get("types")
+        if not isinstance(types, list) or any(t not in OFFICIAL_YARD_TYPES for t in types):
+            raise AppError(
+                "INVALID_REQUEST",
+                f"小院画像类型只能是 {OFFICIAL_YARD_TYPES} 中的值。",
+                http_status=400,
+            )
+        merged["types"] = list(dict.fromkeys(str(t) for t in types))  # 去重保序
     elif key == "agent_generate":
         for flag in ("enabled", "use_web"):
             if not isinstance(merged[flag], bool):

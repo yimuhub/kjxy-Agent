@@ -125,7 +125,21 @@ services:
       - api
     restart: unless-stopped
 
+  # 可选搜索源（痛点六收尾）：`docker compose --profile searxng up -d searxng`
+  # 启动后把系统设置「网络与搜索」的 SearXNG 地址填 http://searxng:8080
+  searxng:
+    image: searxng/searxng:latest
+    profiles: ["searxng"]
+    ports:
+      - "8888:8080"
+    environment:
+      SEARXNG_BASE_URL: http://localhost:8888/
+    volumes:
+      - searxngdata:/etc/searxng
+    restart: unless-stopped
+
 volumes:
+  searxngdata:
   pgdata:
   redisdata:
   filedata:

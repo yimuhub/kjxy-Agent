@@ -2,6 +2,50 @@
 
 本项目遵循《工程开发规范 V3.0》；版本号遵循语义化版本。
 
+## [3.56.0] - 2026-11-04
+
+痛点方案落地（一）+ 农民伯伯形象重画 + 官方技能库 P0 + 行业调研。
+
+### 痛点方案落地
+
+- **周报推送群**（A1）：新推送事件 `commander_weekly_report`，指挥官周报落定后自动
+  推送到订阅通道；本周幂等（审计时间窗锚点），手动反复查看不骚扰
+- **月报导出 Word**（A3）：`GET /commander/iterations/{id}/export`，report_md→
+  DocModel（标题/列表/编号/长段切分）→ docs 渲染管线；月报列表加「导出 Word」
+- **田间快捷命令**（A4）：机器人 `/技能`（/skill）——无参回复本院技能清单，
+  带关键词直达（问题自动携带技能上下文 + 滑窗注记），一条消息完成「找技能→提问」
+- **生成即自检**（A2）：一句话技能草稿落库即跑 `prepublish.static_report`
+  （纯静态、零 LLM 成本），分数与问题数写进 `definition_json.auto_eval`，
+  审核者直接看到自动检查结果
+
+### 官方技能库 P0（江苏科技小院调研驱动）
+
+- 行业调研：`docs/research-jiangsu-science-yards.md`——运行机理（三部门文件/
+  三级管理/四零服务/日志月报考核）、数据交换（全国平台日志排行与质量监测挂钩）、
+  江苏名录 89 家聚为八大产业族
+- `official_catalog.py`：8 个产业包 19 条技能（common/rice/aquaculture/fruit/
+  vegetable/tea/livestock/smart_agri），全部人工撰写、带公开权威来源
+- `GET /market/official/packs`（目录+启用状态+画像推荐）、
+  `POST /market/official/packs/{key}/sync`（published 直通、幂等，market:install）
+- 小院设置 `yard_profile.types`（按画像针对性推荐）
+- 官方更新 = release 版本化目录，无中央服务器依赖
+
+### 桌宠形象重画
+
+- 农民伯伯 v3.56 造型：大圆脸双高光眼、白眉八字胡山羊胡、腮红笑口、背带裤
+  布鞋、宽檐草帽，站在带禾苗的田垄上；扇草帽另一手托帽檐、刨土田垄轻颤；
+  动画锚点与 8 套皮肤机制零改动
+
+### 效率
+
+- element-plus 拆独立长缓存 chunk：主业务包 1310KB→363KB
+
+### 其他
+
+- SearXNG 加入 compose（`--profile searxng` 可选启用，痛点六）
+- 痛点方案与修复状态：`docs/pain-points-plan-2026-11-03.md`、
+  `docs/audit-report-2026-11-03.md`
+
 ## [Unreleased]
 
 开发中的修复先累积在这里；定版时把本段改名为 `## [3.x.y] - 日期`，同时一次改齐 9 处版本面。
