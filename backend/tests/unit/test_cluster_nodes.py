@@ -306,3 +306,21 @@ def test_platform_gate_rejects_disabled_user(db_session):
     response = admin.get("/api/v1/cluster/nodes")
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "ACCOUNT_DISABLED"
+
+
+def test_probe_allows_loopback_but_still_guards_egress(monkeypatch):
+    """同机多实例要能探测：过闸时显式 allow_local；元数据仍由 net_guard 拦下。"""
+    seen: dict[str, object] = {}
+
+    def fake_guard(url: str, *, context: str = "", allow_local: bool = False) -> None:
+        seen.update({"url": url, "context": context, "allow_local": allow_local})
+        raise RuntimeError("stop-before-network")
+
+    monkeypatch.setattr(service, "check_egress_url", fake_guard)
+    with pytest.raises(RuntimeError):
+        service._fetch_meta("http://127.0.0.1:8001")
+    assert seen == {
+        "url": "http://127.0.0.1:8001/api/v1/meta",
+        "context": "cluster_probe",
+        "allow_local": True,
+    }

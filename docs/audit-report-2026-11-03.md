@@ -329,7 +329,7 @@
 | S-6 演示账号无生产硬闸 | ✅ 已修 | `seed.guard_demo_data_writes()` 统一闸门，`app.db.seed` 与 `app.db.repair_demo_passwords` 共用（后者此前完全无闸，可在生产库把四个账号重置为 `admin123`）；新增 `seed.active_demo_usernames()` 供启动自查，`main._startup_wiring()` 在 `is_production` 时扫描存量库并以 WARNING 报出仍能用文档弱口令登录的用户名。6 条测试 |
 | 顺带：v3.53.0 遗留的 mypy 错误 | ✅ 已修 | `commander.service` 原子占位对 `Result` 取 `.rowcount` 报 attr-defined；按库内既有写法显式 `execution_options(synchronize_session=False)` + rowcount 判定，`mypy app` 恢复全绿（该问题会让 CI 的 mypy 门禁红，属 3.53.0 收口疏漏） |
 
-**仍未处理（转入排期）**：「下个迭代」的 F-4 租约原子性与 F-5 进程内配额/限流（多副本部署形态才需要）、C5/K1+S-3 cluster SSRF、S-4 JWT 角色滞留、S-7~S-10、C10、C16、K2~K5、FE-3~FE-11/FE-13（C3/C6/C7/C8/C9/C14/C15 已在 3.55.0 完成，见下节；FE-12 已在 3.53.0 完成）。三条部署指引仍适用；其中 `/metrics` 现在默认关闭，需要观测的部署显式开启后仍要保证端口不对公网暴露。
+**仍未处理（转入排期）**：「下个迭代」的 F-4 租约原子性与 F-5 进程内配额/限流（多副本部署形态才需要）、C10、C16、FE-3~FE-11/FE-13（C3/C6/C7/C8/C9/C14/C15 在 3.55.0 完成，见 §十一；C5/K1+S-3、S-4、S-7~S-10、K2~K5 在 3.56.0 完成，见 §十二；FE-12 在 3.53.0 完成）。三条部署指引仍适用；其中 `/metrics` 现在默认关闭，需要观测的部署显式开启后仍要保证端口不对公网暴露。
 
 ---
 
@@ -348,3 +348,24 @@
 | C15 `_is_transient` 猜正文数字 | ✅ 已修 | 只认异常类型（`TimeoutError`/`ConnectionError`）与 provider 给出的 `details.category`，无分类时才看 HTTP 状态。分类优先是必要的：`providers_openai` 把各种上游失败统一写成 502，只看状态会把 `auth`/`provider_4xx` 也拖进重试；正文匹配会让「第 500 亩」「429 元」这类答复文本触发重试 |
 
 **口径说明（不隐瞒）**：账本增量只覆盖带 seq 的 task_id 前缀族，`_deliver_document` 走的是对话文档链路（`chat-doc-*`/`chat-deck-*`），其失败轮用量仍只能靠自报值兜住——本轮不改文档链路的任务号命名（牵涉对话侧归集口径，另议）。上游报错的那次调用在账本里 `input_tokens/output_tokens` 为空，因此「调用直接失败、一个字节都没返回」的那一轮仍按 0 计，与配额记账口径一致，不虚报成本。
+
+---
+
+## 十二、整改状态（v3.56.0，2026-11-03）
+
+集群探测出网、平台管理员鉴权与节点状态口径批次（C5/K1+S-3、S-4、S-7~S-10、K2~K5）。逐条对应：
+
+| 报告项 | 状态 | 落点 |
+| --- | --- | --- |
+| C5 / K1 / S-3 cluster 探测 SSRF | ✅ 已修 | `_fetch_meta` 在发请求前调用 `check_egress_url(meta_url, context="cluster_probe", allow_local=True)`，与全项目「出网必过 net_guard」契约一致；`follow_redirects=False` 保持。策略沿用 ADR-0003：链路本地/云元数据/保留地址一律拒绝（含 S-7 新增的 IPv6 IMDS），内网私有段默认放行（多实例内网部署是正当形态），纯公网部署由 `enforce_model_egress_guard` 总闸收紧。**环回显式放行**是有意选择：同机多实例（127.0.0.1:800x）是集群面板的正当用法，元数据不在环回段，探测结果只留状态码/延迟/短错误、不回显响应正文；`test_probe_blocks_cloud_metadata_target` 仍钉住元数据地址在发请求前被拒。**残余**：与所有「先解析校验、再交由 HTTP 客户端建连」的调用方相同，严格同一时刻的 DNS 重绑定仍有理论窗口；节点是平台管理员手工登记的可信配置，风险面远小于面向任意用户的 web.fetch（后者已在 S-2 做建连钉定） |
+| S-3 probe-all 串行占住 worker | ✅ 已修 | `_fetch_all()` 用 8 路 `ThreadPoolExecutor` 并发抓取，网络阶段完全不碰数据库；全部返回后 `_apply_probe()` 串行落库并一次 flush。50 节点最坏从 150s 降到约 20s，且写锁不再横跨整段 I/O |
+| S-7 IPv6 ULA 覆盖云元数据 | ✅ 已修 | `net_guard._METADATA_NETWORKS` 永久阻断 `fd00:ec2::/64`（AWS IMDS IPv6）、`100.100.100.200/32`（阿里云）、`192.0.0.192/32`（Oracle），先于 `allow_local` 与私网放行判定；任何调用方、任何开关都拒绝。`test_net_guard.py` 覆盖三类地址 + 私网/环回分级 |
+| S-4 JWT 角色滞留 | ✅ 已修 | 新增 `core.deps.require_platform_admin()`：JWT 仍须带 `platform_admin`，再按数据库复核——用户不存在 401、`disabled`/`pending` 403、用户名不在 `PLATFORM_ADMIN_USERNAMES` 403。`platform_admin` 只由该名单 bootstrap 授予，因此以名单为准不会误伤其他授权路径。cluster 全部接口改用该依赖 |
+| S-9 GitHub branch 未转义 | ✅ 已修 | `preview_skill_from_repo` 的 raw/blob 地址对 `branch` 做 `quote(safe="")`、对 `path` 做 `quote(safe="/")`，与 tree API 的 `tree_ref` 同口径；带 `/` 的分支不再被拆成多级路径，带空格的文件名生成有效链接 |
+| S-10 `/pairing/exchange` 无限流 | ✅ 已修 | 按客户端 IP 套用进程内 `RateLimiter`（30 次/分钟），失败计次、成功清零，超限 429 `RATE_LIMITED`。多实例部署需换 Redis 集中计数（与登录限流同一口径说明） |
+| K2 MAX_NODES 竞态与列表裁剪 | ✅ 已修 | `list_nodes` 去掉 `.limit(MAX_NODES)`，存量超出上限的节点不再从列表与 `probe_all` 里消失；`create_node` 落库后复核总数，超限的一方 `rollback` 自身并返回 `CLUSTER_NODE_LIMIT`（后到者失败） |
+| K3 见 S-3 | ✅ 已修 | 同上（并发抓取 + 网络/落库分离） |
+| K4 离线保留旧版本 | ✅ 已修 | 探测失败时清空 `version`/`migration_head`，保留 `last_ok_at`；界面按 `—`/`last_ok_at` 展示，不再把过期版本当现况 |
+| K5 `_is_stale` 语义 | ✅ 已修 | 从未探测（`status=never`）不算「已过期」；有 `online`/`degraded` 结论却缺时间戳的历史行按过期处理，避免把历史值当现况 |
+
+**口径说明（不隐瞒）**：`require_platform_admin` 目前只接到 cluster 模块；`admin/doctor` 等平台级端点仍是 JWT 快照判定（报告未点名，且这些端点不涉及对任意地址出网）。S-8（登录限流在反代下共享同一桶）与 F-4/F-5 仍属部署形态相关项，继续留在排期，部署指引不变。

@@ -184,13 +184,15 @@ def migration_head(db: Session) -> str:
 def _fetch_meta(base_url: str) -> tuple[dict[str, Any], int]:
     """GET /api/v1/meta（公开只读）；禁止跟随重定向，避免被带到内网其他服务。
 
-    出网前过 ``check_egress_url``，与全项目「服务端出网必过 net_guard」契约一致：
-    链路本地/云元数据地址任何开关都阻断，环回默认阻断；内网私有段沿用 ADR-0003
-    默认放行（多实例内网部署是正当形态），纯公网部署由 ``enforce_model_egress_guard``
-    总闸一并收紧。校验按域名解析后的每个 IP 判定，挡的是首跳直达内网/元数据。
+    出网前过 ``check_egress_url``，与全项目「服务端出网必过 net_guard」契约一致。
+    这里显式 ``allow_local=True``：同机多实例（127.0.0.1:800x）是集群面板的正当
+    用法，而真正能泄数据的是云元数据/链路本地地址——它们属于「任何开关都不放行」
+    的一类，仍会被拦下；探测结果只保留状态码/延迟/短错误文本，不回显响应正文。
+    内网私有段沿用 ADR-0003 默认放行，纯公网部署由 ``enforce_model_egress_guard``
+    总闸一并收紧。
     """
     meta_url = f"{base_url.rstrip('/')}/api/v1/meta"
-    check_egress_url(meta_url, context="cluster_probe")
+    check_egress_url(meta_url, context="cluster_probe", allow_local=True)
     started = perf_counter()
     with httpx.Client(
         timeout=httpx.Timeout(PROBE_TIMEOUT_SECONDS, connect=PROBE_TIMEOUT_SECONDS),

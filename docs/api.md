@@ -9,6 +9,7 @@
 - 需身份接口：`Authorization: Bearer <access_token>`。
 - 创建接口支持 `Idempotency-Key`（同小院同键返回同一结果）。
 - 列表接口：`page`、`page_size`（默认 20，最大 100）。
+- 公开端点（登录、配对交换、A2A 入站）按客户端 IP 做进程内限流，超限返回 429 `RATE_LIMITED`；单进程实现，多实例部署需换 Redis 集中计数。
 - 成功：`{"data": {...}, "request_id": "..."}`；列表加 `meta`；错误：`{"error": {"code","message","details"}, "request_id": "..."}`。
 
 ## 接口一览（P0）
@@ -733,17 +734,17 @@ token 统计口径（v3.55）：每个子任务按 `llm_calls` 账本的 task_id
 
 | 接口 | 说明 |
 | --- | --- |
-| `GET /cluster/nodes` | 节点列表（最多 50）+ 汇总 `summary{total,online,degraded,offline}` |
-| `POST /cluster/nodes` | `{name, base_url, note?}`；名称/地址各自唯一，重复 409 |
+| `GET /cluster/nodes` | 节点列表 + 汇总 `summary{total,online,degraded,offline,never}`；列表不裁剪，超出上限的存量节点同样展示 |
+| `POST /cluster/nodes` | `{name, base_url, note?}`；名称/地址各自唯一，重复 409；落库后复核上限（50），并发超限的后到请求回滚自身 |
 | `PUT /cluster/nodes/{id}` | 改名、改地址或备注；地址变更会清空旧探测结论 |
 | `DELETE /cluster/nodes/{id}` | 只移除登记，不影响远端实例 |
 | `POST /cluster/nodes/{id}/probe` | 单节点探测，返回 `{node}` |
-| `POST /cluster/probe-all` | 顺序探测全部节点，返回列表与汇总 |
+| `POST /cluster/probe-all` | 批量探测全部节点：先并发抓取（8 路）再串行落库，返回列表与汇总 |
 
-- 权限：全部接口仅 `platform_admin`；其他角色 403。新增/编辑/删除/探测写审计 `cluster_node_created`、`cluster_node_updated`、`cluster_node_deleted`、`cluster_node_probed`、`cluster_nodes_probed`。
+- 权限：全部接口仅 `platform_admin`，且按数据库现况复核——JWT 仍带该角色但用户已被删除返回 401，停用/待审核返回 403，用户名已移出部署管理员名单返回 403；其他角色 403。新增/编辑/删除/探测写审计 `cluster_node_created`、`cluster_node_updated`、`cluster_node_deleted`、`cluster_node_probed`、`cluster_nodes_probed`。
 - 地址校验：仅 `http/https` 完整根地址，拒绝用户名/口令、查询串、片段、空白与控制字符，长度 ≤300；保存时去掉尾部斜杠。
-- 探测：`GET {base_url}/api/v1/meta`，3 秒超时且**不跟随重定向**；`version` 与 `migration_head` 都和本机一致为 `online`，可达但不一致为 `degraded`，超时/非 200/解析失败为 `offline`。
-- 结果字段：`status_label`、`stale`（超过 600 秒未探测）、`version`、`migration_head`、`latency_ms`、`last_checked_at`、`last_ok_at`、`last_error`（只留短错误文本，不保存响应正文/头）。
+- 探测：`GET {base_url}/api/v1/meta`，发请求前过出网校验（`net_guard`）——链路本地与云元数据地址（含 IPv6）一律拒绝；环回地址显式放行（同机多实例是正当形态，探测结果不回显响应正文）；内网私有段沿用 ADR-0003 默认放行，纯公网部署由总闸收紧。3 秒超时且**不跟随重定向**。`version` 与 `migration_head` 都和本机一致为 `online`，可达但不一致为 `degraded`，超时/非 200/解析失败/被出网校验拦截为 `offline`。
+- 结果字段：`status_label`、`stale`（`online`/`degraded` 结论超过 600 秒未刷新，或历史行有结论但缺时间戳时为 `true`；`never` 不算过期）、`version`、`migration_head`、`latency_ms`、`last_checked_at`、`last_ok_at`、`last_error`（只留短错误文本，不保存响应正文/头）。离线时 `version`/`migration_head` 清空，`last_ok_at` 保留。
 
 ## 任务状态机
 
