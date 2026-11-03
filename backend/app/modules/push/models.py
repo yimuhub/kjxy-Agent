@@ -33,8 +33,11 @@ EVENT_FARM_ALERT = "farm_alert"
 EVENT_FARM_AGENT_RUN = "farm_agent_run"
 #: v3.56：指挥官周报落地推送给负责人（本周幂等，见 reports.weekly_optimization）
 EVENT_COMMANDER_WEEKLY = "commander_weekly_report"
+#: v3.58：培训提醒（负责人发起，推给订阅的农户群）
+EVENT_TRAINING_REMINDER = "training_reminder"
 VALID_EVENTS = (
     EVENT_COMMANDER_WEEKLY,
+    EVENT_TRAINING_REMINDER,
     EVENT_DEVICE_ALERT,
     EVENT_WORKORDER_CREATED,
     EVENT_TEAM_RUN_FAILED,
@@ -54,6 +57,7 @@ EVENT_LABELS = {
     EVENT_FARM_ALERT: "农事预警",
     EVENT_FARM_AGENT_RUN: "Agent 自动执行",
     EVENT_COMMANDER_WEEKLY: "指挥官周报已生成",
+    EVENT_TRAINING_REMINDER: "培训提醒",
 }
 
 

@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.63.1
+  version: 3.64.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -10151,6 +10151,65 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - HTTPBearer: []
+  /api/v1/market/official/packs:
+    get:
+      tags:
+      - v1
+      - market
+      summary: Official Packs List
+      description: 官方技能包目录：带本院启用状态与画像推荐标记（登录即可看）。
+      operationId: official_packs_list_api_v1_market_official_packs_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: types
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Types
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/market/official/packs/{pack_key}/sync:
+    post:
+      tags:
+      - v1
+      - market
+      summary: Official Pack Sync
+      description: 一键启用官方技能包：published 直通、幂等（负责人/管理员，market:install）。
+      operationId: official_pack_sync_api_v1_market_official_packs__pack_key__sync_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: pack_key
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Pack Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/market/agent/request:
     post:
       tags:
@@ -12494,6 +12553,34 @@ paths:
               schema: {}
       security:
       - HTTPBearer: []
+  /api/v1/commander/iterations/{iteration_id}/export:
+    get:
+      tags:
+      - v1
+      - commander
+      summary: Export Iteration Docx
+      operationId: export_iteration_docx_api_v1_commander_iterations__iteration_id__export_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: iteration_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Iteration Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/commander/iterations/run:
     post:
       tags:
@@ -13740,6 +13827,284 @@ paths:
           - type: string
           - type: 'null'
           title: User Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/journal/draft:
+    post:
+      tags:
+      - v1
+      - journal
+      summary: Create Draft
+      description: 生成/取回日志草稿（幂等：同 kind+period 已有则原样返回）。
+      operationId: create_draft_api_v1_journal_draft_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JournalDraftRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/journal:
+    get:
+      tags:
+      - v1
+      - journal
+      summary: List Journal
+      description: 本院日志列表：scope=mine（默认，本人）| yard（logs:review 看全院）。
+      operationId: list_journal_api_v1_journal_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: month
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Month
+      - name: scope
+        in: query
+        required: false
+        schema:
+          type: string
+          default: mine
+          title: Scope
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/journal/{journal_id}:
+    put:
+      tags:
+      - v1
+      - journal
+      summary: Save Journal
+      operationId: save_journal_api_v1_journal__journal_id__put
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: journal_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Journal Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JournalSaveRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/journal/{journal_id}/submit:
+    post:
+      tags:
+      - v1
+      - journal
+      summary: Submit Journal
+      operationId: submit_journal_api_v1_journal__journal_id__submit_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: journal_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Journal Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/journal/{journal_id}/review:
+    post:
+      tags:
+      - v1
+      - journal
+      summary: Review Journal
+      operationId: review_journal_api_v1_journal__journal_id__review_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: journal_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Journal Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JournalReviewRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/journal/stats:
+    get:
+      tags:
+      - v1
+      - journal
+      summary: Journal Stats
+      operationId: journal_stats_api_v1_journal_stats_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: month
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Month
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/journal/monthly/export:
+    get:
+      tags:
+      - v1
+      - journal
+      summary: Export Monthly
+      description: 本人月报导出 Word（按当月日志聚合；无日志 404）。
+      operationId: export_monthly_api_v1_journal_monthly_export_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: month
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Month
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/journal/training/notify:
+    post:
+      tags:
+      - v1
+      - journal
+      summary: Training Notify
+      description: 培训提醒：向本院订阅 training_reminder 的通道推送（负责人/管理员发起）。
+      operationId: training_notify_api_v1_journal_training_notify_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TrainingNotifyRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/journal/aggregate:
+    get:
+      tags:
+      - v1
+      - journal
+      summary: Aggregate
+      description: 跨小院监管聚合（P1，platform_admin）：日志量/活跃作者/断更预警。
+      operationId: aggregate_api_v1_journal_aggregate_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: month
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Month
       responses:
         '200':
           description: Successful Response
@@ -15032,7 +15397,7 @@ components:
           items:
             type: string
           type: array
-          maxItems: 53
+          maxItems: 56
           title: Grants
       additionalProperties: false
       type: object
@@ -15210,6 +15575,56 @@ components:
       additionalProperties: false
       type: object
       title: IterationRunRequest
+    JournalDraftRequest:
+      properties:
+        kind:
+          type: string
+          title: Kind
+          default: daily
+        date:
+          type: string
+          maxLength: 10
+          title: Date
+          description: YYYY-MM-DD，缺省今天
+          default: ''
+      additionalProperties: false
+      type: object
+      title: JournalDraftRequest
+    JournalReviewRequest:
+      properties:
+        action:
+          type: string
+          pattern: ^(approve|reject)$
+          title: Action
+        note:
+          anyOf:
+          - type: string
+            maxLength: 500
+          - type: 'null'
+          title: Note
+      additionalProperties: false
+      type: object
+      required:
+      - action
+      title: JournalReviewRequest
+    JournalSaveRequest:
+      properties:
+        content_md:
+          type: string
+          maxLength: 20000
+          minLength: 1
+          title: Content Md
+        title:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Title
+      additionalProperties: false
+      type: object
+      required:
+      - content_md
+      title: JournalSaveRequest
     KnowledgeAskRequest:
       properties:
         question:
@@ -15383,7 +15798,7 @@ components:
           items:
             type: string
           type: array
-          maxItems: 53
+          maxItems: 56
           title: Grants
         confirm_protected:
           type: boolean
@@ -18598,6 +19013,29 @@ components:
       type: object
       title: TeamUpdateRequest
       description: 编辑班组：全部可选；members 传则整体替换（保持顺序语义简单）。
+    TrainingNotifyRequest:
+      properties:
+        title:
+          type: string
+          maxLength: 120
+          minLength: 2
+          title: Title
+        time_text:
+          type: string
+          maxLength: 60
+          minLength: 1
+          title: Time Text
+        place:
+          type: string
+          maxLength: 120
+          title: Place
+          default: ''
+      additionalProperties: false
+      type: object
+      required:
+      - title
+      - time_text
+      title: TrainingNotifyRequest
     TransferRequest:
       properties:
         user_id:

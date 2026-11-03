@@ -2,6 +2,36 @@
 
 本项目遵循《工程开发规范 V3.0》；版本号遵循语义化版本。
 
+## [3.64.0] - 2026-11-04
+
+角色工作台 P0–P2 全量落地（方案 docs/role-workspaces-plan-2026-11-04.md）：把平台
+从「一个工具」升级为「科技小院中枢」——五类角色登录后各见其工作台。
+
+### 研究生日志工作台（P0 灵魂项）
+
+- 迁移 0070 `yard_journal`：日志/月报（同人同 kind 同期唯一），draft→submitted→
+  approved 状态机，驳回回 draft 带意见
+- 草稿聚合（铁律：**只汇总事实与数量，不读消息原文**）：当天会话/任务/审计事件
+  → 客观分节正文，幂等（已有草稿原样返回）；月报按活跃天聚合
+- 权限点 `logs:write`（operator 默认）/ `logs:review`（expert 默认）+
+  `yards:aggregate`（监管）；前端 JournalView（生成/编辑/提交/审核/进度/导出），
+  operator 登录默认落地此页
+- 月报导出 Word（复用 docs 渲染管线）
+
+### 专家问诊与监管（P0.5+P1）
+
+- expert 全院日志视图（scope=yard，logs:review），驳回直达作者
+- platform_admin 监管看板 /oversight：各院日志量/活跃作者/断更预警（只出数字不出内容）
+
+### 培训提醒（P2）
+
+- push 事件 `training_reminder`：负责人/管理员向订阅通道发培训通知（标题/时间/地点）
+
+### 测试
+
+- 单测 9（聚合/幂等/状态机/越权/统计/月报聚合/导出/聚合断更）+
+  集成 4（operator→expert 全流程/导出 docx/聚合鉴权/培训推送权限）
+
 ## [3.57.0] - 2026-11-04
 
 审计遗留问题清零 + 角色群组中枢方案（docs/role-workspaces-plan-2026-11-04.md）。

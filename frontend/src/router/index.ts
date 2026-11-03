@@ -3,6 +3,8 @@ import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 import { defaultHomePath } from '@/utils/home'
 import MainLayout from '@/layouts/MainLayout.vue'
+import JournalView from '@/views/JournalView.vue'
+import OversightView from '@/views/OversightView.vue'
 import Login from '@/views/Login.vue'
 
 /** 管理类页面：仅小院管理员与平台管理员 */
@@ -95,7 +97,9 @@ const routes: RouteRecordRaw[] = [
     children: [
       { path: '', name: 'Dashboard', component: Dashboard, meta: { title: '概览' } },
       // 对话模式：全员可用（§10 契约：全部登录可用，成员级）
-      { path: 'chat', name: 'Chat', component: ChatView, meta: { title: '智能对话', permission: 'chat:use' } },
+    { path: 'journal', name: 'Journal', component: JournalView },
+    { path: 'oversight', name: 'Oversight', component: OversightView },
+    { path: 'chat', name: 'Chat', component: ChatView, meta: { title: '智能对话', permission: 'chat:use' } },
       { path: 'commander', name: 'Commander', component: CommanderView, meta: { title: '指挥官工作台', permission: 'chat:use' } },
       { path: 'knowledge', name: 'Knowledge', component: KnowledgeView, meta: { title: '知识库', permission: 'knowledge:read' } },
       { path: 'farm', name: 'Farm', component: FarmView, meta: { title: '农业台账', permission: 'farm:read' } },

@@ -70,6 +70,7 @@ from app.modules.farm.models import (  # noqa: F401
     WorkOrder,
     WorkOrderEvent,
 )
+from app.modules.journal.models import YardJournal  # noqa: F401
 from app.modules.knowledge.models import KnowledgeChunk, KnowledgeDocument  # noqa: F401
 from app.modules.library.models import (  # noqa: F401
     LibraryInstall,

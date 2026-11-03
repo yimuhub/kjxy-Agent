@@ -26,6 +26,9 @@ ALL_PERMISSIONS: frozenset[str] = frozenset(
         "feedback:write",
         "feedback:read",
         "review:approve",
+        "logs:write",
+        "logs:review",
+        "yards:aggregate",
         "skills:manage",
         "skills:generate",
         "skills:review",
@@ -95,6 +98,9 @@ GRANTABLE_PERMISSIONS: frozenset[str] = ALL_PERMISSIONS - {
 
 #: 权限点中文名（前端「角色与权限」矩阵直接使用，不再各自维护一份）
 PERMISSION_LABELS: dict[str, str] = {
+    "logs:write": "写工作日志/月报",
+    "logs:review": "审核工作日志",
+    "yards:aggregate": "跨小院监管看板",
     "knowledge:read": "查看知识库",
     "knowledge:write": "维护知识库",
     "farm:read": "查看农业台账",
@@ -175,6 +181,7 @@ PERMISSIONS: dict[str, frozenset[str]] = {
             "feedback:write",
             "feedback:read",
             "review:approve",
+            "logs:review",
             "skills:manage",
             "skills:generate",
             "skills:review",
@@ -206,6 +213,7 @@ PERMISSIONS: dict[str, frozenset[str]] = {
             "tasks:read",
             "tasks:retry",
             "feedback:write",
+            "logs:write",
             "skills:generate",
             "quota:request",
             "tools:execute",
@@ -283,6 +291,11 @@ PERMISSION_GROUPS: tuple[dict[str, object], ...] = (
         "key": "farm",
         "label": "农业台账",
         "permissions": ["farm:read", "farm:write"],
+    },
+    {
+        "key": "oversight",
+        "label": "工作日志与监管",
+        "permissions": ["logs:write", "logs:review", "yards:aggregate"],
     },
     {
         "key": "content",

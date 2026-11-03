@@ -47,6 +47,8 @@ const LIBRARY_ROLES = ['yard_owner', 'yard_admin', 'platform_admin', 'expert']
 /** 全系统所有可配置的功能原子池（唯一事实源） */
 export const ALL_MENU_ATOMS: DiyMenuLeaf[] = [
   { key: 'dashboard', path: '/', title: '概览', iconName: 'Odometer' },
+  { key: 'journal', path: '/journal', title: '工作日志', iconName: 'Notebook', permission: 'logs:write' },
+  { key: 'oversight', path: '/oversight', title: '小院监管', iconName: 'DataAnalysis', permission: 'yards:aggregate', roles: ['platform_admin'] },
   { key: 'chat', path: '/chat', title: '智能对话', iconName: 'ChatDotRound', permission: 'chat:use' },
   { key: 'commander', path: '/commander', title: '指挥官工作台', iconName: 'Compass', permission: 'chat:use' },
   { key: 'custom-agents', path: '/agents/custom', title: '我的智能体', iconName: 'UserFilled', permission: 'chat:use' },
@@ -120,6 +122,8 @@ function buildDefaultMenuGroupsRaw(): DiyMenuGroup[] {
       label: '工作台',
       items: [
         { key: 'dashboard', path: '/', title: '概览', iconName: 'Odometer' },
+  { key: 'journal', path: '/journal', title: '工作日志', iconName: 'Notebook', permission: 'logs:write' },
+  { key: 'oversight', path: '/oversight', title: '小院监管', iconName: 'DataAnalysis', permission: 'yards:aggregate', roles: ['platform_admin'] },
         { key: 'chat', path: '/chat', title: '智能对话', iconName: 'ChatDotRound', permission: 'chat:use' },
         { key: 'commander', path: '/commander', title: '指挥官工作台', iconName: 'Compass', permission: 'chat:use' },
       ],
@@ -203,6 +207,8 @@ function buildFlatQuickGroupsRaw(): DiyMenuGroup[] {
       label: '高频直达',
       items: [
         { key: 'dashboard', path: '/', title: '概览', iconName: 'Odometer' },
+  { key: 'journal', path: '/journal', title: '工作日志', iconName: 'Notebook', permission: 'logs:write' },
+  { key: 'oversight', path: '/oversight', title: '小院监管', iconName: 'DataAnalysis', permission: 'yards:aggregate', roles: ['platform_admin'] },
         { key: 'chat', path: '/chat', title: '智能对话', iconName: 'ChatDotRound', permission: 'chat:use' },
         { key: 'commander', path: '/commander', title: '指挥官工作台', iconName: 'Compass', permission: 'chat:use' },
         { key: 'custom-agents', path: '/agents/custom', title: '我的智能体', iconName: 'UserFilled', permission: 'chat:use' },
