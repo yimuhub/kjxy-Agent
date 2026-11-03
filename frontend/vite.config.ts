@@ -43,6 +43,9 @@ export default defineConfig({
       output: {
         manualChunks: {
           'vue-vendor': ['vue', 'vue-router', 'pinia'],
+          // 组件库单独成块：业务迭代频繁重发时，用户浏览器可继续命中
+          // element-plus 的长缓存（约占主 chunk 一半体积）
+          'element-plus': ['element-plus'],
         },
       },
     },
