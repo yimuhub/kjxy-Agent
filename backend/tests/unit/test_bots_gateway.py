@@ -553,3 +553,81 @@ def test_feishu_adapter_requires_sdk():
                 on_inbound=lambda m: asyncio.sleep(0),
                 on_state=lambda s, r: None,
             )
+
+
+# ---------------------------------------------------------------------------
+# /skill 田间快捷直达（v3.56）
+# ---------------------------------------------------------------------------
+
+
+async def test_skill_command_lists_skills(db_session, monkeypatch):
+    """无参 /技能：回复可选技能清单与用法。"""
+    import app.modules.agents.bindable as bindable
+
+    bot = _mk_bot(db_session)
+    _mk_conv_ready(db_session, bot)
+    monkeypatch.setattr(
+        bindable,
+        "list_bindable_extensions",
+        lambda db_, yid: {
+            "skills": [{"name": "病虫害防治", "summary": "识别与防治"}],
+            "plugins": [],
+        },
+    )
+    sent: list[str] = []
+
+    async def send(cid: str, text: str) -> None:
+        sent.append(text)
+
+    out = await gw.handle_inbound(
+        db_session,
+        bot=bot,
+        msg=_inbound(mid="s1", text="/技能"),
+        guard=gw.IdempotencyGuard(8),
+        send=send,
+    )
+    assert out["status"] == "skill_list"
+    assert "病虫害防治" in sent[-1] and "用法" in sent[-1]
+
+
+async def test_skill_command_arms_and_injects_context(db_session, monkeypatch):
+    """命中技能：先武装（注记入滑窗），再发问题走 auto 路由。"""
+    import app.modules.agents.bindable as bindable
+    import app.modules.agents.supervisor as supervisor
+
+    bot = _mk_bot(db_session)
+    _mk_conv_ready(db_session, bot)
+    monkeypatch.setattr(
+        bindable,
+        "list_bindable_extensions",
+        lambda db_, yid: {
+            "skills": [{"name": "病虫害防治", "summary": "识别与防治"}],
+            "plugins": [],
+        },
+    )
+    questions: list[str] = []
+
+    async def fake_ask(db_, *, ctx, question, **kw):
+        questions.append(question)
+        return {"result": {"answer": "已按病虫害防治技能回答"}, "routed_by": "auto", "reason": ""}
+
+    monkeypatch.setattr(supervisor, "ask", fake_ask)
+    sent: list[str] = []
+
+    async def send(cid: str, text: str) -> None:
+        sent.append(text)
+
+    guard = gw.IdempotencyGuard(8)
+    r1 = await gw.handle_inbound(
+        db_session,
+        bot=bot,
+        msg=_inbound(mid="s2", text="/技能 病虫害 叶片有褐斑怎么办"),
+        guard=guard,
+        send=send,
+    )
+    # 一条命令直达：问题自动带上「优先使用该技能」上下文并直接回答
+    assert r1["status"] == "ok"
+    assert questions and "病虫害防治" in questions[0] and "叶片有褐斑" in questions[0]
+    conv = db_session.query(BotConversation).one()
+    joined = json.dumps(conv.context_cache_json or [], ensure_ascii=False)
+    assert "病虫害防治" in joined

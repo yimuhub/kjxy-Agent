@@ -43,6 +43,8 @@ APPROVAL_PENDING_REPLY = "已收到你的消息，等待管理员批准后即可
 
 # /use 命令：会话内临时切换指定助手（不改机器人配置）
 _USE_PREFIX = ("/use", "/使用", "/助手")
+# /skill 命令（v3.56）：田间快捷直达——按关键词匹配本院技能，问题自动带上技能上下文
+_SKILL_PREFIX = ("/skill", "/技能", "/技能包")
 
 
 def _sha12(text: str) -> str:
@@ -183,6 +185,33 @@ def _use_override(db: Session, bot: BotConfig, text: str) -> tuple[str | None, s
     return (None, text)
 
 
+def _skill_command(db: Session, bot: BotConfig, text: str) -> tuple[str, str]:
+    """/skill 命令解析：返回 (动作, 剩余文本)。
+
+    - "__list__"：无参，回复可选技能清单；
+    - "匹配到的技能名"：命中关键词，剩余文本为问题本体（可为空 = 只记住待用）；
+    - ""：未命中任何技能名词，按普通问题继续走。
+    """
+    for prefix in _SKILL_PREFIX:
+        if text.startswith(prefix):
+            arg = text[len(prefix) :].strip()
+            if not arg:
+                return ("__list__", "")
+            keywords = arg.split()
+            try:
+                from app.modules.agents.bindable import list_bindable_extensions
+
+                entries = list_bindable_extensions(db, bot.yard_id).get("skills") or []
+            except Exception:  # noqa: BLE001 - 技能库不可用时命令退化为普通问题
+                return ("", text)
+            for entry in entries:
+                hay = f"{entry.get('name') or ''} {entry.get('summary') or ''}"
+                if any(kw in hay for kw in keywords):
+                    return (str(entry.get("name") or ""), arg[len(keywords[0]) :].strip())
+            return ("__none__", arg)
+    return ("", text)
+
+
 async def handle_inbound(
     db: Session,
     *,
@@ -245,6 +274,45 @@ async def handle_inbound(
             await send(conv.external_conv_id, "请在 /use 名称 后跟上你的问题。")
             db.commit()
             return {"status": "use_need_question"}
+
+    # /skill 田间快捷直达：列出技能 / 按关键词匹配后把问题带上技能上下文
+    skill_action, skill_rest = _skill_command(db, bot, text)
+    if skill_action == "__list__":
+        try:
+            from app.modules.agents.bindable import list_bindable_extensions
+
+            names = "、".join(
+                str(e.get("name") or "")
+                for e in (list_bindable_extensions(db, bot.yard_id).get("skills") or [])[:10]
+            )
+        except Exception:  # noqa: BLE001
+            names = ""
+        reply = f"可用技能：{names or '暂无'}。用法：/技能 关键词 你的问题"
+        await send(conv.external_conv_id, reply)
+        _log_msg(
+            db, bot=bot, conv_id=conv.id, direction=DIRECTION_OUT, text=reply, routed_by="command"
+        )
+        db.commit()
+        return {"status": "skill_list"}
+    if skill_action == "__none__":
+        text = skill_rest or text
+    elif skill_action:
+        # 命中技能：问题自动带上「优先使用该技能」的上下文（滑窗里放一条注记，
+        # 后续轮次也生效）；无问题本体时提示先发问题。
+        turns_pre = _load_context(conv)
+        turns_pre.append(
+            {"role": "system", "content": f"用户希望通过「{skill_action}」技能获得帮助"}
+        )
+        _save_context(conv, turns_pre)
+        # 问题本体直接携带技能意图：不依赖滑窗存活，审计与 LLM 都能看到
+        text = f"【请优先使用「{skill_action}」技能】{skill_rest}"
+        if not text:
+            await send(
+                conv.external_conv_id,
+                f"好的，将优先用「{skill_action}」帮你。请直接描述你的问题。",
+            )
+            db.commit()
+            return {"status": "skill_armed", "skill": skill_action}
 
     # 上下文滑窗（问题先入窗，回答后入窗）
     turns = _load_context(conv)
