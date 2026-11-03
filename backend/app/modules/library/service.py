@@ -60,6 +60,8 @@ ITEM_STATUS_AVAILABLE = "available"
 ITEM_STATUS_INSTALLED = "installed"
 ITEM_STATUS_BLOCKED = "blocked"
 ITEM_STATUS_REVOKED = "revoked"
+#: 这类插件没有工作流审核通道：授权通过后安装即可用，否则会永久停在 pending_review
+_SELF_ENABLING_PLUGIN_TYPES = frozenset({"local_runtime", "workspace"})
 SOURCE_STATUS_UNCONFIGURED = "unconfigured"
 SOURCE_STATUS_OK = "ok"
 SOURCE_STATUS_ERROR = "error"
@@ -1201,6 +1203,8 @@ def _install_plugin_package(
     if not declared:
         manifest["checksum"] = computed
     checksum_ok = bool(declared) and declared == computed
+    # local_runtime/workspace 没有工作流审核通道，授权通过即放行；否则会永久 pending_review
+    self_enabling = str(manifest.get("type")) in _SELF_ENABLING_PLUGIN_TYPES
     record = (
         db.query(PluginManifest)
         .filter(
@@ -1215,7 +1219,7 @@ def _install_plugin_package(
             yard_id=ctx.yard_id,
             version=item.version,
             type=str(manifest.get("type")),
-            status="pending_review",
+            status="enabled" if self_enabling else "pending_review",
             manifest_json=manifest,
             checksum=declared or computed,
             checksum_ok=checksum_ok,
@@ -1229,8 +1233,12 @@ def _install_plugin_package(
         record.checksum = declared or computed
         record.checksum_ok = checksum_ok
         record.installed_at = _utcnow()
-        # 换版必须重新过审核闸门，不继承旧版本的启用状态
-        record.status = "pending_review"
+        if self_enabling:
+            # 保留用户主动停用；其余（含历史遗留的 pending_review）换版后直接可用
+            record.status = "disabled" if record.status == "disabled" else "enabled"
+        else:
+            # 换版必须重新过审核闸门，不继承旧版本的启用状态
+            record.status = "pending_review"
     db.flush()
 
     market = db.query(MarketItem).filter(MarketItem.item_key == item.item_key).first()

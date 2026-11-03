@@ -216,8 +216,15 @@ def get_plugin(db: Session, plugin_id: str) -> PluginManifest:
 
 
 def enable_plugin(db: Session, plugin_id: str) -> PluginManifest:
-    """启用插件：只改状态。"""
+    """启用插件：只改状态。待审核/已拒绝必须走审核流程，不能直接启用。"""
     record = get_plugin(db, plugin_id)
+    if record.status in (STATUS_PENDING_REVIEW, STATUS_REJECTED):
+        raise AppError(
+            "PLUGIN_REVIEW_REQUIRED",
+            "该插件尚未通过审核，不能直接启用。",
+            http_status=409,
+            details={"plugin_id": plugin_id, "status": record.status},
+        )
     record.status = STATUS_ENABLED
     db.flush()
     return record

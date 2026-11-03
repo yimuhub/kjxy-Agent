@@ -18,6 +18,7 @@ from app.core.middleware import RequestIDMiddleware
 from app.modules.library import consent, crypto, manifest_v2, package, service
 from app.modules.library.models import LibraryInstall, LibraryItem, PluginConsent
 from app.modules.library.router import router as library_router
+from app.modules.plugins.models import PluginManifest
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.testclient import TestClient
@@ -244,6 +245,9 @@ def test_install_requires_consent_then_succeeds(db_session):
     installed = service.install_item(db_session, ctx, item.id, fetcher=fetcher)
     assert installed["installed_version"] == "1.0.0"
     assert db_session.query(LibraryInstall).count() == 1
+    # 本机能力插件没有工作流审核通道：授权通过后安装即可用
+    plugin = db_session.query(PluginManifest).one()
+    assert plugin.status == "enabled"
 
 
 def test_permission_change_requires_new_consent(db_session):

@@ -135,6 +135,17 @@ def test_unknown_plugin_id_404(db_session, plugin_root):
     assert exc.value.http_status == 404
 
 
+def test_pending_review_cannot_be_enabled_directly(db_session, plugin_root):
+    service.scan_plugins(db_session)
+    record = service.get_plugin(db_session, "demo.hello")
+    record.status = service.STATUS_PENDING_REVIEW
+    db_session.flush()
+    with pytest.raises(AppError) as exc:
+        service.enable_plugin(db_session, "demo.hello")
+    assert exc.value.code == "PLUGIN_REVIEW_REQUIRED"
+    assert exc.value.http_status == 409
+
+
 def test_get_active_domain_packs(db_session, plugin_root, tmp_path):
     _write_plugin(tmp_path, "domain/crop_rules", _manifest("domain.crop_rules", "domain_pack"))
     service.scan_plugins(db_session)
