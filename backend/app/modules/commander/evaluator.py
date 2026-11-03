@@ -24,6 +24,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.deps import YardContext
@@ -673,9 +674,28 @@ async def run_evaluation(
             metrics_json=metrics_payload,
             created_by=ctx.user_id,
         )
-        db.add(evaluation)
-        db.flush()
-        created = True
+        # 同周并发首建（定时任务与手动触发撞在一起）会撞 (yard_id, week_key) 唯一约束：
+        # 包在 SAVEPOINT 里，撞了就把对方已写入的那条当结果返回。
+        savepoint = db.begin_nested()
+        try:
+            db.add(evaluation)
+            db.flush()
+        except IntegrityError:
+            savepoint.rollback()
+            raced = db.scalar(
+                select(CommanderEvaluation).where(
+                    CommanderEvaluation.yard_id == ctx.yard_id,
+                    CommanderEvaluation.week_key == week_key,
+                )
+            )
+            if raced is not None:
+                evaluation = raced
+                created = False
+            else:
+                raise
+        else:
+            savepoint.commit()
+            created = True
     else:
         evaluation = existing
         evaluation.period_start = start
