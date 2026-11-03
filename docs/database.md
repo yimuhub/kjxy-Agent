@@ -41,6 +41,9 @@
 | library_items | 库条目清单镜像 | source_id、item_key、item_type、code、name、version、min/max_app_version、description、category、risk_level、license、author、sha256、size_bytes、download_url、manifest_json、status、sequence、published_at；唯一 (source_id,item_key,version) |
 | library_installs | 本机安装台账 | yard_id、source_id、item_key、item_type、installed_version、previous_version、package_sha256、skill_id、plugin_id、auto_update、pinned、installed_at；唯一 (yard_id,item_key) |
 | library_sync_runs | 同步运行记录 | source_id、yard_id、status（ok/error/skipped）、started_at、finished_at、added/updated/removed、error |
+| plugin_consents | 插件权限授权台账（v3.59） | yard_id、item_key、plugin_id、plugin_version、scope_hash、permissions_json、risk_level、ack_version、accepted_by/at、revoked_at/by；唯一 (yard_id,item_key,scope_hash) |
+| workspace_projects | 工作区项目根（v3.63） | yard_id、name、root_path、description、allowed_paths（JSON glob）、status、created_by；唯一 (yard_id,name) |
+| workspace_changes | 工作区文件变更台账（v3.63） | yard_id、project_id、plugin_id、path、status（preview/applied/rolled_back）、before/after 内容与 sha256、diff_text、added/removed、git_head_before/after、applied/rolled_back 时间与操作人 |
 | org_units | 组织单元树（v3.57） | yard_id、parent_id、code、name、kind（company/coop/department/team）、description、sort_order、status（active/archived）、source（manual/knowledge/generated）；唯一 (yard_id,code) |
 | org_positions | 岗位与 Agent 绑定（v3.57） | yard_id、org_unit_id、title、responsibilities、headcount、agent_id（软关联）、sort_order、status |
 | org_proposals | 知识库推导的架构建议（v3.58） | yard_id、status（generating/ready/applied/discarded/failed）、task_id、instruction、title、summary、payload_json（units/positions/agent_suggestions）、evidence_json、model、prompt_version、tokens_in/out、error、applied_result_json、applied_at、created_by；索引 (yard_id,status) |

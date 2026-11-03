@@ -37,6 +37,7 @@ const SignupView = () => import('@/views/SignupView.vue')
 const InviteAcceptView = () => import('@/views/InviteAcceptView.vue')
 const SsoCallbackView = () => import('@/views/SsoCallbackView.vue')
 const LibraryView = () => import('@/views/LibraryView.vue')
+const WorkspaceView = () => import('@/views/WorkspaceView.vue')
 const OwnerView = () => import('@/views/OwnerView.vue')
 const ProfileView = () => import('@/views/ProfileView.vue')
 const ShareView = () => import('@/views/ShareView.vue')
@@ -145,6 +146,12 @@ const routes: RouteRecordRaw[] = [
           roles: ['yard_owner', 'yard_admin', 'platform_admin', 'expert'],
           permission: 'market:install',
         },
+      },
+      {
+        path: 'workspace',
+        name: 'Workspace',
+        component: WorkspaceView,
+        meta: { title: '工作区', permission: 'workspace:read' },
       },
       { path: 'devices', name: 'Devices', component: DevicesView, meta: { title: '设备中心', permission: 'devices:read' } },
       { path: 'policies', name: 'Policies', component: PolicyView, meta: { title: '政策服务', permission: 'policies:read' } },

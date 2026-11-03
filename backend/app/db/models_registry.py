@@ -76,6 +76,7 @@ from app.modules.library.models import (  # noqa: F401
     LibraryItem,
     LibrarySource,
     LibrarySyncRun,
+    PluginConsent,
 )
 from app.modules.llm.binding_models import LLMBinding  # noqa: F401
 from app.modules.llm.models import LLMCall, LLMTrace  # noqa: F401
@@ -92,6 +93,7 @@ from app.modules.llm.supplier_models import (  # noqa: F401
 from app.modules.market.models import MarketItem  # noqa: F401
 from app.modules.mcp.models import McpServer  # noqa: F401
 from app.modules.memory.models import AgentMemory  # noqa: F401
+from app.modules.org.models import OrgPosition, OrgProposal, OrgUnit  # noqa: F401
 from app.modules.pairing.models import PairCode, PairDevice  # noqa: F401
 from app.modules.plugins.models import PluginManifest  # noqa: F401
 from app.modules.policy.models import Policy, PolicyApplication  # noqa: F401
@@ -104,6 +106,7 @@ from app.modules.self_improve.models import (  # noqa: F401
 from app.modules.share.models import ShareLink  # noqa: F401
 from app.modules.tasks.models import Task, TaskEvent  # noqa: F401
 from app.modules.tools.models import ToolApproval, ToolDefinition  # noqa: F401
+from app.modules.workspace.models import WorkspaceChange, WorkspaceProject  # noqa: F401
 from app.modules.yards.models import (  # noqa: F401
     Yard,
     YardJoinRequest,

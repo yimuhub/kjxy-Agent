@@ -48,6 +48,7 @@ from app.modules.system.router import router as system_router
 from app.modules.tasks.router import router as tasks_router
 from app.modules.tools.approvals_router import router as tool_approvals_router
 from app.modules.tools.router import router as tools_router
+from app.modules.workspace.router import router as workspace_router
 from app.modules.yards.invite_router import router as yard_invite_router
 from app.modules.yards.owner_router import router as yard_owner_router
 from app.modules.yards.permissions_router import router as yard_permissions_router
@@ -90,6 +91,7 @@ router.include_router(cluster_router)  # /cluster/nodes（平台管理员：多�
 router.include_router(agents_router)
 router.include_router(org_router)  # /org（组织架构：单元树/岗位/Agent 绑定 v3.57）
 router.include_router(local_runtime_router)  # /local-runtime（本机能力插件通道 v3.60）
+router.include_router(workspace_router)  # /workspace（工作区插件 v3.63）
 router.include_router(market_router)
 router.include_router(devices_router)
 router.include_router(push_router)  # /settings/push-channels（W4 事件推送通道）

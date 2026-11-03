@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.62.0
+  version: 3.63.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -9602,6 +9602,277 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/workspace/status:
+    get:
+      tags:
+      - v1
+      - workspace
+      summary: Get Status
+      operationId: get_status_api_v1_workspace_status_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/workspace/projects:
+    get:
+      tags:
+      - v1
+      - workspace
+      summary: List Projects
+      operationId: list_projects_api_v1_workspace_projects_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+    post:
+      tags:
+      - v1
+      - workspace
+      summary: Create Project
+      operationId: create_project_api_v1_workspace_projects_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkspaceProjectCreate'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/workspace/projects/{project_id}:
+    get:
+      tags:
+      - v1
+      - workspace
+      summary: Get Project
+      operationId: get_project_api_v1_workspace_projects__project_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Project Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - v1
+      - workspace
+      summary: Archive Project
+      operationId: archive_project_api_v1_workspace_projects__project_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Project Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/workspace/projects/{project_id}/file:
+    get:
+      tags:
+      - v1
+      - workspace
+      summary: Read File
+      operationId: read_file_api_v1_workspace_projects__project_id__file_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Project Id
+      - name: path
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          title: Path
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/workspace/projects/{project_id}/changes:
+    get:
+      tags:
+      - v1
+      - workspace
+      summary: List Changes
+      operationId: list_changes_api_v1_workspace_projects__project_id__changes_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Project Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/workspace/projects/{project_id}/changes/preview:
+    post:
+      tags:
+      - v1
+      - workspace
+      summary: Preview Change
+      operationId: preview_change_api_v1_workspace_projects__project_id__changes_preview_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Project Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkspacePreviewRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/workspace/changes/{change_id}/apply:
+    post:
+      tags:
+      - v1
+      - workspace
+      summary: Apply Change
+      operationId: apply_change_api_v1_workspace_changes__change_id__apply_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: change_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Change Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/workspace/changes/{change_id}/rollback:
+    post:
+      tags:
+      - v1
+      - workspace
+      summary: Rollback Change
+      operationId: rollback_change_api_v1_workspace_changes__change_id__rollback_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: change_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Change Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkspaceRollbackRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/market/catalog:
     get:
       tags:
@@ -14761,7 +15032,7 @@ components:
           items:
             type: string
           type: array
-          maxItems: 50
+          maxItems: 53
           title: Grants
       additionalProperties: false
       type: object
@@ -15112,7 +15383,7 @@ components:
           items:
             type: string
           type: array
-          maxItems: 50
+          maxItems: 53
           title: Grants
         confirm_protected:
           type: boolean
@@ -18592,6 +18863,70 @@ components:
       additionalProperties: false
       type: object
       title: WorkflowUpdateRequest
+    WorkspacePreviewRequest:
+      properties:
+        plugin_id:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Plugin Id
+        path:
+          type: string
+          maxLength: 1024
+          minLength: 1
+          title: Path
+        content:
+          type: string
+          maxLength: 4000000
+          title: Content
+      additionalProperties: false
+      type: object
+      required:
+      - plugin_id
+      - path
+      - content
+      title: WorkspacePreviewRequest
+    WorkspaceProjectCreate:
+      properties:
+        name:
+          type: string
+          maxLength: 80
+          minLength: 1
+          title: Name
+        root_path:
+          type: string
+          maxLength: 1024
+          minLength: 1
+          title: Root Path
+        description:
+          anyOf:
+          - type: string
+            maxLength: 2000
+          - type: 'null'
+          title: Description
+        allowed_paths:
+          anyOf:
+          - items:
+              type: string
+            type: array
+            maxItems: 50
+          - type: 'null'
+          title: Allowed Paths
+      additionalProperties: false
+      type: object
+      required:
+      - name
+      - root_path
+      title: WorkspaceProjectCreate
+    WorkspaceRollbackRequest:
+      properties:
+        force:
+          type: boolean
+          title: Force
+          default: false
+      additionalProperties: false
+      type: object
+      title: WorkspaceRollbackRequest
     YardSignupRequest:
       properties:
         yard_name:

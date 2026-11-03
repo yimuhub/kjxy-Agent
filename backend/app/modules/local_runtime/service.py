@@ -53,13 +53,19 @@ class _MinuteLimiter:
 _limiter = _MinuteLimiter(ACTION_LIMIT_PER_MINUTE)
 
 
-def _plugin_row(db: Session, yard_id: str, plugin_id: str) -> PluginManifest:
+def _plugin_row(
+    db: Session,
+    yard_id: str,
+    plugin_id: str,
+    *,
+    types: tuple[str, ...] = SUPPORTED_TYPES,
+) -> PluginManifest:
     row = (
         db.query(PluginManifest)
         .filter(
             PluginManifest.plugin_id == plugin_id,
             PluginManifest.yard_id == yard_id,
-            PluginManifest.type.in_(SUPPORTED_TYPES),
+            PluginManifest.type.in_(types),
         )
         .first()
     )
@@ -69,7 +75,7 @@ def _plugin_row(db: Session, yard_id: str, plugin_id: str) -> PluginManifest:
             .filter(
                 PluginManifest.plugin_id == plugin_id,
                 PluginManifest.yard_id.is_(None),
-                PluginManifest.type.in_(SUPPORTED_TYPES),
+                PluginManifest.type.in_(types),
             )
             .first()
         )
@@ -104,6 +110,43 @@ def _active_consent(
         .order_by(PluginConsent.accepted_at.desc())
         .first()
     )
+
+
+def authorize_plugin(
+    db: Session,
+    ctx: YardContext,
+    plugin_id: str,
+    required_permissions: list[str],
+    *,
+    types: tuple[str, ...] = SUPPORTED_TYPES,
+) -> PluginManifest:
+    """供其他通道复用：插件存在且启用、声明所需权限、授权覆盖当前 scope。"""
+    row = _plugin_row(db, ctx.yard_id, plugin_id, types=types)
+    if row.status != "enabled":
+        raise AppError(
+            "RUNTIME_PLUGIN_NOT_ENABLED",
+            "插件尚未启用，不能执行该操作。",
+            http_status=409,
+            details={"plugin_id": plugin_id, "status": row.status},
+        )
+    permissions = _permissions(row.manifest_json or {})
+    missing = [code for code in required_permissions if code not in permissions]
+    if missing:
+        raise AppError(
+            "RUNTIME_PERMISSION_NOT_DECLARED",
+            "该插件没有声明执行此操作所需的权限。",
+            http_status=403,
+            details={"required": missing},
+        )
+    scope_hash = manifest_v2.scope_hash(permissions)
+    if _active_consent(db, ctx.yard_id, plugin_id, scope_hash) is None:
+        raise AppError(
+            "RUNTIME_CONSENT_REQUIRED",
+            "请先在插件中心确认该插件的权限授权。",
+            http_status=409,
+            details={"plugin_id": plugin_id, "scope_hash": scope_hash, "permissions": permissions},
+        )
+    return row
 
 
 def _serialize_plugin(

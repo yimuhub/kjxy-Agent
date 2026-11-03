@@ -517,6 +517,25 @@ v3.37 起通道判别以**模型模态**为兜底：通用 OpenAI 兼容供应�
 - **安全**：仅执行固定目录动作，不提供任意命令入口；参数经白名单校验（坐标/按键/文本框长度/应用名），AppleScript 参数走 argv 不拼接脚本；限流 60 次/分钟/小院；审计只记动作、插件、耗时与结局，不记屏幕或剪贴板内容。
 - **权限**：`runtime:read` 查看、`runtime:use` 执行（负责人/管理员默认拥有，专家/操作员默认只读）。Agent 通过工具 `computer.use` 调用，属 `external_side_effect`，默认须人工审批；会话「完全控制」档可免审批但仍受上述闸门约束。
 
+### 工作区插件（v3.63）
+
+在管理员登记的项目根内做代码级修改：先预览差异，再按快照应用；回滚优先走 git，失败时写回修改前内容。工作区插件不随安装包内置，需在插件中心安装并授权 `filesystem_write`。
+
+| 接口 | 说明 |
+| --- | --- |
+| `GET /workspace/status` | 允许根、单文件上限、预览有效期、git 可用性、声明了 `filesystem_write` 的插件及授权状态 |
+| `GET /workspace/projects` / `POST /workspace/projects` / `DELETE /workspace/projects/{id}` | 项目列表、登记、归档（`workspace:manage`） |
+| `GET /workspace/projects/{id}/file?path=` | 读取项目内 UTF-8 文本文件 |
+| `GET /workspace/projects/{id}/changes` | 变更记录（最近 100 条） |
+| `POST /workspace/projects/{id}/changes/preview` | `{plugin_id,path,content}`，生成统一 diff 与前后快照，30 分钟内可应用 |
+| `POST /workspace/changes/{id}/apply` | 复核文件未被改动后原子写入；冲突返回 409 `WORKSPACE_FILE_CHANGED` |
+| `POST /workspace/changes/{id}/rollback` | `{force}`；文件被再次修改时须显式 force |
+
+- **路径闸门**：项目根必须是绝对路径且位于允许根内（默认用户主目录，`KJXY_WORKSPACE_ROOTS` 可覆盖）；相对路径解析后必须仍在项目根内，拒绝 `..`、绝对路径、符号链接逃逸、`.git`/`.ssh` 等目录与 `.env`/`*.key`/`*.pem`/数据库文件；项目可再收紧 `allowed_paths` glob。
+- **内容限制**：只处理 UTF-8 文本，单文件 1MB；写入使用临时文件 + `os.replace`，保留原文件权限。
+- **授权与审计**：预览/应用要求插件已启用、声明 `filesystem_write` 且有有效授权；回滚属安全动作，只要求 `workspace:write`。预览、应用、回滚均写审计 `workspace_change_preview/applied/rolled_back`，不写文件正文。
+- **权限**：`workspace:read` / `workspace:write` / `workspace:manage`（负责人、管理员默认全部；专家默认可读写）。Agent 通过工具 `workspace.edit_file` 调用，属 `external_side_effect`，默认须人工审批。
+
 ## 办公与正式写作（v3.36）
 
 - **PPT 设计系统**：对话里生成 `.pptx` 时先产出严格 `DeckPlan`（5–30 页、15 种版式、8 套主题），再经 23 项结构质检（溢出/空页/重复标题/图表与表格约束等）自动修复后渲染；支持真实图表、表格、时间线、流程图、演讲者备注、页码与东亚字体。可选 `soffice` 视觉质检在缺少 LibreOffice 时跳过并说明。

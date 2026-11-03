@@ -41,6 +41,7 @@ def _startup_wiring() -> None:
         from app.modules.search.tools import register_search_tools
         from app.modules.tools.registry import seed_builtin_tools
         from app.modules.tools.workorder_tool import register_workorder_tool
+        from app.modules.workspace.tool import register_workspace_tool
 
         # 注册各模块的任务 handler（native 模式无 Celery worker 时，API 进程的
         # 同步降级线程依赖这里完成注册；spec §7.4 的 knowledge_qa 必须可用）
@@ -160,6 +161,7 @@ def _startup_wiring() -> None:
         register_video_tool()
         register_doc_generate_tool()
         register_computer_use_tool()
+        register_workspace_tool()
     except Exception as e:
         log.warning("startup wiring failed: %s", e)
 
@@ -183,7 +185,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="科技小院多智能体平台", version="3.62.0", lifespan=lifespan)
+    app = FastAPI(title="科技小院多智能体平台", version="3.63.0", lifespan=lifespan)
     app.add_middleware(RequestIDMiddleware)
     app.add_exception_handler(AppError, app_error_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)
