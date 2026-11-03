@@ -316,6 +316,29 @@ def test_update_center_and_revoke(db_session):
     assert listed["ack_text"]
 
 
+def test_consent_can_be_regranted_after_revoke(db_session):
+    """撤销后重新授权同一权限范围：复活历史行，不撞唯一约束。"""
+    source_id = _make_source(db_session)
+    pkg = _build_local("1.0.0", ["screen_capture"])
+    routes = {
+        MANIFEST_URL: _json_response(_manifest_body(1, [_entry("1.0.0", pkg)])),
+        "https://library.test/packages/computer_use-1.0.0.kjxpack": _binary_response(pkg),
+    }
+    fetcher = FakeFetcher(routes)
+    service.sync_source(db_session, YARD, source_id, fetcher)
+    item = db_session.query(LibraryItem).one()
+    ctx = _ctx()
+
+    first = service.grant_consent(db_session, ctx, item.id, fetcher=fetcher)
+    service.revoke_plugin_consent(db_session, ctx, first["consent"]["id"])
+    again = service.grant_consent(db_session, ctx, item.id, fetcher=fetcher)
+
+    assert again["idempotent"] is False
+    assert again["consent"]["active"] is True
+    assert again["consent"]["id"] == first["consent"]["id"]
+    assert db_session.query(PluginConsent).count() == 1
+
+
 def test_consent_scope_ignores_version(db_session):
     """权限集合不变时，升级不重复确认。"""
     source_id = _make_source(db_session)

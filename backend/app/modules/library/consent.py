@@ -120,20 +120,42 @@ def record_consent(
     for row in revoked:
         row.revoked_at = now
         row.revoked_by = ctx.user_id
-    row = PluginConsent(
-        yard_id=ctx.yard_id,
-        item_key=item.item_key,
-        plugin_id=item.code,
-        plugin_version=item.version,
-        scope_hash=scope,
-        permissions_json=permissions,
-        risk_level=str(manifest.get("risk_level") or "low"),
-        ack_version=ACK_VERSION,
-        accepted_by=ctx.user_id,
-        accepted_by_name=accepted_by_name,
-        accepted_at=now,
+    # (yard_id, item_key, scope_hash) 唯一：撤销过再授权必须复活旧行，否则撞唯一约束
+    row = (
+        db.query(PluginConsent)
+        .filter(
+            PluginConsent.yard_id == ctx.yard_id,
+            PluginConsent.item_key == item.item_key,
+            PluginConsent.scope_hash == scope,
+        )
+        .one_or_none()
     )
-    db.add(row)
+    if row is None:
+        row = PluginConsent(
+            yard_id=ctx.yard_id,
+            item_key=item.item_key,
+            plugin_id=item.code,
+            plugin_version=item.version,
+            scope_hash=scope,
+            permissions_json=permissions,
+            risk_level=str(manifest.get("risk_level") or "low"),
+            ack_version=ACK_VERSION,
+            accepted_by=ctx.user_id,
+            accepted_by_name=accepted_by_name,
+            accepted_at=now,
+        )
+        db.add(row)
+    else:
+        row.plugin_id = item.code
+        row.plugin_version = item.version
+        row.permissions_json = permissions
+        row.risk_level = str(manifest.get("risk_level") or "low")
+        row.ack_version = ACK_VERSION
+        row.accepted_by = ctx.user_id
+        row.accepted_by_name = accepted_by_name
+        row.accepted_at = now
+        row.revoked_at = None
+        row.revoked_by = None
     db.flush()
     log_audit(
         db,
