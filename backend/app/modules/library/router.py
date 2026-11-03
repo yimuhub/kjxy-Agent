@@ -197,6 +197,99 @@ def install_library_item(
 
 
 # ---------------------------------------------------------------------------
+# 权限授权与更新中心（v3.59）
+# ---------------------------------------------------------------------------
+
+
+@router.get("/updates")
+def get_updates(
+    request: Request,
+    ctx: YardContext = Depends(get_yard_context),
+    user: CurrentUser = Depends(_library_gate),
+    db: Session = Depends(get_db_session),
+):
+    """更新中心：可更新条目、风险分布与能否自动更新。"""
+    return ok(service.list_updates(db, ctx), request)
+
+
+@router.get("/consents")
+def get_consents(
+    request: Request,
+    ctx: YardContext = Depends(get_yard_context),
+    user: CurrentUser = Depends(_library_gate),
+    db: Session = Depends(get_db_session),
+):
+    """本小院已授予的插件权限（按插件取最新一条）。"""
+    return ok(service.list_plugin_consents(db, ctx), request)
+
+
+@router.delete("/consents/{consent_id}")
+def revoke_consent(
+    request: Request,
+    consent_id: str,
+    ctx: YardContext = Depends(get_yard_context),
+    user: CurrentUser = Depends(_library_gate),
+    db: Session = Depends(get_db_session),
+):
+    """撤销授权：保留历史，仅把当前授权标记为失效。"""
+    try:
+        result = service.revoke_plugin_consent(db, ctx, consent_id)
+        db.commit()
+    except AppError:
+        db.rollback()
+        raise
+    return ok(result, request)
+
+
+@router.get("/items/{item_id}/consent")
+def get_item_consent(
+    request: Request,
+    item_id: str,
+    ctx: YardContext = Depends(get_yard_context),
+    user: CurrentUser = Depends(_library_gate),
+    db: Session = Depends(get_db_session),
+):
+    """安装前预览：该条目需要哪些权限、风险等级、当前是否已授权。"""
+    try:
+        result = service.consent_preview(db, ctx, item_id)
+    except AppError:
+        raise
+    except Exception:
+        db.rollback()
+        raise
+    return ok(result, request)
+
+
+@router.post("/items/{item_id}/consent")
+def grant_item_consent(
+    request: Request,
+    item_id: str,
+    payload: dict | None = Body(default=None),
+    ctx: YardContext = Depends(get_yard_context),
+    user: CurrentUser = Depends(_library_gate),
+    db: Session = Depends(get_db_session),
+):
+    """记录授权：必须显式 ack=true，授权后同一权限范围可安装/升级。"""
+    ack = bool((payload or {}).get("ack"))
+    if not ack:
+        raise AppError(
+            "PLUGIN_CONSENT_ACK_REQUIRED",
+            "请先勾选并确认插件权限说明。",
+            http_status=400,
+        )
+    try:
+        result = service.grant_consent(db, ctx, item_id)
+        db.commit()
+    except AppError:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
+    return ok(result, request)
+
+
+# ---------------------------------------------------------------------------
 # 安装台账
 # ---------------------------------------------------------------------------
 

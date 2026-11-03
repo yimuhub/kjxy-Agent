@@ -44,6 +44,7 @@
 | org_units | 组织单元树（v3.57） | yard_id、parent_id、code、name、kind（company/coop/department/team）、description、sort_order、status（active/archived）、source（manual/knowledge/generated）；唯一 (yard_id,code) |
 | org_positions | 岗位与 Agent 绑定（v3.57） | yard_id、org_unit_id、title、responsibilities、headcount、agent_id（软关联）、sort_order、status |
 | org_proposals | 知识库推导的架构建议（v3.58） | yard_id、status（generating/ready/applied/discarded/failed）、task_id、instruction、title、summary、payload_json（units/positions/agent_suggestions）、evidence_json、model、prompt_version、tokens_in/out、error、applied_result_json、applied_at、created_by；索引 (yard_id,status) |
+| plugin_consents | 插件权限授权台账（v3.59） | yard_id、item_key、plugin_id、plugin_version、scope_hash（权限集合指纹）、permissions_json、risk_level、ack_version、accepted_by/name/at、revoked_at/by；唯一 (yard_id,item_key,scope_hash) |
 
 ## 索引与完整性
 

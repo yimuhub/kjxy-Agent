@@ -123,6 +123,41 @@ class LibraryInstall(Base, TimestampMixin):
     installed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class PluginConsent(Base, TimestampMixin):
+    """插件权限授权台账（v3.59）。
+
+    口径：
+    - 授权的键是「权限集合指纹」``scope_hash``，不跟随版本号：
+      版本升级但权限不变时授权继续有效；权限增减立即失效，需要重新确认；
+    - 撤销只写 ``revoked_at``，保留历史，便于审计回溯「谁在何时授权了什么」；
+    - 授权绝不代表放行：本机能力插件执行时仍需受工具审批与权限模式约束。
+    """
+
+    __tablename__ = "plugin_consents"
+    __table_args__ = (
+        UniqueConstraint(
+            "yard_id", "item_key", "scope_hash", name="uq_plugin_consents_yard_item_scope"
+        ),
+        Index("ix_plugin_consents_yard_id", "yard_id"),
+        Index("ix_plugin_consents_item_key", "item_key"),
+    )
+
+    yard_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    item_key: Mapped[str] = mapped_column(String(220), nullable=False)
+    plugin_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    plugin_version: Mapped[str] = mapped_column(String(50), nullable=False)
+    scope_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    permissions_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    risk_level: Mapped[str] = mapped_column(String(16), nullable=False, default="low")
+    #: 用户勾选的「已知晓风险」文案版本（法规留痕用）
+    ack_version: Mapped[str] = mapped_column(String(32), nullable=False, default="v1")
+    accepted_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    accepted_by_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    accepted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+
+
 class LibrarySyncRun(Base, TimestampMixin):
     __tablename__ = "library_sync_runs"
     __table_args__ = (Index("ix_library_sync_runs_source_id", "source_id"),)

@@ -30,7 +30,7 @@ from typing import Any
 
 from app.core.errors import AppError
 from app.modules.evolution.prepublish import static_checks
-from app.modules.library import crypto
+from app.modules.library import crypto, manifest_v2
 from app.modules.market.skill_template import SkillSpec
 from app.modules.plugins.service import validate_manifest
 
@@ -266,9 +266,15 @@ def _validate_plugin(definition: dict, manifest: dict) -> None:
         validate_manifest(definition, source="plugin.json")
     except AppError as e:
         raise _invalid(f"plugin.json 校验失败：{e.message}", details=e.details) from e
-    if definition.get("entry_point") not in (None, ""):
-        raise _invalid("官方插件仅允许声明式定义，entry_point 必须为空。")
-    _assert_declarative(definition)
+    raw = dict(definition)
+    for key in ("schema_version", "platforms", "artifacts", "permissions"):
+        if raw.get(key) is None and manifest.get(key) is not None:
+            raw[key] = manifest.get(key)
+    view = manifest_v2.normalize_manifest(raw, item_type="plugin")
+    if str(view.get("type")) not in manifest_v2.LOCAL_RUNTIME_TYPES:
+        if definition.get("entry_point") not in (None, ""):
+            raise _invalid("官方声明式插件 entry_point 必须为空。")
+        _assert_declarative(definition)
     if str(definition.get("version")) != str(manifest.get("version")):
         raise _invalid("plugin.json 版本与包清单不一致。")
     if str(definition.get("plugin_id")) != str(manifest.get("code")):
@@ -320,8 +326,8 @@ def load_package(data: bytes, public_key_b64: str) -> dict[str, Any]:
             http_status=422,
             details={"reason": verification["reason"]},
         )
-    if int(manifest.get("schema_version") or 0) != 1:
-        raise _invalid("包清单 schema_version 必须为 1。")
+    if int(manifest.get("schema_version") or 0) not in manifest_v2.SCHEMA_VERSIONS:
+        raise _invalid("包清单 schema_version 必须为 1 或 2。")
 
     _verify_signature_file(files, checksums, public_key_b64)
     checksum_result = crypto.verify_checksums(files, entries)
@@ -384,7 +390,9 @@ def _zip_write(archive: zipfile.ZipFile, name: str, payload: bytes) -> None:
     archive.writestr(info, payload)
 
 
-def build_package(*, manifest: dict, definition: dict, seed: bytes) -> bytes:
+def build_package(
+    *, manifest: dict, definition: dict, seed: bytes, schema_version: int = 1
+) -> bytes:
     """按发布者种子生成 .kjxpack（CLI 与测试共用同一格式）。"""
     kind = str(manifest.get("kind") or "").strip().lower()
     if kind not in SUPPORTED_KINDS:
@@ -407,7 +415,7 @@ def build_package(*, manifest: dict, definition: dict, seed: bytes) -> bytes:
         checksums, ensure_ascii=False, sort_keys=True, separators=(",", ":")
     ).encode("utf-8")
     manifest_body = {
-        "schema_version": 1,
+        "schema_version": schema_version,
         "kind": kind,
         **{
             key: value

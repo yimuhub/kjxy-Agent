@@ -19,7 +19,13 @@ from sqlalchemy.orm import Session
 from app.core.errors import AppError
 from app.modules.plugins.models import PluginManifest
 
-PLUGIN_TYPES = ("workflow", "knowledge_pack", "domain_pack")
+PLUGIN_TYPES = (
+    "workflow",
+    "knowledge_pack",
+    "domain_pack",
+    "local_runtime",
+    "workspace",
+)
 
 REQUIRED_FIELDS = (
     "plugin_id",

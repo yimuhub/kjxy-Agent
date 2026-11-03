@@ -76,6 +76,70 @@ export interface LibraryInstall {
   installed_at?: string | null
   latest_version?: string | null
   update_available?: boolean
+  risk_level?: string
+  can_auto_update?: boolean
+}
+
+export type PluginRisk = 'low' | 'medium' | 'high' | 'critical'
+
+export interface PluginPermission {
+  code: string
+  label: string
+  description: string
+  risk: PluginRisk | string
+  requires_ack: boolean
+}
+
+export interface PluginConsent {
+  id: string
+  item_key: string
+  plugin_id: string
+  plugin_version: string
+  scope_hash: string
+  permissions: string[]
+  permission_details?: PluginPermission[]
+  risk_level: PluginRisk | string
+  ack_version?: string
+  accepted_by?: string | null
+  accepted_at?: string | null
+  revoked_at?: string | null
+  active: boolean
+}
+
+export interface ConsentRequirement {
+  item_key: string
+  version: string
+  required: boolean
+  scope_hash: string
+  permissions: PluginPermission[]
+  platforms: string[]
+  risk_level: PluginRisk | string
+  granted: boolean
+  consent?: PluginConsent | null
+  ack_text: string
+  ack_version: string
+}
+
+export interface LibraryUpdate extends LibraryInstall {
+  name?: string
+  description?: string
+  published_at?: string | null
+  blocked?: boolean
+}
+
+export interface LibraryUpdates {
+  items: LibraryUpdate[]
+  total: number
+  auto_updatable: number
+  risk_summary: Record<string, number>
+}
+
+export interface PluginConsentList {
+  items: PluginConsent[]
+  total: number
+  active: number
+  ack_text: string
+  ack_version: string
 }
 
 export interface LibrarySourceInput {
@@ -124,6 +188,21 @@ interface LibraryItemsResponse {
 
 interface LibraryInstallsResponse {
   items?: LibraryInstall[]
+}
+
+interface LibraryUpdatesResponse {
+  items?: LibraryUpdate[]
+  total?: number
+  auto_updatable?: number
+  risk_summary?: Record<string, number>
+}
+
+interface PluginConsentsResponse {
+  items?: PluginConsent[]
+  total?: number
+  active?: number
+  ack_text?: string
+  ack_version?: string
 }
 
 /**
@@ -231,6 +310,50 @@ export const officialLibraryApi = {
       api.post<ApiResponse<{ auto_update?: boolean } | null>>(
         `/library/installs/${id}/auto-update`,
         { auto_update: autoUpdate },
+      ),
+    )
+  },
+
+  updates(): Promise<LibraryUpdates> {
+    return unwrap<LibraryUpdatesResponse>(api.get<ApiResponse<LibraryUpdatesResponse>>('/library/updates')).then(
+      res => ({
+        items: Array.isArray(res?.items) ? res.items : [],
+        total: res?.total ?? 0,
+        auto_updatable: res?.auto_updatable ?? 0,
+        risk_summary: res?.risk_summary ?? {},
+      }),
+    )
+  },
+
+  consents(): Promise<PluginConsentList> {
+    return unwrap<PluginConsentsResponse>(
+      api.get<ApiResponse<PluginConsentsResponse>>('/library/consents'),
+    ).then(res => ({
+      items: Array.isArray(res?.items) ? res.items : [],
+      total: res?.total ?? 0,
+      active: res?.active ?? 0,
+      ack_text: res?.ack_text ?? '',
+      ack_version: res?.ack_version ?? '',
+    }))
+  },
+
+  revokeConsent(id: string): Promise<{ consent?: PluginConsent } | null> {
+    return unwrap<{ consent?: PluginConsent } | null>(
+      api.delete<ApiResponse<{ consent?: PluginConsent } | null>>(`/library/consents/${id}`),
+    )
+  },
+
+  itemConsent(id: string): Promise<ConsentRequirement> {
+    return unwrap<ConsentRequirement>(
+      api.get<ApiResponse<ConsentRequirement>>(`/library/items/${id}/consent`),
+    )
+  },
+
+  grantConsent(id: string): Promise<{ consent?: PluginConsent; idempotent?: boolean } | null> {
+    return unwrap<{ consent?: PluginConsent; idempotent?: boolean } | null>(
+      api.post<ApiResponse<{ consent?: PluginConsent; idempotent?: boolean } | null>>(
+        `/library/items/${id}/consent`,
+        { ack: true },
       ),
     )
   },

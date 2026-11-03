@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.58.0
+  version: 3.59.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -2593,6 +2593,133 @@ paths:
             schema:
               anyOf:
               - $ref: '#/components/schemas/ItemInstallRequest'
+              - type: 'null'
+              title: Payload
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/library/updates:
+    get:
+      tags:
+      - v1
+      - library
+      summary: Get Updates
+      description: 更新中心：可更新条目、风险分布与能否自动更新。
+      operationId: get_updates_api_v1_library_updates_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/library/consents:
+    get:
+      tags:
+      - v1
+      - library
+      summary: Get Consents
+      description: 本小院已授予的插件权限（按插件取最新一条）。
+      operationId: get_consents_api_v1_library_consents_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/library/consents/{consent_id}:
+    delete:
+      tags:
+      - v1
+      - library
+      summary: Revoke Consent
+      description: 撤销授权：保留历史，仅把当前授权标记为失效。
+      operationId: revoke_consent_api_v1_library_consents__consent_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: consent_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Consent Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/library/items/{item_id}/consent:
+    get:
+      tags:
+      - v1
+      - library
+      summary: Get Item Consent
+      description: 安装前预览：该条目需要哪些权限、风险等级、当前是否已授权。
+      operationId: get_item_consent_api_v1_library_items__item_id__consent_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: item_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Item Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - v1
+      - library
+      summary: Grant Item Consent
+      description: 记录授权：必须显式 ack=true，授权后同一权限范围可安装/升级。
+      operationId: grant_item_consent_api_v1_library_items__item_id__consent_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: item_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Item Id
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - type: object
+                additionalProperties: true
               - type: 'null'
               title: Payload
       responses:

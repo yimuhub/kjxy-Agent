@@ -81,6 +81,7 @@ const RISK_LABELS: Record<string, string> = {
   low: '低风险',
   medium: '中风险',
   high: '高风险',
+  critical: '极高风险',
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -129,7 +130,7 @@ export function riskLabel(risk?: string | null): string {
 export function riskTagType(risk?: string | null): TagType {
   if (risk === 'low') return 'success'
   if (risk === 'medium') return 'warning'
-  if (risk === 'high') return 'danger'
+  if (risk === 'high' || risk === 'critical') return 'danger'
   return 'info'
 }
 

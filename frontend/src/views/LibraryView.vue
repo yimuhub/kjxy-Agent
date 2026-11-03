@@ -121,7 +121,7 @@
         name="plugins"
       />
       <el-tab-pane
-        label="官方库"
+        label="插件中心"
         name="official"
       />
       <el-tab-pane

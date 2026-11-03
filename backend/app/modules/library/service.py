@@ -33,7 +33,7 @@ from app.modules.audit.service import log_audit
 from app.modules.evolution import attestation
 from app.modules.evolution.models import Skill
 from app.modules.evolution.service import attest_published_skill, create_skill
-from app.modules.library import crypto, package
+from app.modules.library import consent, crypto, manifest_v2, package
 from app.modules.library.models import (
     LibraryInstall,
     LibraryItem,
@@ -1341,6 +1341,8 @@ def install_item(
         }
 
     loaded = _download_package(item, source, fetcher)
+    view = consent.manifest_view(item, loaded)
+    consent.assert_consent(db, ctx, item=item, manifest=view)
     try:
         result = _install_loaded(db, ctx, item, loaded)
     except AppError:
@@ -1680,6 +1682,101 @@ def list_installs(db: Session, ctx: YardContext) -> dict[str, Any]:
         "total": len(items),
         "updatable": sum(1 for item in items if item["update_available"]),
     }
+
+
+def list_updates(db: Session, ctx: YardContext) -> dict[str, Any]:
+    """更新中心：所有可更新条目，按风险与发布时间排序。"""
+    installs = db.query(LibraryInstall).filter(LibraryInstall.yard_id == ctx.yard_id).all()
+    items: list[dict[str, Any]] = []
+    for install in installs:
+        latest = _latest_item(db, install.item_key, statuses=(ITEM_STATUS_AVAILABLE,))
+        info = serialize_install(db, install, latest=latest)
+        if not info["update_available"]:
+            continue
+        info["name"] = latest.name if latest is not None else install.item_key
+        info["description"] = latest.description if latest is not None else ""
+        info["published_at"] = _iso(latest.published_at) if latest is not None else None
+        info["pinned"] = bool(install.pinned)
+        info["blocked"] = bool(install.pinned)
+        items.append(info)
+
+    def sort_key(row: dict[str, Any]) -> tuple:
+        risk = str(row.get("risk_level") or "low")
+        rank = manifest_v2.RISK_ORDER.index(risk) if risk in manifest_v2.RISK_ORDER else 0
+        return (-rank, str(row.get("name") or ""))
+
+    items.sort(key=sort_key)
+    summary = {level: 0 for level in manifest_v2.RISK_ORDER}
+    for row in items:
+        level = str(row.get("risk_level") or "low")
+        if level in summary:
+            summary[level] += 1
+    return {
+        "items": items,
+        "total": len(items),
+        "auto_updatable": sum(1 for row in items if row.get("can_auto_update")),
+        "risk_summary": summary,
+    }
+
+
+def _load_item_view(
+    db: Session,
+    ctx: YardContext,
+    item_id: str,
+    fetcher: Fetcher | None = None,
+) -> tuple[LibraryItem, dict[str, Any]]:
+    item = db.get(LibraryItem, item_id)
+    if item is None:
+        raise AppError(
+            "LIBRARY_ITEM_NOT_FOUND",
+            "官方库条目不存在。",
+            http_status=404,
+            details={"item_id": item_id},
+        )
+    source = _get_source_for_yard(db, item.source_id, ctx.yard_id)
+    latest = _latest_item(
+        db, item.item_key, statuses=(ITEM_STATUS_AVAILABLE, ITEM_STATUS_INSTALLED)
+    )
+    if latest is not None:
+        item = latest
+    loaded = _download_package(item, source, fetcher)
+    return item, consent.manifest_view(item, loaded)
+
+
+def consent_preview(
+    db: Session,
+    ctx: YardContext,
+    item_id: str,
+    fetcher: Fetcher | None = None,
+) -> dict[str, Any]:
+    item, view = _load_item_view(db, ctx, item_id, fetcher)
+    return consent.requirement(db, ctx, item=item, manifest=view)
+
+
+def grant_consent(
+    db: Session,
+    ctx: YardContext,
+    item_id: str,
+    *,
+    accepted_by_name: str | None = None,
+    fetcher: Fetcher | None = None,
+) -> dict[str, Any]:
+    item, view = _load_item_view(db, ctx, item_id, fetcher)
+    return consent.record_consent(
+        db,
+        ctx,
+        item=item,
+        manifest=view,
+        accepted_by_name=accepted_by_name,
+    )
+
+
+def list_plugin_consents(db: Session, ctx: YardContext) -> dict[str, Any]:
+    return consent.list_consents(db, ctx)
+
+
+def revoke_plugin_consent(db: Session, ctx: YardContext, consent_id: str) -> dict[str, Any]:
+    return consent.revoke_consent(db, ctx, consent_id)
 
 
 def status(db: Session, ctx: YardContext, *, is_platform_admin: bool = False) -> dict[str, Any]:

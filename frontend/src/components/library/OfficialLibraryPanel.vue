@@ -22,6 +22,13 @@
       <div class="status-actions">
         <el-button
           size="small"
+          aria-label="查看已授权的插件权限"
+          @click="openConsents"
+        >
+          授权管理
+        </el-button>
+        <el-button
+          size="small"
           :loading="checking"
           aria-label="检查官方库更新"
           @click="checkUpdates"
@@ -37,6 +44,90 @@
         </el-button>
       </div>
     </div>
+
+    <section
+      v-if="runtime"
+      class="runtime-strip glass-panel"
+      aria-label="本机能力桥状态"
+    >
+      <div class="runtime-main">
+        <span class="runtime-title">本机能力</span>
+        <el-tag
+          size="small"
+          effect="plain"
+          :type="runtime.bridge.available ? 'success' : 'info'"
+        >
+          {{ runtime.bridge.available ? '桥已就绪' : '桥不可用' }}
+        </el-tag>
+        <span class="runtime-meta">{{ platformLabel(runtime.platform) }}</span>
+        <span class="runtime-meta">
+          {{ runtime.plugins.length }} 个插件 · 已授权
+          {{ authorizedRuntime }} 个 · {{ runtime.bridge.actions.length }} 种动作
+        </span>
+      </div>
+      <span class="runtime-tip">本机动作需插件授权 + 工具审批，所有执行留审计</span>
+    </section>
+
+    <section
+      v-if="updates.length"
+      class="update-center glass-panel"
+      aria-label="更新中心"
+    >
+      <header class="update-head">
+        <div>
+          <h3>更新中心</h3>
+          <p>
+            {{ updates.length }} 个更新待处理
+            <span v-if="updatesAuto">· {{ updatesAuto }} 个可自动更新</span>
+          </p>
+        </div>
+        <el-button
+          size="small"
+          :loading="updatesLoading"
+          @click="loadUpdates"
+        >
+          刷新列表
+        </el-button>
+      </header>
+      <ul class="update-list">
+        <li
+          v-for="update in updates"
+          :key="update.id"
+          class="update-row"
+        >
+          <div class="update-main">
+            <strong>{{ update.name || update.item_key }}</strong>
+            <span class="update-version">
+              {{ update.installed_version }} → {{ update.latest_version }}
+            </span>
+            <el-tag
+              size="small"
+              effect="plain"
+              :type="riskTagType(update.risk_level)"
+            >
+              {{ riskLabel(update.risk_level) }}
+            </el-tag>
+            <el-tag
+              v-if="update.pinned"
+              size="small"
+              type="info"
+              effect="plain"
+            >
+              已固定
+            </el-tag>
+          </div>
+          <el-button
+            size="small"
+            type="primary"
+            :disabled="update.pinned"
+            :loading="updatingId === update.id"
+            @click="updateFromCenter(update)"
+          >
+            更新
+          </el-button>
+        </li>
+      </ul>
+    </section>
 
     <el-alert
       v-if="offline"
@@ -261,6 +352,60 @@
         </article>
       </div>
     </AsyncState>
+
+    <ConsentDialog
+      v-model="consentOpen"
+      :requirement="consentRequirement"
+      :loading="consentSaving"
+      @confirm="confirmConsent"
+    />
+
+    <el-dialog
+      v-model="consentsOpen"
+      append-to-body
+      width="680px"
+      title="已授权的插件权限"
+    >
+      <p class="consent-manager-tip">
+        授权按「权限集合」记录：插件升级但权限不变时继续有效；权限变化需重新确认。撤销后该插件需重新授权才能安装或更新。
+      </p>
+      <div
+        v-if="!consents.length"
+        class="consent-empty"
+      >
+        暂无授权记录
+      </div>
+      <ul
+        v-else
+        class="consent-list"
+      >
+        <li
+          v-for="row in consents"
+          :key="row.id"
+          class="consent-row"
+        >
+          <div class="consent-main">
+            <strong>{{ row.plugin_id }}</strong>
+            <el-tag
+              size="small"
+              effect="plain"
+              :type="row.active ? riskTagType(row.risk_level) : 'info'"
+            >
+              {{ row.active ? riskLabel(row.risk_level) : '已撤销' }}
+            </el-tag>
+            <span class="consent-scope">{{ permissionText(row) }}</span>
+          </div>
+          <el-button
+            v-if="row.active"
+            size="small"
+            :loading="revokingId === row.id"
+            @click="revokeConsent(row)"
+          >
+            撤销授权
+          </el-button>
+        </li>
+      </ul>
+    </el-dialog>
   </section>
 </template>
 
@@ -270,14 +415,19 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   officialLibraryApi,
+  type ConsentRequirement,
   type LibraryInstall,
   type LibraryItem,
   type LibrarySource,
   type LibrarySourceStatus,
   type LibraryStatus,
+  type LibraryUpdate,
+  type PluginConsent,
 } from '@/api/library'
 import { extractErrorMessage } from '@/api/client'
+import { localRuntimeApi, type RuntimeStatus } from '@/api/localRuntime'
 import AsyncState from '@/components/AsyncState.vue'
+import ConsentDialog from '@/components/library/ConsentDialog.vue'
 import {
   riskLabel,
   riskTagType,
@@ -325,6 +475,34 @@ const status = ref<LibraryStatus | null>(null)
 const sources = ref<LibrarySource[]>([])
 const items = ref<LibraryItem[]>([])
 const installs = ref<LibraryInstall[]>([])
+
+const updates = ref<LibraryUpdate[]>([])
+const updatesLoading = ref(false)
+const updatingId = ref('')
+const updatesAuto = computed(() => updates.value.filter(row => row.can_auto_update).length)
+
+const consentOpen = ref(false)
+const consentRequirement = ref<ConsentRequirement | null>(null)
+const consentSaving = ref(false)
+const pendingAction = ref<{ kind: 'install' | 'update'; row: OfficialRow } | null>(null)
+
+const consentsOpen = ref(false)
+const consents = ref<PluginConsent[]>([])
+const revokingId = ref('')
+
+const runtime = ref<RuntimeStatus | null>(null)
+const authorizedRuntime = computed(
+  () => runtime.value?.plugins.filter(row => row.consent_granted).length ?? 0,
+)
+
+function platformLabel(platform: string): string {
+  const labels: Record<string, string> = {
+    macos: 'macOS',
+    windows: 'Windows',
+    linux: 'Linux',
+  }
+  return labels[platform] || platform
+}
 
 const sourcesState = ref<ViewState>('loading')
 const itemsState = ref<ViewState>('loading')
@@ -617,7 +795,105 @@ async function loadItems() {
 
 async function init() {
   await refreshStatus()
-  await Promise.all([loadInstalls(), loadItems()])
+  await Promise.all([loadInstalls(), loadItems(), loadUpdates(), loadRuntime()])
+}
+
+async function loadRuntime() {
+  try {
+    runtime.value = await localRuntimeApi.status()
+  } catch {
+    // 无 runtime:read 权限或后端未启用时静默隐藏
+    runtime.value = null
+  }
+}
+
+async function loadUpdates() {
+  updatesLoading.value = true
+  try {
+    const result = await officialLibraryApi.updates()
+    updates.value = result.items
+  } catch {
+    // 更新中心失败不打断主列表
+  } finally {
+    updatesLoading.value = false
+  }
+}
+
+async function loadConsents() {
+  try {
+    const result = await officialLibraryApi.consents()
+    consents.value = result.items
+  } catch (err) {
+    reportFailure(err, '加载授权记录')
+  }
+}
+
+function permissionText(row: PluginConsent): string {
+  const details = row.permission_details || []
+  if (details.length) return details.map(item => item.label).join(' · ')
+  return row.permissions.join(' · ') || '无声明权限'
+}
+
+async function openConsents() {
+  consentsOpen.value = true
+  await loadConsents()
+}
+
+async function revokeConsent(row: PluginConsent) {
+  if (revokingId.value) return
+  try {
+    await ElMessageBox.confirm(
+      `撤销「${row.plugin_id}」的权限授权？撤销后该插件需要重新授权才能安装或更新。`,
+      '撤销授权',
+      { type: 'warning', confirmButtonText: '确认撤销', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  revokingId.value = row.id
+  try {
+    await officialLibraryApi.revokeConsent(row.id)
+    ElMessage.success('已撤销授权')
+    await loadConsents()
+  } catch (err) {
+    reportFailure(err, '撤销授权')
+  } finally {
+    revokingId.value = ''
+  }
+}
+
+/** 安装/更新前确认权限：需要授权时打开弹窗，确认后继续原动作。 */
+async function ensureConsent(row: OfficialRow, kind: 'install' | 'update'): Promise<boolean> {
+  try {
+    const requirement = await officialLibraryApi.itemConsent(row.item.id)
+    if (!requirement.required || requirement.granted) return true
+    consentRequirement.value = requirement
+    pendingAction.value = { kind, row }
+    consentOpen.value = true
+    return false
+  } catch (err) {
+    reportFailure(err, '检查插件权限')
+    return false
+  }
+}
+
+async function confirmConsent() {
+  const pending = pendingAction.value
+  if (!pending) return
+  consentSaving.value = true
+  try {
+    await officialLibraryApi.grantConsent(pending.row.item.id)
+    ElMessage.success('已记录授权')
+    consentOpen.value = false
+    consentRequirement.value = null
+    pendingAction.value = null
+    if (pending.kind === 'install') await doInstall(pending.row)
+    else await doUpdate(pending.row)
+  } catch (err) {
+    reportFailure(err, '记录授权')
+  } finally {
+    consentSaving.value = false
+  }
 }
 
 async function checkUpdates() {
@@ -625,7 +901,7 @@ async function checkUpdates() {
   checking.value = true
   try {
     await refreshStatus()
-    await loadInstalls()
+    await Promise.all([loadInstalls(), loadUpdates()])
     if (!configured.value) {
       ElMessage.info('还没有配置官方库源，请先到系统设置 → 技能与插件 → 官方库配置')
       return
@@ -650,11 +926,16 @@ function goSettings() {
 
 async function installItem(row: OfficialRow) {
   if (busy.value) return
+  if (!(await ensureConsent(row, 'install'))) return
+  await doInstall(row)
+}
+
+async function doInstall(row: OfficialRow) {
   busy.value = `${row.key}:install`
   try {
     await officialLibraryApi.installItem(row.item.id, row.item.version)
     ElMessage.success(`「${row.name}」已安装`)
-    await Promise.all([loadInstalls(), refreshSummary()])
+    await Promise.all([loadInstalls(), refreshSummary(), loadUpdates()])
   } catch (err) {
     reportFailure(err, `安装「${row.name}」`)
   } finally {
@@ -674,15 +955,38 @@ async function updateItem(row: OfficialRow) {
   } catch {
     return
   }
+  if (!(await ensureConsent(row, 'update'))) return
+  await doUpdate(row)
+}
+
+async function doUpdate(row: OfficialRow) {
+  if (!row.install) return
   busy.value = `${row.key}:update`
   try {
     const result = await officialLibraryApi.updateInstall(row.install.id)
-    ElMessage.success(`「${row.name}」已更新到 ${result.installed_version || target}`)
-    await Promise.all([loadInstalls(), refreshSummary()])
+    ElMessage.success(
+      `「${row.name}」已更新到 ${result.installed_version || row.latest || '最新版本'}`,
+    )
+    await Promise.all([loadInstalls(), refreshSummary(), loadUpdates()])
   } catch (err) {
     reportFailure(err, `更新「${row.name}」`)
   } finally {
     busy.value = ''
+  }
+}
+
+async function updateFromCenter(update: LibraryUpdate) {
+  if (updatingId.value) return
+  const row = rows.value.find(item => item.install?.id === update.id)
+  if (!row) {
+    ElMessage.warning('该条目尚未加载完成，请稍后重试')
+    return
+  }
+  updatingId.value = update.id
+  try {
+    await updateItem(row)
+  } finally {
+    updatingId.value = ''
   }
 }
 
@@ -702,7 +1006,7 @@ async function rollbackItem(row: OfficialRow) {
   try {
     const result = await officialLibraryApi.rollbackInstall(row.install.id)
     ElMessage.success(`「${row.name}」已回滚到 ${result.installed_version || target}`)
-    await Promise.all([loadInstalls(), refreshSummary()])
+    await Promise.all([loadInstalls(), refreshSummary(), loadUpdates()])
   } catch (err) {
     reportFailure(err, `回滚「${row.name}」`)
   } finally {
@@ -910,6 +1214,140 @@ onMounted(() => {
   margin-left: auto;
 }
 .toggle-label {
+  font-size: 12px;
+  color: var(--ds-text-3);
+}
+.runtime-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding: 10px 14px;
+  border-color: rgba(56, 189, 248, 0.22);
+  background: linear-gradient(150deg, rgba(56, 189, 248, 0.1), rgba(99, 102, 241, 0.04));
+}
+.runtime-main {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.runtime-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ds-text-1);
+}
+.runtime-meta {
+  font-size: 12px;
+  color: var(--ds-text-3);
+  font-variant-numeric: tabular-nums;
+}
+.runtime-tip {
+  font-size: 12px;
+  color: var(--ds-text-3);
+}
+.update-center {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-color: rgba(99, 102, 241, 0.28);
+  background: linear-gradient(160deg, rgba(99, 102, 241, 0.12), rgba(56, 189, 248, 0.05));
+}
+.update-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.update-head h3 {
+  margin: 0;
+  font-size: 15px;
+  color: var(--ds-text-1);
+}
+.update-head p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--ds-text-3);
+}
+.update-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.update-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+}
+.update-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.update-main strong {
+  font-size: 13.5px;
+  color: var(--ds-text-1);
+}
+.update-version {
+  font-size: 12px;
+  color: var(--ds-text-3);
+  font-variant-numeric: tabular-nums;
+}
+.consent-manager-tip {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ds-text-3);
+}
+.consent-empty {
+  padding: 24px 0;
+  text-align: center;
+  color: var(--ds-text-3);
+  font-size: 13px;
+}
+.consent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 420px;
+  overflow-y: auto;
+}
+.consent-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--ds-border);
+  border-radius: 10px;
+}
+.consent-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.consent-main strong {
+  font-size: 13.5px;
+  color: var(--ds-text-1);
+}
+.consent-scope {
+  flex-basis: 100%;
   font-size: 12px;
   color: var(--ds-text-3);
 }

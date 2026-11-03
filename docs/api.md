@@ -493,6 +493,13 @@ v3.37 起通道判别以**模型模态**为兜底：通用 OpenAI 兼容供应�
 | `POST /library/installs/{id}/update` / `rollback` | 升级 / 离线回滚到上一版本 |
 | `POST /library/installs/{id}/pin` / `auto-update` | 固定版本 / 切换自动更新 |
 | `GET /library/status` | 源与安装汇总、最近同步运行，前端设置页据此显示 |
+| `GET /library/updates` | 更新中心：可更新条目、风险分布（low/medium/high/critical）、是否固定、能否自动更新 |
+| `GET /library/consents` | 本小院插件授权台账（按插件取最新），含权限明细、风险、授权人与时间、是否有效 |
+| `DELETE /library/consents/{id}` | 撤销授权：只写 `revoked_at` 保留历史；跨院 404 |
+| `GET /library/items/{id}/consent` | 安装前预览：所需权限（中文说明 + 风险）、平台、`scope_hash`、是否已授权与免责文案 |
+| `POST /library/items/{id}/consent` | 记录授权：必须 `{"ack": true}`，否则 400 `PLUGIN_CONSENT_ACK_REQUIRED` |
+
+**清单 v2（v3.59）**：`schema_version=2` 增加 `platforms`、`artifacts`、`permissions`。`local_runtime`（本机能力）与 `workspace`（工作区）类型必须使用 v2 且声明权限与各平台产物；v1 声明式插件继续可用。权限只能取自目录：`network/notifications/microphone/filesystem_read/clipboard/camera/filesystem_write/screen_capture/accessibility/input_control/shell`，未知权限 422。`scope_hash` 由权限集合计算，权限变化即失效需重新授权；未授权安装/升级返回 409 `PLUGIN_CONSENT_REQUIRED`（附权限明细与免责说明）。授权与撤销写审计 `plugin_consent_granted/revoked`。
 
 发布工具在 `scripts/library/`：`build.py` 打包 `.kjxpack`、`sign.py` 生成/签名清单、`publish.py` 生成 ETag/序号、`verify.py` 客户端侧校验；使用说明见 `scripts/library/README.md`。
 
