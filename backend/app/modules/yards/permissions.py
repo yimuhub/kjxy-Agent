@@ -56,6 +56,8 @@ ALL_PERMISSIONS: frozenset[str] = frozenset(
         "demo:manage",
         "chat:use",
         "agents:manage",
+        "org:read",
+        "org:manage",
         "devices:read",
         "devices:write",
         "policies:read",
@@ -129,6 +131,8 @@ PERMISSION_LABELS: dict[str, str] = {
     "demo:manage": "管理演示数据",
     "chat:use": "使用智能对话",
     "agents:manage": "管理智能体与班组",
+    "org:read": "查看组织架构",
+    "org:manage": "维护组织架构",
     "devices:read": "查看设备",
     "devices:write": "管理设备",
     "policies:read": "查看政策",
@@ -174,6 +178,8 @@ PERMISSIONS: dict[str, frozenset[str]] = {
             "tools:execute",
             "chat:use",
             "agents:manage",
+            "org:read",
+            "org:manage",
             "devices:read",
             "policies:read",
         }
@@ -192,6 +198,7 @@ PERMISSIONS: dict[str, frozenset[str]] = {
             "tools:execute",
             "chat:use",
             "devices:read",
+            "org:read",
         }
     ),
     "viewer": frozenset(
@@ -204,6 +211,7 @@ PERMISSIONS: dict[str, frozenset[str]] = {
             "quota:request",
             "tools:execute",
             "chat:use",
+            "org:read",
         }
     ),
     "service_worker": frozenset({"tasks:create", "tasks:read"}),
@@ -305,7 +313,7 @@ PERMISSION_GROUPS: tuple[dict[str, object], ...] = (
     {
         "key": "capability",
         "label": "对话与智能体",
-        "permissions": ["chat:use", "agents:manage"],
+        "permissions": ["chat:use", "agents:manage", "org:read", "org:manage"],
     },
     {
         "key": "devices",

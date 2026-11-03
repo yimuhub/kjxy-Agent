@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.56.0
+  version: 3.57.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -9017,6 +9017,238 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/org/tree:
+    get:
+      tags:
+      - v1
+      - org
+      summary: Get Tree
+      operationId: get_tree_api_v1_org_tree_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: include_archived
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Include Archived
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/org/units/{unit_id}:
+    get:
+      tags:
+      - v1
+      - org
+      summary: Get Unit
+      operationId: get_unit_api_v1_org_units__unit_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: unit_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Unit Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    put:
+      tags:
+      - v1
+      - org
+      summary: Update Unit
+      operationId: update_unit_api_v1_org_units__unit_id__put
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: unit_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Unit Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrgUnitUpdate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - v1
+      - org
+      summary: Delete Unit
+      operationId: delete_unit_api_v1_org_units__unit_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: unit_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Unit Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/org/units:
+    post:
+      tags:
+      - v1
+      - org
+      summary: Create Unit
+      operationId: create_unit_api_v1_org_units_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrgUnitCreate'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/org/positions:
+    post:
+      tags:
+      - v1
+      - org
+      summary: Create Position
+      operationId: create_position_api_v1_org_positions_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrgPositionCreate'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/org/positions/{position_id}:
+    put:
+      tags:
+      - v1
+      - org
+      summary: Update Position
+      operationId: update_position_api_v1_org_positions__position_id__put
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: position_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Position Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrgPositionUpdate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - v1
+      - org
+      summary: Delete Position
+      operationId: delete_position_api_v1_org_positions__position_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: position_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Position Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/market/catalog:
     get:
       tags:
@@ -14176,7 +14408,7 @@ components:
           items:
             type: string
           type: array
-          maxItems: 46
+          maxItems: 48
           title: Grants
       additionalProperties: false
       type: object
@@ -14527,7 +14759,7 @@ components:
           items:
             type: string
           type: array
-          maxItems: 46
+          maxItems: 48
           title: Grants
         confirm_protected:
           type: boolean
@@ -14706,6 +14938,201 @@ components:
       required:
       - model_key
       title: OfficialTrialBody
+    OrgPositionCreate:
+      properties:
+        org_unit_id:
+          type: string
+          maxLength: 36
+          minLength: 1
+          title: Org Unit Id
+        title:
+          type: string
+          maxLength: 80
+          minLength: 1
+          title: Title
+        responsibilities:
+          anyOf:
+          - type: string
+            maxLength: 4000
+          - type: 'null'
+          title: Responsibilities
+        headcount:
+          type: integer
+          maximum: 999.0
+          minimum: 1.0
+          title: Headcount
+          default: 1
+        agent_id:
+          anyOf:
+          - type: string
+            maxLength: 36
+          - type: 'null'
+          title: Agent Id
+        sort_order:
+          type: integer
+          maximum: 9999.0
+          minimum: 0.0
+          title: Sort Order
+          default: 0
+      additionalProperties: false
+      type: object
+      required:
+      - org_unit_id
+      - title
+      title: OrgPositionCreate
+    OrgPositionUpdate:
+      properties:
+        org_unit_id:
+          anyOf:
+          - type: string
+            maxLength: 36
+            minLength: 1
+          - type: 'null'
+          title: Org Unit Id
+        title:
+          anyOf:
+          - type: string
+            maxLength: 80
+            minLength: 1
+          - type: 'null'
+          title: Title
+        responsibilities:
+          anyOf:
+          - type: string
+            maxLength: 4000
+          - type: 'null'
+          title: Responsibilities
+        headcount:
+          anyOf:
+          - type: integer
+            maximum: 999.0
+            minimum: 1.0
+          - type: 'null'
+          title: Headcount
+        agent_id:
+          anyOf:
+          - type: string
+            maxLength: 36
+          - type: 'null'
+          title: Agent Id
+        sort_order:
+          anyOf:
+          - type: integer
+            maximum: 9999.0
+            minimum: 0.0
+          - type: 'null'
+          title: Sort Order
+        status:
+          anyOf:
+          - type: string
+            enum:
+            - active
+            - archived
+          - type: 'null'
+          title: Status
+      additionalProperties: false
+      type: object
+      title: OrgPositionUpdate
+    OrgUnitCreate:
+      properties:
+        name:
+          type: string
+          maxLength: 80
+          minLength: 1
+          title: Name
+        parent_id:
+          anyOf:
+          - type: string
+            maxLength: 36
+          - type: 'null'
+          title: Parent Id
+        code:
+          anyOf:
+          - type: string
+            pattern: ^[a-z0-9][a-z0-9_-]{1,59}$
+          - type: 'null'
+          title: Code
+        kind:
+          type: string
+          enum:
+          - company
+          - coop
+          - department
+          - team
+          title: Kind
+          default: department
+        description:
+          anyOf:
+          - type: string
+            maxLength: 2000
+          - type: 'null'
+          title: Description
+        sort_order:
+          type: integer
+          maximum: 9999.0
+          minimum: 0.0
+          title: Sort Order
+          default: 0
+      additionalProperties: false
+      type: object
+      required:
+      - name
+      title: OrgUnitCreate
+    OrgUnitUpdate:
+      properties:
+        name:
+          anyOf:
+          - type: string
+            maxLength: 80
+            minLength: 1
+          - type: 'null'
+          title: Name
+        parent_id:
+          anyOf:
+          - type: string
+            maxLength: 36
+          - type: 'null'
+          title: Parent Id
+        code:
+          anyOf:
+          - type: string
+            pattern: ^[a-z0-9][a-z0-9_-]{1,59}$
+          - type: 'null'
+          title: Code
+        kind:
+          anyOf:
+          - type: string
+            enum:
+            - company
+            - coop
+            - department
+            - team
+          - type: 'null'
+          title: Kind
+        description:
+          anyOf:
+          - type: string
+            maxLength: 2000
+          - type: 'null'
+          title: Description
+        sort_order:
+          anyOf:
+          - type: integer
+            maximum: 9999.0
+            minimum: 0.0
+          - type: 'null'
+          title: Sort Order
+        status:
+          anyOf:
+          - type: string
+            enum:
+            - active
+            - archived
+          - type: 'null'
+          title: Status
+      additionalProperties: false
+      type: object
+      title: OrgUnitUpdate
     PairExchangeRequest:
       properties:
         code:

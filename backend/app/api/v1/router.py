@@ -32,6 +32,7 @@ from app.modules.llm.router import router as llm_router
 from app.modules.market.router import router as market_router
 from app.modules.mcp.router import router as mcp_router
 from app.modules.memory.router import router as memory_router
+from app.modules.org.router import router as org_router
 from app.modules.pairing.router import router as pairing_router
 from app.modules.plugins.router import router as plugins_router
 from app.modules.policy.router import router as policy_router
@@ -86,6 +87,7 @@ router.include_router(plugins_router)
 router.include_router(admin_router)
 router.include_router(cluster_router)  # /cluster/nodes（平台管理员：多集群登记与版本体检 v3.48）
 router.include_router(agents_router)
+router.include_router(org_router)  # /org（组织架构：单元树/岗位/Agent 绑定 v3.57）
 router.include_router(market_router)
 router.include_router(devices_router)
 router.include_router(push_router)  # /settings/push-channels（W4 事件推送通道）

@@ -94,6 +94,7 @@ declare module 'vue' {
     ElTimeline: typeof import('element-plus/es')['ElTimeline']
     ElTimelineItem: typeof import('element-plus/es')['ElTimelineItem']
     ElTooltip: typeof import('element-plus/es')['ElTooltip']
+    ElTree: typeof import('element-plus/es')['ElTree']
     ElUpload: typeof import('element-plus/es')['ElUpload']
     FarmAgentPanel: typeof import('./components/farm/FarmAgentPanel.vue')['default']
     FloatingCompanion: typeof import('./components/layout/FloatingCompanion.vue')['default']

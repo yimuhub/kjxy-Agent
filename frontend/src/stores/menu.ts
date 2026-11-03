@@ -51,6 +51,7 @@ export const ALL_MENU_ATOMS: DiyMenuLeaf[] = [
   { key: 'commander', path: '/commander', title: '指挥官工作台', iconName: 'Compass', permission: 'chat:use' },
   { key: 'custom-agents', path: '/agents/custom', title: '我的智能体', iconName: 'UserFilled', permission: 'chat:use' },
   { key: 'teams', path: '/teams', title: '协作班组', iconName: 'Connection', permission: 'chat:use' },
+  { key: 'org', path: '/org', title: '组织架构', iconName: 'OfficeBuilding', permission: 'org:read' },
   { key: 'agents', path: '/agents', title: '专业助手', iconName: 'Cpu', permission: 'chat:use' },
   { key: 'evolution', path: '/evolution', title: '自我升级', iconName: 'TrendCharts', permission: 'evolution:manage', roles: ADMIN_ROLES },
   { key: 'market', path: '/market', title: 'Agent 市场', iconName: 'Shop', permission: 'market:install', roles: ADMIN_ROLES },
@@ -134,6 +135,7 @@ function buildDefaultMenuGroupsRaw(): DiyMenuGroup[] {
             { key: 'custom-agents', path: '/agents/custom', title: '我的智能体', iconName: 'UserFilled', permission: 'chat:use' },
             { key: 'agents', path: '/agents', title: '专业助手', iconName: 'Cpu', permission: 'chat:use' },
             { key: 'teams', path: '/teams', title: '协作班组', iconName: 'Connection', permission: 'chat:use' },
+            { key: 'org', path: '/org', title: '组织架构', iconName: 'OfficeBuilding', permission: 'org:read' },
             { key: 'market', path: '/market', title: 'Agent 市场', iconName: 'Shop', permission: 'market:install', roles: ADMIN_ROLES },
             { key: 'library', path: '/library', title: '插件与技能库', iconName: 'Shop', permission: 'market:install', roles: LIBRARY_ROLES },
             { key: 'factory', path: '/agents/factory', title: '智能工厂', iconName: 'Operation', permission: 'agents:manage', roles: ADMIN_ROLES },
@@ -220,6 +222,7 @@ function buildFlatQuickGroupsRaw(): DiyMenuGroup[] {
           iconName: 'Cpu',
           children: [
             { key: 'agents', path: '/agents', title: '专业助手', iconName: 'Cpu', permission: 'chat:use' },
+            { key: 'org', path: '/org', title: '组织架构', iconName: 'OfficeBuilding', permission: 'org:read' },
             { key: 'evolution', path: '/evolution', title: '自我升级', iconName: 'TrendCharts', permission: 'evolution:manage', roles: ADMIN_ROLES },
             { key: 'market', path: '/market', title: 'Agent 市场', iconName: 'Shop', permission: 'market:install', roles: ADMIN_ROLES },
             { key: 'library', path: '/library', title: '插件与技能库', iconName: 'Shop', permission: 'market:install', roles: LIBRARY_ROLES },

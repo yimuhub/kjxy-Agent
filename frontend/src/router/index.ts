@@ -22,6 +22,7 @@ const ModelCenterView = () => import('@/views/ModelCenterView.vue')
 const AgentsView = () => import('@/views/AgentsView.vue')
 const CustomAgentsView = () => import('@/views/CustomAgentsView.vue')
 const TeamsView = () => import('@/views/TeamsView.vue')
+const OrgView = () => import('@/views/OrgView.vue')
 const FarmView = () => import('@/views/FarmView.vue')
 const DiagnosisView = () => import('@/views/DiagnosisView.vue')
 const WorkOrderView = () => import('@/views/WorkOrderView.vue')
@@ -117,6 +118,12 @@ const routes: RouteRecordRaw[] = [
       { path: 'agents', name: 'Agents', component: AgentsView, meta: { title: '专业助手', permission: 'chat:use' } },
       // 协作班组全员可跑，管理类按钮页内按角色收敛
       { path: 'teams', name: 'Teams', component: TeamsView, meta: { title: '协作班组', permission: 'chat:use' } },
+      {
+        path: 'org',
+        name: 'Org',
+        component: OrgView,
+        meta: { title: '组织架构', permission: 'org:read' },
+      },
       {
         path: 'agents/factory',
         name: 'AgentFactory',

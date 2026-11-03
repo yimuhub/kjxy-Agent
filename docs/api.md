@@ -746,6 +746,25 @@ token 统计口径（v3.55）：每个子任务按 `llm_calls` 账本的 task_id
 - 探测：`GET {base_url}/api/v1/meta`，发请求前过出网校验（`net_guard`）——链路本地与云元数据地址（含 IPv6）一律拒绝；环回地址显式放行（同机多实例是正当形态，探测结果不回显响应正文）；内网私有段沿用 ADR-0003 默认放行，纯公网部署由总闸收紧。3 秒超时且**不跟随重定向**。`version` 与 `migration_head` 都和本机一致为 `online`，可达但不一致为 `degraded`，超时/非 200/解析失败/被出网校验拦截为 `offline`。
 - 结果字段：`status_label`、`stale`（`online`/`degraded` 结论超过 600 秒未刷新，或历史行有结论但缺时间戳时为 `true`；`never` 不算过期）、`version`、`migration_head`、`latency_ms`、`last_checked_at`、`last_ok_at`、`last_error`（只留短错误文本，不保存响应正文/头）。离线时 `version`/`migration_head` 清空，`last_ok_at` 保留。
 
+## 组织架构
+
+把「小院有哪些组织/部门、每个岗位由哪个 Agent 承担」落成可维护数据。读取需 `org:read`，维护需 `org:manage`；所有查询强制小院隔离，跨院资源一律 404。
+
+| 接口 | 说明 |
+| --- | --- |
+| `GET /org/tree?include_archived=false` | 返回 `{items, flat, summary, include_archived}`：`items` 为嵌套树（含 `positions`），`flat` 含 `depth/path` 供父级选择，`summary{units,departments,positions,agents_bound,roots}` |
+| `GET /org/units/{id}` | 单元详情（含岗位与绑定的 Agent 摘要） |
+| `POST /org/units` | `{name, parent_id?, code?, kind?, description?, sort_order?}`；编码留空自动生成，同小院唯一 |
+| `PUT /org/units/{id}` | 局部更新；`parent_id` 可移动层级，`status` 支持 active/archived |
+| `DELETE /org/units/{id}` | 有子单元或岗位时 409 `ORG_UNIT_NOT_EMPTY`；否则物理删除 |
+| `POST /org/positions` | `{org_unit_id, title, responsibilities?, headcount?, agent_id?, sort_order?}` |
+| `PUT /org/positions/{id}` | 局部更新（可换所属单元、换绑 Agent） |
+| `DELETE /org/positions/{id}` | 删除岗位（不影响 Agent 本身） |
+
+- `kind`：`company`（组织主体）/ `coop`（合作社）/ `department`（部门）/ `team`（小组）。
+- 约束：最多 8 级；禁止把自己挂到自己或后代下（400 `ORG_CYCLE`）；父单元与 Agent 必须属于本小院（404 / 400 `ORG_AGENT_INVALID`）；编码格式 `[a-z0-9][a-z0-9_-]{1,59}`，重复 409 `ORG_CODE_DUPLICATE`。
+- 审计：`org_unit_created/updated/deleted`、`org_position_created/updated/deleted`。
+
 ## 任务状态机
 
 `queued → running → succeeded | failed | cancelled | awaiting_review → succeeded | failed | cancelled`

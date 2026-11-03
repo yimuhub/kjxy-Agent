@@ -41,6 +41,8 @@
 | library_items | 库条目清单镜像 | source_id、item_key、item_type、code、name、version、min/max_app_version、description、category、risk_level、license、author、sha256、size_bytes、download_url、manifest_json、status、sequence、published_at；唯一 (source_id,item_key,version) |
 | library_installs | 本机安装台账 | yard_id、source_id、item_key、item_type、installed_version、previous_version、package_sha256、skill_id、plugin_id、auto_update、pinned、installed_at；唯一 (yard_id,item_key) |
 | library_sync_runs | 同步运行记录 | source_id、yard_id、status（ok/error/skipped）、started_at、finished_at、added/updated/removed、error |
+| org_units | 组织单元树（v3.57） | yard_id、parent_id、code、name、kind（company/coop/department/team）、description、sort_order、status（active/archived）、source（manual/knowledge/generated）；唯一 (yard_id,code) |
+| org_positions | 岗位与 Agent 绑定（v3.57） | yard_id、org_unit_id、title、responsibilities、headcount、agent_id（软关联）、sort_order、status |
 
 ## 索引与完整性
 
