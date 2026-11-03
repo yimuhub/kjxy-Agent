@@ -6,6 +6,19 @@
 
 开发中的修复先累积在这里；定版时把本段改名为 `## [3.x.y] - 日期`，同时一次改齐 9 处版本面。
 
+## [3.61.0] - 2026-11-03
+
+本机能力通道扩展到 Windows：同一套动作目录、权限与授权台账，底层换成 Windows 自带的 PowerShell + UIAutomation + Win32，不引入第三方二进制。
+
+### Windows 桥（后端）
+- **脚本传入**：PowerShell 以 `-EncodedCommand`（UTF-16LE base64）执行，用户参数只经环境变量与临时文件传递，不拼接进脚本文本；临时文件在 `finally` 中删除。
+- **动作映射**：截屏用 `System.Drawing` 的 `CopyFromScreen`（含 8MB 上限）；窗口枚举用 `Get-Process` 主窗口标题；输入文本优先 `UIAutomation ValuePattern`，取不到时退回经 `SendKeys.Escape` 转义的 `SendKeys`；点击先 `SetProcessDPIAware` 再 `SetCursorPos`+`mouse_event`；按键按 SendKeys 规范顺序（Shift→Ctrl→Alt）组合；剪贴板用 `Get/Set-Clipboard`（读取不裁剪空白）；打开应用用 `Start-Process`。
+- **可用性**：仅在 `win32` 且找到 `powershell` 时报告桥就绪，其余平台继续走 macOS/Linux 分派。
+
+### 测试
+- 新增 4 条 Windows 用例：SendKeys 修饰键顺序与按键映射、平台/PowerShell 可用性判定、动作分派与临时文件清理、剪贴板读写不裁剪空白。
+- 本地运行时单测 14 条全部通过；`ruff`、`mypy` 全量通过。
+
 ## [3.60.0] - 2026-11-03
 
 本机能力通道：把「插件会动电脑」从权限声明落到真正可执行的地方。电脑操作插件不进安装包，用户在插件中心自行安装并授权后，Agent 才能通过受控通道调用 macOS 桥。

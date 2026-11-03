@@ -30,6 +30,7 @@ declare module 'vue' {
     CommanderFigure: typeof import('./components/pet/CommanderFigure.vue')['default']
     CommanderPlanCard: typeof import('./components/chat/CommanderPlanCard.vue')['default']
     CommanderRunCard: typeof import('./components/chat/CommanderRunCard.vue')['default']
+    ConsentDialog: typeof import('./components/library/ConsentDialog.vue')['default']
     DeclarativeAgentCard: typeof import('./components/agents/DeclarativeAgentCard.vue')['default']
     DesktopFirstRun: typeof import('./components/desktop/DesktopFirstRun.vue')['default']
     DuplicateNameDialog: typeof import('./components/agents/DuplicateNameDialog.vue')['default']

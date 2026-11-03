@@ -219,3 +219,82 @@ def test_press_key_and_clipboard_validation():
     with pytest.raises(AppError) as exc:
         actions.validate("run_shell", {})
     assert exc.value.code == "RUNTIME_ACTION_UNKNOWN"
+
+
+def test_windows_sendkeys_tokens():
+    from app.modules.local_runtime import bridge_windows
+
+    assert bridge_windows.build_sendkeys("c", ["control"]) == "^c"
+    assert bridge_windows.build_sendkeys("return", ["shift"]) == "+{ENTER}"
+    assert bridge_windows.build_sendkeys("page_down", []) == "{PGDN}"
+    assert bridge_windows.build_sendkeys("a", ["command", "shift"]) == "+^a"
+
+
+def test_windows_bridge_availability_requires_platform_and_powershell(monkeypatch):
+    from app.modules.local_runtime import bridge_windows
+
+    monkeypatch.setattr(bridge_windows.sys, "platform", "win32")
+    monkeypatch.setattr(bridge_windows.shutil, "which", lambda name: None)
+    assert bridge_windows.available() is False
+    monkeypatch.setattr(bridge_windows.shutil, "which", lambda name: "powershell.exe")
+    assert bridge_windows.available() is True
+    monkeypatch.setattr(bridge_windows.sys, "platform", "darwin")
+    assert bridge_windows.available() is False
+
+
+def test_windows_bridge_dispatch(monkeypatch, tmp_path):
+    from app.modules.local_runtime import bridge_windows
+
+    calls: list[tuple[str, dict]] = []
+
+    def fake_ps(script, *, env=None, timeout=15.0, strip_output=True):
+        calls.append((script, env or {}))
+        if "ConvertTo-Json" in script:
+            return (
+                '[{"ProcessName":"Code","MainWindowTitle":"main.py"},'
+                '{"ProcessName":"x","MainWindowTitle":""}]'
+            )
+        return ""
+
+    monkeypatch.setattr(bridge_windows, "_run_ps", fake_ps)
+    assert bridge_windows.execute("list_windows", {}) == {"apps": ["main.py"], "count": 1}
+    assert bridge_windows.execute("click", {"x": 10, "y": 20}) == {"clicked": {"x": 10, "y": 20}}
+    assert bridge_windows.execute("press_key", {"key": "c", "modifiers": ["control"]}) == {
+        "key": "c",
+        "modifiers": ["control"],
+    }
+    assert bridge_windows.execute("type_text", {"text": "hi"}) == {"typed_chars": 2}
+    typed_env = [env for script, env in calls if "UIAutomationClient" in script][0]
+    typed_script = [script for script, _ in calls if "UIAutomationClient" in script][0]
+    # SendKeys 兜底必须先转义 +^%~(){}[]，否则文本会被当成快捷键
+    assert "SendKeys]::Escape" in typed_script
+    # type_text 的临时文件在调用结束后必须清理
+    from pathlib import Path
+
+    assert not Path(typed_env["KJXY_INPUT"]).exists()
+    assert calls[1][1]["KJXY_X"] == "10"
+    assert any(env.get("KJXY_KEYS") == "^c" for _, env in calls)
+
+
+def test_windows_clipboard_roundtrip_does_not_strip(monkeypatch):
+    from app.modules.local_runtime import bridge_windows
+
+    seen: dict[str, str] = {}
+
+    def fake_ps(script, *, env=None, timeout=15.0, strip_output=True):
+        seen["script"] = script
+        seen["strip"] = str(strip_output)
+        if "Set-Clipboard" in script:
+            from pathlib import Path
+
+            seen["text"] = Path(env["KJXY_INPUT"]).read_text(encoding="utf-8")
+            return ""
+        return "  keep spaces\n"
+
+    monkeypatch.setattr(bridge_windows, "_run_ps", fake_ps)
+    assert bridge_windows.execute("clipboard_write", {"text": "a b"}) == {"written_chars": 3}
+    assert seen["text"] == "a b"
+    assert bridge_windows.execute("clipboard_read", {}) == {
+        "text": "  keep spaces\n",
+        "truncated": False,
+    }
