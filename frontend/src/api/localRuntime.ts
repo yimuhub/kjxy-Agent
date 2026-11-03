@@ -1,3 +1,4 @@
+import type { AxiosRequestConfig } from 'axios'
 import { api } from './client'
 import type { ApiResponse } from '@/types/api'
 
@@ -37,8 +38,11 @@ export interface RuntimeStatus {
 }
 
 export const localRuntimeApi = {
+  /** 状态探测失败由调用方静默降级（无权限/后端未升级时不弹全局 toast） */
   async status(): Promise<RuntimeStatus> {
-    const res = await api.get<ApiResponse<RuntimeStatus>>('/local-runtime/status')
+    const res = await api.get<ApiResponse<RuntimeStatus>>('/local-runtime/status', {
+      skipErrorToast: true,
+    } as AxiosRequestConfig & { skipErrorToast?: boolean })
     return res.data.data
   },
 }

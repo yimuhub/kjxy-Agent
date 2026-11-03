@@ -1,5 +1,12 @@
+import type { AxiosRequestConfig } from 'axios'
 import { api } from './client'
 import type { ApiResponse } from '@/types/api'
+
+/**
+ * 初始化即发的只读探测（状态/源/条目/台账/更新中心）：失败由面板内联态兜底，
+ * 不走全局 toast——后端版本落后于前端时，避免一进「插件中心」就连弹原始 404。
+ */
+const silentCfg: AxiosRequestConfig & { skipErrorToast?: boolean } = { skipErrorToast: true }
 
 /**
  * 官方技能/插件库（签名源）接口。
@@ -227,12 +234,12 @@ function toList<T>(raw: { items?: T[] } | T[] | null | undefined): T[] {
 export const officialLibraryApi = {
   /** 总览：源状态、可更新数量、离线标记 */
   status(): Promise<LibraryStatus> {
-    return unwrap<LibraryStatus>(api.get<ApiResponse<LibraryStatus>>('/library/status'))
+    return unwrap<LibraryStatus>(api.get<ApiResponse<LibraryStatus>>('/library/status', silentCfg))
   },
 
   sources(): Promise<LibrarySource[]> {
     return unwrap<LibrarySourcesResponse | LibrarySource[]>(
-      api.get<ApiResponse<LibrarySourcesResponse | LibrarySource[]>>('/library/sources'),
+      api.get<ApiResponse<LibrarySourcesResponse | LibrarySource[]>>('/library/sources', silentCfg),
     ).then(res => toList<LibrarySource>(res))
   },
 
@@ -266,7 +273,10 @@ export const officialLibraryApi = {
     if (query.item_type) params.item_type = query.item_type
     if (query.keyword?.trim()) params.keyword = query.keyword.trim()
     return unwrap<LibraryItemsResponse | LibraryItem[]>(
-      api.get<ApiResponse<LibraryItemsResponse | LibraryItem[]>>('/library/items', { params }),
+      api.get<ApiResponse<LibraryItemsResponse | LibraryItem[]>>('/library/items', {
+        params,
+        ...silentCfg,
+      }),
     ).then(res => toList<LibraryItem>(res))
   },
 
@@ -281,7 +291,7 @@ export const officialLibraryApi = {
 
   installs(): Promise<LibraryInstall[]> {
     return unwrap<LibraryInstallsResponse | LibraryInstall[]>(
-      api.get<ApiResponse<LibraryInstallsResponse | LibraryInstall[]>>('/library/installs'),
+      api.get<ApiResponse<LibraryInstallsResponse | LibraryInstall[]>>('/library/installs', silentCfg),
     ).then(res => toList<LibraryInstall>(res))
   },
 
@@ -315,7 +325,9 @@ export const officialLibraryApi = {
   },
 
   updates(): Promise<LibraryUpdates> {
-    return unwrap<LibraryUpdatesResponse>(api.get<ApiResponse<LibraryUpdatesResponse>>('/library/updates')).then(
+    return unwrap<LibraryUpdatesResponse>(
+      api.get<ApiResponse<LibraryUpdatesResponse>>('/library/updates', silentCfg),
+    ).then(
       res => ({
         items: Array.isArray(res?.items) ? res.items : [],
         total: res?.total ?? 0,
@@ -327,7 +339,7 @@ export const officialLibraryApi = {
 
   consents(): Promise<PluginConsentList> {
     return unwrap<PluginConsentsResponse>(
-      api.get<ApiResponse<PluginConsentsResponse>>('/library/consents'),
+      api.get<ApiResponse<PluginConsentsResponse>>('/library/consents', silentCfg),
     ).then(res => ({
       items: Array.isArray(res?.items) ? res.items : [],
       total: res?.total ?? 0,
@@ -345,7 +357,7 @@ export const officialLibraryApi = {
 
   itemConsent(id: string): Promise<ConsentRequirement> {
     return unwrap<ConsentRequirement>(
-      api.get<ApiResponse<ConsentRequirement>>(`/library/items/${id}/consent`),
+      api.get<ApiResponse<ConsentRequirement>>(`/library/items/${id}/consent`, silentCfg),
     )
   },
 
