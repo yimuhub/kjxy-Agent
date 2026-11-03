@@ -29,6 +29,7 @@ from app.modules.growth.router import router as growth_router
 from app.modules.knowledge.router import router as knowledge_router
 from app.modules.library.router import router as library_router
 from app.modules.llm.router import router as llm_router
+from app.modules.local_runtime.router import router as local_runtime_router
 from app.modules.market.router import router as market_router
 from app.modules.mcp.router import router as mcp_router
 from app.modules.memory.router import router as memory_router
@@ -88,6 +89,7 @@ router.include_router(admin_router)
 router.include_router(cluster_router)  # /cluster/nodes（平台管理员：多集群登记与版本体检 v3.48）
 router.include_router(agents_router)
 router.include_router(org_router)  # /org（组织架构：单元树/岗位/Agent 绑定 v3.57）
+router.include_router(local_runtime_router)  # /local-runtime（本机能力插件通道 v3.60）
 router.include_router(market_router)
 router.include_router(devices_router)
 router.include_router(push_router)  # /settings/push-channels（W4 事件推送通道）

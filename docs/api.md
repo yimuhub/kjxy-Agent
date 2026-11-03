@@ -503,6 +503,20 @@ v3.37 起通道判别以**模型模态**为兜底：通用 OpenAI 兼容供应�
 
 发布工具在 `scripts/library/`：`build.py` 打包 `.kjxpack`、`sign.py` 生成/签名清单、`publish.py` 生成 ETag/序号、`verify.py` 客户端侧校验；使用说明见 `scripts/library/README.md`。
 
+### 本机能力通道（v3.60）
+
+安装在本机的「电脑操作」类插件通过本通道执行固定动作；插件不随安装包内置，由用户在插件中心自行安装并授权。
+
+| 接口 | 说明 |
+| --- | --- |
+| `GET /local-runtime/status` | 当前系统（macos/windows/linux）、桥是否可用、动作目录、本小院本机能力插件（平台支持、权限、授权状态、可用动作） |
+| `POST /local-runtime/plugins/{plugin_id}/actions/{action}` | 执行动作：`{params}`；依次校验启用状态、权限声明、平台、授权 scope_hash、参数白名单与限流，写审计 `local_runtime_action` |
+
+- **动作目录**：`screenshot`、`list_windows`、`click`、`type_text`、`press_key`、`clipboard_read`、`clipboard_write`、`open_app`。每个动作对应一项权限（屏幕读取/辅助功能/模拟操作/剪贴板），插件清单未声明即 403。
+- **平台**：v3.60 交付 macOS 桥（系统 `screencapture` / `osascript` / `pbcopy`，首次使用需授予屏幕录制与辅助功能权限）；Windows/Linux 桥在后续版本接入。当前系统无桥时 409 `RUNTIME_PLATFORM_UNSUPPORTED`。
+- **安全**：仅执行固定目录动作，不提供任意命令入口；参数经白名单校验（坐标/按键/文本框长度/应用名），AppleScript 参数走 argv 不拼接脚本；限流 60 次/分钟/小院；审计只记动作、插件、耗时与结局，不记屏幕或剪贴板内容。
+- **权限**：`runtime:read` 查看、`runtime:use` 执行（负责人/管理员默认拥有，专家/操作员默认只读）。Agent 通过工具 `computer.use` 调用，属 `external_side_effect`，默认须人工审批；会话「完全控制」档可免审批但仍受上述闸门约束。
+
 ## 办公与正式写作（v3.36）
 
 - **PPT 设计系统**：对话里生成 `.pptx` 时先产出严格 `DeckPlan`（5–30 页、15 种版式、8 套主题），再经 23 项结构质检（溢出/空页/重复标题/图表与表格约束等）自动修复后渲染；支持真实图表、表格、时间线、流程图、演讲者备注、页码与东亚字体。可选 `soffice` 视觉质检在缺少 LibreOffice 时跳过并说明。

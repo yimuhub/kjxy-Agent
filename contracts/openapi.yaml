@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.59.0
+  version: 3.60.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -9542,6 +9542,66 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/local-runtime/status:
+    get:
+      tags:
+      - v1
+      - local-runtime
+      summary: Get Runtime Status
+      description: 当前系统桥状态、可用动作与本小院已安装的本机能力插件。
+      operationId: get_runtime_status_api_v1_local_runtime_status_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/local-runtime/plugins/{plugin_id}/actions/{action}:
+    post:
+      tags:
+      - v1
+      - local-runtime
+      summary: Run Runtime Action
+      description: 执行固定目录内的本机动作；参数按动作白名单校验。
+      operationId: run_runtime_action_api_v1_local_runtime_plugins__plugin_id__actions__action__post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: plugin_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Plugin Id
+      - name: action
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Action
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - type: object
+                additionalProperties: true
+              - type: 'null'
+              title: Payload
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/market/catalog:
     get:
       tags:
@@ -14701,7 +14761,7 @@ components:
           items:
             type: string
           type: array
-          maxItems: 48
+          maxItems: 50
           title: Grants
       additionalProperties: false
       type: object
@@ -15052,7 +15112,7 @@ components:
           items:
             type: string
           type: array
-          maxItems: 48
+          maxItems: 50
           title: Grants
         confirm_protected:
           type: boolean

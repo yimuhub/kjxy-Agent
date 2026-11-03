@@ -36,10 +36,10 @@ def _startup_wiring() -> None:
         from app.modules.growth.toolseed import seed_growth_tools
         from app.modules.knowledge.service import register_knowledge_search_tool
         from app.modules.llm.video_tool import register_video_tool
+        from app.modules.local_runtime.tool import register_computer_use_tool
         from app.modules.market.skill_tools import register_skill_agent_tools
         from app.modules.search.tools import register_search_tools
         from app.modules.tools.registry import seed_builtin_tools
-        from app.modules.local_runtime.tool import register_computer_use_tool
         from app.modules.tools.workorder_tool import register_workorder_tool
 
         # 注册各模块的任务 handler（native 模式无 Celery worker 时，API 进程的
@@ -183,7 +183,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="科技小院多智能体平台", version="3.59.0", lifespan=lifespan)
+    app = FastAPI(title="科技小院多智能体平台", version="3.60.0", lifespan=lifespan)
     app.add_middleware(RequestIDMiddleware)
     app.add_exception_handler(AppError, app_error_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)

@@ -58,6 +58,8 @@ ALL_PERMISSIONS: frozenset[str] = frozenset(
         "agents:manage",
         "org:read",
         "org:manage",
+        "runtime:read",
+        "runtime:use",
         "devices:read",
         "devices:write",
         "policies:read",
@@ -133,6 +135,8 @@ PERMISSION_LABELS: dict[str, str] = {
     "agents:manage": "管理智能体与班组",
     "org:read": "查看组织架构",
     "org:manage": "维护组织架构",
+    "runtime:read": "查看本机能力",
+    "runtime:use": "使用本机能力",
     "devices:read": "查看设备",
     "devices:write": "管理设备",
     "policies:read": "查看政策",
@@ -180,6 +184,7 @@ PERMISSIONS: dict[str, frozenset[str]] = {
             "agents:manage",
             "org:read",
             "org:manage",
+            "runtime:read",
             "devices:read",
             "policies:read",
         }
@@ -197,6 +202,7 @@ PERMISSIONS: dict[str, frozenset[str]] = {
             "quota:request",
             "tools:execute",
             "chat:use",
+            "runtime:read",
             "devices:read",
             "org:read",
         }
@@ -314,6 +320,11 @@ PERMISSION_GROUPS: tuple[dict[str, object], ...] = (
         "key": "capability",
         "label": "对话与智能体",
         "permissions": ["chat:use", "agents:manage", "org:read", "org:manage"],
+    },
+    {
+        "key": "local_runtime",
+        "label": "本机能力",
+        "permissions": ["runtime:read", "runtime:use"],
     },
     {
         "key": "devices",
