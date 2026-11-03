@@ -341,6 +341,11 @@ def list_proposals(
             raise AppError("INVALID_REQUEST", "status 不合法。", http_status=400)
         stmt = stmt.where(OrgProposal.status == status)
     rows = db.execute(stmt.order_by(OrgProposal.created_at.desc()).limit(limit)).scalars().all()
+    healed = False
+    for row in rows:
+        healed = proposal_service.heal_generating(db, row) or healed
+    if healed:
+        _commit(db)
     return ok([_proposal_summary(row) for row in rows], request)
 
 
@@ -353,6 +358,8 @@ def get_proposal(
     db: Session = Depends(get_db_session),
 ):
     row = proposal_service.get_proposal(db, _yard_id(user), proposal_id)
+    # get_proposal 可能把卡在 generating 的提案同步为 failed，需要落库
+    _commit(db)
     return ok(proposal_service.serialize(db, row, parent_id=parent_id), request)
 
 

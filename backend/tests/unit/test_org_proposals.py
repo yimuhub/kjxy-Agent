@@ -276,6 +276,29 @@ def test_plan_and_apply_merge_are_idempotent(db_session):
     assert again["already_applied"] is True
 
 
+def test_stale_generating_proposal_heals_from_failed_task(db_session):
+    from app.modules.tasks import state_machine as sm
+    from app.modules.tasks.models import Task
+
+    proposal = _proposal(db_session)
+    task = Task(
+        yard_id="yard-org",
+        created_by="u-org",
+        task_type=proposal_service.TASK_TYPE,
+        status=sm.STATUS_FAILED,
+        input_json={},
+        error_message="模型调用超时",
+    )
+    db_session.add(task)
+    db_session.flush()
+    proposal.task_id = task.id
+    db_session.flush()
+
+    healed = proposal_service.get_proposal(db_session, "yard-org", proposal.id)
+    assert healed.status == "failed"
+    assert "模型调用超时" in (healed.error_message or "")
+
+
 def test_proposal_api_summary_apply_and_permissions(db_session):
     payload = _sample_payload()
     proposal = _proposal(db_session, status=PROPOSAL_STATUS_READY, payload=payload)

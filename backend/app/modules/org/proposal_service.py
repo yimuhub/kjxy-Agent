@@ -10,9 +10,9 @@ import json
 import re
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
-from sqlalchemy import select
+from sqlalchemy import CursorResult, select, update
 from sqlalchemy.orm import Session
 
 from app.core.deps import YardContext
@@ -25,6 +25,7 @@ from app.modules.org.models import (
     PROPOSAL_STATUS_APPLIED,
     PROPOSAL_STATUS_DISCARDED,
     PROPOSAL_STATUS_FAILED,
+    PROPOSAL_STATUS_GENERATING,
     PROPOSAL_STATUS_READY,
     SOURCE_KNOWLEDGE,
     UNIT_KINDS,
@@ -85,6 +86,31 @@ class _Stage:
             self._callback(stage, message, progress)
 
 
+def heal_generating(db: Session, proposal: OrgProposal) -> bool:
+    """推导任务已经结束但提案还停在 generating 时，同步为 failed（防止永久转圈）。"""
+    if proposal.status != PROPOSAL_STATUS_GENERATING or not proposal.task_id:
+        return False
+    from app.modules.tasks import state_machine as sm
+    from app.modules.tasks.models import Task
+
+    task = db.get(Task, proposal.task_id)
+    reason: str | None = None
+    if task is None:
+        reason = "推导任务不存在或已被清理，请重新发起。"
+    elif task.status == sm.STATUS_FAILED:
+        reason = task.error_message or "组织架构推导失败，请重新发起。"
+    elif task.status == sm.STATUS_CANCELLED:
+        reason = "推导任务已取消，请重新发起。"
+    elif task.status == sm.STATUS_SUCCEEDED:
+        reason = "推导任务已结束但未产出提案，请重新发起。"
+    if reason is None:
+        return False
+    proposal.status = PROPOSAL_STATUS_FAILED
+    proposal.error_message = reason[:2000]
+    db.flush()
+    return True
+
+
 def get_proposal(db: Session, yard_id: str, proposal_id: str) -> OrgProposal:
     row = db.get(OrgProposal, proposal_id)
     if row is None or row.yard_id != yard_id:
@@ -94,6 +120,7 @@ def get_proposal(db: Session, yard_id: str, proposal_id: str) -> OrgProposal:
             http_status=404,
             details={"proposal_id": proposal_id},
         )
+    heal_generating(db, row)
     return row
 
 
@@ -506,6 +533,37 @@ def apply_proposal(
     if parent_id:
         org_service.unit_detail(db, ctx.yard_id, parent_id)
 
+    now = datetime.now(UTC)
+    # 原子认领：并发重复提交时只有一个请求能把 ready 改成 applied
+    claimed = cast(
+        CursorResult[Any],
+        db.execute(
+            update(OrgProposal)
+            .where(
+                OrgProposal.id == proposal.id,
+                OrgProposal.yard_id == ctx.yard_id,
+                OrgProposal.status == PROPOSAL_STATUS_READY,
+            )
+            .values(status=PROPOSAL_STATUS_APPLIED, applied_by=ctx.user_id, applied_at=now)
+            .execution_options(synchronize_session=False)
+        ),
+    )
+    if claimed.rowcount != 1:
+        db.expire(proposal)
+        db.refresh(proposal)
+        if proposal.status == PROPOSAL_STATUS_APPLIED:
+            return {
+                "already_applied": True,
+                "proposal_id": proposal.id,
+                "result": proposal.applied_result_json or {},
+            }
+        raise AppError(
+            "ORG_PROPOSAL_NOT_READY",
+            "该提案当前不可应用（仅已生成的提案可应用）。",
+            http_status=409,
+            details={"status": proposal.status},
+        )
+
     units = proposal.proposal_json.get("units") or []
     planned: dict[str, str] = {}
     created_units = 0
@@ -562,7 +620,7 @@ def apply_proposal(
     }
     proposal.status = PROPOSAL_STATUS_APPLIED
     proposal.applied_by = ctx.user_id
-    proposal.applied_at = datetime.now(UTC)
+    proposal.applied_at = now
     proposal.applied_result_json = result
     db.flush()
     return {"already_applied": False, "proposal_id": proposal.id, "result": result}
