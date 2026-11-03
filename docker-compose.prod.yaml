@@ -44,6 +44,20 @@ services:
       retries: 5
     restart: always
 
+  migrate:
+    build:
+      context: .
+      dockerfile: deploy/docker/api.Dockerfile
+    env_file: .env.production
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgresql+psycopg://app_user:${POSTGRES_PASSWORD}@postgres:5432/techyard
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+
   api:
     build:
       context: .
@@ -57,6 +71,8 @@ services:
       CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/2
       LOCAL_STORAGE_PATH: /data/files
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -87,6 +103,8 @@ services:
       CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/2
       LOCAL_STORAGE_PATH: /data/files
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -112,6 +130,10 @@ services:
       CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
     command: celery -A app.workers.celery_app:celery_app beat --loglevel=info
     depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
     restart: always
