@@ -117,9 +117,9 @@ def record_consent(
         .all()
     )
     now = _utcnow()
-    for row in revoked:
-        row.revoked_at = now
-        row.revoked_by = ctx.user_id
+    for old in revoked:
+        old.revoked_at = now
+        old.revoked_by = ctx.user_id
     # (yard_id, item_key, scope_hash) 唯一：撤销过再授权必须复活旧行，否则撞唯一约束
     row = (
         db.query(PluginConsent)

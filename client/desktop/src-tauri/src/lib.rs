@@ -165,12 +165,27 @@ fn client_config(dir: &PathBuf) -> ClientConfig {
         .unwrap_or_default()
 }
 
+/// 敏感文件收紧权限（Unix 0600）：同机其他用户不得读取 JWT 密钥/引导令牌。
+fn tighten_secret_file(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+    }
+}
+
 /// 首次启动生成并持久化桌面实例专属 JWT 密钥（与服务器部署完全隔离）
 fn ensure_secret(dir: &PathBuf) -> Result<String, String> {
     let path = dir.join("secret.key");
     if let Ok(existing) = fs::read_to_string(&path) {
         let trimmed = existing.trim().to_string();
         if trimmed.len() >= 48 {
+            // 旧版本落盘时没改权限；读到就顺手纠正，避免升级后仍长期 0644
+            tighten_secret_file(&path);
             return Ok(trimmed);
         }
     }
@@ -204,6 +219,7 @@ fn ensure_secret(dir: &PathBuf) -> Result<String, String> {
     }
     let secret = buf.iter().map(|b| format!("{b:02x}")).collect::<String>();
     fs::write(&path, &secret).map_err(|e| format!("写 secret.key 失败：{e}"))?;
+    tighten_secret_file(&path);
     Ok(secret)
 }
 
@@ -218,6 +234,7 @@ fn ensure_bootstrap_token(dir: &PathBuf) -> Result<String, String> {
     if let Ok(existing) = fs::read_to_string(&path) {
         let trimmed = existing.trim().to_string();
         if trimmed.len() >= 32 {
+            tighten_secret_file(&path);
             return Ok(trimmed);
         }
     }
@@ -237,11 +254,39 @@ fn ensure_bootstrap_token(dir: &PathBuf) -> Result<String, String> {
     }
     let token = buf.iter().map(|b| format!("{b:02x}")).collect::<String>();
     fs::write(&path, &token).map_err(|e| format!("写 desktop-bootstrap.token 失败：{e}"))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
+    tighten_secret_file(&path);
+    Ok(token)
+}
+
+/// 引擎归属令牌：随 sidecar 环境注入，健康端点原样回显。
+/// 端口段里可能有别的本地服务（甚至另一个数据目录的引擎）也回 200；
+/// 只认回显一致的那一个，避免把一次性引导令牌交给不受我们控制的进程。
+fn ensure_instance_token(dir: &PathBuf) -> Result<String, String> {
+    let path = dir.join("engine.instance.token");
+    if let Ok(existing) = fs::read_to_string(&path) {
+        let trimmed = existing.trim().to_string();
+        if trimmed.len() >= 32 {
+            tighten_secret_file(&path);
+            return Ok(trimmed);
+        }
     }
+    let mut buf = [0u8; 32];
+    let entropy_ok = fs::File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut buf))
+        .is_ok();
+    if !entropy_ok {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut h = DefaultHasher::new();
+        (std::time::SystemTime::now(), std::process::id(), 0x1d57u64).hash(&mut h);
+        let v = h.finish();
+        for i in 0..32 {
+            buf[i] = (v >> (i % 8 * 8)) as u8;
+        }
+    }
+    let token = buf.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    fs::write(&path, &token).map_err(|e| format!("写 engine.instance.token 失败：{e}"))?;
+    tighten_secret_file(&path);
     Ok(token)
 }
 
@@ -260,7 +305,8 @@ fn pet_page_url(port: u16, skin: &str) -> String {
     format!("http://127.0.0.1:{port}/pet?skin={skin}")
 }
 
-fn health_ok(port: u16) -> bool {
+/// 健康探针 + 归属校验：200 且回显 `X-TechYard-Instance` 与本机令牌一致才算我们的引擎。
+fn engine_healthy(port: u16, instance: &str) -> bool {
     let url = format!("http://127.0.0.1:{port}/health/ready");
     reqwest::blocking::Client::builder()
         .timeout(Duration::from_millis(1200))
@@ -268,7 +314,13 @@ fn health_ok(port: u16) -> bool {
         .map(|c| {
             c.get(url)
                 .send()
-                .map(|r| r.status().is_success())
+                .map(|r| {
+                    r.status().is_success()
+                        && r.headers()
+                            .get("x-techyard-instance")
+                            .and_then(|v| v.to_str().ok())
+                            == Some(instance)
+                })
                 .unwrap_or(false)
         })
         .unwrap_or(false)
@@ -276,7 +328,13 @@ fn health_ok(port: u16) -> bool {
 
 const SPLASH_HTML: &str = r#"data:text/html;charset=utf-8,<html><head><meta name='viewport' content='width=device-width,initial-scale=1'><style>body{margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:%23101418;color:%23e6edf3;font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif}div{text-align:center;max-width:520px;padding:24px}h1{font-size:20px;font-weight:600}p{color:%239aa7b4;line-height:1.7;font-size:14px}code{background:%231c2430;padding:2px 8px;border-radius:6px;font-size:12px}.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:%234c9aff;margin-right:6px;animation:p 1.2s infinite}@keyframes p{0%25,100%25{opacity:.3}50%25{opacity:1}}</style></head><body><div><h1><span class='dot'></span>正在准备本地引擎…</h1><p>首次启动需要 10–60 秒（初始化数据库与演示空间）。<br>完成后会自动进入登录页。<br>登录账号与初始口令见文件：<code>LOGIN_FILE</code></p></div></body></html>"#;
 
-fn spawn_sidecar(app: &tauri::AppHandle, state: &EngineState, dir: &PathBuf, port: u16) -> Result<(), String> {
+fn spawn_sidecar(
+    app: &tauri::AppHandle,
+    state: &EngineState,
+    dir: &PathBuf,
+    port: u16,
+    instance: &str,
+) -> Result<(), String> {
     let secret = ensure_secret(dir)?;
     let bootstrap = ensure_bootstrap_token(dir)?;
     let frontend_dist = app
@@ -302,6 +360,7 @@ fn spawn_sidecar(app: &tauri::AppHandle, state: &EngineState, dir: &PathBuf, por
             ("TECHYARD_PORT", port.to_string()),
             ("APP_SECRET_KEY", secret),
             ("TECHYARD_DESKTOP_BOOTSTRAP", bootstrap),
+            ("TECHYARD_INSTANCE_TOKEN", instance.to_string()),
             ("BUNDLED_ASR_DIR", bundled_asr.to_string_lossy().to_string()),
             ("FRONTEND_DIST", frontend_dist.to_string_lossy().to_string()),
             ("ASR_MODEL_DIR", asr_dir.to_string_lossy().to_string()),
@@ -488,9 +547,11 @@ fn report_fatal(app: &tauri::AppHandle, msg: String) {
 /// 拉起或接管本地引擎；成功返回后窗口已指向引擎页面。失败返回人类可读原因。
 fn start_local(app: &tauri::AppHandle, state: &EngineState, dir: &PathBuf) -> Result<(), String> {
     let bootstrap = ensure_bootstrap_token(dir)?;
-    // 1) 先探已有引擎（AO 同款复用，避免重复拉起/关窗再开报错）
+    let instance = ensure_instance_token(dir)?;
+    // 1) 先探已有引擎（AO 同款复用，避免重复拉起/关窗再开报错）。
+    //    仅接管回显归属令牌一致的那一个：端口段里可能是别的本地服务。
     for p in PORT_RANGE.clone() {
-        if !port_free(p) && health_ok(p) {
+        if !port_free(p) && engine_healthy(p, &instance) {
             let target = engine_url(p, &bootstrap);
             *state.port.lock().unwrap() = Some(p);
             *state.main_url.lock().unwrap() = Some(target.clone());
@@ -502,7 +563,7 @@ fn start_local(app: &tauri::AppHandle, state: &EngineState, dir: &PathBuf) -> Re
         .clone()
         .find(|p| port_free(*p))
         .ok_or(format!("端口段 {PORT_RANGE:?} 全被占用"))?;
-    spawn_sidecar(app, state, dir, port)?;
+    spawn_sidecar(app, state, dir, port, &instance)?;
 
     // 3) splash → 轮询就绪 → 导航到引擎页（后台线程，不阻塞事件循环）
     let splash = WebviewWindowBuilder::new(
@@ -527,7 +588,7 @@ fn start_local(app: &tauri::AppHandle, state: &EngineState, dir: &PathBuf) -> Re
     thread::spawn(move || {
         let deadline = std::time::Instant::now() + Duration::from_secs(HEALTH_TIMEOUT_SECS);
         while std::time::Instant::now() < deadline {
-            if health_ok(port) {
+            if engine_healthy(port, &instance) {
                 let target = engine_url(port, &bootstrap);
                 {
                     let state = handle.state::<EngineState>();

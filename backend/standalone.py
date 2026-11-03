@@ -214,9 +214,8 @@ def seed_if_empty(data_dir: Path) -> None:
     login_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
     with contextlib.suppress(OSError):
         login_file.chmod(0o600)
-    # 只在 stdout 打印一次（Rust splash 期会把 sidecar 输出留存在日志里）
-    for line in lines[1:]:
-        print(line)
+    # 不把口令打到 stdout：桌面壳会把 sidecar 输出落盘到 engine.log，
+    # 打印等于把明文永久留在磁盘上。用户从 desktop-login.txt（0600）读取。
     print(f"[standalone] 演示账号已写入 {login_file}")
 
 
@@ -242,13 +241,13 @@ def docs_selfcheck() -> int:
         slide = prs.slides.add_slide(prs.slide_layouts[6])
         box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1))
         box.text_frame.text = "科技小院自检"
-        prs.save(out / "selfcheck.pptx")
+        prs.save(str(out / "selfcheck.pptx"))
 
         from docx import Document
 
         doc = Document()
         doc.add_paragraph("科技小院自检")
-        doc.save(out / "selfcheck.docx")
+        doc.save(str(out / "selfcheck.docx"))
 
         for name in ("selfcheck.pptx", "selfcheck.docx"):
             size = (out / name).stat().st_size

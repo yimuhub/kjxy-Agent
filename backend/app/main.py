@@ -1,5 +1,6 @@
 """FastAPI 应用入口。"""
 
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
@@ -206,10 +207,14 @@ def create_app() -> FastAPI:
             checks["redis"] = _check_redis()
         checks["schema"] = _check_schema()
         ready = all(checks.values())
+        # 桌面壳只接管回显归属令牌一致的引擎；服务器部署不设置该环境变量，不额外暴露信息
+        instance = os.environ.get("TECHYARD_INSTANCE_TOKEN", "").strip()
+        headers = {"X-TechYard-Instance": instance} if instance else None
         # 未就绪时返回 503，供编排器/探针判断
         return JSONResponse(
             status_code=200 if ready else 503,
             content={"status": "ready" if ready else "not_ready", "checks": checks},
+            headers=headers,
         )
 
     @app.get("/health/worker", tags=["health"])
