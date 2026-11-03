@@ -240,10 +240,10 @@ def normalize_spec(raw: dict[str, Any], *, utterance: str) -> dict[str, Any]:
         method = str(impl.get("method") or "POST").upper()
         impl["method"] = method if method in ("GET", "POST", "PUT", "PATCH", "DELETE") else "POST"
         impl["url"] = str(impl.get("url") or "").strip().rstrip("/")
-        # 会改外部世界的 HTTP 方法必须走审批闸，绝不允许被标成只读
-        if impl["method"] != "GET":
-            risk = "external_side_effect"
-            side_effect = True
+        # 任意 HTTP 出网都可能外带数据（GET 也能把参数写进 URL），一律走审批闸，
+        # 不允许模型或用户自报 read_only 绕过
+        risk = "external_side_effect"
+        side_effect = True
     else:
         impl = {"prompt_template": str(impl.get("prompt_template") or "").strip()[:4000]}
 

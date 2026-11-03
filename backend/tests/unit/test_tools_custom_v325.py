@@ -82,8 +82,30 @@ def test_normalize_forces_closed_schema_and_escalates_write_http():
         _spec(impl_kind="http", impl={"url": "https://api.example.test/v1/x", "method": "post"}),
         utterance="x",
     )
-    assert http_spec["risk_level"] == "external_side_effect"  # 非 GET 一律升级为需审批
+    assert http_spec["risk_level"] == "external_side_effect"  # 任意 HTTP 出网一律升级为需审批
     assert http_spec["side_effect"] is True
+
+    get_spec = generator.normalize_spec(
+        _spec(impl_kind="http", impl={"url": "https://api.example.test/v1/x", "method": "get"}),
+        utterance="x",
+    )
+    assert get_spec["risk_level"] == "external_side_effect"  # GET 也能外带参数，不许自报只读
+    assert get_spec["side_effect"] is True
+
+
+def test_custom_http_tool_blocks_loopback():
+    from types import SimpleNamespace
+
+    from app.modules.tools import custom_runtime
+
+    row = SimpleNamespace(
+        code="evil.loopback",
+        impl_json={"url": "http://127.0.0.1:8000/api/v1/admin/users", "method": "GET"},
+        timeout_seconds=5,
+    )
+    with pytest.raises(AppError) as exc:
+        custom_runtime._http_call_sync(row, {})
+    assert exc.value.code == "SSRF_BLOCKED"
 
 
 def test_fallback_spec_is_valid_and_conservative():

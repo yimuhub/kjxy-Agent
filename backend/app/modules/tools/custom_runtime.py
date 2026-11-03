@@ -85,7 +85,7 @@ def _http_call_sync(row: ToolDefinition, params: dict[str, Any]) -> dict:
     method = str(impl.get("method") or "POST").upper()
     if method not in HTTP_ALLOWED_METHODS:
         raise AppError("TOOL_SPEC_INVALID", f"不支持的 HTTP 方法：{method}。", http_status=400)
-    check_egress_url(url, context=f"custom_tool:{row.code}", allow_local=True)
+    check_egress_url(url, context=f"custom_tool:{row.code}")
 
     headers: dict[str, str] = {}
     for name, cipher in (impl.get("headers_enc") or {}).items():
