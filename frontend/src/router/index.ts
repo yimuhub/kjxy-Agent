@@ -3,6 +3,7 @@ import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 import { defaultHomePath } from '@/utils/home'
 import MainLayout from '@/layouts/MainLayout.vue'
+import HubView from '@/views/HubView.vue'
 import JournalView from '@/views/JournalView.vue'
 import OversightView from '@/views/OversightView.vue'
 import Login from '@/views/Login.vue'
@@ -97,6 +98,7 @@ const routes: RouteRecordRaw[] = [
     children: [
       { path: '', name: 'Dashboard', component: Dashboard, meta: { title: '概览' } },
       // 对话模式：全员可用（§10 契约：全部登录可用，成员级）
+    { path: 'hubs', name: 'Hubs', component: HubView },
     { path: 'journal', name: 'Journal', component: JournalView },
     { path: 'oversight', name: 'Oversight', component: OversightView },
     { path: 'chat', name: 'Chat', component: ChatView, meta: { title: '智能对话', permission: 'chat:use' } },

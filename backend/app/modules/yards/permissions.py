@@ -29,6 +29,7 @@ ALL_PERMISSIONS: frozenset[str] = frozenset(
         "logs:write",
         "logs:review",
         "yards:aggregate",
+        "hubs:manage",
         "skills:manage",
         "skills:generate",
         "skills:review",
@@ -101,6 +102,7 @@ PERMISSION_LABELS: dict[str, str] = {
     "logs:write": "写工作日志/月报",
     "logs:review": "审核工作日志",
     "yards:aggregate": "跨小院监管看板",
+    "hubs:manage": "管理枢纽（绑定小院/成员）",
     "knowledge:read": "查看知识库",
     "knowledge:write": "维护知识库",
     "farm:read": "查看农业台账",
@@ -295,7 +297,7 @@ PERMISSION_GROUPS: tuple[dict[str, object], ...] = (
     {
         "key": "oversight",
         "label": "工作日志与监管",
-        "permissions": ["logs:write", "logs:review", "yards:aggregate"],
+        "permissions": ["logs:write", "logs:review", "yards:aggregate", "hubs:manage"],
     },
     {
         "key": "content",

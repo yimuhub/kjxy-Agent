@@ -41,6 +41,8 @@ class Yard(Base, TimestampMixin):
     config_json: Mapped[dict | None] = mapped_column("config", JSON, nullable=True)
     # 小院负责人（唯一，不可被移除/停用，只能转让）
     owner_user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    # v3.65：所属枢纽（可空；通用基座上的运营模式，见 hubs 模块）
+    hub_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
 
 
 class YardSettings(Base, TimestampMixin):

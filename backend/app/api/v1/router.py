@@ -26,6 +26,7 @@ from app.modules.evolution.router import router as evolution_router
 from app.modules.farm.agent_router import router as farm_agent_router
 from app.modules.farm.router import router as farm_router
 from app.modules.growth.router import router as growth_router
+from app.modules.hubs.router import router as hubs_router
 from app.modules.journal.router import router as journal_router
 from app.modules.knowledge.router import router as knowledge_router
 from app.modules.library.router import router as library_router
@@ -108,6 +109,7 @@ router.include_router(pairing_router)  # /pairing（手机扫码配对：建码/
 router.include_router(bots_router)  # /bots（IM 机器人网关：配置/测试/会话批准/账本）
 router.include_router(search_router)  # /search（联网状态探测 + 连通性测试）
 router.include_router(self_improve_router)  # /yards/current/self-improve*（自我总结提升 v3.4）
+router.include_router(hubs_router)
 router.include_router(journal_router)
 router.include_router(system_router)  # /system/logs（负责人查看脱敏运行日志，v3.41）
 
