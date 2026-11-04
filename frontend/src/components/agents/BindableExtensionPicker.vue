@@ -76,13 +76,14 @@
           </el-checkbox>
         </el-checkbox-group>
 
+        <!-- 折叠态：最多显示前 3 行（页面统一化）；其余收进「展开全部」弹框 -->
         <el-checkbox-group
-          v-if="filteredOptions.length"
+          v-if="collapsedRows.length"
           :model-value="modelValue"
           @update:model-value="onChange"
         >
           <el-checkbox
-            v-for="o in filteredOptions"
+            v-for="o in collapsedRows"
             :key="o.code"
             :value="o.code"
             class="ext-row"
@@ -115,6 +116,82 @@
             >{{ o.summary }}</span>
           </el-checkbox>
         </el-checkbox-group>
+
+        <!-- 展开全部：下拉弹框承载完整列表（含独立搜索），再点收回 -->
+        <el-popover
+          v-if="filteredOptions.length > COLLAPSED_ROWS"
+          :visible="expanded"
+          placement="bottom-start"
+          :width="popoverWidth"
+          popper-class="ext-popover"
+        >
+          <template #reference>
+            <button
+              type="button"
+              class="ext-toggle"
+              :aria-expanded="expanded"
+              @click="expanded = !expanded"
+            >
+              {{ expanded ? '收起全部 ▴' : `展开全部 ${filteredOptions.length} 项 ▾` }}
+            </button>
+          </template>
+          <div class="ext-popover-body">
+            <el-input
+              v-model="keyword"
+              class="ext-search"
+              size="small"
+              clearable
+              :placeholder="`按名称或摘要过滤${kindLabel}`"
+            />
+            <div class="ext-popover-list">
+              <el-checkbox-group
+                v-if="filteredOptions.length"
+                :model-value="modelValue"
+                @update:model-value="onChange"
+              >
+                <el-checkbox
+                  v-for="o in filteredOptions"
+                  :key="o.code"
+                  :value="o.code"
+                  class="ext-row"
+                >
+                  <span class="ext-row-head">
+                    <span
+                      class="ext-name"
+                      :title="o.name"
+                    >{{ o.name }}</span>
+                    <el-tag
+                      class="ext-tag"
+                      size="small"
+                      effect="plain"
+                    >
+                      {{ sourceLabel(o.source) }}
+                    </el-tag>
+                    <el-tag
+                      class="ext-tag"
+                      size="small"
+                      :type="RISK_TAG_TYPES[o.risk] ?? 'info'"
+                      effect="plain"
+                    >
+                      {{ RISK_LABELS[o.risk] ?? o.risk }}
+                    </el-tag>
+                  </span>
+                  <span
+                    v-if="o.summary"
+                    class="ext-summary"
+                    :title="o.summary"
+                  >{{ o.summary }}</span>
+                </el-checkbox>
+              </el-checkbox-group>
+              <div
+                v-else
+                class="ext-empty"
+              >
+                <span class="ext-empty-text">没有匹配「{{ keyword }}」的条目</span>
+              </div>
+            </div>
+          </div>
+        </el-popover>
 
         <div
           v-if="!filteredOptions.length && !staleCodes.length"
@@ -186,6 +263,9 @@
   const router = useRouter()
   const keyword = ref('')
 
+  /** 折叠态默认显示的行数（v3.64：页面统一化，多于 3 行收进弹框） */
+  const COLLAPSED_ROWS = 3
+
   const kindLabel = computed(() => (props.kind === 'skill' ? '扩展技能' : '扩展插件'))
   const kindPrefix = computed(() => (props.kind === 'skill' ? 'skill:' : 'plugin:'))
 
@@ -218,6 +298,15 @@
       o => o.name.toLowerCase().includes(kw) || o.summary.toLowerCase().includes(kw),
     )
   })
+
+  /** 折叠态主列表：前 3 行（搜索命中同样只显示前 3 行，其余进弹框） */
+  const collapsedRows = computed(() =>
+    expanded.value ? [] : filteredOptions.value.slice(0, COLLAPSED_ROWS),
+  )
+
+  /** 展开态：主列表收起、由弹框承载全部；弹框宽度跟随容器（约 420px 起） */
+  const expanded = ref(false)
+  const popoverWidth = 440
 
   /** 已选数量：该区块前缀下的全部绑定值（含失效项） */
   const selectedCount = computed(
@@ -275,8 +364,6 @@
     color: var(--ds-text-3);
   }
   .ext-list {
-    max-height: 220px;
-    overflow-y: auto;
     padding: 4px 8px;
     border: 1px solid var(--ds-border);
     border-radius: 8px;
@@ -359,6 +446,69 @@
     line-height: 1.5;
     color: var(--ds-text-3);
     overflow-wrap: anywhere;
+  }
+  /* 折叠切换按钮：贴列表底部，整行宽度 */
+  .ext-toggle {
+    display: block;
+    width: 100%;
+    margin-top: 4px;
+    padding: 6px 4px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    cursor: pointer;
+    font-size: 12.5px;
+    color: var(--ds-accent-text, var(--el-color-primary));
+    text-align: center;
+    transition: background-color 0.15s ease;
+  }
+  .ext-toggle:hover {
+    background: color-mix(in srgb, var(--ds-accent) 10%, transparent);
+  }
+  /* 弹框：完整列表，高度受限内滚 */
+  .ext-popover-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .ext-popover-list {
+    max-height: 320px;
+    overflow-y: auto;
+  }
+  .ext-popover-list :deep(.el-checkbox-group) {
+    display: flex;
+    flex-direction: column;
+  }
+  .ext-popover-list :deep(.el-checkbox) {
+    display: flex;
+    align-items: flex-start;
+    box-sizing: border-box;
+    width: 100%;
+    height: auto;
+    margin: 0;
+    padding: 7px 6px;
+    white-space: normal;
+    border-radius: 6px;
+  }
+  .ext-popover-list :deep(.el-checkbox + .el-checkbox) {
+    border-top: 1px solid var(--ds-border);
+  }
+  .ext-popover-list :deep(.el-checkbox:hover) {
+    background: color-mix(in srgb, var(--ds-accent) 8%, transparent);
+  }
+  .ext-popover-list :deep(.el-checkbox__input) {
+    flex: none;
+    margin-top: 2px;
+  }
+  .ext-popover-list :deep(.el-checkbox__label) {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    width: 100%;
+    min-width: 0;
+    padding-left: 8px;
+    line-height: 1.5;
+    white-space: normal;
   }
   .ext-empty {
     display: flex;
