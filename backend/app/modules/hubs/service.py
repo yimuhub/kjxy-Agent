@@ -211,6 +211,36 @@ def list_attachable_yards(db: Session, user: Any) -> list[dict[str, Any]]:
     return out
 
 
+def member_candidates(db: Session, ctx: YardContext, hub_id: str) -> list[dict[str, Any]]:
+    """可添加为枢纽成员的用户清单（下拉用）。
+
+    口径：活跃注册用户，排除已在本枢纽的；manager 调用（router 已判权）。
+    """
+    from app.modules.auth.models import User
+
+    existing = {
+        str(uid)
+        for uid in db.scalars(
+            select(HubMember.user_id).where(HubMember.hub_id == hub_id)
+        ).all()
+    }
+    users = list(
+        db.scalars(
+            select(User).where(User.status == "active").order_by(User.username)
+        ).all()
+    )
+    return [
+        {
+            "id": u.id,
+            "username": u.username,
+            "display_name": u.display_name or u.username,
+            "already_member": u.id in existing,
+        }
+        for u in users
+        if u.id not in existing
+    ]
+
+
 def add_member(
     db: Session, ctx: YardContext, hub_id: str, user_id: str, role: str
 ) -> dict[str, Any]:

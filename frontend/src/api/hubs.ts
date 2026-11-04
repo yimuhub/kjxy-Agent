@@ -74,6 +74,16 @@ export const hubsApi = {
   detach(yardId: string): Promise<{ hub_id: null }> {
     return unwrap(api.delete<ApiResponse<{ hub_id: null }>>(`/hubs/yards/${yardId}`, silent))
   },
+  /** 可添加为枢纽成员的用户清单（活跃用户，已在本枢纽的排除） */
+  memberCandidates(hubId: string): Promise<
+    { id: string; username: string; display_name: string; already_member: boolean }[]
+  > {
+    return unwrap(
+      api.get<
+        ApiResponse<{ id: string; username: string; display_name: string; already_member: boolean }[]>
+      >(`/hubs/${hubId}/member-candidates`, silent),
+    )
+  },
   addMember(hubId: string, userId: string, role: string): Promise<{ role: string }> {
     return unwrap(
       api.post<ApiResponse<{ role: string }>>(`/hubs/${hubId}/members`, { user_id: userId, role }, silent),

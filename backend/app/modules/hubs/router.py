@@ -139,6 +139,19 @@ def detach_yard(
     return ok(result, request)
 
 
+@router.get("/{hub_id}/member-candidates")
+def member_candidates(
+    hub_id: str,
+    request: Request,
+    ctx: YardContext = Depends(get_yard_context),
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+):
+    """可添加为枢纽成员的活跃用户清单（已在本枢纽的排除）。"""
+    service.require_hub_access(db, ctx, hub_id, manager=True)
+    return ok(service.member_candidates(db, ctx, hub_id), request)
+
+
 @router.post("/{hub_id}/members")
 def add_member(
     hub_id: str,

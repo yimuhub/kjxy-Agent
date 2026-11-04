@@ -201,3 +201,51 @@ def test_attachable_yards_endpoint(api_client, session_factory, yard):
     r2 = api_client.get("/api/v1/hubs/attachable-yards", headers=operator)
     assert r2.status_code == 200
     assert r2.json()["data"] == []  # operator 不管理任何小院
+
+
+def test_member_candidates_endpoint(api_client, session_factory, yard):
+    """成员候选：manager 可拉活跃用户清单（排除已在本枢纽的）；viewer 403。"""
+    from app.modules.auth.models import User
+
+    db = session_factory()
+    try:
+        db.add(
+            User(
+                username="candidate_a",
+                password_hash="x",
+                display_name="候选人A",
+                status="active",
+            )
+        )
+        db.add(
+            User(
+                username="candidate_b",
+                password_hash="x",
+                display_name="候选人B",
+                status="active",
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    admin = _hdr(user_id="u-admin3", yard_id=yard.id, roles=("platform_admin",))
+    r = api_client.post(
+        "/api/v1/hubs",
+        json={"name": "候选测试枢纽", "mode": "station", "region": "", "note": ""},
+        headers=admin,
+    )
+    assert r.status_code == 200, r.text
+    hub_id = r.json()["data"]["id"]
+
+    r = api_client.get(f"/api/v1/hubs/{hub_id}/member-candidates", headers=admin)
+    assert r.status_code == 200
+    items = r.json()["data"]
+    assert all(i["id"] != "u-admin3" for i in items)  # 已在枢纽（创建者）被排除
+    names = {i["username"] for i in items}
+    assert {"candidate_a", "candidate_b"} <= names
+
+    # 非 manager 403
+    viewer_hdr = _hdr(user_id="u-plain", yard_id=yard.id, roles=("operator",))
+    r2 = api_client.get(f"/api/v1/hubs/{hub_id}/member-candidates", headers=viewer_hdr)
+    assert r2.status_code == 403

@@ -68,7 +68,7 @@
               link
               type="primary"
               size="small"
-              @click="memberVisible = true"
+              @click="openMembers"
             >
               添加成员
             </el-button>
@@ -229,17 +229,29 @@
       </template>
     </el-dialog>
 
-    <!-- 添加成员 -->
+    <!-- 添加成员：下拉直选，无需手动找用户 ID -->
     <el-dialog
       v-model="memberVisible"
       title="添加枢纽成员"
       width="480px"
     >
-      <el-input
+      <el-select
         v-model="memberUserId"
-        placeholder="输入成员用户 ID"
+        v-loading="candidatesLoading"
+        filterable
+        placeholder="选择要添加的成员"
         class="mb"
-      />
+      >
+        <el-option
+          v-for="c in memberCandidates"
+          :key="c.id"
+          :value="c.id"
+          :label="c.display_name"
+        >
+          <span>{{ c.display_name }}</span>
+          <span class="opt-hint">@{{ c.username }}</span>
+        </el-option>
+      </el-select>
       <el-radio-group v-model="memberRole">
         <el-radio value="manager">manager（可管理）</el-radio>
         <el-radio value="viewer">viewer（只看聚合）</el-radio>
@@ -382,10 +394,26 @@
     }
   }
 
+  const memberCandidates = ref<{ id: string; username: string; display_name: string }[]>([])
+  const candidatesLoading = ref(false)
+
+  async function openMembers(): Promise<void> {
+    memberVisible.value = true
+    candidatesLoading.value = true
+    memberUserId.value = ''
+    try {
+      memberCandidates.value = await hubsApi.memberCandidates(activeId.value)
+    } catch {
+      /* toast 已统一处理 */
+    } finally {
+      candidatesLoading.value = false
+    }
+  }
+
   async function addMember(): Promise<void> {
     adding.value = true
     try {
-      await hubsApi.addMember(activeId.value, memberUserId.value.trim(), memberRole.value)
+      await hubsApi.addMember(activeId.value, memberUserId.value, memberRole.value)
       ElMessage.success('成员已添加')
       memberVisible.value = false
       memberUserId.value = ''
