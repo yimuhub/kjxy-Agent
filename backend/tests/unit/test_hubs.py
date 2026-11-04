@@ -152,3 +152,34 @@ def test_list_managed_hubs(db_session, setup):
     managed = service.list_managed_hubs(db_session, "u-manager")
     assert [h.id for h in managed] == [h1.id]
     assert managed[0].mode == "municipal"
+
+
+def test_yard_manager_sees_hub_after_attach(db_session, setup):
+    """v3.65 修复：小院被绑进枢纽后，该院负责人/管理员可见枢纽（只读）。"""
+    y1, _, _ = setup
+    # 小院管理员（该院活跃 yard_admin）
+    db_session.add(YardMembership(yard_id=y1.id, user_id="u-yard-admin", role="yard_admin"))
+    db_session.commit()
+    admin_ctx = _ctx()
+    object.__setattr__(admin_ctx, "yard_id", y1.id)
+    hub = service.create_hub(
+        db_session, admin_ctx, name="可见性枢纽", mode="municipal", region="", note=""
+    )
+    service.attach_yard(db_session, admin_ctx, hub.id, y1.id)
+
+    # 平台管理员可见（manager）
+    visible_admin = service.list_visible_hubs(db_session, "u-admin")
+    assert (hub.id if False else any(h.id == hub.id and r == "manager" for h, r in visible_admin))
+    # 所辖小院的负责人/管理员可见（yard_manager）
+    visible_ym = service.list_visible_hubs(db_session, "u-yard-admin")
+    assert any(h.id == hub.id and r == "yard_manager" for h, r in visible_ym)
+    # 只读聚合可访问
+    ctx_ym = _ctx("u-yard-admin", roles=("yard_admin",))
+    object.__setattr__(ctx_ym, "yard_id", y1.id)
+    overview = service.hub_overview(db_session, ctx_ym, hub.id)
+    assert overview["hub"]["id"] == hub.id
+    # 普通成员（operator）不可见
+    db_session.add(YardMembership(yard_id=y1.id, user_id="u-op-plain", role="operator"))
+    db_session.commit()
+    visible_op = service.list_visible_hubs(db_session, "u-op-plain")
+    assert not any(h.id == hub.id for h, _ in visible_op)

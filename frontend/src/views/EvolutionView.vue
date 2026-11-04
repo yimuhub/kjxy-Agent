@@ -1033,7 +1033,7 @@
   </div>
 </template>
 <script setup lang="ts">
-  import { computed, onMounted, reactive, ref } from 'vue'
+  import { computed, onMounted, reactive, ref, watch } from 'vue'
   import { useRouter } from 'vue-router'
   import { ElMessage, ElMessageBox } from 'element-plus'
   import {
@@ -1048,7 +1048,8 @@
     type WorkflowStepDef,
   } from '@/api/modules'
   import { libraryApi, skillApi } from '@/api/v3'
-  import { extractErrorMessage } from '@/api/client'
+  import type { ApiResponse } from '@/types/api'
+  import { api, extractErrorMessage } from '@/api/client'
   import AsyncState from '@/components/AsyncState.vue'
   import {
     definitionOf,
@@ -1076,6 +1077,23 @@
     strategy: 'percentage',
     percentage: 10,
     yards: '',
+  })
+
+  // v3.65：灰度小院名单傻瓜化——多选下拉代替手填 ID
+  const allYards = ref<{ id: string; name: string }[]>([])
+  const rolloutYardIds = ref<string[]>([])
+
+  async function loadAllYards(): Promise<void> {
+    try {
+      const res = await api.get<ApiResponse<{ items: { id: string; name: string }[] }>>('/yards/all')
+      allYards.value = res.data.data.items
+    } catch {
+      allYards.value = []
+    }
+  }
+
+  watch(rolloutYardIds, (ids: string[]) => {
+    rolloutForm.value.yards = ids.join(',')
   })
   // ----- Skill 列表、详情与自动升级（v3.21） -----
   const router = useRouter()
@@ -1463,6 +1481,8 @@
     }
   }
   function openRollout(s: any) {
+  void loadAllYards()
+  rolloutYardIds.value = []
     currentSkill.value = s
     rolloutVisible.value = true
   }

@@ -49,22 +49,15 @@ def list_hubs(
     db: Session = Depends(get_db_session),
 ):
     """我可见的枢纽：platform_admin 全部；普通用户按 hub_members。"""
-    hubs = service.list_managed_hubs(db, user.user_id)
-    # viewer 也能看到自己所在枢纽（只读聚合）
-    if "platform_admin" not in (user.roles or []):
-        from sqlalchemy import select
-
-        from app.modules.hubs.models import HubMember, YardHub
-
-        member_hub_ids = set(
-            db.scalars(select(HubMember.hub_id).where(HubMember.user_id == user.user_id)).all()
-        )
-        for hub in db.scalars(
-            select(YardHub).where(YardHub.id.in_(member_hub_ids or ["-"]))
-        ).all():
-            if hub not in hubs:
-                hubs.append(hub)
-    return ok({"items": [service.hub_out(db, h) for h in hubs]}, request)
+    visible = service.list_visible_hubs(
+        db, user.user_id, is_platform_admin="platform_admin" in (user.roles or [])
+    )
+    items = []
+    for hub, my_role in visible:
+        out_row = service.hub_out(db, hub)
+        out_row["my_role"] = my_role
+        items.append(out_row)
+    return ok({"items": items}, request)
 
 
 @router.post("")

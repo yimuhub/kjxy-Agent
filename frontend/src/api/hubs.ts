@@ -16,6 +16,8 @@ export interface HubRow {
   note: string
   yard_count: number
   members: { user_id: string; role: 'manager' | 'viewer' | string }[]
+  /** 当前用户在该枢纽的角色（manager/viewer/yard_manager） */
+  my_role?: 'manager' | 'viewer' | 'yard_manager' | string
   created_by: string
 }
 

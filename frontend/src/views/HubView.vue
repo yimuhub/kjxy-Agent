@@ -315,10 +315,8 @@
   const active = computed(() => hubs.value.find(h => h.id === activeId.value) ?? null)
   const canCreate = computed(() => auth.roles?.includes('platform_admin') || auth.roles?.includes('yard_owner'))
   function isManager(h: HubRow): boolean {
-    return (
-      auth.roles?.includes('platform_admin') ||
-      h.members.some(m => m.user_id === (auth.user?.user_id ?? auth.user?.id ?? '') && m.role === 'manager')
-    )
+    // 后端已按「hub 成员 / 所辖小院管理者 / 平台管理员」算好 my_role
+    return h.my_role === 'manager' || auth.roles?.includes('platform_admin') === true
   }
 
   async function loadHubs(): Promise<void> {

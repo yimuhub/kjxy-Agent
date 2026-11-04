@@ -46,6 +46,16 @@ def get_status(
     return ok(service.status(db, _ctx(user)), request)
 
 
+@router.get("/browse")
+def browse_directories(
+    request: Request,
+    base: str = "",
+    user: CurrentUser = Depends(require_yard_permission("workspace:read")),
+):
+    """目录浏览（新建工作区「项目根」傻瓜化选择）：列允许根 / 某目录下一层子目录。"""
+    return ok(service.browse_directories(base), request)
+
+
 @router.get("/projects")
 def list_projects(
     request: Request,

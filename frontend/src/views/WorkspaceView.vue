@@ -332,10 +332,48 @@
           />
         </el-form-item>
         <el-form-item label="项目根">
-          <el-input
-            v-model="form.root_path"
-            placeholder="/Users/you/code/project"
-          />
+          <div class="root-browser">
+            <div class="root-current">
+              <span
+                class="root-path"
+                :title="form.root_path"
+              >{{ form.root_path || '尚未选择，请点选下方目录' }}</span>
+              <el-button
+                size="small"
+                :disabled="!browse.parent"
+                @click="browseTo(browse.parent || '')"
+              >
+                上一级
+              </el-button>
+            </div>
+            <div
+              v-loading="browseLoading"
+              class="root-dirs"
+            >
+              <el-button
+                v-for="d in browse.directories"
+                :key="d.path"
+                class="root-dir-item"
+                size="small"
+                @click="enterDir(d.path)"
+              >
+                📁 {{ d.name }}
+              </el-button>
+              <span
+                v-if="!browse.directories.length && !browseLoading"
+                class="root-empty"
+              >此目录下没有子目录，可直接点「使用当前目录」</span>
+            </div>
+            <el-button
+              size="small"
+              type="primary"
+              plain
+              :disabled="!form.root_path"
+              @click="useCurrentDir"
+            >
+              使用当前目录
+            </el-button>
+          </div>
         </el-form-item>
         <el-form-item label="说明">
           <el-input
@@ -419,7 +457,7 @@ import { AxiosError } from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 import { formatDateTime } from '@/utils/format'
-import { workspaceApi } from '@/api/workspace'
+import { workspaceApi, type BrowseResult } from '@/api/workspace'
 import type {
   WorkspaceChange,
   WorkspaceFile,
@@ -657,6 +695,31 @@ async function rollback(row: WorkspaceChange) {
 function openCreate() {
   form.value = { name: '', root_path: '', description: '', allowed_paths: '' }
   createOpen.value = true
+  void browseTo('')  // 从允许根开始浏览
+}
+
+/* ---------- 项目根目录浏览（傻瓜化选择，v3.65） ---------- */
+const browse = ref<BrowseResult>({ current: '', parent: null, allowed_roots: [], directories: [] })
+const browseLoading = ref(false)
+
+async function browseTo(base: string): Promise<void> {
+  browseLoading.value = true
+  try {
+    browse.value = await workspaceApi.browse(base)
+    if (browse.value.current) form.value.root_path = browse.value.current
+  } catch {
+    /* toast 已统一处理 */
+  } finally {
+    browseLoading.value = false
+  }
+}
+
+function enterDir(path: string): void {
+  void browseTo(path)
+}
+
+function useCurrentDir(): void {
+  if (browse.value.current) form.value.root_path = browse.value.current
 }
 
 async function createProject() {

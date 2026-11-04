@@ -146,6 +146,7 @@ declare module 'vue' {
     SkillCard: typeof import('./components/chat/SkillCard.vue')['default']
     SkillEvalDialog: typeof import('./components/library/SkillEvalDialog.vue')['default']
     SkillScopePanel: typeof import('./components/library/SkillScopePanel.vue')['default']
+    SkillTagCloud: typeof import('./components/agents/SkillTagCloud.vue')['default']
     SkillWizard: typeof import('./components/library/SkillWizard.vue')['default']
     SupplierModelsDrawer: typeof import('./components/settings/SupplierModelsDrawer.vue')['default']
     SupplierModelSelect: typeof import('./components/settings/SupplierModelSelect.vue')['default']

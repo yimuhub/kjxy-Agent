@@ -142,7 +142,15 @@
               <el-input
                 v-model="joinForm.yard_id"
                 placeholder="向小院管理员索取小院 ID"
+                @blur="lookupYard"
               />
+              <div
+                v-if="yardLookup.checked"
+                class="yard-lookup"
+                :class="yardLookup.found ? 'ok' : 'bad'"
+              >
+                {{ yardLookup.found ? `✓ 小院名称：${yardLookup.name}` : '✗ 未找到该小院，请核对 ID' }}
+              </div>
             </el-form-item>
             <el-form-item
               label="用户名"
@@ -256,7 +264,8 @@
   import { useAuthStore } from '@/stores/auth'
   import { yardApi } from '@/api/modules'
   import { profileApi } from '@/api/v3'
-  import { extractErrorMessage, REFRESH_TOKEN_KEY, TOKEN_KEY } from '@/api/client'
+  import { api, extractErrorMessage, REFRESH_TOKEN_KEY, TOKEN_KEY } from '@/api/client'
+  import type { ApiResponse } from '@/types/api'
   import { friendlyErrorMessage } from '@/utils/status'
 
   const router = useRouter()
@@ -333,7 +342,28 @@
   const joinErrorMsg = ref('')
   const joinResult = ref<{ status: string; sub_title: string } | null>(null)
 
-  const joinForm = reactive({
+  const yardLookup = ref<{ checked: boolean; found: boolean; name: string | null }>({
+  checked: false,
+  found: false,
+  name: null,
+})
+
+async function lookupYard(): Promise<void> {
+  const id = (joinForm.yard_id || '').trim()
+  yardLookup.value = { checked: false, found: false, name: null }
+  if (!id) return
+  try {
+    const res = await api.post<ApiResponse<{ found: boolean; name: string | null }>>(
+      '/yards/lookup',
+      { yard_id: id },
+    )
+    yardLookup.value = { checked: true, found: res.data.data.found, name: res.data.data.name }
+  } catch {
+    yardLookup.value = { checked: true, found: false, name: null }
+  }
+}
+
+const joinForm = reactive({
     yard_id: '',
     username: '',
     display_name: '',
@@ -499,4 +529,17 @@
     font-size: 12px;
     color: var(--ds-text-3);
   }
+</style>
+
+<style scoped>
+.yard-lookup {
+  font-size: 12px;
+  margin-top: 4px;
+}
+.yard-lookup.ok {
+  color: var(--el-color-success);
+}
+.yard-lookup.bad {
+  color: var(--el-color-danger);
+}
 </style>

@@ -47,11 +47,56 @@ def is_hub_manager(db: Session, user_id: str, hub_id: str) -> bool:
     return row is not None
 
 
-def list_managed_hubs(db: Session, user_id: str) -> list[YardHub]:
-    """用户可管理的枢纽：platform_admin 全部，普通用户按 hub_members。"""
+def list_visible_hubs(
+    db: Session, user_id: str, *, is_platform_admin: bool = False
+) -> list[tuple[YardHub, str]]:
+    """用户可见的枢纽列表，返回 (枢纽, 我的角色)。
 
+    角色：manager（hub_members 且 role=manager）、viewer（hub_members）、
+    yard_manager（所辖小院的负责人/管理员——v3.65 修复可见性）。
+    """
     hubs = list(db.scalars(select(YardHub).order_by(YardHub.created_at.desc())).all())
-    return [h for h in hubs if is_hub_manager(db, user_id, h.id)]
+    out: list[tuple[YardHub, str]] = []
+    for h in hubs:
+        if is_platform_admin:
+            out.append((h, "manager"))
+            continue
+        if is_hub_manager(db, user_id, h.id):
+            out.append((h, "manager"))
+        elif _is_member(db, user_id, h.id):
+            out.append((h, "viewer"))
+        elif is_yard_manager_of_hub(db, user_id, h.id):
+            out.append((h, "yard_manager"))
+    return out
+
+
+def list_managed_hubs(db: Session, user_id: str) -> list[YardHub]:
+    """兼容别名：仅 manager 角色。"""
+    return [h for h, role in list_visible_hubs(db, user_id) if role == "manager"]
+
+
+def is_yard_manager_of_hub(db: Session, user_id: str, hub_id: str) -> bool:
+    """用户是否为该枢纽**所辖小院**的负责人/管理员（活跃成员）。
+
+    这类用户对枢纽聚合有**只读**可见权——把演示科技小院绑进枢纽后，该院
+    管理员理应看到自己院所在枢纽的工作台（v3.65 修复：此前仅 hub_members 可见）。
+    """
+    from app.modules.yards.models import YardMembership
+
+    return (
+        db.scalar(
+            select(YardMembership.user_id)
+            .join(Yard, Yard.id == YardMembership.yard_id)
+            .where(
+                Yard.hub_id == hub_id,
+                YardMembership.user_id == user_id,
+                YardMembership.status == "active",
+                YardMembership.role.in_(["yard_owner", "yard_admin"]),
+            )
+            .limit(1)
+        )
+        is not None
+    )
 
 
 def require_hub_access(
@@ -63,10 +108,14 @@ def require_hub_access(
         raise AppError("HUB_NOT_FOUND", "枢纽不存在或无权访问。", http_status=404)
     if "platform_admin" in (ctx.roles or []):
         return hub
-    ok = is_hub_manager(db, ctx.user_id, hub_id) if manager else _is_member(db, ctx.user_id, hub_id)
-    if not ok:
-        raise AppError("FORBIDDEN", "你不是该枢纽的成员。", http_status=403)
-    return hub
+    if manager:
+        if not is_hub_manager(db, ctx.user_id, hub_id):
+            raise AppError("FORBIDDEN", "只有枢纽管理员可执行该操作。", http_status=403)
+        return hub
+    # 只读可见：枢纽成员 或 所辖小院的负责人/管理员
+    if _is_member(db, ctx.user_id, hub_id) or is_yard_manager_of_hub(db, ctx.user_id, hub_id):
+        return hub
+    raise AppError("FORBIDDEN", "你不是该枢纽的成员。", http_status=403)
 
 
 def _is_member(db: Session, user_id: str, hub_id: str) -> bool:

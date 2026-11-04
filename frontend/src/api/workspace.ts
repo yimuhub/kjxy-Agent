@@ -89,7 +89,18 @@ function toList<T>(raw: { items?: T[] } | T[] | null | undefined): T[] {
   return Array.isArray(raw?.items) ? raw.items : []
 }
 
+export interface BrowseResult {
+  current: string
+  parent: string | null
+  allowed_roots: string[]
+  directories: { name: string; path: string }[]
+}
+
 export const workspaceApi = {
+  /** 目录浏览（新建工作区傻瓜化选择项目根） */
+  browse(base = ''): Promise<BrowseResult> {
+    return unwrap(api.get<ApiResponse<BrowseResult>>('/workspace/browse', { params: { base }}))
+  },
   status(): Promise<WorkspaceStatus> {
     return unwrap<WorkspaceStatus>(
       api.get<ApiResponse<WorkspaceStatus>>('/workspace/status'),

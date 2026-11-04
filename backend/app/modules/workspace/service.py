@@ -97,6 +97,59 @@ def allowed_roots() -> list[Path]:
     return roots or [Path.home().resolve()]
 
 
+#: 浏览时跳过的无关目录（与工作区无关的依赖/缓存）
+_BROWSE_SKIP = {
+    ".git",
+    "node_modules",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "dist",
+    "build",
+    ".idea",
+    ".vscode",
+}
+
+
+def browse_directories(base: str = "") -> dict[str, Any]:
+    """目录浏览（新建工作区「项目根」傻瓜化选择，v3.65）。
+
+    - base 为空：返回允许根列表（每个都是可选项）；
+    - base 非空：resolve 后必须在 allowed_roots 内（防越权浏览），返回其
+      下一层的子目录（跳过隐藏目录与依赖/缓存目录），并附父目录路径供「上一级」。
+    """
+    if not base.strip():
+        roots = allowed_roots()
+        return {
+            "current": "",
+            "parent": None,
+            "allowed_roots": [str(r) for r in roots],
+            "directories": [
+                {"name": r.name or str(r), "path": str(r)} for r in roots
+            ],
+        }
+    path = _root(base)  # 复用存在/目录/越权校验
+    if not any(path == root or path.is_relative_to(root) for root in allowed_roots()):
+        raise _fail("WORKSPACE_ROOT_FORBIDDEN", "浏览范围仅限允许根目录之内。")
+    directories: list[dict[str, str]] = []
+    try:
+        for child in sorted(path.iterdir(), key=lambda p: p.name.lower()):
+            if not child.is_dir() or child.name.startswith("."):
+                continue
+            if child.name in _BROWSE_SKIP:
+                continue
+            directories.append({"name": child.name, "path": str(child)})
+    except OSError as e:
+        raise _fail("WORKSPACE_ROOT_INVALID", "目录不可读取。", detail=str(e)[:120]) from e
+    parent = str(path.parent) if path != path.parent else None
+    return {
+        "current": str(path),
+        "parent": parent,
+        "allowed_roots": [str(r) for r in allowed_roots()],
+        "directories": directories,
+    }
+
+
 def _root(raw: str) -> Path:
     path = Path(raw).expanduser()
     if not path.is_absolute():

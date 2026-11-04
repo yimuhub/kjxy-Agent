@@ -1,11 +1,14 @@
 """小院路由：只做鉴权/校验与 service 调用，业务逻辑在 service 层。"""
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Body, Depends, Query, Request
 from fastapi.responses import JSONResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.deps import (
+    CurrentUser,
     YardContext,
+    get_current_user,
     get_db_session,
     get_yard_context,
 )
@@ -75,6 +78,45 @@ def require_yard_any_permission(*permissions: str):
 
 def _request_id(request: Request) -> str:
     return getattr(request.state, "request_id", "req_unknown")
+
+
+@router.post("/yards/lookup")
+def lookup_yard(
+    payload: dict[str, str] = Body(default=None),
+):
+    """匿名小院核验（注册页傻瓜化）：按 ID 查名称。UUID 不可枚举，仅返回名称。"""
+
+    yard_id = str((payload or {}).get("yard_id") or "").strip()
+    if not yard_id:
+        raise AppError("INVALID_REQUEST", "请提供小院 ID。", http_status=400)
+    row = db_session_aware_lookup(yard_id)
+    return ok({"found": row is not None, "name": (row.name if row else None)})
+
+
+def db_session_aware_lookup(yard_id: str):
+    from app.db.session import SessionLocal
+    from app.modules.yards.models import Yard
+
+    db = SessionLocal()
+    try:
+        return db.get(Yard, yard_id)
+    finally:
+        db.close()
+
+
+@router.get("/yards/all")
+def list_all_yards(
+    request: Request,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+):
+    """全院列表（技能灰度发布等管理场景）：平台管理员或小院负责人。"""
+    from app.modules.yards.models import Yard
+
+    if not ({"platform_admin", "yard_owner"} & set(user.roles or [])):
+        raise AppError("FORBIDDEN", "仅平台管理员或小院负责人可查看全院列表。", http_status=403)
+    rows = db.scalars(select(Yard).order_by(Yard.name)).all()
+    return ok({"items": [{"id": y.id, "name": y.name} for y in rows]}, request)
 
 
 @router.get("/yards/current")
