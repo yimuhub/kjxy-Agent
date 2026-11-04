@@ -463,6 +463,7 @@
   watch([pos, visible], syncCornerCoverage, { flush: 'post' })
 
   async function loadCommanderSettings(): Promise<void> {
+    // 后端读写分离（v3.65）：commander 设置单查放宽到 chat:use，全员可读
     try {
       const settings = await commanderApi.getSettings()
       commanderEnabled.value = settings.enabled

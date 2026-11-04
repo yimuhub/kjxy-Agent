@@ -48,6 +48,12 @@ router = APIRouter()
 
 #: 设置项 → 所需权限（注册/安全/技能生成为普通设置，搜索为搜索管理；
 #: 自我总结提升涉及成员数据归纳，需保护型权限 settings:manage_protected）
+#: 单查（GET）的放宽映射：部分设置是全员功能的使用前提（如指挥官展示），
+#: 读走这里的权限，写仍按 SETTINGS_PERMISSIONS
+SETTINGS_READ_PERMISSIONS: dict[str, str] = {
+    "commander": "chat:use",
+}
+
 SETTINGS_PERMISSIONS: dict[str, str] = {
     "registration": "settings:manage",
     "security": "settings:manage",
@@ -55,6 +61,9 @@ SETTINGS_PERMISSIONS: dict[str, str] = {
     "skill_lab": "settings:manage",
     "self_improve": "settings:manage_protected",
     "agent_generate": "settings:manage",
+    # v3.65 读写分离：指挥官是全员功能，成员读设置展示（无密钥字段）用 chat:use；
+    # 写权限仍按 SETTINGS_PERMISSIONS（settings:manage）
+    "commander(read)": "chat:use",
     "yard_profile": "settings:manage",
     "device_analysis": "settings:manage",
     # Agent 自动执行会创建告警/工单/台账，按管理型设置处理
@@ -156,7 +165,7 @@ def get_setting(
     走 public_setting 而不是 get_setting：这个端点的权限是「逐人授权」的，
     被授权的成员不该拿到第三方 API Key 明文——与列表接口同一套脱敏口径。
     """
-    permission = SETTINGS_PERMISSIONS.get(key)
+    permission = SETTINGS_READ_PERMISSIONS.get(key) or SETTINGS_PERMISSIONS.get(key)
     if permission is None:
         raise AppError("INVALID_REQUEST", f"未知设置项：{key}", http_status=400)
     _require(db, user, permission)

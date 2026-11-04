@@ -11,7 +11,7 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.core.deps import CurrentUser, get_db_session, require_roles
+from app.core.deps import CurrentUser, get_db_session, require_roles, require_yard_permission
 from app.core.responses import ok
 from app.modules.audit.service import log_audit
 from app.modules.llm import supplier_service
@@ -47,6 +47,13 @@ def _key_configured_dep():
     get_fernet()  # 缺失/非法即抛 AppError
 
 
+def _list_actor(
+    user: CurrentUser = Depends(require_yard_permission("chat:use")),
+) -> tuple[CurrentUser, bool]:
+    """列表读取：能对话/建智能体的角色即可（写操作仍 _admin_only）。"""
+    return user, "platform_admin" in (user.roles or [])
+
+
 def _actor(user: CurrentUser = Depends(_admin_only)) -> tuple[CurrentUser, bool]:
     """入口上下文：当前用户 + 是否平台管理员（归属双校验下沉 service 层执行）。"""
     return user, ("platform_admin" in user.roles)
@@ -75,7 +82,9 @@ def _meta_of(out):
 
 @router.get("/providers", response_model=None)
 def list_providers(
-    ctx=Depends(_actor),
+    # 读放宽到 chat:use（v3.65）：专家/成员在编辑智能体时需要选模型（Key 永远掩码）；
+    # 写操作仍走 _admin_only
+    ctx=Depends(_list_actor),
     db=Depends(get_db_session),
     _key=Depends(_key_configured_dep),
 ):
