@@ -34,3 +34,7 @@ backend/*.spec
 frontend/tmp-checks/
 frontend/vite.e2e.config.ts
 frontend/playwright.e2e.config.ts
+dev.db
+*.db-shm
+*.db-wal
+backend/data/dev.db*
