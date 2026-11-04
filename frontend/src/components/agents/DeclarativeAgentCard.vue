@@ -96,20 +96,7 @@
         <div class="da-meta-row">
           <dt>技能({{ skillNames.length }})</dt>
           <dd class="da-skills">
-            <template v-if="skillNames.length">
-              <el-tag
-                v-for="name in skillNames"
-                :key="name"
-                size="small"
-                type="info"
-              >
-                {{ name }}
-              </el-tag>
-            </template>
-            <span
-              v-else
-              class="da-none"
-            >未绑定</span>
+            <SkillTagCloud :tags="skillNames" />
           </dd>
         </div>
         <div class="da-meta-row">
@@ -182,6 +169,7 @@
 </template>
 
 <script setup lang="ts">
+  import SkillTagCloud from '@/components/agents/SkillTagCloud.vue'
   import { computed, onUnmounted, ref, watch } from 'vue'
   import type { AxiosRequestConfig } from 'axios'
   import { api } from '@/api/client'

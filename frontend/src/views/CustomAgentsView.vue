@@ -297,22 +297,7 @@
           min-width="210"
         >
           <template #default="{ row }">
-            <div class="table-skills">
-              <template v-if="skillLabels(row as DeclarativeAgent).length">
-                <el-tag
-                  v-for="sk in skillLabels(row as DeclarativeAgent)"
-                  :key="sk"
-                  size="small"
-                  type="info"
-                >
-                  {{ sk }}
-                </el-tag>
-              </template>
-              <span
-                v-else
-                class="da-note"
-              >未绑定</span>
-            </div>
+            <SkillTagCloud :tags="skillLabels(row as DeclarativeAgent)" />
           </template>
         </el-table-column>
 
@@ -815,6 +800,7 @@
   import AgentUseDialog from '@/components/agents/AgentUseDialog.vue'
   import AgentWizard from '@/components/agents/AgentWizard.vue'
   import BindableExtensionPicker from '@/components/agents/BindableExtensionPicker.vue'
+  import SkillTagCloud from '@/components/agents/SkillTagCloud.vue'
   import DeclarativeAgentCard from '@/components/agents/DeclarativeAgentCard.vue'
   import DuplicateNameDialog from '@/components/agents/DuplicateNameDialog.vue'
   import SupplierModelSelect from '@/components/settings/SupplierModelSelect.vue'
