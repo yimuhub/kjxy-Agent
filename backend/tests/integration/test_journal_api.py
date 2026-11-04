@@ -178,3 +178,26 @@ def test_training_notify_pushes(api_client, session_factory, yard, monkeypatch):
     )
     assert r.status_code == 200
     assert sent and sent[0][0] == "training_reminder" and "培训" in sent[0][1]["title"]
+
+
+def test_attachable_yards_endpoint(api_client, session_factory, yard):
+    """绑定下拉的数据源：platform_admin 全部；普通 operator 只看到自己管理的院。"""
+    from app.modules.yards.models import YardMembership
+
+    db = session_factory()
+    try:
+        db.add(YardMembership(yard_id=yard.id, user_id="u-owner2", role="yard_owner"))
+        db.commit()
+    finally:
+        db.close()
+
+    admin = _hdr(user_id="u-admin2", yard_id=yard.id, roles=("platform_admin",))
+    r = api_client.get("/api/v1/hubs/attachable-yards", headers=admin)
+    assert r.status_code == 200, r.text
+    ids = [i["id"] for i in r.json()["data"]]
+    assert yard.id in ids
+
+    operator = _hdr(user_id="u-op-plain", yard_id=yard.id, roles=("operator",))
+    r2 = api_client.get("/api/v1/hubs/attachable-yards", headers=operator)
+    assert r2.status_code == 200
+    assert r2.json()["data"] == []  # operator 不管理任何小院

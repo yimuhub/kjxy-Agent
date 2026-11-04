@@ -30,9 +30,20 @@ export interface HubOverviewItem {
 
 const silent = { skipErrorToast: true } as Record<string, unknown>
 
+export interface AttachableYard {
+  id: string
+  name: string
+  hub_id: string | null
+  hub_name: string | null
+}
+
 export const hubsApi = {
   list(): Promise<{ items: HubRow[] }> {
     return unwrap(api.get<ApiResponse<{ items: HubRow[] }>>('/hubs', silent))
+  },
+  /** 可绑定到枢纽的小院清单（platform_admin 全部；普通用户为其管理的小院） */
+  attachableYards(): Promise<AttachableYard[]> {
+    return unwrap(api.get<ApiResponse<AttachableYard[]>>('/hubs/attachable-yards', silent))
   },
   create(payload: {
     name: string

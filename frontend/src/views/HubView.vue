@@ -60,7 +60,7 @@
               link
               type="primary"
               size="small"
-              @click="attachVisible = true"
+              @click="openAttach"
             >
               绑定小院
             </el-button>
@@ -191,16 +191,32 @@
       </template>
     </el-dialog>
 
-    <!-- 绑定小院 -->
+    <!-- 绑定小院：下拉直选，无需手动找 ID -->
     <el-dialog
       v-model="attachVisible"
       title="绑定小院到本枢纽"
       width="480px"
     >
-      <el-input
+      <el-select
         v-model="attachYardId"
-        placeholder="输入小院 ID（可在小院详情页复制）"
-      />
+        v-loading="yardsLoading"
+        filterable
+        placeholder="选择你要绑定的小院"
+        class="attach-select"
+      >
+        <el-option
+          v-for="y in attachableYards"
+          :key="y.id"
+          :value="y.id"
+          :label="y.name"
+          :disabled="!!y.hub_id"
+        >
+          <span>{{ y.name }}</span>
+          <span class="opt-hint">
+            {{ y.hub_id ? (y.hub_name ? `已归属：${y.hub_name}` : '已归属其他枢纽') : '' }}
+          </span>
+        </el-option>
+      </el-select>
       <template #footer>
         <el-button @click="attachVisible = false">取消</el-button>
         <el-button
@@ -336,10 +352,25 @@
     }
   }
 
+  const attachableYards = ref<{ id: string; name: string; hub_id: string | null; hub_name: string | null }[]>([])
+  const yardsLoading = ref(false)
+
+  async function openAttach(): Promise<void> {
+    attachVisible.value = true
+    yardsLoading.value = true
+    try {
+      attachableYards.value = await hubsApi.attachableYards()
+    } catch {
+      /* toast 已统一处理 */
+    } finally {
+      yardsLoading.value = false
+    }
+  }
+
   async function attach(): Promise<void> {
     attaching.value = true
     try {
-      await hubsApi.attach(activeId.value, attachYardId.value.trim())
+      await hubsApi.attach(activeId.value, attachYardId.value)
       ElMessage.success('小院已绑定到枢纽')
       attachVisible.value = false
       attachYardId.value = ''
@@ -425,5 +456,13 @@
   }
   .mb {
     margin-bottom: 10px;
+  }
+  .attach-select {
+    width: 100%;
+  }
+  .opt-hint {
+    float: right;
+    font-size: 11.5px;
+    color: var(--ds-text-3);
   }
 </style>

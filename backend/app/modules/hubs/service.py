@@ -71,9 +71,7 @@ def require_hub_access(
 
 def _is_member(db: Session, user_id: str, hub_id: str) -> bool:
     return (
-        db.scalar(
-            select(HubMember).where(HubMember.hub_id == hub_id, HubMember.user_id == user_id)
-        )
+        db.scalar(select(HubMember).where(HubMember.hub_id == hub_id, HubMember.user_id == user_id))
         is not None
     )
 
@@ -87,9 +85,7 @@ def create_hub(
     db: Session, ctx: YardContext, *, name: str, mode: str, region: str, note: str
 ) -> YardHub:
     if mode not in VALID_MODES:
-        raise AppError(
-            "INVALID_REQUEST", f"mode 只能是 {VALID_MODES}。", http_status=400
-        )
+        raise AppError("INVALID_REQUEST", f"mode 只能是 {VALID_MODES}。", http_status=400)
     exists = db.scalar(select(YardHub).where(YardHub.name == name))
     if exists is not None:
         raise AppError("HUB_NAME_TAKEN", "同名枢纽已存在。", http_status=409)
@@ -174,6 +170,47 @@ def detach_yard(db: Session, ctx: YardContext, yard_id: str) -> dict[str, Any]:
     return {"yard_id": yard_id, "hub_id": None}
 
 
+def list_attachable_yards(db: Session, user: Any) -> list[dict[str, Any]]:
+    """当前用户可绑定到枢纽的小院清单（下拉用）。
+
+    口径：platform_admin → 全部小院；普通用户 → 其担任 yard_owner/yard_admin
+    的活跃成员小院。返回带「当前归属枢纽」标记，前端据此禁用已绑定项。
+    """
+
+    from app.modules.yards.models import YardMembership
+
+    if "platform_admin" in (user.roles or []):
+        yards = list(db.scalars(select(Yard).order_by(Yard.name)).all())
+    else:
+        yards = list(
+            db.scalars(
+                select(Yard)
+                .join(YardMembership, YardMembership.yard_id == Yard.id)
+                .where(
+                    YardMembership.user_id == user.user_id,
+                    YardMembership.status == "active",
+                    YardMembership.role.in_(["yard_owner", "yard_admin"]),
+                )
+                .order_by(Yard.name)
+            ).all()
+        )
+    out: list[dict[str, Any]] = []
+    for y in yards:
+        hub_name = None
+        if y.hub_id:
+            hub = db.get(YardHub, y.hub_id)
+            hub_name = hub.name if hub else None
+        out.append(
+            {
+                "id": y.id,
+                "name": y.name,
+                "hub_id": y.hub_id,
+                "hub_name": hub_name,
+            }
+        )
+    return out
+
+
 def add_member(
     db: Session, ctx: YardContext, hub_id: str, user_id: str, role: str
 ) -> dict[str, Any]:
@@ -210,9 +247,7 @@ def hub_out(db: Session, hub: YardHub) -> dict[str, Any]:
     yard_count = int(
         db.scalar(select(func.count()).select_from(Yard).where(Yard.hub_id == hub.id)) or 0
     )
-    members = list(
-        db.scalars(select(HubMember).where(HubMember.hub_id == hub.id)).all()
-    )
+    members = list(db.scalars(select(HubMember).where(HubMember.hub_id == hub.id)).all())
     return {
         "id": hub.id,
         "name": hub.name,

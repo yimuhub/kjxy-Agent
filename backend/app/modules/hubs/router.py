@@ -90,6 +90,16 @@ def create_hub(
     return ok(service.hub_out(db, hub), request)
 
 
+@router.get("/attachable-yards")
+def attachable_yards(
+    request: Request,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+):
+    """当前用户可绑定到枢纽的小院清单（platform_admin 全部；普通用户为其管理的小院）。"""
+    return ok(service.list_attachable_yards(db, user), request)
+
+
 @router.get("/{hub_id}/overview")
 def hub_overview(
     hub_id: str,
