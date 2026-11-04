@@ -27,6 +27,13 @@ export interface JournalStats {
   daily_approved: number
   monthly_total: number
   active_days: number
+  /** 年度达标牵引（对标质量监测标准：日志 100 篇/年） */
+  year_total: number
+  annual_target: number
+  annual_progress: number
+  weekly_pace: number
+  projected_year_total: number
+  on_track: boolean
 }
 
 export interface OversightItem {

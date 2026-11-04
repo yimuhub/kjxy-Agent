@@ -38,6 +38,12 @@ from app.modules.tasks.models import Task
 #: 单份日志的素材采样上限（防极端日拉爆聚合查询）
 _EVIDENCE_SAMPLE = 40
 
+#: 年度考核锚点（三部门《质量监测标准（试行）》量化口径，docs/research-china-
+#: science-yards-2026-11.md §2）：日志 100 篇/年、常驻 120 天/年。系统默认按此
+#: 显示达标进度；小院可在设置中覆盖（预留）。
+ANNUAL_LOG_TARGET = 100
+ANNUAL_RESIDENCE_DAYS = 120
+
 
 def _period_key(kind: str, day: date) -> str:
     return day.isoformat() if kind == KIND_DAILY else day.strftime("%Y-%m")
@@ -368,10 +374,19 @@ def journal_out(row: YardJournal) -> dict[str, Any]:
 
 
 def stats(db: Session, ctx: YardContext, month: str) -> dict[str, Any]:
-    """本人月度考核进度：日志篇数/提交/通过、活跃天数。"""
+    """本人月度考核进度 + 年度达标牵引（对照官方 100 篇/120 天锚点）。"""
     rows = list_journal(db, ctx, month=month, mine_only=True)
     daily = [r for r in rows if r.kind == KIND_DAILY]
     monthly = [r for r in rows if r.kind == KIND_MONTHLY]
+    year_prefix = month[:4]
+    year_daily = [r for r in rows if r.period_key.startswith(year_prefix)]
+    year_count = len(year_daily)
+    now = datetime.now(UTC)
+    year_start = date(now.year, 1, 1)
+    days_elapsed = max(1, (now.date() - year_start).days + 1)
+    days_left = (date(now.year, 12, 31) - now.date()).days
+    weekly_pace = round(year_count / max(1, days_elapsed) * 7, 1)
+    projected = year_count + int(weekly_pace * max(0, days_left) / 7)
     return {
         "month": month,
         "daily_total": len(daily),
@@ -379,6 +394,13 @@ def stats(db: Session, ctx: YardContext, month: str) -> dict[str, Any]:
         "daily_approved": sum(1 for r in daily if r.status == STATUS_APPROVED),
         "monthly_total": len(monthly),
         "active_days": len({r.period_key for r in daily}),
+        # 年度达标牵引（对标质量监测标准）
+        "year_total": year_count,
+        "annual_target": ANNUAL_LOG_TARGET,
+        "annual_progress": round(min(1.0, year_count / ANNUAL_LOG_TARGET), 3),
+        "weekly_pace": weekly_pace,
+        "projected_year_total": projected,
+        "on_track": projected >= ANNUAL_LOG_TARGET,
     }
 
 

@@ -46,6 +46,18 @@
         <div class="stat-num">{{ stats?.monthly_total ?? '—' }}</div>
         <div class="stat-label">月报草稿</div>
       </el-card>
+      <el-card class="stat stat-wide">
+        <el-progress
+          :percentage="Math.round((stats?.annual_progress ?? 0) * 100)"
+          :stroke-width="10"
+          :status="(stats?.on_track ?? true) ? 'success' : 'warning'"
+        />
+        <div class="stat-label">
+          年度达标牵引：{{ stats?.year_total ?? 0 }}/{{ stats?.annual_target ?? 100 }} 篇 ·
+          周均 {{ stats?.weekly_pace ?? 0 }} 篇 ·
+          预计 {{ stats?.projected_year_total ?? 0 }} 篇（{{ (stats?.on_track ?? true) ? '进度正常' : '进度偏慢，建议补填' }}）
+        </div>
+      </el-card>
     </div>
 
     <!-- 待办提示 -->
@@ -337,6 +349,10 @@
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     gap: 12px;
+  }
+  .stat-wide {
+    grid-column: 1 / -1;
+    text-align: left;
   }
   .stat {
     text-align: center;
