@@ -141,6 +141,7 @@ declare module 'vue' {
     SettingsSkillLab: typeof import('./components/settings/SettingsSkillLab.vue')['default']
     SettingsSso: typeof import('./components/settings/SettingsSso.vue')['default']
     SettingsSystemLogs: typeof import('./components/settings/SettingsSystemLogs.vue')['default']
+    SettingsYardProfile: typeof import('./components/settings/SettingsYardProfile.vue')['default']
     SkillCard: typeof import('./components/chat/SkillCard.vue')['default']
     SkillEvalDialog: typeof import('./components/library/SkillEvalDialog.vue')['default']
     SkillScopePanel: typeof import('./components/library/SkillScopePanel.vue')['default']

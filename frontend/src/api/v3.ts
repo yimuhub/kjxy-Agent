@@ -213,6 +213,10 @@ export interface YardSettingsBundle {
     daily_limit: number
     use_web: boolean
   }
+  /** v3.58：小院画像（官方技能库按此推荐，类型见 official_catalog.YARD_TYPES） */
+  yard_profile: {
+    types: string[]
+  }
   /** v3.23：设备数据智能分析（每日定时 + 立即分析） */
   device_analysis: {
     enabled: boolean
@@ -299,7 +303,8 @@ export const governanceApi = {
       | 'farm_agent'
       | 'menu'
       | 'asr'
-      | 'quota',
+      | 'quota'
+      | 'yard_profile',
     value: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
     return unwrap(

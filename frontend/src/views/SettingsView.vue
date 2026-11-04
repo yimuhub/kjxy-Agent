@@ -55,6 +55,7 @@
         name="network"
       >
         <SettingsNetwork />
+        <SettingsYardProfile />
         <SettingsSkillLab />
         <SettingsAgentGenerate />
       </el-tab-pane>
@@ -555,6 +556,7 @@ import SettingsRegistration from '@/components/settings/SettingsRegistration.vue
 import SettingsNetwork from '@/components/settings/SettingsNetwork.vue'
 import SettingsSkillLab from '@/components/settings/SettingsSkillLab.vue'
   import SettingsAgentGenerate from '@/components/settings/SettingsAgentGenerate.vue'
+  import SettingsYardProfile from '@/components/settings/SettingsYardProfile.vue'
 import SettingsCommander from '@/components/settings/SettingsCommander.vue'
 import SettingsDesktopPet from '@/components/settings/SettingsDesktopPet.vue'
 import SettingsCluster from '@/components/settings/SettingsCluster.vue'
