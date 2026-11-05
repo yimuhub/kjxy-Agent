@@ -423,6 +423,7 @@ def get_me(
     if user is None:
         raise AppError("UNAUTHORIZED", "身份凭证无效。", http_status=401)
     # v3.66：枢纽上下文与枢纽权限包（延迟 import 避免 core → modules 的循环）
+    from app.modules.auth.schemas import HubBrief
     from app.modules.hubs import service as hub_service
 
     is_platform_admin = "platform_admin" in roles
@@ -456,7 +457,7 @@ def get_me(
         yard_id=yard_id,
         is_owner=owner,
         permissions=sorted(permissions),
-        hubs=hubs,
+        hubs=[HubBrief(**h) if isinstance(h, dict) else h for h in hubs],
     )
 
 

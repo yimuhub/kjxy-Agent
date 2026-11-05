@@ -68,7 +68,6 @@ for (const acc of ACCOUNTS) {
   await page.fill('input[type="password"]', acc.pass)
   await page.keyboard.press('Enter')
   await page.waitForTimeout(2500)
-  const afterLogin = page.url()
 
   for (const route of ROLE_ROUTES[acc.user] ?? ROUTES_ALL) {
     consoleErrors = []

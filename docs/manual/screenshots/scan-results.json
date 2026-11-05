@@ -1,0 +1,776 @@
+[
+  {
+    "account": "admin",
+    "route": "/",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/platform-admin-home.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "admin",
+    "route": "/chat",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/platform-adminchat.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "admin",
+    "route": "/commander",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/platform-admincommander.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "admin",
+    "route": "/agents",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/platform-adminagents.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "admin",
+    "route": "/agents/custom",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/platform-adminagents_custom.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "admin",
+    "route": "/agents/factory",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/platform-adminagents_factory.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "admin",
+    "route": "/teams",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/platform-adminteams.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "admin",
+    "route": "/hubs",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/platform-adminhubs.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "admin",
+    "route": "/journal",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/platform-adminjournal.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "admin",
+    "route": "/knowledge",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/platform-adminknowledge.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "admin",
+    "route": "/library",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/platform-adminlibrary.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "admin",
+    "route": "/market",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/platform-adminmarket.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "admin",
+    "route": "/evolution",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/platform-adminevolution.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "admin",
+    "route": "/review",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/platform-adminreview.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "admin",
+    "route": "/devices",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/platform-admindevices.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "admin",
+    "route": "/farm",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/platform-adminfarm.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "admin",
+    "route": "/diagnosis",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/platform-admindiagnosis.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "admin",
+    "route": "/tasks",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/platform-admintasks.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "admin",
+    "route": "/work-orders",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/platform-adminwork-orders.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "admin",
+    "route": "/org",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/platform-adminorg.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "admin",
+    "route": "/members",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/platform-adminmembers.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "admin",
+    "route": "/roles",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/platform-adminroles.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "admin",
+    "route": "/owner",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/platform-adminowner.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "admin",
+    "route": "/quota",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/platform-adminquota.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "admin",
+    "route": "/settings",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/platform-adminsettings.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "admin",
+    "route": "/model-center",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/platform-adminmodel-center.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "admin",
+    "route": "/bots",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/platform-adminbots.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "admin",
+    "route": "/profile",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/platform-adminprofile.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "admin",
+    "route": "/workspace",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/platform-adminworkspace.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "yard_admin",
+    "route": "/",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/yard-admin-home.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "yard_admin",
+    "route": "/chat",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/yard-adminchat.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "yard_admin",
+    "route": "/commander",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/yard-admincommander.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "yard_admin",
+    "route": "/agents",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/yard-adminagents.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "yard_admin",
+    "route": "/agents/custom",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/yard-adminagents_custom.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "yard_admin",
+    "route": "/agents/factory",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/yard-adminagents_factory.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "yard_admin",
+    "route": "/teams",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/yard-adminteams.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "yard_admin",
+    "route": "/hubs",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/yard-adminhubs.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "yard_admin",
+    "route": "/journal",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/yard-adminjournal.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "yard_admin",
+    "route": "/knowledge",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/yard-adminknowledge.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "yard_admin",
+    "route": "/library",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/yard-adminlibrary.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "yard_admin",
+    "route": "/market",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/yard-adminmarket.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "yard_admin",
+    "route": "/evolution",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/yard-adminevolution.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "yard_admin",
+    "route": "/review",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/yard-adminreview.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "yard_admin",
+    "route": "/devices",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/yard-admindevices.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "yard_admin",
+    "route": "/farm",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/yard-adminfarm.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "yard_admin",
+    "route": "/diagnosis",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/yard-admindiagnosis.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "yard_admin",
+    "route": "/tasks",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/yard-admintasks.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "yard_admin",
+    "route": "/work-orders",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/yard-adminwork-orders.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "yard_admin",
+    "route": "/org",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/yard-adminorg.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "yard_admin",
+    "route": "/members",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/yard-adminmembers.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "yard_admin",
+    "route": "/roles",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/yard-adminroles.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "yard_admin",
+    "route": "/owner",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/yard-adminowner.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "yard_admin",
+    "route": "/quota",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/yard-adminquota.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "yard_admin",
+    "route": "/settings",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/yard-adminsettings.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "yard_admin",
+    "route": "/model-center",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/yard-adminmodel-center.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "yard_admin",
+    "route": "/bots",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/yard-adminbots.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "yard_admin",
+    "route": "/profile",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/yard-adminprofile.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "yard_admin",
+    "route": "/workspace",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/yard-adminworkspace.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "expert",
+    "route": "/",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/expert-home.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "expert",
+    "route": "/chat",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/expertchat.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "expert",
+    "route": "/commander",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/expertcommander.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "expert",
+    "route": "/agents",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/expertagents.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "expert",
+    "route": "/agents/custom",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/expertagents_custom.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "expert",
+    "route": "/agents/factory",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/expertagents_factory.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "expert",
+    "route": "/teams",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/expertteams.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "expert",
+    "route": "/hubs",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/experthubs.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "expert",
+    "route": "/journal",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/expertjournal.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "expert",
+    "route": "/knowledge",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/expertknowledge.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "expert",
+    "route": "/library",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/expertlibrary.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "expert",
+    "route": "/market",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/expertmarket.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "expert",
+    "route": "/evolution",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/expertevolution.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "expert",
+    "route": "/review",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/expertreview.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "expert",
+    "route": "/devices",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/expertdevices.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "expert",
+    "route": "/farm",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/expertfarm.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "expert",
+    "route": "/diagnosis",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/expertdiagnosis.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "expert",
+    "route": "/tasks",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/experttasks.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "expert",
+    "route": "/work-orders",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/expertwork-orders.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "expert",
+    "route": "/profile",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/expertprofile.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "expert",
+    "route": "/workspace",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/expertworkspace.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "operator",
+    "route": "/",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/operator-home.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "operator",
+    "route": "/chat",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/operatorchat.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "operator",
+    "route": "/commander",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/operatorcommander.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "operator",
+    "route": "/agents",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/operatoragents.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "operator",
+    "route": "/agents/custom",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/operatoragents_custom.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "operator",
+    "route": "/journal",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/operatorjournal.png",
+    "console": [],
+    "http": []
+  },
+  {
+    "account": "operator",
+    "route": "/profile",
+    "ok": true,
+    "mainEmpty": false,
+    "shot": "../docs/manual/screenshots/operatorprofile.png",
+    "console": [],
+    "http": []
+  }
+]

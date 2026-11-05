@@ -190,7 +190,7 @@ def normalize_color(raw: str) -> str:
     return value.upper()
 
 
-def normalize_domains(raw: list[Any]) -> list[str]:
+def normalize_domains(raw: Any) -> list[str]:
     if not isinstance(raw, list):
         raise AppError("INVALID_REQUEST", "域名必须是数组。", http_status=400)
     cleaned = [normalize_domain(str(item)) for item in raw]
