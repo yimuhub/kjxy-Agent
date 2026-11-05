@@ -291,3 +291,30 @@ def test_refresh_disabled_user_rejected(db_session, seeded):
     with pytest.raises(AppError) as exc:
         auth_service.refresh(db_session, token, request_id="req_t")
     assert exc.value.code == "ACCOUNT_DISABLED"
+
+
+def test_get_me_returns_hub_context_for_pure_hub_account(db_session, seeded):
+    """v3.66：不属任何小院的纯枢纽账号，/auth/me 也返回枢纽上下文与枢纽权限。"""
+    from app.core.deps import YardContext
+    from app.modules.hubs import service as hub_service
+
+    carol = seeded["carol"]
+    admin_ctx = YardContext(
+        yard_id=seeded["t1"].id,
+        user_id="u-bootstrap",
+        roles=["platform_admin"],
+        request_id="req",
+    )
+    hub = hub_service.create_hub(
+        db_session, admin_ctx, name="省科协枢纽", mode="province", region="江苏", note=""
+    )
+    hub_service.add_member(db_session, admin_ctx, hub.id, carol.id, "manager")
+    db_session.flush()
+
+    me = auth_service.get_me(db_session, carol.id, roles=[], yard_id=None)
+    assert [h.hub_id for h in me.hubs] == [hub.id]
+    assert me.hubs[0].mode == "province"
+    assert me.hubs[0].role == "manager"
+    assert {"hubs:view", "hubs:manage", "hubs:export", "hubs:dispatch"}.issubset(
+        set(me.permissions)
+    )
