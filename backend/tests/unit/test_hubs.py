@@ -98,15 +98,19 @@ def test_attach_and_overview_narrowing(db_session, setup):
     # 重复绑定幂等
     again = service.attach_yard(db_session, ctx, hub.id, y1.id)
     assert again["moved"] is False
-    # 已属他处 409
+    # 已属他处不再 409：按评审关系加进来，主归属不变（v3.67 多对多）
     other_ctx = _ctx()
     object.__setattr__(other_ctx, "yard_id", y3.id)
     hub3 = service.create_hub(
         db_session, other_ctx, name="枢纽Y", mode="province", region="", note=""
     )
-    with pytest.raises(AppError) as e:
-        service.attach_yard(db_session, other_ctx, hub3.id, y1.id)
-    assert e.value.code == "YARD_ALREADY_ATTACHED"
+    shared = service.attach_yard(db_session, other_ctx, hub3.id, y1.id, "review")
+    assert shared["relation_type"] == "review" and shared["primary"] is False
+    assert y1.hub_id == hub.id  # 主归属仍是枢纽X
+    # 评审枢纽也能看到该院（这一层是新增的观测面）
+    assert y1.id in {
+        i["yard_id"] for i in service.hub_overview(db_session, _ctx(), hub3.id)["items"]
+    }
 
     overview = service.hub_overview(db_session, _ctx(), hub.id)
     ids = {i["yard_id"] for i in overview["items"]}
@@ -258,8 +262,8 @@ def test_mode_insights_municipal_and_station(db_session, setup):
     assert {g["key"] for g in m["groups"]} == {"曲周县", "邯郸市"}
 
     # 实验站：yard_type 优先，缺失回退 scene_type
-    service.detach_yard(db_session, ctx, y1.id)
-    service.detach_yard(db_session, ctx, y2.id)
+    service.detach_yard(db_session, ctx, municipal.id, y1.id)
+    service.detach_yard(db_session, ctx, municipal.id, y2.id)
     station = service.create_hub(
         db_session, ctx, name="实验站枢纽", mode="station", region="曲周", note=""
     )
@@ -272,3 +276,170 @@ def test_mode_insights_municipal_and_station(db_session, setup):
     s = service.hub_overview(db_session, ctx, station.id)["insights"]
     assert s["group_by"] == "yard_type" and s["group_label"] == "小院类型"
     assert {g["key"] for g in s["groups"]} == {"水稻", "设施蔬菜"}
+
+
+def test_yard_profile_settings_drive_grouping(db_session, setup):
+    """v3.67：小院档案填完培养单位/县域，枢纽分组立即变准（不必写 attributes_json）。"""
+    from app.modules.yards import settings_service
+
+    y1, y2, _ = setup
+    ctx = _ctx()
+    object.__setattr__(ctx, "yard_id", y1.id)
+    hub = service.create_hub(
+        db_session, ctx, name="省科协枢纽", mode="province", region="江苏", note=""
+    )
+    service.attach_yard(db_session, ctx, hub.id, y1.id)
+    service.attach_yard(db_session, ctx, hub.id, y2.id)
+    db_session.flush()
+
+    before = service.hub_overview(db_session, ctx, hub.id)["insights"]
+    assert before["summary"]["unlabeled"] == 2
+    assert [g["key"] for g in before["groups"]] == ["未标注培养单位"]
+
+    for yard, county, types in ((y1, "如皋市", ["rice"]), (y2, "溧阳市", ["aquaculture"])):
+        settings_service.update_setting(
+            db_session,
+            yard_id=yard.id,
+            key="yard_profile",
+            value={"unit": "南京农业大学", "county": county, "types": types},
+            actor_id="u-admin",
+            request_id="req",
+        )
+    db_session.flush()
+
+    data = service.hub_overview(db_session, ctx, hub.id)
+    insights = data["insights"]
+    assert insights["summary"]["unlabeled"] == 0
+    assert [g["key"] for g in insights["groups"]] == ["南京农业大学"]
+    assert insights["groups"][0]["yards"] == 2
+    row = next(i for i in data["items"] if i["yard_id"] == y1.id)
+    assert row["group_key"] == "南京农业大学"
+    assert row["attributes"]["county"] == "如皋市"
+
+
+def test_yard_profile_types_fill_station_group(db_session, setup):
+    """v3.67：实验站模式缺 yard_type 时，用画像产业类型码的中文名兜底；导入值优先。"""
+    from app.modules.yards import settings_service
+
+    y1, y2, _ = setup
+    ctx = _ctx()
+    object.__setattr__(ctx, "yard_id", y1.id)
+    hub = service.create_hub(
+        db_session, ctx, name="实验站枢纽", mode="station", region="曲周", note=""
+    )
+    service.attach_yard(db_session, ctx, hub.id, y1.id)
+    service.attach_yard(db_session, ctx, hub.id, y2.id)
+    db_session.flush()
+
+    settings_service.update_setting(
+        db_session,
+        yard_id=y1.id,
+        key="yard_profile",
+        value={"types": ["rice"]},
+        actor_id="u-admin",
+        request_id="req",
+    )
+    # y2 走外部导入特性，优先级高于档案
+    y2.attributes_json = {"yard_type": "设施蔬菜"}
+    db_session.flush()
+
+    data = service.hub_overview(db_session, ctx, hub.id)
+    assert {g["key"] for g in data["insights"]["groups"]} == {"水稻/稻麦", "设施蔬菜"}
+    assert data["insights"]["summary"]["unlabeled"] == 0
+
+
+def test_yard_profile_validation_limits(db_session, setup):
+    """v3.67：档案特性字段有长度与数量上限，脏数据进不来。"""
+    from app.modules.yards import settings_service
+
+    y1, _, _ = setup
+    with pytest.raises(AppError) as e:
+        settings_service.update_setting(
+            db_session,
+            yard_id=y1.id,
+            key="yard_profile",
+            value={"unit": "农" * 65},
+            actor_id="u-admin",
+            request_id="req",
+        )
+    assert e.value.code == "INVALID_REQUEST"
+
+    with pytest.raises(AppError):
+        settings_service.update_setting(
+            db_session,
+            yard_id=y1.id,
+            key="yard_profile",
+            value={"tags": [f"t{i}" for i in range(13)]},
+            actor_id="u-admin",
+            request_id="req",
+        )
+
+    out = settings_service.update_setting(
+        db_session,
+        yard_id=y1.id,
+        key="yard_profile",
+        value={"unit": "  南京农业大学  ", "tags": [" 一院一策 ", "一院一策", ""]},
+        actor_id="u-admin",
+        request_id="req",
+    )
+    assert out["unit"] == "南京农业大学"
+    assert out["tags"] == ["一院一策"]
+
+
+def test_multi_hub_relation_and_primary_handover(db_session, setup):
+    """v3.67：一院可同时「日常管理 + 评审归口」，解绑只删自己那条，主归属自动移交。"""
+    y1, _, _ = setup
+    ctx = _ctx()
+    object.__setattr__(ctx, "yard_id", y1.id)
+    manage = service.create_hub(db_session, ctx, name="实验站", mode="station", region="", note="")
+    review = service.create_hub(
+        db_session, ctx, name="省科协", mode="province", region="江苏", note=""
+    )
+
+    first = service.attach_yard(db_session, ctx, manage.id, y1.id)
+    assert first["moved"] is True and first["primary"] is True
+    second = service.attach_yard(db_session, ctx, review.id, y1.id, "review")
+    assert second["primary"] is False and second["relation_type"] == "review"
+
+    m = service.hub_overview(db_session, ctx, manage.id)
+    r = service.hub_overview(db_session, ctx, review.id)
+    assert [i["relation_label"] for i in m["items"]] == ["日常管理"]
+    assert [i["relation_label"] for i in r["items"]] == ["评审归口"]
+    assert m["hub"]["yard_count"] == 1 and r["hub"]["yard_count"] == 1
+
+    # 解除评审关系不影响日常管理
+    service.detach_yard(db_session, ctx, review.id, y1.id)
+    assert service.hub_overview(db_session, ctx, manage.id)["hub"]["yard_count"] == 1
+    assert service.hub_overview(db_session, ctx, review.id)["hub"]["yard_count"] == 0
+
+    # 解除主归属：还有另一条关系则移交，否则清空
+    service.attach_yard(db_session, ctx, review.id, y1.id, "observe")
+    out = service.detach_yard(db_session, ctx, manage.id, y1.id)
+    assert out["hub_id"] == review.id
+    assert y1.hub_id == review.id
+    assert service.detach_yard(db_session, ctx, review.id, y1.id)["hub_id"] is None
+    assert y1.hub_id is None
+
+
+def test_attach_rejects_unknown_relation_and_marks_attachable(db_session, setup):
+    """v3.67：关系口径只能三种；候选清单标出已在本枢纽与既有关系。"""
+    y1, y2, _ = setup
+    ctx = _ctx()
+    object.__setattr__(ctx, "yard_id", y1.id)
+    hub = service.create_hub(db_session, ctx, name="枢纽Z", mode="station", region="", note="")
+    service.attach_yard(db_session, ctx, hub.id, y1.id)
+
+    with pytest.raises(AppError) as e:
+        service.attach_yard(db_session, ctx, hub.id, y2.id, "owner")
+    assert e.value.code == "INVALID_REQUEST"
+
+    class _User:
+        user_id = "u-admin"
+        roles = ["platform_admin"]
+
+    rows = service.list_attachable_yards(db_session, _User(), hub.id)
+    row1 = next(r for r in rows if r["id"] == y1.id)
+    row2 = next(r for r in rows if r["id"] == y2.id)
+    assert row1["in_current_hub"] is True
+    assert row1["relations"][0]["relation_type"] == "manage"
+    assert row2["in_current_hub"] is False and row2["relations"] == []

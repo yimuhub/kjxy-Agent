@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.deps import YardContext
@@ -22,16 +22,34 @@ from app.modules.hubs.models import (
     MODE_MUNICIPAL,
     MODE_PROVINCE,
     MODE_STATION,
+    RELATION_LABELS,
+    RELATION_MANAGE,
     ROLE_MANAGER,
     VALID_HUB_ROLES,
     VALID_MODES,
+    VALID_RELATION_TYPES,
     HubMember,
+    HubYard,
     YardHub,
 )
 from app.modules.journal.models import YardJournal
-from app.modules.yards.models import Yard
+from app.modules.yards.models import Yard, YardSettings
 
 STALE_DAYS = 7
+
+#: 小院档案设置键（settings_service.DEFAULTS 中的同名分组）
+PROFILE_SETTING_KEY = "yard_profile"
+
+#: 画像产业类型码 → 中文分组名（与设置页选项同源；general 表示未细分，不参与分组）
+PROFILE_TYPE_LABELS: dict[str, str] = {
+    "rice": "水稻/稻麦",
+    "aquaculture": "水产",
+    "fruit": "应时鲜果",
+    "vegetable": "蔬菜瓜果",
+    "tea": "茶叶",
+    "livestock": "畜禽",
+    "smart_agri": "智慧农业/农文旅",
+}
 
 #: 制度锚点：每院每年不少于 100 篇日志 → 月均 9 篇作为达标线（100/12 向上取整）
 ANNUAL_JOURNAL_ANCHOR = 100
@@ -137,15 +155,17 @@ def is_yard_manager_of_hub(db: Session, user_id: str, hub_id: str) -> bool:
 
     这类用户对枢纽聚合有**只读**可见权——把演示科技小院绑进枢纽后，该院
     管理员理应看到自己院所在枢纽的工作台（v3.65 修复：此前仅 hub_members 可见）。
+    v3.67：所辖口径同时认多对多关系表，老口径 ``yards.hub_id`` 继续生效。
     """
     from app.modules.yards.models import YardMembership
 
+    related_yard_ids = select(HubYard.yard_id).where(HubYard.hub_id == hub_id)
     return (
         db.scalar(
             select(YardMembership.user_id)
             .join(Yard, Yard.id == YardMembership.yard_id)
             .where(
-                Yard.hub_id == hub_id,
+                or_(Yard.hub_id == hub_id, Yard.id.in_(related_yard_ids)),
                 YardMembership.user_id == user_id,
                 YardMembership.status == "active",
                 YardMembership.role.in_(["yard_owner", "yard_admin"]),
@@ -180,6 +200,19 @@ def _is_member(db: Session, user_id: str, hub_id: str) -> bool:
         db.scalar(select(HubMember).where(HubMember.hub_id == hub_id, HubMember.user_id == user_id))
         is not None
     )
+
+
+def _hub_relation_map(db: Session, hub_id: str) -> dict[str, str]:
+    """枢纽关联的小院 → 关系类型。
+
+    新表（``hub_yards``）优先；表里没有该枢纽的记录时回退老口径
+    ``yards.hub_id``——保证迁移前后、双写期间读到同一批小院。
+    """
+    rows = list(db.scalars(select(HubYard).where(HubYard.hub_id == hub_id)).all())
+    if rows:
+        return {r.yard_id: r.relation_type for r in rows}
+    legacy = db.scalars(select(Yard.id).where(Yard.hub_id == hub_id)).all()
+    return {str(yid): RELATION_MANAGE for yid in legacy}
 
 
 # ---------------------------------------------------------------------------
@@ -222,23 +255,61 @@ def create_hub(
     return hub
 
 
-def attach_yard(db: Session, ctx: YardContext, hub_id: str, yard_id: str) -> dict[str, Any]:
-    """把小院绑到枢纽（一个小院只属一个枢纽；重复绑定幂等返回）。"""
+def attach_yard(
+    db: Session,
+    ctx: YardContext,
+    hub_id: str,
+    yard_id: str,
+    relation_type: str = RELATION_MANAGE,
+) -> dict[str, Any]:
+    """把小院关联到枢纽（v3.67 多对多）。
+
+    - 同一枢纽重复绑定幂等，可顺带改关系口径
+    - 已属其他枢纽时**不再 409**：加一条关系即可（评审/观察），主归属不变
+    - 小院此前没有主归属时，本次关系顺带成为主归属（写回 ``yards.hub_id``）
+    """
+    if relation_type not in VALID_RELATION_TYPES:
+        raise AppError(
+            "INVALID_REQUEST",
+            f"关系类型只能是 {VALID_RELATION_TYPES}。",
+            http_status=400,
+        )
     hub = require_hub_access(db, ctx, hub_id, manager=True)
     yard = db.get(Yard, yard_id)
     if yard is None:
         raise AppError("YARD_NOT_FOUND", "小院不存在。", http_status=404)
-    old_hub_id = yard.hub_id
-    if old_hub_id == hub.id:
-        return {"yard_id": yard_id, "hub_id": hub.id, "moved": False}
-    if old_hub_id:
-        old = db.get(YardHub, old_hub_id)
-        raise AppError(
-            "YARD_ALREADY_ATTACHED",
-            f"该小院已归属枢纽「{old.name if old else old_hub_id}」，请先解绑。",
-            http_status=409,
+
+    existing = db.scalar(
+        select(HubYard).where(HubYard.hub_id == hub.id, HubYard.yard_id == yard_id)
+    )
+    if existing is not None:
+        changed = existing.relation_type != relation_type
+        if changed:
+            existing.relation_type = relation_type
+            db.flush()
+        return {
+            "yard_id": yard_id,
+            "yard_name": yard.name,
+            "hub_id": hub.id,
+            "relation_type": relation_type,
+            "relation_label": RELATION_LABELS.get(relation_type, relation_type),
+            "moved": False,
+            "primary": yard.hub_id == hub.id,
+            "already": True,
+            "changed": changed,
+        }
+
+    db.add(
+        HubYard(
+            hub_id=hub.id,
+            yard_id=yard_id,
+            relation_type=relation_type,
+            created_by=ctx.user_id,
         )
-    yard.hub_id = hub.id
+    )
+    became_primary = not yard.hub_id
+    if became_primary:
+        yard.hub_id = hub.id
     db.flush()
     log_audit(
         db,
@@ -249,18 +320,52 @@ def attach_yard(db: Session, ctx: YardContext, hub_id: str, yard_id: str) -> dic
         resource_id=hub.id,
         result="success",
         request_id=ctx.request_id,
-        metadata={"yard_id": yard_id, "yard_name": yard.name},
+        metadata={
+            "yard_id": yard_id,
+            "yard_name": yard.name,
+            "relation_type": relation_type,
+            "primary": became_primary,
+        },
     )
-    return {"yard_id": yard_id, "yard_name": yard.name, "hub_id": hub.id, "moved": True}
+    return {
+        "yard_id": yard_id,
+        "yard_name": yard.name,
+        "hub_id": hub.id,
+        "relation_type": relation_type,
+        "relation_label": RELATION_LABELS.get(relation_type, relation_type),
+        "moved": became_primary,
+        "primary": yard.hub_id == hub.id,
+        "already": False,
+        "changed": True,
+    }
 
 
-def detach_yard(db: Session, ctx: YardContext, yard_id: str) -> dict[str, Any]:
+def detach_yard(db: Session, ctx: YardContext, hub_id: str, yard_id: str) -> dict[str, Any]:
+    """解除该枢纽与小院的关系（只删这一条，不影响其他枢纽的关联）。
+
+    若被删的是主归属，则把主归属移交给剩余的 manage 关系（没有则任意剩余关系，
+    再没有就清空），保证 ``yards.hub_id`` 与关系表始终一致。
+    """
+    hub = require_hub_access(db, ctx, hub_id, manager=True)
     yard = db.get(Yard, yard_id)
-    if yard is None or not yard.hub_id:
-        raise AppError("YARD_NOT_ATTACHED", "该小院未归属任何枢纽。", http_status=404)
-    require_hub_access(db, ctx, yard.hub_id, manager=True)
-    hub_id = yard.hub_id
-    yard.hub_id = None
+    if yard is None:
+        raise AppError("YARD_NOT_FOUND", "小院不存在。", http_status=404)
+
+    row = db.scalar(select(HubYard).where(HubYard.hub_id == hub.id, HubYard.yard_id == yard_id))
+    if row is None and yard.hub_id != hub.id:
+        raise AppError("YARD_NOT_ATTACHED", "该小院未关联此枢纽。", http_status=404)
+    if row is not None:
+        db.delete(row)
+        db.flush()
+
+    primary_hub_id: str | None = yard.hub_id
+    if yard.hub_id == hub.id:
+        remaining = list(db.scalars(select(HubYard).where(HubYard.yard_id == yard_id)).all())
+        pick = next((r for r in remaining if r.relation_type == RELATION_MANAGE), None)
+        if pick is None and remaining:
+            pick = remaining[0]
+        primary_hub_id = pick.hub_id if pick else None
+        yard.hub_id = primary_hub_id
     db.flush()
     log_audit(
         db,
@@ -268,19 +373,22 @@ def detach_yard(db: Session, ctx: YardContext, yard_id: str) -> dict[str, Any]:
         actor_id=ctx.user_id,
         action="hub_yard_detached",
         resource_type="hub",
-        resource_id=hub_id,
+        resource_id=hub.id,
         result="success",
         request_id=ctx.request_id,
-        metadata={"yard_id": yard_id},
+        metadata={"yard_id": yard_id, "primary_hub_id": primary_hub_id},
     )
-    return {"yard_id": yard_id, "hub_id": None}
+    return {"yard_id": yard_id, "hub_id": primary_hub_id, "detached_from": hub.id}
 
 
-def list_attachable_yards(db: Session, user: Any) -> list[dict[str, Any]]:
-    """当前用户可绑定到枢纽的小院清单（下拉用）。
+def list_attachable_yards(
+    db: Session, user: Any, hub_id: str | None = None
+) -> list[dict[str, Any]]:
+    """当前用户可关联到枢纽的小院清单（下拉用）。
 
     口径：platform_admin → 全部小院；普通用户 → 其担任 yard_owner/yard_admin
-    的活跃成员小院。返回带「当前归属枢纽」标记，前端据此禁用已绑定项。
+    的活跃成员小院。v3.67 起返回该院**全部**枢纽关系：前端据此把「已在本枢纽」
+    的项禁用、把「属其他枢纽」的项标成可加评审/观察关系。
     """
 
     from app.modules.yards.models import YardMembership
@@ -300,18 +408,47 @@ def list_attachable_yards(db: Session, user: Any) -> list[dict[str, Any]]:
                 .order_by(Yard.name)
             ).all()
         )
+    yard_ids = [y.id for y in yards]
+    relations: dict[str, list[dict[str, Any]]] = {}
+    if yard_ids:
+        rows = list(db.scalars(select(HubYard).where(HubYard.yard_id.in_(yard_ids))).all())
+        hub_ids = {r.hub_id for r in rows} | {y.hub_id for y in yards if y.hub_id}
+        names = (
+            {h.id: h.name for h in db.scalars(select(YardHub).where(YardHub.id.in_(hub_ids))).all()}
+            if hub_ids
+            else {}
+        )
+        for r in rows:
+            relations.setdefault(r.yard_id, []).append(
+                {
+                    "hub_id": r.hub_id,
+                    "hub_name": names.get(r.hub_id),
+                    "relation_type": r.relation_type,
+                    "relation_label": RELATION_LABELS.get(r.relation_type, r.relation_type),
+                }
+            )
+        # 老口径兜底：主归属但关系表没记录（双写过渡期）也算一条 manage 关系
+        for y in yards:
+            if y.hub_id and not any(r["hub_id"] == y.hub_id for r in relations.get(y.id, [])):
+                relations.setdefault(y.id, []).append(
+                    {
+                        "hub_id": y.hub_id,
+                        "hub_name": names.get(y.hub_id),
+                        "relation_type": RELATION_MANAGE,
+                        "relation_label": RELATION_LABELS[RELATION_MANAGE],
+                    }
+                )
     out: list[dict[str, Any]] = []
     for y in yards:
-        hub_name = None
-        if y.hub_id:
-            hub = db.get(YardHub, y.hub_id)
-            hub_name = hub.name if hub else None
+        rels = relations.get(y.id, [])
         out.append(
             {
                 "id": y.id,
                 "name": y.name,
                 "hub_id": y.hub_id,
-                "hub_name": hub_name,
+                "hub_name": next((r["hub_name"] for r in rels if r["hub_id"] == y.hub_id), None),
+                "relations": rels,
+                "in_current_hub": bool(hub_id) and any(r["hub_id"] == hub_id for r in rels),
             }
         )
     return out
@@ -376,9 +513,7 @@ def add_member(
 
 
 def hub_out(db: Session, hub: YardHub) -> dict[str, Any]:
-    yard_count = int(
-        db.scalar(select(func.count()).select_from(Yard).where(Yard.hub_id == hub.id)) or 0
-    )
+    yard_count = len(_hub_relation_map(db, hub.id))
     members = list(db.scalars(select(HubMember).where(HubMember.hub_id == hub.id)).all())
     return {
         "id": hub.id,
@@ -394,23 +529,74 @@ def hub_out(db: Session, hub: YardHub) -> dict[str, Any]:
     }
 
 
-def _yard_attr(yard: Yard, key: str, fallback: str = "") -> str:
-    """读小院特性：``attributes_json`` 优先，回退到模型列（province/city/scene_type）。"""
+def _profile_map(db: Session, yard_ids: list[str]) -> dict[str, dict[str, Any]]:
+    """批量取小院档案（一次 IN 查询，避免 N+1）。
+
+    返回 ``{yard_id: yard_profile}``；没有任何档案的小院不在字典里，读侧按缺省回退。
+    """
+    if not yard_ids:
+        return {}
+    rows = db.scalars(
+        select(YardSettings).where(
+            YardSettings.yard_id.in_(yard_ids),
+            YardSettings.key == PROFILE_SETTING_KEY,
+        )
+    ).all()
+    return {r.yard_id: r.value_json for r in rows if isinstance(r.value_json, dict)}
+
+
+def _profile_type_label(profile: dict[str, Any] | None) -> str:
+    """画像产业类型码里第一个可分组项的中文名（general 视为未细分）。"""
+    if not isinstance(profile, dict):
+        return ""
+    for code in profile.get("types") or []:
+        label = PROFILE_TYPE_LABELS.get(str(code))
+        if label:
+            return label
+    return ""
+
+
+def _yard_attr(
+    yard: Yard, key: str, fallback: str = "", profile: dict[str, Any] | None = None
+) -> str:
+    """读小院特性，三级回退：``attributes_json``（外部导入）→ 小院档案 → 模型列。"""
     raw = getattr(yard, "attributes_json", None)
     if isinstance(raw, dict):
         value = str(raw.get(key) or "").strip()
+        if value:
+            return value
+    if isinstance(profile, dict):
+        value = str(profile.get(key) or "").strip()
         if value:
             return value
     value = str(getattr(yard, key, "") or "").strip()
     return value or fallback
 
 
-def _group_key(yard: Yard, mode: str) -> str:
+def _group_key(yard: Yard, mode: str, profile: dict[str, Any] | None = None) -> str:
     if mode == MODE_MUNICIPAL:
-        return _yard_attr(yard, "county") or str(yard.city or "").strip() or "未标注县域"
+        return (
+            _yard_attr(yard, "county", profile=profile)
+            or str(yard.city or "").strip()
+            or "未标注县域"
+        )
     if mode == MODE_STATION:
-        return _yard_attr(yard, "yard_type") or str(yard.scene_type or "").strip() or "未标注类型"
-    return _yard_attr(yard, "unit", "未标注培养单位")
+        return (
+            _yard_attr(yard, "yard_type", profile=profile)
+            or _profile_type_label(profile)
+            or str(yard.scene_type or "").strip()
+            or "未标注类型"
+        )
+    return _yard_attr(yard, "unit", "未标注培养单位", profile=profile)
+
+
+def _row_attributes(yard: Yard, profile: dict[str, Any] | None) -> dict[str, Any]:
+    """明细行特性：档案打底、导入值覆盖，去掉不参与展示的 types。"""
+    merged = {k: v for k, v in (profile or {}).items() if k != "types"}
+    raw = getattr(yard, "attributes_json", None)
+    if isinstance(raw, dict):
+        merged.update({k: v for k, v in raw.items() if str(v or "").strip()})
+    return merged
 
 
 def _mode_insights(
@@ -419,6 +605,7 @@ def _mode_insights(
     yards_by_id: dict[str, Yard],
     *,
     stale_count: int,
+    profiles: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """按运营模式给出分组视角；结构统一，前端只换标题与列。
 
@@ -427,12 +614,13 @@ def _mode_insights(
     - station：小院类型分组 + 横向对比（明细在 items）
     """
     group_by, group_label = MODE_GROUP_FIELD.get(mode, ("unit", "分组"))
+    profiles = profiles or {}
     groups: dict[str, dict[str, Any]] = {}
     for item in items:
         yard = yards_by_id.get(item["yard_id"])
         if yard is None:
             continue
-        key = _group_key(yard, mode)
+        key = _group_key(yard, mode, profiles.get(item["yard_id"]))
         row = groups.setdefault(key, {"key": key, "yards": 0, "journal_count": 0, "compliant": 0})
         row["yards"] += 1
         row["journal_count"] += int(item["journal_count"])
@@ -442,6 +630,8 @@ def _mode_insights(
     ordered = sorted(groups.values(), key=lambda g: (-g["journal_count"], g["key"]))
     total = len(items)
     compliant = sum(1 for i in items if int(i["journal_count"]) >= MONTHLY_JOURNAL_ANCHOR)
+    # 未标注 = 分组键仍是占位文案：说明小院档案没填，提示去设置页补全
+    unlabeled = sum(1 for i in items if str(i["group_key"]).startswith("未标注"))
     return {
         "mode": mode,
         "group_by": group_by,
@@ -456,6 +646,7 @@ def _mode_insights(
             "compliant": compliant,
             "compliance_rate": round(compliant / total, 4) if total else 0.0,
             "stale_count": stale_count,
+            "unlabeled": unlabeled,
         },
     }
 
@@ -463,8 +654,14 @@ def _mode_insights(
 def hub_overview(db: Session, ctx: YardContext, hub_id: str) -> dict[str, Any]:
     """枢纽工作台聚合：所辖小院的日志量/活跃作者/断更预警 + 按模式分组。"""
     hub = require_hub_access(db, ctx, hub_id)
-    yards = list(db.scalars(select(Yard).where(Yard.hub_id == hub.id)).all())
+    relation_map = _hub_relation_map(db, hub.id)
+    yards = (
+        list(db.scalars(select(Yard).where(Yard.id.in_(list(relation_map)))).all())
+        if relation_map
+        else []
+    )
     yards_by_id = {y.id: y for y in yards}
+    profiles = _profile_map(db, list(yards_by_id))
     month_prefix = datetime.now(UTC).strftime("%Y-%m") + "%"
     stale_before = datetime.now(UTC) - timedelta(days=STALE_DAYS)
 
@@ -484,7 +681,8 @@ def hub_overview(db: Session, ctx: YardContext, hub_id: str) -> dict[str, Any]:
         ).one()
         last_at = last_at if last_at is None or last_at.tzinfo else last_at.replace(tzinfo=UTC)
         yard = yards_by_id[yid]
-        attributes = yard.attributes_json if isinstance(yard.attributes_json, dict) else {}
+        profile = profiles.get(yid)
+        rows_attributes = _row_attributes(yard, profile)
         items.append(
             {
                 "yard_id": yid,
@@ -497,8 +695,13 @@ def hub_overview(db: Session, ctx: YardContext, hub_id: str) -> dict[str, Any]:
                 "province": yard.province,
                 "city": yard.city,
                 "scene_type": yard.scene_type,
-                "attributes": attributes,
-                "group_key": _group_key(yard, hub.mode),
+                "attributes": rows_attributes,
+                "group_key": _group_key(yard, hub.mode, profile),
+                # v3.67：本枢纽与该院的关系口径（manage/review/observe）
+                "relation_type": relation_map.get(yid, RELATION_MANAGE),
+                "relation_label": RELATION_LABELS.get(
+                    relation_map.get(yid, RELATION_MANAGE), RELATION_MANAGE
+                ),
             }
         )
     items.sort(key=lambda i: -i["journal_count"])
@@ -508,5 +711,7 @@ def hub_overview(db: Session, ctx: YardContext, hub_id: str) -> dict[str, Any]:
         "stale_days": STALE_DAYS,
         "stale_count": stale_count,
         "items": items,
-        "insights": _mode_insights(hub.mode, items, yards_by_id, stale_count=stale_count),
+        "insights": _mode_insights(
+            hub.mode, items, yards_by_id, stale_count=stale_count, profiles=profiles
+        ),
     }

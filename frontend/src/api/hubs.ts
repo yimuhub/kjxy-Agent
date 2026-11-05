@@ -35,6 +35,9 @@ export interface HubOverviewItem {
   attributes?: Record<string, unknown>
   /** 当前枢纽模式下该院的分组键（培养单位/县域/类型） */
   group_key?: string
+  /** v3.67：本枢纽与该院的关系口径 */
+  relation_type?: 'manage' | 'review' | 'observe' | string
+  relation_label?: string
 }
 
 export interface HubInsightGroup {
@@ -59,25 +62,44 @@ export interface HubInsights {
     compliant: number
     compliance_rate: number
     stale_count: number
+    /** v3.67：分组键仍为占位（档案没填）的小院数，前端提示去补档案 */
+    unlabeled?: number
   }
 }
 
 const silent = { skipErrorToast: true } as Record<string, unknown>
 
+export interface HubRelation {
+  hub_id: string
+  hub_name: string | null
+  relation_type: 'manage' | 'review' | 'observe' | string
+  relation_label: string
+}
+
 export interface AttachableYard {
   id: string
   name: string
+  /** 主归属枢纽（历史上的一院一枢纽） */
   hub_id: string | null
   hub_name: string | null
+  /** v3.67：该院全部枢纽关系（可同时有管理/评审/观察） */
+  relations: HubRelation[]
+  /** 是否已关联到当前请求的枢纽 */
+  in_current_hub: boolean
 }
 
 export const hubsApi = {
   list(): Promise<{ items: HubRow[] }> {
     return unwrap(api.get<ApiResponse<{ items: HubRow[] }>>('/hubs', silent))
   },
-  /** 可绑定到枢纽的小院清单（platform_admin 全部；普通用户为其管理的小院） */
-  attachableYards(): Promise<AttachableYard[]> {
-    return unwrap(api.get<ApiResponse<AttachableYard[]>>('/hubs/attachable-yards', silent))
+  /** 可关联到枢纽的小院清单（带 hubId 时标出 in_current_hub） */
+  attachableYards(hubId?: string): Promise<AttachableYard[]> {
+    return unwrap(
+      api.get<ApiResponse<AttachableYard[]>>('/hubs/attachable-yards', {
+        ...silent,
+        params: hubId ? { hub_id: hubId } : undefined,
+      }),
+    )
   },
   create(payload: {
     name: string
@@ -106,13 +128,32 @@ export const hubsApi = {
       >(`/hubs/${hubId}/overview`, silent),
     )
   },
-  attach(hubId: string, yardId: string): Promise<{ moved: boolean }> {
+  /** 关联小院：manage=日常管理 / review=评审归口 / observe=观察 */
+  attach(
+    hubId: string,
+    yardId: string,
+    relationType: 'manage' | 'review' | 'observe' = 'manage',
+  ): Promise<{ moved: boolean; primary: boolean; relation_type: string }> {
     return unwrap(
-      api.post<ApiResponse<{ moved: boolean }>>(`/hubs/${hubId}/yards`, { yard_id: yardId }, silent),
+      api.post<ApiResponse<{ moved: boolean; primary: boolean; relation_type: string }>>(
+        `/hubs/${hubId}/yards`,
+        { yard_id: yardId, relation_type: relationType },
+        silent,
+      ),
     )
   },
-  detach(yardId: string): Promise<{ hub_id: null }> {
-    return unwrap(api.delete<ApiResponse<{ hub_id: null }>>(`/hubs/yards/${yardId}`, silent))
+  /** 解除本枢纽与该院的关系（其他枢纽的关联不受影响） */
+  detach(hubId: string, yardId: string): Promise<{ hub_id: string | null }> {
+    return unwrap(
+      api.delete<ApiResponse<{ hub_id: string | null }>>(
+        `/hubs/${hubId}/yards/${yardId}`,
+        silent,
+      ),
+    )
+  },
+  /** 旧签名兼容：按主归属推断枢纽 */
+  detachByYard(yardId: string): Promise<{ hub_id: string | null }> {
+    return unwrap(api.delete<ApiResponse<{ hub_id: string | null }>>(`/hubs/yards/${yardId}`, silent))
   },
   /** 可添加为枢纽成员的用户清单（活跃用户，已在本枢纽的排除） */
   memberCandidates(hubId: string): Promise<

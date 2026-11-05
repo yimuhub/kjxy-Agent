@@ -17,12 +17,25 @@
       min-width="140"
     />
     <el-table-column
+      label="关系"
+      width="96"
+    >
+      <template #default="{ row }">
+        <el-tag
+          size="small"
+          effect="plain"
+          :type="row.relation_type === 'manage' ? 'primary' : 'info'"
+        >
+          {{ row.relation_label || '日常管理' }}
+        </el-tag>
+      </template>
+    </el-table-column>
+    <el-table-column
       prop="journal_count"
       label="本月日志"
       width="110"
       sortable
-    />
-    <el-table-column
+    />    <el-table-column
       prop="active_authors"
       label="活跃作者"
       width="100"

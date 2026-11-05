@@ -25,6 +25,20 @@ ROLE_MANAGER = "manager"
 ROLE_VIEWER = "viewer"
 VALID_HUB_ROLES = (ROLE_MANAGER, ROLE_VIEWER)
 
+#: v3.67 枢纽↔小院关系类型：一个小院可同时被多个枢纽以不同口径关联
+#: - manage  日常管理（实验站/市专班统管，唯一可作「主归属」的口径）
+#: - review  评审归口（省科协评价，不干预小院内部管理）
+#: - observe 观察（只读纳入，如示范跟踪）
+RELATION_MANAGE = "manage"
+RELATION_REVIEW = "review"
+RELATION_OBSERVE = "observe"
+VALID_RELATION_TYPES = (RELATION_MANAGE, RELATION_REVIEW, RELATION_OBSERVE)
+RELATION_LABELS = {
+    RELATION_MANAGE: "日常管理",
+    RELATION_REVIEW: "评审归口",
+    RELATION_OBSERVE: "观察",
+}
+
 #: 模式的中文与工作台侧重（前端文案同源）
 MODE_LABELS = {
     MODE_PROVINCE: "省级科协模式（培养单位枢纽）",
@@ -52,25 +66,46 @@ class YardHub(Base, TimestampMixin):
 
 class HubMember(Base, TimestampMixin):
     __tablename__ = "hub_members"
-    __table_args__ = (
-        UniqueConstraint("hub_id", "user_id", name="uq_hub_members_hub_user"),
-    )
+    __table_args__ = (UniqueConstraint("hub_id", "user_id", name="uq_hub_members_hub_user"),)
 
     hub_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     user_id: Mapped[str] = mapped_column(String(36), nullable=False)
     role: Mapped[str] = mapped_column(String(12), nullable=False, default=ROLE_VIEWER)
 
 
+class HubYard(Base, TimestampMixin):
+    """枢纽↔小院多对多关系（v3.67，迁移 0073）。
+
+    替代 ``yards.hub_id`` 的单归属：一个院可同时「被实验站日常管理」且
+    「被省科协评审归口」。``yards.hub_id`` 保留为**主归属**（manage 口径），
+    老数据在迁移中幂等回填为一条 manage 关系。
+    """
+
+    __tablename__ = "hub_yards"
+    __table_args__ = (UniqueConstraint("hub_id", "yard_id", name="uq_hub_yards_hub_yard"),)
+
+    hub_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    yard_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    relation_type: Mapped[str] = mapped_column(String(12), nullable=False, default=RELATION_MANAGE)
+    created_by: Mapped[str] = mapped_column(String(36), nullable=False, default="")
+
+
 __all__ = [
     "HubMember",
+    "HubYard",
     "MODE_FOCUS",
     "MODE_LABELS",
     "MODE_MUNICIPAL",
     "MODE_PROVINCE",
     "MODE_STATION",
+    "RELATION_LABELS",
+    "RELATION_MANAGE",
+    "RELATION_OBSERVE",
+    "RELATION_REVIEW",
     "ROLE_MANAGER",
     "ROLE_VIEWER",
     "VALID_HUB_ROLES",
     "VALID_MODES",
+    "VALID_RELATION_TYPES",
     "YardHub",
 ]

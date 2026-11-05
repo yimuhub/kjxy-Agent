@@ -7,7 +7,7 @@ v3.66 起枢纽端点不再依赖「必须有小院」的 ``get_yard_context``�
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
@@ -37,6 +37,8 @@ class HubAttachRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     yard_id: str = Field(min_length=6, max_length=36)
+    #: v3.67 关系口径：日常管理 / 评审归口 / 观察（同一院可同时有多条）
+    relation_type: str = Field(default="manage", pattern="^(manage|review|observe)$")
 
 
 class HubMemberRequest(BaseModel):
@@ -112,11 +114,15 @@ def create_hub(
 @router.get("/attachable-yards")
 def attachable_yards(
     request: Request,
+    hub_id: str | None = Query(default=None, max_length=36),
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db_session),
 ):
-    """当前用户可绑定到枢纽的小院清单（platform_admin 全部；普通用户为其管理的小院）。"""
-    return ok(service.list_attachable_yards(db, user), request)
+    """当前用户可关联到枢纽的小院清单（platform_admin 全部；普通用户为其管理的小院）。
+
+    带 ``hub_id`` 时额外标记 ``in_current_hub``，前端据此禁用「已在本枢纽」的项。
+    """
+    return ok(service.list_attachable_yards(db, user, hub_id), request)
 
 
 @router.get("/{hub_id}/overview")
@@ -138,19 +144,40 @@ def attach_yard(
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db_session),
 ):
-    result = service.attach_yard(db, _hub_ctx(user), hub_id, payload.yard_id)
+    """把某院关联到本枢纽（可指定 manage/review/observe，已属他院不再冲突）。"""
+    result = service.attach_yard(db, _hub_ctx(user), hub_id, payload.yard_id, payload.relation_type)
     db.commit()
     return ok(result, request)
 
 
-@router.delete("/yards/{yard_id}")
+@router.delete("/{hub_id}/yards/{yard_id}")
 def detach_yard(
+    hub_id: str,
     yard_id: str,
     request: Request,
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db_session),
 ):
-    result = service.detach_yard(db, _hub_ctx(user), yard_id)
+    """解除本枢纽与该院的关系（只删这一条，其他枢纽的关联不受影响）。"""
+    result = service.detach_yard(db, _hub_ctx(user), hub_id, yard_id)
+    db.commit()
+    return ok(result, request)
+
+
+@router.delete("/yards/{yard_id}")
+def detach_yard_legacy(
+    yard_id: str,
+    request: Request,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+):
+    """兼容旧路径：按该院主归属推断枢纽（v3.67 前的前端与脚本仍可用）。"""
+    from app.modules.yards.models import Yard
+
+    yard = db.get(Yard, yard_id)
+    if yard is None or not yard.hub_id:
+        raise AppError("YARD_NOT_ATTACHED", "该小院未归属任何枢纽。", http_status=404)
+    result = service.detach_yard(db, _hub_ctx(user), yard.hub_id, yard_id)
     db.commit()
     return ok(result, request)
 
