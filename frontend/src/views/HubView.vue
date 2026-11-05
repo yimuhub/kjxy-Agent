@@ -51,7 +51,7 @@
           </el-tag>
           <span class="muted">{{ active.region }}</span>
         </div>
-        <p class="mode-focus">{{ active.mode_focus }}</p>
+        <p class="mode-focus">{{ MODE_TERMS[active.mode]?.scope || active.mode_focus }}</p>
         <div class="hub-meta">
           所辖小院 {{ active.yard_count }} 家 · 成员 {{ active.members.length }} 人
           <template v-if="isManager(active)">
@@ -85,8 +85,17 @@
         show-icon
       />
 
-      <!-- 所辖小院聚合表 -->
+      <!-- v3.66：按运营模式挂载不同侧重视图（省级达标 / 市级县域 / 实验站类型） -->
+      <component
+        :is="panel"
+        v-if="panel && insights"
+        :items="items"
+        :insights="insights"
+      />
+
+      <!-- 兜底：未知模式仍给通用聚合表 -->
       <el-table
+        v-else
         :data="items"
         v-loading="loading"
         :default-sort="{ prop: 'journal_count', order: 'descending' }"
@@ -273,7 +282,8 @@
 <script setup lang="ts">
   import { computed, onMounted, ref } from 'vue'
   import { ElMessage } from 'element-plus'
-  import { hubsApi, type HubRow } from '@/api/hubs'
+  import { hubsApi, type HubInsights, type HubOverviewItem, type HubRow } from '@/api/hubs'
+  import { panelFor, MODE_TERMS } from '@/components/hubs/panels'
   import { formatTime } from '@/utils/format'
   import { useAuthStore } from '@/stores/auth'
 
@@ -285,9 +295,8 @@
   const auth = useAuthStore()
   const hubs = ref<HubRow[]>([])
   const activeId = ref('')
-  const items = ref<
-    { yard_id: string; yard_name: string; journal_count: number; active_authors: number; last_updated_at: string | null; stale: boolean }[]
-  >([])
+  const items = ref<HubOverviewItem[]>([])
+  const insights = ref<HubInsights | null>(null)
   const staleDays = ref(7)
   const staleCount = ref(0)
   const loading = ref(false)
@@ -313,6 +322,8 @@
   )
 
   const active = computed(() => hubs.value.find(h => h.id === activeId.value) ?? null)
+  /** v3.66：按运营模式挂载不同视图；未知模式回落到通用表 */
+  const panel = computed(() => panelFor(active.value?.mode))
   const canCreate = computed(() => auth.roles?.includes('platform_admin') || auth.roles?.includes('yard_owner'))
   function isManager(h: HubRow): boolean {
     // 后端已按「hub 成员 / 所辖小院管理者 / 平台管理员」算好 my_role
@@ -336,6 +347,7 @@
     try {
       const data = await hubsApi.overview(activeId.value)
       items.value = data.items
+      insights.value = data.insights ?? null
       staleDays.value = data.stale_days
       staleCount.value = data.stale_count
     } catch {

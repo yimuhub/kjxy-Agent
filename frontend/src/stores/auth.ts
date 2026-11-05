@@ -2,7 +2,7 @@ import { ref } from 'vue'
 import { defineStore } from 'pinia'
 import { authApi, yardApi } from '@/api/modules'
 import { REFRESH_TOKEN_KEY, TOKEN_KEY } from '@/api/client'
-import type { LoginResponse, Yard, YardBrief, User } from '@/types/api'
+import type { HubBrief, LoginResponse, Yard, YardBrief, User } from '@/types/api'
 
 /** 登录/me 的 YardBrief 与 /yards/current 的 YardOut 归一为同一形状 */
 function toYard(brief: YardBrief): Yard {
@@ -16,6 +16,8 @@ export const useAuthStore = defineStore('auth', () => {
   const yards = ref<YardBrief[]>([])
   /** 当前用户角色码（yard_admin / expert / operator / viewer / platform_admin） */
   const roles = ref<string[]>([])
+  /** 当前用户所属/可见的枢纽（v3.66；纯枢纽账号没有 yard 但有 hub） */
+  const hubs = ref<HubBrief[]>([])
   /** 当前小院有效权限（后端 /auth/me 下发，角色默认 ∪ 逐人授权） */
   const permissions = ref<string[]>([])
   const isOwner = ref(false)
@@ -38,6 +40,7 @@ export const useAuthStore = defineStore('auth', () => {
     yard.value = null
     yards.value = []
     roles.value = []
+    hubs.value = []
     permissions.value = []
     isOwner.value = false
     permissionsLoaded.value = false
@@ -122,6 +125,7 @@ export const useAuthStore = defineStore('auth', () => {
     const me = await authApi.me()
     user.value = me.user
     yards.value = me.yards ?? []
+    hubs.value = me.hubs ?? []
     roles.value = me.roles?.length ? me.roles : me.user?.role ? [me.user.role] : []
     const current = yards.value.find(t => t.yard_id === yard.value?.yard_id)
     yard.value = current ? toYard(current) : yards.value[0] ? toYard(yards.value[0]) : null
@@ -157,6 +161,7 @@ export const useAuthStore = defineStore('auth', () => {
     user,
     yard,
     yards,
+    hubs,
     roles,
     permissions,
     isOwner,

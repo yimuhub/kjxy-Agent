@@ -247,8 +247,8 @@ router.beforeEach(async to => {
         }
       }
       const redirect =
-        typeof to.query.redirect === 'string' ? to.query.redirect : defaultHomePath(auth.roles)
-      return redirect.startsWith('/') ? redirect : defaultHomePath(auth.roles)
+        typeof to.query.redirect === 'string' ? to.query.redirect : defaultHomePath(auth.roles, auth.hubs)
+      return redirect.startsWith('/') ? redirect : defaultHomePath(auth.roles, auth.hubs)
     }
     return true
   }

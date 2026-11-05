@@ -28,6 +28,38 @@ export interface HubOverviewItem {
   active_authors: number
   last_updated_at: string | null
   stale: boolean
+  /** v3.66：小院特性（三种模式分组与横向对比用） */
+  province?: string | null
+  city?: string | null
+  scene_type?: string | null
+  attributes?: Record<string, unknown>
+  /** 当前枢纽模式下该院的分组键（培养单位/县域/类型） */
+  group_key?: string
+}
+
+export interface HubInsightGroup {
+  key: string
+  yards: number
+  journal_count: number
+  compliant: number
+}
+
+export interface HubInsights {
+  mode: string
+  group_by: string
+  group_label: string
+  /** 制度锚点：年 100 篇 → 月 9 篇 */
+  anchor_annual: number
+  anchor_monthly: number
+  groups: HubInsightGroup[]
+  summary: {
+    yards: number
+    groups: number
+    journal_count: number
+    compliant: number
+    compliance_rate: number
+    stale_count: number
+  }
 }
 
 const silent = { skipErrorToast: true } as Record<string, unknown>
@@ -60,12 +92,18 @@ export const hubsApi = {
     stale_days: number
     stale_count: number
     items: HubOverviewItem[]
+    insights: HubInsights
   }> {
     return unwrap(
-      api.get<ApiResponse<{ hub: HubRow; stale_days: number; stale_count: number; items: HubOverviewItem[] }>>(
-        `/hubs/${hubId}/overview`,
-        silent,
-      ),
+      api.get<
+        ApiResponse<{
+          hub: HubRow
+          stale_days: number
+          stale_count: number
+          items: HubOverviewItem[]
+          insights: HubInsights
+        }>
+      >(`/hubs/${hubId}/overview`, silent),
     )
   },
   attach(hubId: string, yardId: string): Promise<{ moved: boolean }> {

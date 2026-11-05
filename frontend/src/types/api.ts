@@ -79,6 +79,18 @@ export interface LoginResponse {
   yards: YardBrief[]
 }
 
+/** 用户可见的枢纽（v3.66）：决定落地页与模式视图 */
+export interface HubBrief {
+  hub_id: string
+  name: string
+  mode: string
+  mode_label?: string
+  mode_focus?: string
+  region?: string
+  /** manager | viewer | yard_manager */
+  role: string
+}
+
 /** /auth/me 返回：当前用户 + 角色 + 小院列表 */
 export interface MeResponse {
   user: User
@@ -88,6 +100,8 @@ export interface MeResponse {
   yard_id?: string | null
   is_owner?: boolean
   permissions?: string[]
+  /** 枢纽上下文（纯枢纽账号没有 yards，但有 hubs） */
+  hubs?: HubBrief[]
 }
 
 /** 高风险工具审批单 */

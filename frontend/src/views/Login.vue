@@ -155,9 +155,19 @@
     loading.value = true
     try {
       await auth.login(form.username, form.password, form.yard_id || undefined)
+      // 落地页依赖枢纽上下文（/auth/me 才有），登录后先取一次再决定去向
+      try {
+        await auth.fetchMe()
+      } catch {
+        /* 拉取失败按角色兜底，不阻断登录 */
+      }
       const redirect =
-        typeof route.query.redirect === 'string' ? route.query.redirect : defaultHomePath(auth.roles)
-      router.replace(redirect.startsWith('/') ? redirect : defaultHomePath(auth.roles))
+        typeof route.query.redirect === 'string'
+          ? route.query.redirect
+          : defaultHomePath(auth.roles, auth.hubs)
+      router.replace(
+        redirect.startsWith('/') ? redirect : defaultHomePath(auth.roles, auth.hubs),
+      )
     } catch (err: unknown) {
       const { code, message } = extractErrorMessage(err)
       if (code === 'YARD_REQUIRED') {

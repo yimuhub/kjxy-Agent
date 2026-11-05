@@ -67,8 +67,14 @@
     try {
       const res = await ssoApi.exchange(code)
       auth.adoptLogin(res, res.yard_id)
+      // 枢纽上下文来自 /auth/me，落地页判断前先取一次
+      try {
+        await auth.fetchMe()
+      } catch {
+        /* 兜底按角色落地 */
+      }
       // 清掉地址栏里的一次性 code，避免刷新时重放（后端校验也只能成功一次）
-      await router.replace(defaultHomePath(auth.roles))
+      await router.replace(defaultHomePath(auth.roles, auth.hubs))
     } catch (err: unknown) {
       const { code: errCode, message: errMessage } = extractErrorMessage(err)
       fail(friendlyErrorMessage(errCode, errMessage))
