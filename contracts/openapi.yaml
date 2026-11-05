@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.66.0
+  version: 3.67.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -13967,16 +13967,35 @@ paths:
       - v1
       - hubs
       summary: Attachable Yards
-      description: 当前用户可绑定到枢纽的小院清单（platform_admin 全部；普通用户为其管理的小院）。
+      description: '当前用户可关联到枢纽的小院清单（platform_admin 全部；普通用户为其管理的小院）。
+
+
+        带 ``hub_id`` 时额外标记 ``in_current_hub``，前端据此禁用「已在本枢纽」的项。'
       operationId: attachable_yards_api_v1_hubs_attachable_yards_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: hub_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 36
+          - type: 'null'
+          title: Hub Id
       responses:
         '200':
           description: Successful Response
           content:
             application/json:
               schema: {}
-      security:
-      - HTTPBearer: []
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/hubs/{hub_id}/overview:
     get:
       tags:
@@ -14012,6 +14031,7 @@ paths:
       - v1
       - hubs
       summary: Attach Yard
+      description: 把某院关联到本枢纽（可指定 manage/review/observe，已属他院不再冲突）。
       operationId: attach_yard_api_v1_hubs__hub_id__yards_post
       security:
       - HTTPBearer: []
@@ -14040,13 +14060,49 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /api/v1/hubs/yards/{yard_id}:
+  /api/v1/hubs/{hub_id}/yards/{yard_id}:
     delete:
       tags:
       - v1
       - hubs
       summary: Detach Yard
-      operationId: detach_yard_api_v1_hubs_yards__yard_id__delete
+      description: 解除本枢纽与该院的关系（只删这一条，其他枢纽的关联不受影响）。
+      operationId: detach_yard_api_v1_hubs__hub_id__yards__yard_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: hub_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Hub Id
+      - name: yard_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Yard Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/hubs/yards/{yard_id}:
+    delete:
+      tags:
+      - v1
+      - hubs
+      summary: Detach Yard Legacy
+      description: 兼容旧路径：按该院主归属推断枢纽（v3.67 前的前端与脚本仍可用）。
+      operationId: detach_yard_legacy_api_v1_hubs_yards__yard_id__delete
       security:
       - HTTPBearer: []
       parameters:
@@ -15762,6 +15818,11 @@ components:
           maxLength: 36
           minLength: 6
           title: Yard Id
+        relation_type:
+          type: string
+          pattern: ^(manage|review|observe)$
+          title: Relation Type
+          default: manage
       additionalProperties: false
       type: object
       required:
