@@ -2,8 +2,18 @@
   <div class="invite-page">
     <div class="auth-card">
       <div class="brand">
-        <div class="logo-block">阗</div>
-        <h1 class="wordmark">阗策 · 科技小院</h1>
+        <div class="logo-block">
+          <img
+            v-if="branding.logoUrl"
+            :src="branding.logoUrl"
+            alt=""
+            class="logo-img"
+          >
+          <template v-else>
+            {{ branding.shortName.slice(0, 1) }}
+          </template>
+        </div>
+        <h1 class="wordmark">{{ branding.appName }}</h1>
         <p class="slogan">接受成员邀请</p>
       </div>
 
@@ -145,11 +155,13 @@
   import { yardApi } from '@/api/modules'
   import { extractErrorMessage } from '@/api/client'
   import { useAuthStore } from '@/stores/auth'
+  import { useBrandingStore } from '@/stores/branding'
   import type { InvitationPreview } from '@/types/api'
 
   const route = useRoute()
   const router = useRouter()
   const auth = useAuthStore()
+  const branding = useBrandingStore()
 
   const token = String(route.params.token ?? '')
   const loading = ref(true)

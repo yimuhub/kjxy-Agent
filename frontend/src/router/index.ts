@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
+import { appTitle } from '@/stores/branding'
 import { defaultHomePath } from '@/utils/home'
 import MainLayout from '@/layouts/MainLayout.vue'
 import HubView from '@/views/HubView.vue'
@@ -228,11 +229,9 @@ const router = createRouter({
   scrollBehavior: (_to, _from, saved) => saved ?? { top: 0 },
 })
 
-const APP_NAME = '阗策 · 科技小院'
-
 router.afterEach(to => {
-  const title = to.meta.title as string | undefined
-  document.title = title ? `${title} · ${APP_NAME}` : APP_NAME
+  // v3.67：标题里的品牌名由品牌包决定（超管在「品牌与门户」里改完即生效）
+  document.title = appTitle(to.meta.title as string | undefined)
 })
 
 router.beforeEach(async to => {

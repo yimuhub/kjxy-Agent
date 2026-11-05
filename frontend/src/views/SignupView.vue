@@ -3,13 +3,21 @@
     <div class="auth-card">
       <div class="brand">
         <div class="logo-block">
-          阗
+          <img
+            v-if="branding.logoUrl"
+            :src="branding.logoUrl"
+            alt=""
+            class="logo-img"
+          >
+          <template v-else>
+            {{ branding.shortName.slice(0, 1) }}
+          </template>
         </div>
         <h1 class="wordmark">
           {{ activeTab === 'create' ? '开通小院' : '加入小院' }}
         </h1>
         <p class="slogan">
-          阗策 · 科技小院注册
+          {{ branding.appName }}注册
         </p>
       </div>
 
@@ -262,6 +270,7 @@
   import { useRouter } from 'vue-router'
   import type { FormInstance, FormRules } from 'element-plus'
   import { useAuthStore } from '@/stores/auth'
+  import { useBrandingStore } from '@/stores/branding'
   import { yardApi } from '@/api/modules'
   import { profileApi } from '@/api/v3'
   import { api, extractErrorMessage, REFRESH_TOKEN_KEY, TOKEN_KEY } from '@/api/client'
@@ -269,6 +278,7 @@
   import { friendlyErrorMessage } from '@/utils/status'
 
   const router = useRouter()
+  const branding = useBrandingStore()
   const auth = useAuthStore()
 
   const activeTab = ref<'create' | 'join'>('create')

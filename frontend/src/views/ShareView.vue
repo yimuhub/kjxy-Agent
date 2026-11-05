@@ -37,7 +37,7 @@
           :content="share.content_md"
         />
         <footer class="share-foot">
-          <span>由 科技小院 · 多智能体平台 生成</span>
+          <span>{{ branding.footerText }}</span>
           <el-button
             size="small"
             text
@@ -55,9 +55,11 @@
   import { onMounted, ref } from 'vue'
   import { useRoute } from 'vue-router'
   import { shareApi, type PublicShare } from '@/api/modules'
+  import { useBrandingStore } from '@/stores/branding'
   import SafeMarkdown from '@/components/teams/SafeMarkdown.vue'
 
   const route = useRoute()
+  const branding = useBrandingStore()
   const loading = ref(true)
   const error = ref('')
   const share = ref<PublicShare | null>(null)

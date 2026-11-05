@@ -50,6 +50,15 @@
       </el-tab-pane>
 
       <el-tab-pane
+        v-if="canManageBranding"
+        lazy
+        label="品牌与门户"
+        name="branding"
+      >
+        <SettingsBranding />
+      </el-tab-pane>
+
+      <el-tab-pane
         lazy
         label="小院档案"
         name="yard_profile"
@@ -577,6 +586,7 @@ import SettingsPushChannels from '@/components/settings/SettingsPushChannels.vue
 import SettingsSso from '@/components/settings/SettingsSso.vue'
 import SettingsA2a from '@/components/settings/SettingsA2a.vue'
 import SettingsGrants from '@/components/settings/SettingsGrants.vue'
+import SettingsBranding from '@/components/settings/SettingsBranding.vue'
 import { useAuthStore } from '@/stores/auth'
 import { classifyError, type ViewState } from '@/utils/status'
 
@@ -589,12 +599,15 @@ const isOwner = computed(
 )
 /** 集群节点注册表仅平台管理员可见（跨小院只读探测） */
 const isPlatformAdmin = computed(() => auth.roles.includes('platform_admin'))
+/** 品牌与门户：平台级权限，超管直通或经 platform_grants 逐人授予（v3.67） */
+const canManageBranding = computed(() => auth.hasPermission('branding:manage'))
 
 /** 与下方 el-tab-pane 的 name 一一对应；默认落第一个面板，避免落到不存在的 tab 只剩标签 */
 const TAB_NAMES = [
   'roles',
   'menu',
   'registration',
+  'branding',
   'yard_profile',
   'network',
   'commander',
@@ -620,10 +633,12 @@ type TabName = (typeof TAB_NAMES)[number]
 const availableTabs = computed<TabName[]>(() => {
   // 桌面伙伴页在浏览器里也要能进：桌面窗口开关自动置灰，
   // 但「页面内悬浮伙伴」「任务气泡」「皮肤」在网页端同样生效。
-  const allowed: TabName[] = isOwner.value
+  let allowed: TabName[] = isOwner.value
     ? [...TAB_NAMES]
     : TAB_NAMES.filter(name => name !== 'grants' && name !== 'system_logs')
-  if (!isPlatformAdmin.value) return allowed.filter(name => name !== 'cluster')
+  // 品牌与门户是平台级权限，没有就整块不出现（也不能通过 ?tab=branding 直达）
+  if (!canManageBranding.value) allowed = allowed.filter(name => name !== 'branding')
+  if (!isPlatformAdmin.value) allowed = allowed.filter(name => name !== 'cluster')
   return allowed
 })
 

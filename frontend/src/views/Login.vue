@@ -2,9 +2,19 @@
   <div class="login-page">
     <div class="auth-card">
       <div class="brand">
-        <div class="logo-block">阗</div>
-        <h1 class="wordmark">阗策 · 科技小院</h1>
-        <p class="slogan">多智能体自生长开发平台</p>
+        <div class="logo-block">
+          <img
+            v-if="branding.logoUrl"
+            :src="branding.logoUrl"
+            alt=""
+            class="logo-img"
+          >
+          <template v-else>
+            {{ branding.shortName.slice(0, 1) }}
+          </template>
+        </div>
+        <h1 class="wordmark">{{ branding.appName }}</h1>
+        <p class="slogan">{{ branding.loginTagline }}</p>
       </div>
       <el-form
         ref="formRef"
@@ -119,6 +129,7 @@
   import { useRoute, useRouter } from 'vue-router'
   import type { FormInstance, FormRules } from 'element-plus'
   import { useAuthStore } from '@/stores/auth'
+  import { useBrandingStore } from '@/stores/branding'
   import { defaultHomePath } from '@/utils/home'
   import { extractErrorDetails, extractErrorMessage } from '@/api/client'
   import { friendlyErrorMessage } from '@/utils/status'
@@ -128,6 +139,7 @@
   const router = useRouter()
   const route = useRoute()
   const auth = useAuthStore()
+  const branding = useBrandingStore()
   const formRef = ref<FormInstance>()
   const loading = ref(false)
   const errorMsg = ref('')
@@ -248,6 +260,13 @@
     align-items: center;
     justify-content: center;
     box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
+    overflow: hidden;
+  }
+  .logo-img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: #fff;
   }
   .wordmark {
     margin: 0;

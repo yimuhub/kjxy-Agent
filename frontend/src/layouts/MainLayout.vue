@@ -24,14 +24,25 @@
         :class="{ 'logo--mini': isMini }"
       >
         <div class="logo-block">
-          阗
+          <img
+            v-if="branding.logoUrl"
+            :src="branding.logoUrl"
+            alt=""
+            class="logo-img"
+          >
+          <template v-else>
+            {{ branding.shortName.slice(0, 1) }}
+          </template>
         </div>
         <div
           v-show="showLogoWord"
           class="logo-word"
         >
-          <span class="logo-name">阗策</span>
-          <span class="logo-sub">科技小院</span>
+          <span class="logo-name">{{ branding.shortName }}</span>
+          <span
+            v-if="branding.appName !== branding.shortName"
+            class="logo-sub"
+          >{{ branding.appName }}</span>
         </div>
         <!-- 每次升级都要看得见版本：右侧标出，取的是 package.json 那一份，不另抄 -->
         <span
@@ -379,6 +390,7 @@
   } from '@element-plus/icons-vue'
   import type { Component } from 'vue'
   import { useAuthStore } from '@/stores/auth'
+  import { useBrandingStore } from '@/stores/branding'
   import { useMenuStore, type DiyMenuGroup, type DiyMenuNode } from '@/stores/menu'
   import { llmTraceApi } from '@/api/modules'
   import GlobalOverview from '@/views/GlobalOverview.vue'
@@ -438,6 +450,7 @@
   const route = useRoute()
   const router = useRouter()
   const auth = useAuthStore()
+  const branding = useBrandingStore()
   const menuStore = useMenuStore()
   const menuRef = ref<MenuExposed>()
   const diyDialogVisible = ref(false)
@@ -765,6 +778,13 @@
     align-items: center;
     justify-content: center;
     box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+    overflow: hidden;
+  }
+  .logo-img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: #fff;
   }
   .logo-word {
     display: flex;

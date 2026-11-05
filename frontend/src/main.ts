@@ -8,6 +8,7 @@ import App from './App.vue'
 import { colResize } from './directives/columnResize'
 import router from './router'
 import { useAuthStore } from './stores/auth'
+import { useBrandingStore } from './stores/branding'
 import { syncDesktopPetOnStartup } from './utils/desktop'
 
 // 设计系统 v2「静夜玻璃」为暗色主题：在样式装载前给 html 挂 dark 类
@@ -33,6 +34,8 @@ async function start() {
   app.directive('col-resize', colResize)
   const pinia = createPinia()
   app.use(pinia)
+  // 品牌包：不阻塞挂载（失败回落默认值），拿到后立刻注入主色与文案
+  void useBrandingStore(pinia).load()
   await bootstrapDesktop(pinia)
   app.use(router)
   app.mount('#app')

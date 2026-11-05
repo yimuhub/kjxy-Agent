@@ -2,8 +2,18 @@
   <div class="sso-callback-page">
     <div class="auth-card">
       <div class="brand">
-        <div class="logo-block">阗</div>
-        <h1 class="wordmark">阗策 · 科技小院</h1>
+        <div class="logo-block">
+          <img
+            v-if="branding.logoUrl"
+            :src="branding.logoUrl"
+            alt=""
+            class="logo-img"
+          >
+          <template v-else>
+            {{ branding.shortName.slice(0, 1) }}
+          </template>
+        </div>
+        <h1 class="wordmark">{{ branding.appName }}</h1>
         <p class="slogan">正在完成单点登录…</p>
       </div>
 
@@ -37,6 +47,7 @@
   import { onMounted, ref } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
   import { useAuthStore } from '@/stores/auth'
+  import { useBrandingStore } from '@/stores/branding'
   import { extractErrorMessage } from '@/api/client'
   import { friendlyErrorMessage } from '@/utils/status'
   import { ssoApi } from '@/api/v3'
@@ -45,6 +56,7 @@
   const route = useRoute()
   const router = useRouter()
   const auth = useAuthStore()
+  const branding = useBrandingStore()
   const state = ref<'loading' | 'error'>('loading')
   const message = ref('')
 

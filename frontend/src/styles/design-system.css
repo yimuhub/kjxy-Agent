@@ -854,3 +854,10 @@ a {
 }
 
 
+/* v3.67 品牌与门户：上传 logo 后替换文字方块（侧栏/登录/邀请/注册共用） */
+.logo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #fff;
+}
