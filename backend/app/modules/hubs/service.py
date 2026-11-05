@@ -19,6 +19,9 @@ from app.modules.audit.service import log_audit
 from app.modules.hubs.models import (
     MODE_FOCUS,
     MODE_LABELS,
+    MODE_MUNICIPAL,
+    MODE_PROVINCE,
+    MODE_STATION,
     ROLE_MANAGER,
     VALID_HUB_ROLES,
     VALID_MODES,
@@ -29,6 +32,24 @@ from app.modules.journal.models import YardJournal
 from app.modules.yards.models import Yard
 
 STALE_DAYS = 7
+
+#: 制度锚点：每院每年不少于 100 篇日志 → 月均 9 篇作为达标线（100/12 向上取整）
+ANNUAL_JOURNAL_ANCHOR = 100
+MONTHLY_JOURNAL_ANCHOR = 9
+
+#: 枢纽权限包：view 给只读可见者；manage/export/dispatch 只给 manager。
+#: 不放 JWT——每次从 hub_members 实时判定，解绑/降角色立即生效。
+HUB_VIEW_PERMISSIONS: frozenset[str] = frozenset({"hubs:view"})
+HUB_MANAGER_PERMISSIONS: frozenset[str] = frozenset(
+    {"hubs:view", "hubs:manage", "hubs:export", "hubs:dispatch"}
+)
+
+#: 各模式的分组维度：省级按培养单位、市级按县域、实验站按小院类型
+MODE_GROUP_FIELD: dict[str, tuple[str, str]] = {
+    MODE_PROVINCE: ("unit", "培养单位"),
+    MODE_MUNICIPAL: ("county", "县域"),
+    MODE_STATION: ("yard_type", "小院类型"),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -73,6 +94,42 @@ def list_visible_hubs(
 def list_managed_hubs(db: Session, user_id: str) -> list[YardHub]:
     """兼容别名：仅 manager 角色。"""
     return [h for h, role in list_visible_hubs(db, user_id) if role == "manager"]
+
+
+def hub_permissions(
+    db: Session, user_id: str, *, is_platform_admin: bool = False
+) -> frozenset[str]:
+    """枢纽作用域权限包（v3.66）。
+
+    与 JWT 角色解耦：纯枢纽账号（不挂任何小院）也能拿到 hubs:*；
+    小院管理员不会因此获得 export/dispatch——那两个动作只给枢纽 manager。
+    """
+    if is_platform_admin:
+        return HUB_MANAGER_PERMISSIONS
+    roles = {role for _, role in list_visible_hubs(db, user_id)}
+    if ROLE_MANAGER in roles:
+        return HUB_MANAGER_PERMISSIONS
+    if roles:
+        return HUB_VIEW_PERMISSIONS
+    return frozenset()
+
+
+def hub_context(
+    db: Session, user_id: str, *, is_platform_admin: bool = False
+) -> list[dict[str, Any]]:
+    """登录后前端需要的枢纽上下文（只带归属与角色，不含聚合数字）。"""
+    return [
+        {
+            "hub_id": hub.id,
+            "name": hub.name,
+            "mode": hub.mode,
+            "mode_label": MODE_LABELS.get(hub.mode, hub.mode),
+            "mode_focus": MODE_FOCUS.get(hub.mode, ""),
+            "region": hub.region,
+            "role": role,
+        }
+        for hub, role in list_visible_hubs(db, user_id, is_platform_admin=is_platform_admin)
+    ]
 
 
 def is_yard_manager_of_hub(db: Session, user_id: str, hub_id: str) -> bool:
@@ -269,14 +326,10 @@ def member_candidates(db: Session, ctx: YardContext, hub_id: str) -> list[dict[s
 
     existing = {
         str(uid)
-        for uid in db.scalars(
-            select(HubMember.user_id).where(HubMember.hub_id == hub_id)
-        ).all()
+        for uid in db.scalars(select(HubMember.user_id).where(HubMember.hub_id == hub_id)).all()
     }
     users = list(
-        db.scalars(
-            select(User).where(User.status == "active").order_by(User.username)
-        ).all()
+        db.scalars(select(User).where(User.status == "active").order_by(User.username)).all()
     )
     return [
         {
@@ -341,17 +394,82 @@ def hub_out(db: Session, hub: YardHub) -> dict[str, Any]:
     }
 
 
+def _yard_attr(yard: Yard, key: str, fallback: str = "") -> str:
+    """读小院特性：``attributes_json`` 优先，回退到模型列（province/city/scene_type）。"""
+    raw = getattr(yard, "attributes_json", None)
+    if isinstance(raw, dict):
+        value = str(raw.get(key) or "").strip()
+        if value:
+            return value
+    value = str(getattr(yard, key, "") or "").strip()
+    return value or fallback
+
+
+def _group_key(yard: Yard, mode: str) -> str:
+    if mode == MODE_MUNICIPAL:
+        return _yard_attr(yard, "county") or str(yard.city or "").strip() or "未标注县域"
+    if mode == MODE_STATION:
+        return _yard_attr(yard, "yard_type") or str(yard.scene_type or "").strip() or "未标注类型"
+    return _yard_attr(yard, "unit", "未标注培养单位")
+
+
+def _mode_insights(
+    mode: str,
+    items: list[dict[str, Any]],
+    yards_by_id: dict[str, Yard],
+    *,
+    stale_count: int,
+) -> dict[str, Any]:
+    """按运营模式给出分组视角；结构统一，前端只换标题与列。
+
+    - province：培养单位分组 + 100 篇年锚点的月度达标率
+    - municipal：县域分组 + 覆盖率
+    - station：小院类型分组 + 横向对比（明细在 items）
+    """
+    group_by, group_label = MODE_GROUP_FIELD.get(mode, ("unit", "分组"))
+    groups: dict[str, dict[str, Any]] = {}
+    for item in items:
+        yard = yards_by_id.get(item["yard_id"])
+        if yard is None:
+            continue
+        key = _group_key(yard, mode)
+        row = groups.setdefault(key, {"key": key, "yards": 0, "journal_count": 0, "compliant": 0})
+        row["yards"] += 1
+        row["journal_count"] += int(item["journal_count"])
+        if int(item["journal_count"]) >= MONTHLY_JOURNAL_ANCHOR:
+            row["compliant"] += 1
+
+    ordered = sorted(groups.values(), key=lambda g: (-g["journal_count"], g["key"]))
+    total = len(items)
+    compliant = sum(1 for i in items if int(i["journal_count"]) >= MONTHLY_JOURNAL_ANCHOR)
+    return {
+        "mode": mode,
+        "group_by": group_by,
+        "group_label": group_label,
+        "anchor_annual": ANNUAL_JOURNAL_ANCHOR,
+        "anchor_monthly": MONTHLY_JOURNAL_ANCHOR,
+        "groups": ordered,
+        "summary": {
+            "yards": total,
+            "groups": len(ordered),
+            "journal_count": sum(int(i["journal_count"]) for i in items),
+            "compliant": compliant,
+            "compliance_rate": round(compliant / total, 4) if total else 0.0,
+            "stale_count": stale_count,
+        },
+    }
+
+
 def hub_overview(db: Session, ctx: YardContext, hub_id: str) -> dict[str, Any]:
-    """枢纽工作台聚合：所辖小院的日志量/活跃作者/断更预警（按 mode 侧重由前端呈现）。"""
+    """枢纽工作台聚合：所辖小院的日志量/活跃作者/断更预警 + 按模式分组。"""
     hub = require_hub_access(db, ctx, hub_id)
     yards = list(db.scalars(select(Yard).where(Yard.hub_id == hub.id)).all())
-    yard_ids = [y.id for y in yards]
-    names = {y.id: y.name for y in yards}
+    yards_by_id = {y.id: y for y in yards}
     month_prefix = datetime.now(UTC).strftime("%Y-%m") + "%"
     stale_before = datetime.now(UTC) - timedelta(days=STALE_DAYS)
 
     items: list[dict[str, Any]] = []
-    for yid in yard_ids:
+    for yid in yards_by_id:
         total, authors, last_at = (
             db.execute(
                 select(
@@ -365,14 +483,22 @@ def hub_overview(db: Session, ctx: YardContext, hub_id: str) -> dict[str, Any]:
             )
         ).one()
         last_at = last_at if last_at is None or last_at.tzinfo else last_at.replace(tzinfo=UTC)
+        yard = yards_by_id[yid]
+        attributes = yard.attributes_json if isinstance(yard.attributes_json, dict) else {}
         items.append(
             {
                 "yard_id": yid,
-                "yard_name": names.get(yid, yid[:8]),
+                "yard_name": yard.name,
                 "journal_count": int(total),
                 "active_authors": int(authors),
                 "last_updated_at": last_at.isoformat() if last_at else None,
                 "stale": last_at is None or last_at < stale_before,
+                # v3.66：特性字段——三种模式的分组与横向对比都靠它
+                "province": yard.province,
+                "city": yard.city,
+                "scene_type": yard.scene_type,
+                "attributes": attributes,
+                "group_key": _group_key(yard, hub.mode),
             }
         )
     items.sort(key=lambda i: -i["journal_count"])
@@ -382,4 +508,5 @@ def hub_overview(db: Session, ctx: YardContext, hub_id: str) -> dict[str, Any]:
         "stale_days": STALE_DAYS,
         "stale_count": stale_count,
         "items": items,
+        "insights": _mode_insights(hub.mode, items, yards_by_id, stale_count=stale_count),
     }

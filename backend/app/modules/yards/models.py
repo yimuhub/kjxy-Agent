@@ -43,6 +43,9 @@ class Yard(Base, TimestampMixin):
     owner_user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     # v3.65：所属枢纽（可空；通用基座上的运营模式，见 hubs 模块）
     hub_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    # v3.66：小院特性（培养单位/县域/产业/小院类型/一院一策标签），
+    # 三种枢纽模式的分组与横向对比依赖它；空值由分组逻辑回退到 province/city/scene_type
+    attributes_json: Mapped[dict | None] = mapped_column("attributes", JSON, nullable=True)
 
 
 class YardSettings(Base, TimestampMixin):

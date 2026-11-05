@@ -169,7 +169,7 @@ def test_yard_manager_sees_hub_after_attach(db_session, setup):
 
     # 平台管理员可见（manager）
     visible_admin = service.list_visible_hubs(db_session, "u-admin")
-    assert (hub.id if False else any(h.id == hub.id and r == "manager" for h, r in visible_admin))
+    assert hub.id if False else any(h.id == hub.id and r == "manager" for h, r in visible_admin)
     # 所辖小院的负责人/管理员可见（yard_manager）
     visible_ym = service.list_visible_hubs(db_session, "u-yard-admin")
     assert any(h.id == hub.id and r == "yard_manager" for h, r in visible_ym)
@@ -183,3 +183,92 @@ def test_yard_manager_sees_hub_after_attach(db_session, setup):
     db_session.commit()
     visible_op = service.list_visible_hubs(db_session, "u-op-plain")
     assert not any(h.id == hub.id for h, _ in visible_op)
+
+
+def test_hub_permissions_viewer_vs_manager(db_session, setup):
+    """v3.66：枢纽权限包与 JWT 角色解耦——viewer 只读，manager 全包，陌生人空。"""
+    y1, _, _ = setup
+    ctx = _ctx()
+    object.__setattr__(ctx, "yard_id", y1.id)
+    hub = service.create_hub(db_session, ctx, name="权限包枢纽", mode="station", region="", note="")
+    service.add_member(db_session, ctx, hub.id, "u-viewer2", "viewer")
+
+    assert service.hub_permissions(db_session, "u-admin") == service.HUB_MANAGER_PERMISSIONS
+    assert service.hub_permissions(db_session, "u-viewer2") == service.HUB_VIEW_PERMISSIONS
+    assert service.hub_permissions(db_session, "u-nobody") == frozenset()
+
+    context = service.hub_context(db_session, "u-viewer2")
+    assert len(context) == 1
+    assert context[0]["hub_id"] == hub.id
+    assert context[0]["role"] == "viewer"
+    assert context[0]["mode"] == "station"
+    assert context[0]["mode_label"]
+
+
+def test_mode_insights_province_groups_by_unit(db_session, setup):
+    """v3.66：省级模式按培养单位分组，并给出 100 篇年锚点的月度达标率。"""
+    y1, y2, _ = setup
+    ctx = _ctx()
+    object.__setattr__(ctx, "yard_id", y1.id)
+    hub = service.create_hub(
+        db_session, ctx, name="省科协枢纽", mode="province", region="江苏", note=""
+    )
+    y1.attributes_json = {"unit": "南京农业大学", "county": "如皋市", "yard_type": "水稻"}
+    y2.attributes_json = {"unit": "南京农业大学", "county": "溧阳市", "yard_type": "水稻"}
+    service.attach_yard(db_session, ctx, hub.id, y1.id)
+    service.attach_yard(db_session, ctx, hub.id, y2.id)
+    db_session.flush()
+
+    data = service.hub_overview(db_session, ctx, hub.id)
+    insights = data["insights"]
+    assert insights["group_by"] == "unit"
+    assert insights["group_label"] == "培养单位"
+    assert insights["anchor_annual"] == 100 and insights["anchor_monthly"] == 9
+    assert len(insights["groups"]) == 1
+    group = insights["groups"][0]
+    assert group["key"] == "南京农业大学" and group["yards"] == 2
+    assert insights["summary"]["yards"] == 2
+    # y1 本月 2 篇、y2 本月 0 篇，均低于 9 篇月度锚点
+    assert insights["summary"]["compliant"] == 0
+    assert insights["summary"]["compliance_rate"] == 0.0
+    # 明细行带分组键与特性，前端横向对比直接用
+    row = next(i for i in data["items"] if i["yard_id"] == y1.id)
+    assert row["group_key"] == "南京农业大学"
+    assert row["attributes"]["county"] == "如皋市"
+
+
+def test_mode_insights_municipal_and_station(db_session, setup):
+    """v3.66：市级按县域、实验站按小院类型分组；缺特性时回退到模型列。"""
+    y1, y2, _ = setup
+    ctx = _ctx()
+    object.__setattr__(ctx, "yard_id", y1.id)
+
+    # 市级：county 优先，缺失回退 city
+    municipal = service.create_hub(
+        db_session, ctx, name="市专班枢纽", mode="municipal", region="邯郸", note=""
+    )
+    y1.attributes_json = {"county": "曲周县"}
+    y2.attributes_json = {}
+    y2.city = "邯郸市"
+    service.attach_yard(db_session, ctx, municipal.id, y1.id)
+    service.attach_yard(db_session, ctx, municipal.id, y2.id)
+    db_session.flush()
+    m = service.hub_overview(db_session, ctx, municipal.id)["insights"]
+    assert m["group_by"] == "county" and m["group_label"] == "县域"
+    assert {g["key"] for g in m["groups"]} == {"曲周县", "邯郸市"}
+
+    # 实验站：yard_type 优先，缺失回退 scene_type
+    service.detach_yard(db_session, ctx, y1.id)
+    service.detach_yard(db_session, ctx, y2.id)
+    station = service.create_hub(
+        db_session, ctx, name="实验站枢纽", mode="station", region="曲周", note=""
+    )
+    y1.attributes_json = {"yard_type": "水稻"}
+    y2.attributes_json = {}
+    y2.scene_type = "设施蔬菜"
+    service.attach_yard(db_session, ctx, station.id, y1.id)
+    service.attach_yard(db_session, ctx, station.id, y2.id)
+    db_session.flush()
+    s = service.hub_overview(db_session, ctx, station.id)["insights"]
+    assert s["group_by"] == "yard_type" and s["group_label"] == "小院类型"
+    assert {g["key"] for g in s["groups"]} == {"水稻", "设施蔬菜"}
