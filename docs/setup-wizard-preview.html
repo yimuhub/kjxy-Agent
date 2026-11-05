@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>初始化引导页 · 原型确认稿（v3.69 提案）</title>
+<style>
+  :root {
+    --bg: #14161c; --card: #1d2433; --card2: #232b3d; --border: #2a3245;
+    --text: #e8edf6; --text2: #a3b2cc; --text3: #6b7a94;
+    --accent: #6f8dff; --accent2: #5b8def; --ok: #3f9d68; --warn: #e0a83c;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 32px 16px; }
+  .wizard { width: 720px; max-width: 96vw; }
+  /* 顶部品牌 */
+  .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; }
+  .brand .logo { width: 40px; height: 40px; border-radius: 10px; background: linear-gradient(135deg, var(--accent), #8f6fff); display: flex; align-items: center; justify-content: center; font-size: 20px; }
+  .brand .name { font-size: 17px; font-weight: 700; letter-spacing: .5px; }
+  .brand .ver { font-size: 11px; color: var(--text3); border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px; }
+  .prototype-tag { margin-left: auto; font-size: 11px; color: var(--warn); border: 1px dashed var(--warn); border-radius: 6px; padding: 3px 10px; }
+  /* 步骤条 */
+  .steps { display: flex; align-items: center; gap: 0; margin-bottom: 18px; }
+  .step { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 118px; }
+  .step .dot { width: 34px; height: 34px; border-radius: 50%; border: 2px solid var(--border); background: var(--card); display: flex; align-items: center; justify-content: center; font-size: 14px; color: var(--text3); transition: all .25s; }
+  .step .lbl { font-size: 11.5px; color: var(--text3); text-align: center; line-height: 1.3; }
+  .step.active .dot { border-color: var(--accent); background: var(--accent); color: #fff; box-shadow: 0 0 0 4px rgba(111,141,255,.15); }
+  .step.active .lbl { color: var(--text); }
+  .step.done .dot { border-color: var(--ok); background: var(--ok); color: #fff; }
+  .step-line { flex: 1; height: 2px; background: var(--border); margin: 0 4px 22px; }
+  .step-line.done { background: var(--ok); }
+  /* 卡片 */
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 30px 34px; min-height: 430px; display: flex; flex-direction: column; }
+  .card h2 { font-size: 20px; margin-bottom: 6px; }
+  #pane-6 { flex-direction: column; align-items: center; }
+  #pane-6 .desc { text-align: center; }
+  .card .desc { font-size: 13px; color: var(--text2); line-height: 1.7; margin-bottom: 22px; }
+  .field { margin-bottom: 16px; }
+  .field label { display: block; font-size: 13px; color: var(--text2); margin-bottom: 7px; }
+  .field label .req { color: #ff7b72; }
+  .field input[type=text], .field input[type=password] {
+    width: 100%; padding: 11px 14px; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--card2); color: var(--text); font-size: 14px; outline: none; transition: border .2s;
+  }
+  .field input:focus { border-color: var(--accent); }
+  .field .hint { font-size: 12px; color: var(--text3); margin-top: 6px; line-height: 1.6; }
+  .field .hint.ok { color: var(--ok); }
+  .field .hint.bad { color: #ff7b72; }
+  .pwd-meter { height: 5px; border-radius: 3px; background: var(--border); margin-top: 8px; overflow: hidden; }
+  .pwd-meter i { display: block; height: 100%; width: 0; background: var(--accent); transition: all .3s; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  /* 模式/画像选择卡 */
+  .mode-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .mode-card { border: 1.5px solid var(--border); border-radius: 12px; padding: 14px 16px; cursor: pointer; transition: all .2s; background: var(--card2); }
+  .mode-card:hover { border-color: var(--text3); }
+  .mode-card.sel { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--card2)); }
+  .mode-card .t { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+  .mode-card .d { font-size: 12px; color: var(--text3); line-height: 1.55; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { padding: 7px 14px; border-radius: 18px; border: 1px solid var(--border); background: var(--card2); font-size: 13px; cursor: pointer; transition: all .2s; user-select: none; }
+  .chip.sel { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--card2)); color: var(--accent); }
+  /* 开关行 */
+  .switch-row { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--card2); margin-bottom: 10px; }
+  .switch-row .t { font-size: 13.5px; }
+  .switch-row .d { font-size: 12px; color: var(--text3); margin-top: 3px; }
+  .sw { width: 42px; height: 23px; border-radius: 12px; background: var(--border); position: relative; cursor: pointer; transition: background .2s; flex: none; }
+  .sw i { position: absolute; top: 2.5px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: left .2s; }
+  .sw.on { background: var(--accent); }
+  .sw.on i { left: 21px; }
+  /* 完成页 */
+  .done-icon { width: 74px; height: 74px; border-radius: 50%; background: var(--ok); display: flex; align-items: center; justify-content: center; font-size: 38px; margin: 4px auto 18px; }
+  .summary { border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; background: var(--card2); margin-bottom: 8px; }
+  .summary .row { display: flex; justify-content: space-between; padding: 7px 0; font-size: 13.5px; border-bottom: 1px dashed var(--border); }
+  .summary .row:last-child { border-bottom: none; }
+  .summary .k { color: var(--text3); }
+  .footer { display: flex; justify-content: space-between; margin-top: 24px; }
+  button.btn { padding: 11px 26px; border-radius: 10px; border: none; font-size: 14px; cursor: pointer; transition: all .2s; }
+  .btn-ghost { background: transparent; color: var(--text2); border: 1px solid var(--border); }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent2); }
+  .btn-primary:disabled { opacity: .45; cursor: not-allowed; }
+  .security-note { border-left: 3px solid var(--ok); background: color-mix(in srgb, var(--ok) 8%, var(--card2)); padding: 10px 14px; border-radius: 8px; font-size: 12px; color: var(--text2); line-height: 1.6; margin-top: 6px; }
+</style>
+</head>
+<body>
+<div class="wizard">
+  <div class="brand">
+    <div class="logo">🌾</div>
+    <div class="name">科技小院智能体平台</div>
+    <div class="ver">v3.69 初始化向导</div>
+    <div class="prototype-tag">原型确认稿 · 非最终界面</div>
+  </div>
+
+  <div class="steps">
+    <div class="step" data-s="1"><div class="dot">1</div><div class="lbl">欢迎</div></div>
+    <div class="step-line" data-l="1"></div>
+    <div class="step" data-s="2"><div class="dot">2</div><div class="lbl">超级管理员</div></div>
+    <div class="step-line" data-l="2"></div>
+    <div class="step" data-s="3"><div class="dot">3</div><div class="lbl">小院信息</div></div>
+    <div class="step-line" data-l="3"></div>
+    <div class="step" data-s="4"><div class="dot">4</div><div class="lbl">品牌外观</div></div>
+    <div class="step-line" data-l="4"></div>
+    <div class="step" data-s="5"><div class="dot">5</div><div class="lbl">功能配置</div></div>
+    <div class="step-line" data-l="5"></div>
+    <div class="step" data-s="6"><div class="dot">6</div><div class="lbl">完成</div></div>
+  </div>
+
+  <div class="card">
+    <!-- 第 1 步：欢迎 -->
+    <div class="pane" id="pane-1">
+      <h2>欢迎使用科技小院智能体平台</h2>
+      <p class="desc">
+        系统检测到这是<b>全新部署</b>（尚未创建管理员账号）。这份向导将带你在
+        5 分钟内完成：<b>创建超级管理员 → 小院信息 → 品牌外观 → 功能配置</b>，
+        全部完成后即可进入系统开始使用。
+      </p>
+      <div class="security-note">
+        🔒 安全说明：本向导只在「还没有任何管理员账号」时出现；初始化完成后永久关闭，
+        再次访问会直接进入登录页。超级管理员口令强度将实时校验。
+      </div>
+      <div class="field" style="margin-top:20px">
+        <label>部署形态（影响默认配置，创建后可改）</label>
+        <div class="mode-grid">
+          <div class="mode-card sel" onclick="pickMode(this,'单机桌面版')">
+            <div class="t">🖥 单机桌面版</div><div class="d">一台电脑自用，离线可用，本地大模型</div>
+          </div>
+          <div class="mode-card" onclick="pickMode(this,'院内服务器版')">
+            <div class="t">🏗 院内服务器版</div><div class="d">小院内网部署，多人同时使用</div>
+          </div>
+          <div class="mode-card" onclick="pickMode(this,'云端多小院版')">
+            <div class="t">☁ 云端多小院版</div><div class="d">公网服务多个小院/集群，含监管</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 第 2 步：超级管理员 -->
+    <div class="pane" id="pane-2" style="display:none">
+      <h2>创建超级管理员</h2>
+      <p class="desc">这个账号拥有最高权限（平台管理员 + 小院负责人），请牢记口令。后续可在「成员管理」创建其他账号。</p>
+      <div class="field">
+        <label>登录账号 <span class="req">*</span></label>
+        <input type="text" id="admin-name" placeholder="3-32 位字母、数字或下划线，如 admin">
+      </div>
+      <div class="grid2">
+        <div class="field">
+          <label>显示名 <span class="req">*</span></label>
+          <input type="text" id="admin-display" placeholder="如：张老师">
+        </div>
+        <div class="field">
+          <label>联系邮箱（可选）</label>
+          <input type="text" id="admin-email" placeholder="用于找回凭据">
+        </div>
+      </div>
+      <div class="grid2">
+        <div class="field">
+          <label>设置口令 <span class="req">*</span></label>
+          <input type="password" id="admin-pwd" placeholder="至少 10 位，含字母与数字" oninput="pwdMeter()">
+          <div class="pwd-meter"><i id="pwd-bar"></i></div>
+          <div class="hint" id="pwd-hint">强度：—</div>
+        </div>
+        <div class="field">
+          <label>确认口令 <span class="req">*</span></label>
+          <input type="password" id="admin-pwd2" placeholder="再输入一次">
+          <div class="hint" id="pwd2-hint">—</div>
+        </div>
+      </div>
+      <div class="security-note">⚠️ 生产环境系统将拒绝演示弱口令；此账号创建后请立即妥善保管。</div>
+    </div>
+
+    <!-- 第 3 步：小院信息 -->
+    <div class="pane" id="pane-3" style="display:none">
+      <h2>小院信息</h2>
+      <p class="desc">创建你的第一个小院（后续可再建更多），并选择产业画像——它决定官方技能包的推荐。</p>
+      <div class="field">
+        <label>小院名称 <span class="req">*</span></label>
+        <input type="text" id="yard-name" placeholder="如：江苏（句容）葡萄科技小院">
+      </div>
+      <div class="grid2">
+        <div class="field">
+          <label>所在省</label>
+          <input type="text" id="yard-province" placeholder="如：江苏">
+        </div>
+        <div class="field">
+          <label>所在市</label>
+          <input type="text" id="yard-city" placeholder="如：镇江">
+        </div>
+      </div>
+      <div class="field">
+        <label>产业画像（多选，决定官方技能包推荐）</label>
+        <div class="chips" id="profile-chips">
+          <span class="chip" onclick="toggleChip(this)">🌾 水稻/稻麦</span>
+          <span class="chip" onclick="toggleChip(this)">🦀 水产蟹虾</span>
+          <span class="chip" onclick="toggleChip(this)">🍇 应时鲜果</span>
+          <span class="chip" onclick="toggleChip(this)">🥬 蔬菜瓜果</span>
+          <span class="chip" onclick="toggleChip(this)">🍵 茶叶</span>
+          <span class="chip" onclick="toggleChip(this)">🐑 畜禽</span>
+          <span class="chip" onclick="toggleChip(this)">📡 智慧农业/农文旅</span>
+          <span class="chip sel" onclick="toggleChip(this)">🧰 通用</span>
+        </div>
+      </div>
+      <div class="field">
+        <label>小院简介（可选）</label>
+        <input type="text" id="yard-desc" placeholder="一句话介绍，会显示在门户与分享页">
+      </div>
+    </div>
+
+    <!-- 第 4 步：品牌外观 -->
+    <div class="pane" id="pane-4" style="display:none">
+      <h2>品牌与外观</h2>
+      <p class="desc">平台级品牌包：登录页与门户即时生效（负责人无法修改全站品牌，只有超管可改）。</p>
+      <div class="field">
+        <label>平台名称</label>
+        <input type="text" id="brand-name" value="科技小院智能体平台">
+      </div>
+      <div class="field">
+        <label>主色调</label>
+        <div class="chips">
+          <span class="chip sel" style="border-color:#6f8dff;color:#6f8dff" onclick="pick(this,'#6f8dff')">● 科技蓝（默认）</span>
+          <span class="chip" style="color:#3f9d68" onclick="pick(this,'#3f9d68')">● 田园绿</span>
+          <span class="chip" style="color:#e0a83c" onclick="pick(this,'#e0a83c')">● 丰收金</span>
+          <span class="chip" style="color:#c56fff" onclick="pick(this,'#c56fff')">● 智慧紫</span>
+        </div>
+      </div>
+      <div class="field">
+        <label>Logo 上传</label>
+        <div class="switch-row" style="cursor:pointer">
+          <div><div class="t">🖼 点击上传 Logo（PNG/SVG，≤2MB）</div><div class="d">不上传则使用默认 🌾 图标</div></div>
+          <span class="sw on"><i></i></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 第 5 步：功能配置 -->
+    <div class="pane" id="pane-5" style="display:none">
+      <h2>功能配置（可用推荐值直接完成）</h2>
+      <p class="desc">以下均为系统设置项，进入系统后随时可在「系统设置」调整。</p>
+      <div class="switch-row">
+        <div><div class="t">联网搜索</div><div class="d">内置必应/搜狗/360 免密钥源；需要更强可后续配 Tavily Key</div></div>
+        <div class="sw on" onclick="this.classList.toggle('on')"><i></i></div>
+      </div>
+      <div class="switch-row">
+        <div><div class="t">一句话生成智能体</div><div class="d">每人每日 10 次（0-200 可调）</div></div>
+        <div class="sw on" onclick="this.classList.toggle('on')"><i></i></div>
+      </div>
+      <div class="switch-row">
+        <div><div class="t">工作日志与考核牵引</div><div class="d">日志 100 篇/年 · 驻点 120 天 官方锚点进度条</div></div>
+        <div class="sw on" onclick="this.classList.toggle('on')"><i></i></div>
+      </div>
+      <div class="switch-row">
+        <div><div class="t">自我总结</div><div class="d">周期性归纳（默认关闭，开启需二次确认）</div></div>
+        <div class="sw" onclick="this.classList.toggle('on')"><i></i></div>
+      </div>
+      <div class="field" style="margin-top:14px">
+        <label>大模型供应商（可跳过，进入后在「模型供应商」配置）</label>
+        <div class="chips">
+          <span class="chip sel" onclick="pickSingle(this)">稍后配置（推荐）</span>
+          <span class="chip" onclick="pickSingle(this)">本地模型（Ollama 等）</span>
+          <span class="chip" onclick="pickSingle(this)">云端 API（现在填 Key）</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 第 6 步：完成 -->
+    <div class="pane" id="pane-6" style="display:none">
+      <div class="done-icon">✓</div>
+      <h2 style="text-align:center">初始化完成！</h2>
+      <p class="desc" style="text-align:center">以下配置已写入系统，点击下方按钮用超级管理员进入系统。</p>
+      <div class="summary">
+        <div class="row"><span class="k">超级管理员</span><span>admin（显示名：张老师）</span></div>
+        <div class="row"><span class="k">首个小院</span><span>江苏（句容）葡萄科技小院</span></div>
+        <div class="row"><span class="k">产业画像</span><span>应时鲜果 · 通用</span></div>
+        <div class="row"><span class="k">运营形态</span><span>单机桌面版</span></div>
+        <div class="row"><span class="k">品牌</span><span>科技小院智能体平台 · 科技蓝</span></div>
+        <div class="row"><span class="k">功能开关</span><span>联网搜索 ✓ · 一句话生成 ✓（10 次/日）· 日志考核 ✓</span></div>
+        <div class="row"><span class="k">大模型</span><span>稍后配置（进入后到「模型供应商」）</span></div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <button class="btn btn-ghost" id="btn-back" onclick="back()" style="visibility:hidden">上一步</button>
+      <button class="btn btn-primary" id="btn-next" onclick="next()">开始初始化 →</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  let cur = 1
+  const TOTAL = 6
+  function go(n) {
+    cur = n
+    document.querySelectorAll('.pane').forEach(p => p.style.display = 'none')
+    document.getElementById('pane-' + n).style.display = n === 6 ? 'flex' : 'block'
+    document.querySelectorAll('.step').forEach(st => {
+      const k = +st.dataset.s
+      st.classList.toggle('active', k === n)
+      st.classList.toggle('done', k < n)
+      st.querySelector('.dot').textContent = k < n ? '✓' : k
+    })
+    document.querySelectorAll('.step-line').forEach(l => {
+      l.classList.toggle('done', +l.dataset.l < n)
+    })
+    document.getElementById('btn-back').style.visibility = n === 1 ? 'hidden' : 'visible'
+    document.getElementById('btn-next').textContent =
+      n === TOTAL ? '进入系统 🚀' : n === 1 ? '开始初始化 →' : '下一步 →'
+    window.scrollTo(0, 0)
+  }
+  function next() {
+    // 原型：第 2 步演示校验
+    if (cur === 2) {
+      const name = document.getElementById('admin-name').value
+      const p1 = document.getElementById('admin-pwd').value
+      const p2 = document.getElementById('admin-pwd2').value
+      if (!name) return alert('原型提示：请填登录账号')
+      if (p1.length < 10) return alert('原型提示：口令至少 10 位')
+      if (p1 !== p2) return alert('原型提示：两次口令不一致')
+    }
+    if (cur === 3 && !document.getElementById('yard-name').value) return alert('原型提示：请填小院名称')
+    cur < TOTAL ? go(cur + 1) : alert('原型演示结束：真实版本将写入配置并跳转登录（自动登录）')
+  }
+  function back() { if (cur > 1) go(cur - 1) }
+  function toggleChip(el) { el.classList.toggle('sel') }
+  function pick(el, color) {
+    el.parentElement.querySelectorAll('.chip').forEach(c => c.classList.remove('sel'))
+    el.classList.add('sel')
+    document.documentElement.style.setProperty('--accent', color)
+  }
+  function pickSingle(el) {
+    el.parentElement.querySelectorAll('.chip').forEach(c => c.classList.remove('sel'))
+    el.classList.add('sel')
+  }
+  function pickMode(el, name) {
+    el.parentElement.querySelectorAll('.mode-card').forEach(c => c.classList.remove('sel'))
+    el.classList.add('sel')
+  }
+  function pwdMeter() {
+    const v = document.getElementById('admin-pwd').value
+    let score = 0
+    if (v.length >= 10) score++
+    if (/[A-Za-z]/.test(v) && /\d/.test(v)) score++
+    if (/[^A-Za-z0-9]/.test(v)) score++
+    const bar = document.getElementById('pwd-bar')
+    bar.style.width = (v.length ? Math.min(100, score * 34 + v.length) : 0) + '%'
+    bar.style.background = score >= 3 ? 'var(--ok)' : score === 2 ? 'var(--warn)' : '#ff7b72'
+    document.getElementById('pwd-hint').textContent =
+      '强度：' + (score >= 3 ? '强 ✓' : score === 2 ? '中' : v ? '弱（建议混合字母数字与符号）' : '—')
+    const h2 = document.getElementById('pwd2-hint')
+    const v2 = document.getElementById('admin-pwd2').value
+    h2.textContent = v2 ? (v2 === v ? '✓ 一致' : '✗ 不一致') : '—'
+    h2.className = 'hint ' + (v2 && v2 === v ? 'ok' : v2 ? 'bad' : '')
+  }
+  go(1)
+</script>
+</body>
+</html>
