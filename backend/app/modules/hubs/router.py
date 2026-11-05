@@ -1,4 +1,9 @@
-"""枢纽 REST API（/hubs，v3.65）：通用基座上的运营模式选择。"""
+"""枢纽 REST API（/hubs，v3.65 / v3.66）：通用基座上的运营模式选择。
+
+v3.66 起枢纽端点不再依赖「必须有小院」的 ``get_yard_context``——纯枢纽账号
+（只挂 hub_members、不属任何小院）也应能登录并管理自己那批院。身份仍来自 JWT，
+判权仍走 ``require_hub_access``（platform_admin / hub manager / viewer / 所辖院管理员）。
+"""
 
 from __future__ import annotations
 
@@ -11,7 +16,6 @@ from app.core.deps import (
     YardContext,
     get_current_user,
     get_db_session,
-    get_yard_context,
 )
 from app.core.errors import AppError
 from app.core.responses import ok
@@ -42,13 +46,27 @@ class HubMemberRequest(BaseModel):
     role: str = Field(pattern="^(manager|viewer)$")
 
 
+def _hub_ctx(user: CurrentUser) -> YardContext:
+    """枢纽端点的身份上下文。
+
+    纯枢纽账号没有小院，``yard_id`` 用空串承载——service 只用 user_id/roles/request_id
+    做判权，不会拿它去查小院数据。
+    """
+    return YardContext(
+        yard_id=user.yard_id or "",
+        user_id=user.user_id,
+        roles=list(user.roles or []),
+        request_id=user.request_id,
+    )
+
+
 @router.get("")
 def list_hubs(
     request: Request,
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db_session),
 ):
-    """我可见的枢纽：platform_admin 全部；普通用户按 hub_members。"""
+    """我可见的枢纽：platform_admin 全部；普通用户按 hub_members / 所辖院。"""
     visible = service.list_visible_hubs(
         db, user.user_id, is_platform_admin="platform_admin" in (user.roles or [])
     )
@@ -64,16 +82,24 @@ def list_hubs(
 def create_hub(
     payload: HubCreateRequest,
     request: Request,
-    ctx: YardContext = Depends(get_yard_context),
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db_session),
 ):
-    """创建枢纽并选择运营模式（创建者自动成为 manager）。"""
-    if "platform_admin" not in (user.roles or []) and not user.yard_id:
-        raise AppError("YARD_REQUIRED", "该操作需要小院上下文。", http_status=400)
+    """创建枢纽并选择运营模式（创建者自动成为 manager）。
+
+    v3.66 收口：只有平台管理员或已有枢纽的 manager 能建。
+    小院管理员默认带 ``hubs:manage``（历史遗留），不再自动获得建枢纽能力，
+    避免任何小院管理员都能凭空造组织。
+    """
+    is_platform_admin = "platform_admin" in (user.roles or [])
+    allowed = is_platform_admin or "hubs:manage" in service.hub_permissions(
+        db, user.user_id, is_platform_admin=is_platform_admin
+    )
+    if not allowed:
+        raise AppError("FORBIDDEN", "只有平台管理员或枢纽管理员可创建枢纽。", http_status=403)
     hub = service.create_hub(
         db,
-        ctx,
+        _hub_ctx(user),
         name=payload.name,
         mode=payload.mode,
         region=payload.region,
@@ -97,12 +123,11 @@ def attachable_yards(
 def hub_overview(
     hub_id: str,
     request: Request,
-    ctx: YardContext = Depends(get_yard_context),
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db_session),
 ):
-    """枢纽工作台：所辖小院聚合（只出数字，不含日志内容）。"""
-    return ok(service.hub_overview(db, ctx, hub_id), request)
+    """枢纽工作台：所辖小院聚合（只出数字，不含日志内容）+ 模式化分组洞察。"""
+    return ok(service.hub_overview(db, _hub_ctx(user), hub_id), request)
 
 
 @router.post("/{hub_id}/yards")
@@ -110,11 +135,10 @@ def attach_yard(
     hub_id: str,
     payload: HubAttachRequest,
     request: Request,
-    ctx: YardContext = Depends(get_yard_context),
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db_session),
 ):
-    result = service.attach_yard(db, ctx, hub_id, payload.yard_id)
+    result = service.attach_yard(db, _hub_ctx(user), hub_id, payload.yard_id)
     db.commit()
     return ok(result, request)
 
@@ -123,11 +147,10 @@ def attach_yard(
 def detach_yard(
     yard_id: str,
     request: Request,
-    ctx: YardContext = Depends(get_yard_context),
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db_session),
 ):
-    result = service.detach_yard(db, ctx, yard_id)
+    result = service.detach_yard(db, _hub_ctx(user), yard_id)
     db.commit()
     return ok(result, request)
 
@@ -136,13 +159,12 @@ def detach_yard(
 def member_candidates(
     hub_id: str,
     request: Request,
-    ctx: YardContext = Depends(get_yard_context),
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db_session),
 ):
     """可添加为枢纽成员的活跃用户清单（已在本枢纽的排除）。"""
-    service.require_hub_access(db, ctx, hub_id, manager=True)
-    return ok(service.member_candidates(db, ctx, hub_id), request)
+    service.require_hub_access(db, _hub_ctx(user), hub_id, manager=True)
+    return ok(service.member_candidates(db, _hub_ctx(user), hub_id), request)
 
 
 @router.post("/{hub_id}/members")
@@ -150,10 +172,9 @@ def add_member(
     hub_id: str,
     payload: HubMemberRequest,
     request: Request,
-    ctx: YardContext = Depends(get_yard_context),
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db_session),
 ):
-    result = service.add_member(db, ctx, hub_id, payload.user_id, payload.role)
+    result = service.add_member(db, _hub_ctx(user), hub_id, payload.user_id, payload.role)
     db.commit()
     return ok(result, request)

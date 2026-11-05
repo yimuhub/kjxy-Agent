@@ -422,7 +422,12 @@ def get_me(
     user = repo.get_by_id(db, user_id)
     if user is None:
         raise AppError("UNAUTHORIZED", "身份凭证无效。", http_status=401)
-    if "platform_admin" in roles:
+    # v3.66：枢纽上下文与枢纽权限包（延迟 import 避免 core → modules 的循环）
+    from app.modules.hubs import service as hub_service
+
+    is_platform_admin = "platform_admin" in roles
+    hubs = hub_service.hub_context(db, user_id, is_platform_admin=is_platform_admin)
+    if is_platform_admin:
         permissions = ALL_PERMISSIONS
         owner = True
     elif yard_id:
@@ -433,6 +438,10 @@ def get_me(
     else:
         permissions = frozenset().union(*(default_role_permissions(r) for r in roles))
         owner = False
+    # 枢纽权限与 JWT 角色解耦：纯枢纽账号没有小院角色，也能拿到 hubs:view/manage 等
+    permissions = frozenset(permissions) | hub_service.hub_permissions(
+        db, user_id, is_platform_admin=is_platform_admin
+    )
     return MeResponseData(
         user=_user_out(user),
         roles=roles,
@@ -440,6 +449,7 @@ def get_me(
         yard_id=yard_id,
         is_owner=owner,
         permissions=sorted(permissions),
+        hubs=hubs,
     )
 
 

@@ -29,7 +29,10 @@ ALL_PERMISSIONS: frozenset[str] = frozenset(
         "logs:write",
         "logs:review",
         "yards:aggregate",
+        "hubs:view",
         "hubs:manage",
+        "hubs:export",
+        "hubs:dispatch",
         "skills:manage",
         "skills:generate",
         "skills:review",
@@ -87,6 +90,10 @@ PROTECTED_PERMISSIONS: frozenset[str] = frozenset(
         "finance:read",
         # 私有技能转公共是负责人特权，只能逐人下放，不能写进角色默认值
         "skills:publish_any",
+        # 枢纽的导出/督办只由 hub_permissions 按 hub_members 发放（v3.66），
+        # 不能写进任何小院角色默认值
+        "hubs:export",
+        "hubs:dispatch",
     }
 )
 
@@ -102,7 +109,10 @@ PERMISSION_LABELS: dict[str, str] = {
     "logs:write": "写工作日志/月报",
     "logs:review": "审核工作日志",
     "yards:aggregate": "跨小院监管看板",
+    "hubs:view": "查看枢纽工作台（所辖小院聚合）",
     "hubs:manage": "管理枢纽（绑定小院/成员）",
+    "hubs:export": "导出枢纽报表",
+    "hubs:dispatch": "向所辖小院发督办",
     "knowledge:read": "查看知识库",
     "knowledge:write": "维护知识库",
     "farm:read": "查看农业台账",
@@ -161,14 +171,8 @@ PERMISSION_LABELS: dict[str, str] = {
 }
 
 #: 角色默认权限。yard_owner 在判定时始终补齐全集（此处保留可读默认值）。
-_ADMIN_DEFAULTS = ALL_PERMISSIONS - {
-    "owner:transfer",
-    "members:manage_admins",
-    "settings:manage_protected",
-    "insights:sensitive",
-    "finance:read",
-    "skills:publish_any",
-}
+#: 管理员 = 全部权限减去保护型（保护型只能由代码按角色/授权发放）。
+_ADMIN_DEFAULTS = ALL_PERMISSIONS - PROTECTED_PERMISSIONS
 
 PERMISSIONS: dict[str, frozenset[str]] = {
     "platform_admin": ALL_PERMISSIONS,
@@ -297,7 +301,15 @@ PERMISSION_GROUPS: tuple[dict[str, object], ...] = (
     {
         "key": "oversight",
         "label": "工作日志与监管",
-        "permissions": ["logs:write", "logs:review", "yards:aggregate", "hubs:manage"],
+        "permissions": [
+            "logs:write",
+            "logs:review",
+            "yards:aggregate",
+            "hubs:view",
+            "hubs:manage",
+            "hubs:export",
+            "hubs:dispatch",
+        ],
     },
     {
         "key": "content",

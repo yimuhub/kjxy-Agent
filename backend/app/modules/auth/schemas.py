@@ -71,6 +71,19 @@ class LogoutRequest(BaseModel):
     refresh_token: str | None = Field(default=None, min_length=1)
 
 
+class HubBrief(BaseModel):
+    """用户可见的枢纽（v3.66）：前端据此决定落地页、菜单与模式视图。"""
+
+    hub_id: str
+    name: str
+    mode: str
+    mode_label: str = ""
+    mode_focus: str = ""
+    region: str = ""
+    #: manager | viewer | yard_manager
+    role: str
+
+
 class MeResponseData(BaseModel):
     user: UserOut
     roles: list[str]
@@ -79,6 +92,8 @@ class MeResponseData(BaseModel):
     yard_id: str | None = None
     is_owner: bool = False
     permissions: list[str] = Field(default_factory=list)
+    # v3.66：枢纽上下文——纯枢纽账号（不挂小院）也能登录并直落 /hubs
+    hubs: list[HubBrief] = Field(default_factory=list)
 
 
 class ProfileUpdateRequest(BaseModel):
