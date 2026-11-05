@@ -71,6 +71,8 @@ DEFAULTS: dict[str, dict[str, Any]] = {
     # 枢纽工作台三种运营模式的分组与横向对比都靠这几个字段，缺省则回退模型列
     "yard_profile": {
         "types": ["general"],
+        # v3.69 部署形态（初始化向导选择）：desktop | server | cloud
+        "deployment": "desktop",
         "unit": "",
         "county": "",
         "industry": "",
@@ -377,6 +379,8 @@ def _validate(key: str, value: dict[str, Any], merged: dict[str, Any]) -> None:
                 http_status=400,
             )
         merged["types"] = list(dict.fromkeys(str(t) for t in types))  # 去重保序
+        if merged.get("deployment") not in ("desktop", "server", "cloud"):
+            raise AppError("INVALID_REQUEST", "部署形态不合法。", http_status=400)
         # v3.67：档案特性字段（人工录入），枢纽工作台按此分组；统一 strip 并限长
         for field, label, limit in (
             ("unit", "培养单位", 64),

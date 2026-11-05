@@ -889,7 +889,7 @@
   }
 
   const canManage = computed(() =>
-    auth.roles.some(role => ['yard_owner', 'yard_admin', 'platform_admin'].includes(role)),
+    auth.roles.some((role: string) => ['yard_owner', 'yard_admin', 'platform_admin'].includes(role)),
   )
   const displayName = computed(() => overview.value?.commander.display_name || '指挥官')
   const lastRunTokens = computed(() => Number(overview.value?.runs?.[0]?.tokens_total || 0))

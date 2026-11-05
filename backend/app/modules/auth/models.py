@@ -32,6 +32,8 @@ class User(Base, TimestampMixin):
     )
     # 令牌版本：改密/停用/改角色后递增，旧令牌立即失效
     token_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # v3.69：初始化向导创建的超级管理员持久化标志（登录时授予 platform_admin 角色）
+    platform_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
 class RefreshSession(Base, TimestampMixin):

@@ -12,6 +12,22 @@ function toYard(brief: YardBrief): Yard {
 export const useAuthStore = defineStore('auth', () => {
   const token = ref<string>(localStorage.getItem(TOKEN_KEY) ?? '')
   const user = ref<User | null>(null)
+  /** 初始化向导状态：null=未查；false=未初始化（强制 /setup） */
+  const setupChecked = ref(false)
+  const setupInitialized = ref(true)
+
+  /** 查询系统是否已完成初始化（仅一次；/setup/status 匿名） */
+  async function ensureSetupStatus(): Promise<boolean> {
+    if (setupChecked.value) return setupInitialized.value
+    try {
+      const { setupApi } = await import('@/api/setup')
+      setupInitialized.value = (await setupApi.status()).initialized
+    } catch {
+      setupInitialized.value = true  // 后端不可达时按已初始化，避免全站卡向导
+    }
+    setupChecked.value = true
+    return setupInitialized.value
+  }
   const yard = ref<Yard | null>(null)
   const yards = ref<YardBrief[]>([])
   /** 当前用户角色码（yard_admin / expert / operator / viewer / platform_admin） */
@@ -170,6 +186,9 @@ export const useAuthStore = defineStore('auth', () => {
     isLoggedIn,
     hasAnyRole,
     hasPermission,
+    ensureSetupStatus,
+    setupInitialized,
+    setupChecked,
     isYardAdmin,
     login,
     adoptLogin,

@@ -4,6 +4,7 @@ import { useAuthStore } from '@/stores/auth'
 import { appTitle } from '@/stores/branding'
 import { defaultHomePath } from '@/utils/home'
 import MainLayout from '@/layouts/MainLayout.vue'
+import SetupWizard from '@/views/SetupWizard.vue'
 import HubView from '@/views/HubView.vue'
 import JournalView from '@/views/JournalView.vue'
 import OversightView from '@/views/OversightView.vue'
@@ -54,6 +55,12 @@ const routes: RouteRecordRaw[] = [
     // 旧问答页已并入对话（v3.13）：保留路径，带上原问题进入知识问答模式
     path: '/qa',
     redirect: to => ({ path: '/chat', query: { ...to.query, qa: '1' } }),
+  },
+  {
+    path: '/setup',
+    name: 'Setup',
+    component: SetupWizard,
+    meta: { public: true, title: '初始化向导' },
   },
   {
     path: '/login',
@@ -236,6 +243,13 @@ router.afterEach(to => {
 
 router.beforeEach(async to => {
   const auth = useAuthStore()
+  // 初始化向导分流（v3.69）：未初始化的系统强制进 /setup；已初始化禁止再进
+  if (to.path !== '/setup') {
+    const initialized = await auth.ensureSetupStatus()
+    if (!initialized) return { path: '/setup' }
+  } else if (auth.setupChecked && auth.setupInitialized) {
+    return '/login'
+  }
   if (to.meta.public) {
     if ((to.path === '/login' || to.path === '/signup') && auth.isLoggedIn()) {
       if (!auth.meLoaded) {

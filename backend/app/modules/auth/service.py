@@ -136,6 +136,13 @@ def _bootstrap_platform_admin(
     return ["platform_admin", *roles]
 
 
+def _with_persistent_platform_admin(user: User, roles: list[str]) -> list[str]:
+    """v3.69：初始化向导创建的超级管理员（持久标志）授予平台管理员角色。"""
+    if getattr(user, "platform_admin", False) and "platform_admin" not in roles:
+        return ["platform_admin", *roles]
+    return roles
+
+
 def _user_out(user: User) -> UserOut:
     return UserOut(
         user_id=user.id,
@@ -241,6 +248,7 @@ def login(
     chosen_yard_id = chosen.yard_id if chosen else None
     # 平台管理员 bootstrap：用户名在配置名单中则授予 platform_admin（含弱名单运行时防御）
     roles = _bootstrap_platform_admin(db, user, roles, request_id=request_id)
+    roles = _with_persistent_platform_admin(user, roles)
 
     user.last_login_at = _utcnow()
     refresh_token = _issue_refresh_session(
@@ -291,6 +299,7 @@ def issue_login_response(
     if chosen is None:
         raise AppError("YARD_FORBIDDEN", "您不属于该小院。", http_status=403)
     roles = _bootstrap_platform_admin(db, user, list(chosen.roles), request_id=request_id)
+    roles = _with_persistent_platform_admin(user, roles)
     user.last_login_at = _utcnow()
     refresh_token = _issue_refresh_session(
         db, user_id=user.id, yard_id=chosen.yard_id, token_version=user.token_version
