@@ -6,6 +6,7 @@ from app.modules.yards.permissions import (
     PERMISSION_GROUPS,
     PERMISSION_LABELS,
     PERMISSIONS,
+    PLATFORM_PERMISSIONS,
     PROTECTED_PERMISSIONS,
 )
 
@@ -25,9 +26,12 @@ def test_groups_cover_all_permissions_without_duplicates():
 def test_grantable_excludes_hierarchy_permissions():
     assert "owner:transfer" not in GRANTABLE_PERMISSIONS
     assert "members:manage_admins" not in GRANTABLE_PERMISSIONS
+    # v3.67：平台级权限（品牌/门户）只能超管授予，不在小院可授权范围内
+    assert PLATFORM_PERMISSIONS.isdisjoint(GRANTABLE_PERMISSIONS)
     assert (PROTECTED_PERMISSIONS - GRANTABLE_PERMISSIONS) == {
         "owner:transfer",
         "members:manage_admins",
+        "branding:manage",
     }
     assert GRANTABLE_PERMISSIONS <= ALL_PERMISSIONS
 

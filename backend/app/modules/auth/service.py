@@ -442,6 +442,13 @@ def get_me(
     permissions = frozenset(permissions) | hub_service.hub_permissions(
         db, user_id, is_platform_admin=is_platform_admin
     )
+    # v3.67：平台级权限（品牌/门户）与 JWT/小院角色正交，只由超管直通或
+    # platform_grants 逐人授予——小院负责人不会因为「负责人=全集」而拿到它
+    from app.modules.branding import service as branding_service
+
+    permissions = frozenset(permissions) | branding_service.platform_permissions(
+        db, user_id, is_platform_admin=is_platform_admin
+    )
     return MeResponseData(
         user=_user_out(user),
         roles=roles,

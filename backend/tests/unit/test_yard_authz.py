@@ -6,7 +6,11 @@ from app.modules.auth.repository import create_user
 from app.modules.yards import roles_service, settings_service
 from app.modules.yards.authz import effective_permissions
 from app.modules.yards.models import YardMemberGrant
-from app.modules.yards.permissions import ALL_PERMISSIONS, PROTECTED_PERMISSIONS
+from app.modules.yards.permissions import (
+    ALL_PERMISSIONS,
+    PLATFORM_PERMISSIONS,
+    PROTECTED_PERMISSIONS,
+)
 from app.modules.yards.repository import add_membership, create_yard
 
 
@@ -31,9 +35,11 @@ def people(db_session):
 
 
 def test_owner_always_has_all_permissions(db_session, people):
+    """负责人恒定拿到「小院全集」；平台级权限（品牌/门户）不在小院作用域内。"""
     yard, owner, _, _ = people
     perms = effective_permissions(db_session, yard_id=yard.id, user_id=owner.id, jwt_roles=[])
-    assert perms == ALL_PERMISSIONS
+    assert perms == ALL_PERMISSIONS - PLATFORM_PERMISSIONS
+    assert "branding:manage" not in perms
 
 
 def test_admin_lacks_protected_permissions(db_session, people):

@@ -16,6 +16,7 @@ from app.modules.audit.router import router as audit_router
 from app.modules.auth.router import router as auth_router
 from app.modules.auth.sso_router import router as sso_router
 from app.modules.bots.router import router as bots_router
+from app.modules.branding.router import router as branding_router
 from app.modules.chat.router import media_router as chat_media_router
 from app.modules.chat.router import mention_router as chat_mention_router
 from app.modules.chat.router import router as chat_router
@@ -110,6 +111,7 @@ router.include_router(bots_router)  # /bots（IM 机器人网关：配置/测试
 router.include_router(search_router)  # /search（联网状态探测 + 连通性测试）
 router.include_router(self_improve_router)  # /yards/current/self-improve*（自我总结提升 v3.4）
 router.include_router(hubs_router)
+router.include_router(branding_router)  # /branding（白标：logo/名称/主色/域名）+ /platform/grants
 router.include_router(journal_router)
 router.include_router(system_router)  # /system/logs（负责人查看脱敏运行日志，v3.41）
 

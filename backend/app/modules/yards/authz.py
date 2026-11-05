@@ -15,6 +15,7 @@ from app.modules.yards.permissions import (
     ALL_PERMISSIONS,
     GRANTABLE_PERMISSIONS,
     PERMISSIONS,
+    PLATFORM_PERMISSIONS,
     PROTECTED_PERMISSIONS,
     default_role_permissions,
 )
@@ -74,21 +75,23 @@ def effective_permissions(
     - 小院负责人：永远全权限（不可被角色配置削弱）；
     - 其余成员：角色权限 ∪ 负责人授予的敏感权限；
     - 查不到 membership 时回退 JWT 角色（兼容测试与在途令牌），但不授予保护权限。
+
+    v3.67：``PLATFORM_PERMISSIONS``（品牌/门户）**不属于小院作用域**——负责人
+    返回的是「全集减平台权限」，平台权限只由 ``/auth/me`` 按 platform_admin 或
+    ``platform_grants`` 单独发放。
     """
     roles = list(jwt_roles or [])
-    if "platform_admin" in roles:
-        return ALL_PERMISSIONS
-    if is_owner(db, yard_id, user_id):
-        return ALL_PERMISSIONS
+    if "platform_admin" in roles or is_owner(db, yard_id, user_id):
+        return ALL_PERMISSIONS - PLATFORM_PERMISSIONS
     membership = get_active_membership(db, yard_id, user_id)
     if membership is None:
         fallback: set[str] = set()
         for role in roles:
             fallback |= set(default_role_permissions(role))
-        return frozenset(fallback - PROTECTED_PERMISSIONS)
+        return frozenset(fallback - PROTECTED_PERMISSIONS - PLATFORM_PERMISSIONS)
     perms = set(role_permissions(db, yard_id, membership.role))
     perms |= member_grants(db, yard_id, user_id)
-    return frozenset(perms)
+    return frozenset(perms - PLATFORM_PERMISSIONS)
 
 
 def has_permission(

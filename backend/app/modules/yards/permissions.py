@@ -75,10 +75,15 @@ ALL_PERMISSIONS: frozenset[str] = frozenset(
         "policies:read",
         "policies:write",
         "evolution:manage",
+        "branding:manage",
         "owner:transfer",
         "members:manage_admins",
     }
 )
+
+#: 平台级权限（v3.67）：与「小院作用域」正交，不能由小院角色/负责人授权获得。
+#: 只由 platform_admin 直通或 ``platform_grants`` 逐人授予，见 branding 模块。
+PLATFORM_PERMISSIONS: frozenset[str] = frozenset({"branding:manage"})
 
 #: 任何角色配置都不能授予的保护型权限（只由代码按角色/授权发放）
 PROTECTED_PERMISSIONS: frozenset[str] = frozenset(
@@ -94,15 +99,23 @@ PROTECTED_PERMISSIONS: frozenset[str] = frozenset(
         # 不能写进任何小院角色默认值
         "hubs:export",
         "hubs:dispatch",
+        # 品牌与门户是平台级动作（v3.67）：小院负责人/管理员默认都没有，
+        # 只能由超管逐人授权，避免任何小院改掉全平台 logo
+        "branding:manage",
     }
 )
 
 #: 负责人可以逐人授予的权限：除「转让负责人 / 管理管理员」外的全部权限（v3.24 扩展）。
 #: 管理管理员涉及层级越权，只能通过负责人转让/调整角色产生，不能逐人下放。
-GRANTABLE_PERMISSIONS: frozenset[str] = ALL_PERMISSIONS - {
-    "owner:transfer",
-    "members:manage_admins",
-}
+#: v3.67：平台级权限（品牌/门户）不在小院授权范围内，必须由超管走 platform_grants。
+GRANTABLE_PERMISSIONS: frozenset[str] = (
+    ALL_PERMISSIONS
+    - {
+        "owner:transfer",
+        "members:manage_admins",
+    }
+    - PLATFORM_PERMISSIONS
+)
 
 #: 权限点中文名（前端「角色与权限」矩阵直接使用，不再各自维护一份）
 PERMISSION_LABELS: dict[str, str] = {
@@ -113,6 +126,7 @@ PERMISSION_LABELS: dict[str, str] = {
     "hubs:manage": "管理枢纽（绑定小院/成员）",
     "hubs:export": "导出枢纽报表",
     "hubs:dispatch": "向所辖小院发督办",
+    "branding:manage": "品牌与门户（logo/名称/主色/域名）",
     "knowledge:read": "查看知识库",
     "knowledge:write": "维护知识库",
     "farm:read": "查看农业台账",
@@ -382,6 +396,11 @@ PERMISSION_GROUPS: tuple[dict[str, object], ...] = (
         "label": "设备与政策",
         "permissions": ["devices:read", "devices:write", "policies:read", "policies:write"],
     },
+    {
+        "key": "platform",
+        "label": "平台门户（超管授权）",
+        "permissions": ["branding:manage"],
+    },
 )
 
 
@@ -405,6 +424,7 @@ __all__ = [
     "PERMISSIONS",
     "PERMISSION_GROUPS",
     "PERMISSION_LABELS",
+    "PLATFORM_PERMISSIONS",
     "PROTECTED_PERMISSIONS",
     "RESERVED_ROLE_CODES",
     "ROLE_LABELS",
