@@ -51,11 +51,18 @@
 
       <el-tab-pane
         lazy
+        label="小院档案"
+        name="yard_profile"
+      >
+        <SettingsYardProfile />
+      </el-tab-pane>
+
+      <el-tab-pane
+        lazy
         label="网络与搜索"
         name="network"
       >
         <SettingsNetwork />
-        <SettingsYardProfile />
         <SettingsSkillLab />
         <SettingsAgentGenerate />
       </el-tab-pane>
@@ -588,6 +595,7 @@ const TAB_NAMES = [
   'roles',
   'menu',
   'registration',
+  'yard_profile',
   'network',
   'commander',
   'desktop_pet',

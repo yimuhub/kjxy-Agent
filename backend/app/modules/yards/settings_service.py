@@ -67,8 +67,14 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "use_web": True,  # 生成前先联网取证；关闭则直接按本地知识设计
     },
     # v3.56 小院画像：官方技能库按此推荐（口径对齐 market.official_catalog.YARD_TYPES）
+    # v3.67：扩为「小院档案」——培养单位/县域/主导产业/一院一策标签，
+    # 枢纽工作台三种运营模式的分组与横向对比都靠这几个字段，缺省则回退模型列
     "yard_profile": {
         "types": ["general"],
+        "unit": "",
+        "county": "",
+        "industry": "",
+        "tags": [],
     },
     "device_analysis": {
         "enabled": True,  # 有启用设备的小院默认每天分析一次
@@ -371,6 +377,35 @@ def _validate(key: str, value: dict[str, Any], merged: dict[str, Any]) -> None:
                 http_status=400,
             )
         merged["types"] = list(dict.fromkeys(str(t) for t in types))  # 去重保序
+        # v3.67：档案特性字段（人工录入），枢纽工作台按此分组；统一 strip 并限长
+        for field, label, limit in (
+            ("unit", "培养单位", 64),
+            ("county", "县域", 32),
+            ("industry", "主导产业", 32),
+        ):
+            raw = merged.get(field) or ""
+            if not isinstance(raw, str):
+                raise AppError("INVALID_REQUEST", f"{label}必须是文本。", http_status=400)
+            text = raw.strip()
+            if len(text) > limit:
+                raise AppError("INVALID_REQUEST", f"{label}最多 {limit} 个字。", http_status=400)
+            merged[field] = text
+        tags = merged.get("tags")
+        if not isinstance(tags, list):
+            raise AppError("INVALID_REQUEST", "标签必须是数组。", http_status=400)
+        if len(tags) > 12:
+            raise AppError("INVALID_REQUEST", "标签最多 12 个。", http_status=400)
+        cleaned: list[str] = []
+        for tag in tags:
+            if not isinstance(tag, str):
+                raise AppError("INVALID_REQUEST", "标签必须是文本。", http_status=400)
+            text = tag.strip()
+            if not text:
+                continue
+            if len(text) > 16:
+                raise AppError("INVALID_REQUEST", "单个标签最多 16 个字。", http_status=400)
+            cleaned.append(text)
+        merged["tags"] = list(dict.fromkeys(cleaned))
     elif key == "agent_generate":
         for flag in ("enabled", "use_web"):
             if not isinstance(merged[flag], bool):
