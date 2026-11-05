@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.67.0
+  version: 3.68.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -14187,6 +14187,168 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/branding:
+    get:
+      tags:
+      - v1
+      - branding
+      summary: Public Branding
+      description: 品牌解析（匿名）：登录页、共享页与启动时都用它。
+      operationId: public_branding_api_v1_branding_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /api/v1/branding/logo:
+    get:
+      tags:
+      - v1
+      - branding
+      summary: Branding Logo
+      description: 门户 logo 字节（匿名）：带 ETag，未设置返回 404 让前端回落文字 logo。
+      operationId: branding_logo_api_v1_branding_logo_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+    post:
+      tags:
+      - v1
+      - branding
+      summary: Upload Branding Logo
+      description: 上传 logo（PNG/JPG/WEBP，≤1MB，文件头须与扩展名一致）。
+      operationId: upload_branding_logo_api_v1_branding_logo_post
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_upload_branding_logo_api_v1_branding_logo_post'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+    delete:
+      tags:
+      - v1
+      - branding
+      summary: Delete Branding Logo
+      operationId: delete_branding_logo_api_v1_branding_logo_delete
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/branding/settings:
+    get:
+      tags:
+      - v1
+      - branding
+      summary: Branding Settings
+      description: 品牌管理视图（含域名与操作者，仅管理员可见）。
+      operationId: branding_settings_api_v1_branding_settings_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+    put:
+      tags:
+      - v1
+      - branding
+      summary: Update Branding Settings
+      operationId: update_branding_settings_api_v1_branding_settings_put
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BrandingUpdateRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/platform/grants:
+    get:
+      tags:
+      - v1
+      - branding
+      summary: List Platform Grants
+      description: 授权面板：活跃用户 + 当前平台授权。
+      operationId: list_platform_grants_api_v1_platform_grants_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/platform/grants/{user_id}:
+    put:
+      tags:
+      - v1
+      - branding
+      summary: Update Platform Grants
+      description: 覆盖式写入某用户的平台授权；空列表即撤销。
+      operationId: update_platform_grants_api_v1_platform_grants__user_id__put
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: User Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlatformGrantRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/journal/draft:
     post:
       tags:
@@ -14959,6 +15121,16 @@ components:
       required:
       - file
       title: Body_upload_attachment_api_v1_chat_sessions__session_id__attachments_post
+    Body_upload_branding_logo_api_v1_branding_logo_post:
+      properties:
+        file:
+          type: string
+          format: binary
+          title: File
+      type: object
+      required:
+      - file
+      title: Body_upload_branding_logo_api_v1_branding_logo_post
     Body_upload_declarative_cover_api_v1_agents_declarative__agent_id__cover_post:
       properties:
         file:
@@ -14997,6 +15169,49 @@ components:
       required:
       - file
       title: Body_upload_document_api_v1_knowledge_documents_post
+    BrandingUpdateRequest:
+      properties:
+        app_name:
+          anyOf:
+          - type: string
+            maxLength: 40
+          - type: 'null'
+          title: App Name
+        short_name:
+          anyOf:
+          - type: string
+            maxLength: 8
+          - type: 'null'
+          title: Short Name
+        login_tagline:
+          anyOf:
+          - type: string
+            maxLength: 40
+          - type: 'null'
+          title: Login Tagline
+        footer_text:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Footer Text
+        primary_color:
+          anyOf:
+          - type: string
+            maxLength: 7
+          - type: 'null'
+          title: Primary Color
+        domains:
+          anyOf:
+          - items:
+              type: string
+            type: array
+            maxItems: 5
+          - type: 'null'
+          title: Domains
+      additionalProperties: false
+      type: object
+      title: BrandingUpdateRequest
     CandidateBatchReview:
       properties:
         ids:
@@ -16774,6 +16989,17 @@ components:
       - instruction
       title: PlanSubtaskIn
       description: 计划卡提交的一个子任务；depends_on 按新数组位置 1-based 解释。
+    PlatformGrantRequest:
+      properties:
+        grants:
+          items:
+            type: string
+          type: array
+          maxItems: 1
+          title: Grants
+      additionalProperties: false
+      type: object
+      title: PlatformGrantRequest
     PlotCreate:
       properties:
         client_op_id:

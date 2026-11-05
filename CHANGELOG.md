@@ -2,6 +2,54 @@
 
 本项目遵循《工程开发规范 V3.0》；版本号遵循语义化版本。
 
+## [3.68.0] - 2026-11-05
+
+枢纽 P2：白标门户。品牌在设置里改，默认只给超级管理员，可逐人授权管理员
+（承接 3.67.0 的小院档案与一院多枢纽）。
+
+### 品牌包（不 fork，一份配置改全站）
+
+- 新增 `platform_branding` 单行：门户名称/简称/登录标语/分享页落款/主色/
+  logo/对外域名；空值在出参里按默认文案补齐，不需要种子数据
+- `GET /branding` 与 `GET /branding/logo` **匿名可读**（登录页要先有品牌），
+  只出展示字段与 `brand_version`；`GET /branding/logo` 带 ETag 与 5 分钟缓存
+- `PUT /branding/settings` / `POST /branding/logo` / `DELETE /branding/logo`：
+  文案、主色（#RRGGBB，支持 #RGB 展开）、域名列表；logo 只收 PNG/JPG/WEBP
+  （≤1MB，文件头须与扩展名一致，**不收 SVG**），旧图尽力删除
+- 前端 `stores/branding.ts`：启动解析一次、失败静默回落默认值；注入
+  `--ds-accent`/`--ds-grad-brand` 与 Element Plus 主色阶，替换侧栏、登录、
+  SSO、邀请、注册、分享页落款与浏览器标题；换 logo 用 `?v=` 破缓存
+
+### 权限（平台级，与 yard 作用域正交）
+
+- 新增 `branding:manage`，并引入 `PLATFORM_PERMISSIONS`：`effective_permissions()`
+  对 platform_admin / 小院负责人返回的是「全集减平台权限」——**小院负责人
+  再也不能改全平台 logo**（回归测试锁死）
+- 新增 `platform_grants`（迁移 0074）：超管在设置页逐人授权，被授权者可改品牌、
+  **不能转授**；`/platform/grants` 严格 platform_admin
+- `GRANTABLE_PERMISSIONS` 排除平台权限，小院负责人无法经小院授权旁路获取
+- 新增权限分组「平台门户（超管授权）」与中文名，前端角色矩阵可见
+
+### 设置页
+
+- 新页签「品牌与门户」：基本文案 / 主色（色板+hex）/ logo 上传与深浅底预览/
+  域名列表 + 部署清单（DNS、Host 透传、证书，系统不代配）/ 授权管理员
+- 域名只做规范化（去协议与端口、小写、IDN 转 punycode、去重、≤5 个）与记录，
+  用于生成链接与「非官方入口」提示；**不硬拒**未登记 Host，避免挡掉 IP 直连与本地开发
+- 页签与 `?tab=branding` 直达都受 `branding:manage` 控制
+
+### 已知边界
+
+- PWA manifest 图标、favicon、桌面安装包名称与图标是构建期产物，运行期改不了；
+  桌面端仅窗口内界面与标题跟随品牌，改安装包需重新打包
+
+### 测试
+
+- 新增 8 组：公开默认值与更新同步、长度/颜色/域名校验与规范化、logo
+  上传-读取-清除与伪装拦截、负责人无品牌权限、授权与撤销即时生效、
+  授权目标清单、HTTP 表面（匿名 200 / 未登录 401）
+- 全量 1862 通过；ruff 与 vue-tsc 全绿
+
 ## [3.67.0] - 2026-11-05
 
 枢纽 P1.5：小院档案可录入、一院可多枢纽关联（承接 3.66.0 的模式分化）。
