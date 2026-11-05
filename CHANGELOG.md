@@ -2,6 +2,40 @@
 
 本项目遵循《工程开发规范 V3.0》；版本号遵循语义化版本。
 
+## [3.66.0] - 2026-11-05
+
+通用基座 × 运营模式 P1：让三种治理形态真正长出各自的账号、权限与视图
+（承接 3.65.0 的枢纽层级，方案 docs/hub-modes-design.md）。
+
+### 枢纽账号与权限（不再借用小院管理员）
+
+- 新增枢纽权限包 `hubs:view` / `hubs:manage` / `hubs:export` / `hubs:dispatch`；
+  导出与督办归入保护型权限，只由 `hub_permissions` 按 `hub_members` 发放，
+  不写进任何小院角色默认值
+- `/auth/me` 返回 `hubs` 上下文（hub_id/name/mode/role），权限与 JWT 角色解耦——
+  **纯枢纽账号（不属任何小院）也能登录并拿到枢纽权限**
+- `/hubs/*` 端点不再依赖「必须有小院」的 `get_yard_context`，改用身份上下文；
+  `POST /hubs` 收口为「平台管理员或已有枢纽 manager」，小院管理员不再能凭空建组织
+
+### 三种模式真正分化（同一路由 + 模式视图）
+
+- `GET /hubs/{id}/overview` 新增 `insights`：省级按培养单位、市级按县域、
+  实验站按小院类型分组，给出 100 篇年锚点折算的月度达标率（9 篇/月）
+- 前端 `components/hubs/`：ProvincePanel（达标进度）/ MunicipalPanel（县域覆盖 +
+  断更清单）/ StationPanel（类型分布 + 横向对比），`HubView` 按 `mode` 动态挂载；
+  未注册模式回落通用表。新增形态 = 加一个 Panel + 注册一行
+- 菜单「枢纽工作台」改为 `hubs:view` 可见；登录落地页按枢纽上下文直落 `/hubs`
+
+### 数据
+
+- 迁移 0072：`yards.attributes`（培养单位/县域/产业/小院类型/一院一策标签），
+  三种视图的分组依据；缺值回退 province/city/scene_type
+
+### 测试
+
+- 新增 3 组：权限包（viewer/manager/陌生人）、省级达标分组、市级县域 + 实验站类型
+  （含缺特性回退）；全量 1848 通过，ruff 与 vue-tsc 全绿
+
 ## [3.65.1] - 2026-11-05
 
 交付前拟人化全量遍历（四账号 × 全部页面，86 页次）发现问题的修复 + 傻瓜化改造。

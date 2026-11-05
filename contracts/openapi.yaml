@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.64.0
+  version: 3.66.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -789,6 +789,48 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/yards/lookup:
+    post:
+      tags:
+      - v1
+      summary: Lookup Yard
+      description: 匿名小院核验（注册页傻瓜化）：按 ID 查名称。UUID 不可枚举，仅返回名称。
+      operationId: lookup_yard_api_v1_yards_lookup_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              additionalProperties:
+                type: string
+              type: object
+              title: Payload
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/yards/all:
+    get:
+      tags:
+      - v1
+      summary: List All Yards
+      description: 全院列表（技能灰度发布等管理场景）：平台管理员或小院负责人。
+      operationId: list_all_yards_api_v1_yards_all_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
   /api/v1/yards/current:
     get:
       tags:
@@ -9617,6 +9659,36 @@ paths:
               schema: {}
       security:
       - HTTPBearer: []
+  /api/v1/workspace/browse:
+    get:
+      tags:
+      - v1
+      - workspace
+      summary: Browse Directories
+      description: 目录浏览（新建工作区「项目根」傻瓜化选择）：列允许根 / 某目录下一层子目录。
+      operationId: browse_directories_api_v1_workspace_browse_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: base
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Base
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/workspace/projects:
     get:
       tags:
@@ -13839,6 +13911,226 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/hubs:
+    get:
+      tags:
+      - v1
+      - hubs
+      summary: List Hubs
+      description: 我可见的枢纽：platform_admin 全部；普通用户按 hub_members / 所辖院。
+      operationId: list_hubs_api_v1_hubs_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+    post:
+      tags:
+      - v1
+      - hubs
+      summary: Create Hub
+      description: '创建枢纽并选择运营模式（创建者自动成为 manager）。
+
+
+        v3.66 收口：只有平台管理员或已有枢纽的 manager 能建。
+
+        小院管理员默认带 ``hubs:manage``（历史遗留），不再自动获得建枢纽能力，
+
+        避免任何小院管理员都能凭空造组织。'
+      operationId: create_hub_api_v1_hubs_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HubCreateRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/hubs/attachable-yards:
+    get:
+      tags:
+      - v1
+      - hubs
+      summary: Attachable Yards
+      description: 当前用户可绑定到枢纽的小院清单（platform_admin 全部；普通用户为其管理的小院）。
+      operationId: attachable_yards_api_v1_hubs_attachable_yards_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/hubs/{hub_id}/overview:
+    get:
+      tags:
+      - v1
+      - hubs
+      summary: Hub Overview
+      description: 枢纽工作台：所辖小院聚合（只出数字，不含日志内容）+ 模式化分组洞察。
+      operationId: hub_overview_api_v1_hubs__hub_id__overview_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: hub_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Hub Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/hubs/{hub_id}/yards:
+    post:
+      tags:
+      - v1
+      - hubs
+      summary: Attach Yard
+      operationId: attach_yard_api_v1_hubs__hub_id__yards_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: hub_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Hub Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HubAttachRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/hubs/yards/{yard_id}:
+    delete:
+      tags:
+      - v1
+      - hubs
+      summary: Detach Yard
+      operationId: detach_yard_api_v1_hubs_yards__yard_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: yard_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Yard Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/hubs/{hub_id}/member-candidates:
+    get:
+      tags:
+      - v1
+      - hubs
+      summary: Member Candidates
+      description: 可添加为枢纽成员的活跃用户清单（已在本枢纽的排除）。
+      operationId: member_candidates_api_v1_hubs__hub_id__member_candidates_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: hub_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Hub Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/hubs/{hub_id}/members:
+    post:
+      tags:
+      - v1
+      - hubs
+      summary: Add Member
+      operationId: add_member_api_v1_hubs__hub_id__members_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: hub_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Hub Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HubMemberRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/journal/draft:
     post:
       tags:
@@ -15397,7 +15689,7 @@ components:
           items:
             type: string
           type: array
-          maxItems: 56
+          maxItems: 60
           title: Grants
       additionalProperties: false
       type: object
@@ -15463,6 +15755,62 @@ components:
           title: Detail
       type: object
       title: HTTPValidationError
+    HubAttachRequest:
+      properties:
+        yard_id:
+          type: string
+          maxLength: 36
+          minLength: 6
+          title: Yard Id
+      additionalProperties: false
+      type: object
+      required:
+      - yard_id
+      title: HubAttachRequest
+    HubCreateRequest:
+      properties:
+        name:
+          type: string
+          maxLength: 120
+          minLength: 2
+          title: Name
+        mode:
+          type: string
+          pattern: ^(province|municipal|station)$
+          title: Mode
+        region:
+          type: string
+          maxLength: 120
+          title: Region
+          default: ''
+        note:
+          type: string
+          maxLength: 500
+          title: Note
+          default: ''
+      additionalProperties: false
+      type: object
+      required:
+      - name
+      - mode
+      title: HubCreateRequest
+    HubMemberRequest:
+      properties:
+        user_id:
+          type: string
+          maxLength: 36
+          minLength: 2
+          title: User Id
+        role:
+          type: string
+          pattern: ^(manager|viewer)$
+          title: Role
+      additionalProperties: false
+      type: object
+      required:
+      - user_id
+      - role
+      title: HubMemberRequest
     IdentityUpdateRequest:
       properties:
         bound_skills:
@@ -15798,7 +16146,7 @@ components:
           items:
             type: string
           type: array
-          maxItems: 56
+          maxItems: 60
           title: Grants
         confirm_protected:
           type: boolean
