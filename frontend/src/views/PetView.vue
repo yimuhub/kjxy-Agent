@@ -363,6 +363,7 @@
     type PetMood,
     type PetScene,
   } from '@/utils/petCopilot'
+  import { collectPetLines } from '@/utils/petBrief'
 
   const route = useRoute()
   const router = useRouter()
@@ -383,16 +384,28 @@
     '拖住顶部小点就能换位置',
   ]
   const tipIndex = ref(0)
+  /** 小院实况短句（天气/工单/警报/后台任务），5 分钟刷一次，与固定提示一起轮播 */
+  const dataLines = ref<string[]>([])
   const tip = computed(() => {
     if (speech.value) return speech.value
     if (scene.value !== 'general') return sceneTip(scene.value)
-    return TIPS[tipIndex.value] ?? TIPS[0]
+    const lines = [...TIPS, ...dataLines.value]
+    return lines[tipIndex.value % lines.length] ?? TIPS[0]
   })
+
+  async function refreshBriefs(): Promise<void> {
+    try {
+      dataLines.value = await collectPetLines()
+    } catch {
+      dataLines.value = []
+    }
+  }
 
   let tipTimer: number | null = null
   let speechTimer: number | null = null
   let moodTimer: number | null = null
   let greetingTimer: number | null = null
+  let briefTimer: number | null = null
   let idleTimer: number | null = null
   let unlistenSkin: (() => void) | null = null
   let unlistenCopilot: (() => void) | null = null
@@ -505,8 +518,10 @@
     unlistenCopilot = subscribePetEvents(handlePetEvent)
     window.addEventListener('pointermove', markActive, { passive: true })
     tipTimer = window.setInterval(() => {
-      tipIndex.value = (tipIndex.value + 1) % TIPS.length
+      tipIndex.value = tipIndex.value + 1
     }, 9000)
+    void refreshBriefs()
+    briefTimer = window.setInterval(() => void refreshBriefs(), 5 * 60 * 1000)
     greetingTimer = window.setInterval(() => {
       greeting.value = greetingFor()
     }, 15 * 60 * 1000)
@@ -520,6 +535,7 @@
   onBeforeUnmount(() => {
     document.documentElement.classList.remove('pet-mode')
     if (tipTimer !== null) window.clearInterval(tipTimer)
+    if (briefTimer !== null) window.clearInterval(briefTimer)
     if (speechTimer !== null) window.clearTimeout(speechTimer)
     if (moodTimer !== null) window.clearTimeout(moodTimer)
     if (greetingTimer !== null) window.clearInterval(greetingTimer)
@@ -536,6 +552,37 @@
   :global(html.pet-mode #app) {
     background: transparent !important;
     overflow: hidden;
+  }
+
+  /*
+   * 桌宠窗口浮在系统桌面上，但配色跟随平台主题（v3.70）：
+   * 主窗切亮/暗 → theme.ts 经 storage 事件同步 html.light/dark →
+   * 这组 --pet-* 变量随之切换，气泡/名牌/皮肤面板与整体保持一致。
+   */
+  :global(html) {
+    --pet-chip-bg: rgba(28, 36, 48, 0.92);
+    --pet-chip-text: #e9f0f8;
+    --pet-chip-border: rgba(150, 172, 196, 0.28);
+    --pet-chip-soft: rgba(210, 222, 236, 0.62);
+    --pet-chip-halo: rgba(8, 14, 24, 0.45);
+    --pet-panel-bg: rgba(24, 31, 42, 0.96);
+    --pet-panel-text: #eaf2fb;
+    --pet-panel-muted: #93a3b6;
+    --pet-grip: rgba(210, 220, 232, 0.5);
+    --pet-state-bg: rgba(255, 255, 255, 0.1);
+  }
+
+  :global(html.light) {
+    --pet-chip-bg: rgba(255, 255, 255, 0.95);
+    --pet-chip-text: #26303f;
+    --pet-chip-border: rgba(15, 23, 42, 0.16);
+    --pet-chip-soft: rgba(38, 48, 63, 0.66);
+    --pet-chip-halo: rgba(255, 255, 255, 0.65);
+    --pet-panel-bg: rgba(255, 255, 255, 0.97);
+    --pet-panel-text: #1b2333;
+    --pet-panel-muted: #6b7688;
+    --pet-grip: rgba(38, 48, 63, 0.45);
+    --pet-state-bg: rgba(15, 23, 42, 0.06);
   }
 
   .pet-page {
@@ -555,20 +602,21 @@
     max-width: 200px;
     margin-bottom: 3px;
     padding: 0 6px;
-    color: rgba(226, 236, 248, 0.78);
+    color: var(--pet-chip-soft);
     font-size: 9.5px;
     line-height: 1.4;
     text-align: center;
-    text-shadow: 0 1px 4px rgba(8, 14, 24, 0.45);
+    text-shadow: 0 1px 4px var(--pet-chip-halo);
   }
 
   .pet-bubble {
     max-width: 200px;
     margin-bottom: 4px;
     padding: 7px 11px;
+    border: 1px solid var(--pet-chip-border);
     border-radius: 12px;
-    background: rgba(28, 36, 48, 0.92);
-    color: #e9f0f8;
+    background: var(--pet-chip-bg);
+    color: var(--pet-chip-text);
     font-size: 11.5px;
     line-height: 1.45;
     text-align: center;
@@ -599,7 +647,7 @@
     width: 4px;
     height: 4px;
     border-radius: 50%;
-    background: rgba(210, 220, 232, 0.5);
+    background: var(--pet-grip);
   }
 
   .pet-close {
@@ -608,10 +656,10 @@
     right: -4px;
     width: 20px;
     height: 20px;
-    border: none;
+    border: 1px solid var(--pet-chip-border);
     border-radius: 50%;
-    background: rgba(28, 36, 48, 0.55);
-    color: #d7e1ec;
+    background: var(--pet-chip-bg);
+    color: var(--pet-chip-text);
     font-size: 14px;
     line-height: 1;
     cursor: pointer;
@@ -662,9 +710,10 @@
     gap: 6px;
     margin-top: 2px;
     padding: 2px 10px;
+    border: 1px solid var(--pet-chip-border);
     border-radius: 999px;
-    background: rgba(28, 36, 48, 0.72);
-    color: #eef4fb;
+    background: var(--pet-chip-bg);
+    color: var(--pet-chip-text);
     font-size: 11px;
     letter-spacing: 0.04em;
   }
@@ -672,8 +721,8 @@
   .pet-state {
     padding: 1px 6px;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.1);
-    color: #a9bad0;
+    background: var(--pet-state-bg);
+    color: var(--pet-panel-muted);
     font-size: 9.5px;
     letter-spacing: 0;
   }
@@ -704,9 +753,9 @@
     right: 8px;
     bottom: 40px;
     padding: 10px;
-    border: 1px solid rgba(150, 172, 196, 0.28);
+    border: 1px solid var(--pet-chip-border);
     border-radius: 12px;
-    background: rgba(24, 31, 42, 0.96);
+    background: var(--pet-panel-bg);
     box-shadow: 0 16px 36px rgba(8, 14, 24, 0.4);
     backdrop-filter: blur(12px);
   }
@@ -726,26 +775,26 @@
 
   .panel-mute {
     padding: 2px 8px;
-    border: 1px solid rgba(140, 160, 184, 0.3);
+    border: 1px solid var(--pet-chip-border);
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.05);
-    color: #cfdae7;
+    background: var(--pet-state-bg);
+    color: var(--pet-chip-text);
     font-size: 10px;
     cursor: pointer;
   }
 
   .panel-mute:hover {
     border-color: rgba(120, 180, 255, 0.6);
-    color: #ffffff;
+    color: var(--pet-panel-text);
   }
 
   .skin-panel strong {
-    color: #eaf2fb;
+    color: var(--pet-panel-text);
     font-size: 12px;
   }
 
   .skin-panel header span {
-    color: #93a3b6;
+    color: var(--pet-panel-muted);
     font-size: 10.5px;
   }
 
@@ -760,10 +809,10 @@
     align-items: center;
     gap: 6px;
     padding: 6px 8px;
-    border: 1px solid rgba(140, 160, 184, 0.22);
+    border: 1px solid var(--pet-chip-border);
     border-radius: 8px;
-    background: rgba(255, 255, 255, 0.04);
-    color: #cfdae7;
+    background: var(--pet-state-bg);
+    color: var(--pet-chip-text);
     font-size: 11px;
     cursor: pointer;
   }
@@ -772,7 +821,7 @@
   .skin-chip.active {
     border-color: rgba(120, 180, 255, 0.65);
     background: rgba(76, 154, 255, 0.16);
-    color: #ffffff;
+    color: var(--pet-panel-text);
   }
 
   .skin-dot {
@@ -785,14 +834,14 @@
 
   .panel-note {
     margin: 8px 0 0;
-    color: #93a3b6;
+    color: var(--pet-panel-muted);
     font-size: 10.5px;
     line-height: 1.5;
   }
 
   .pet-hint {
     margin: 6px 0 0;
-    color: rgba(210, 222, 236, 0.62);
+    color: var(--pet-chip-soft);
     font-size: 9.5px;
     letter-spacing: 0.02em;
   }

@@ -258,7 +258,7 @@
   .panel {
     border: 1px solid var(--ds-border);
     border-radius: 12px;
-    background: var(--ds-surface);
+    background: var(--ds-bg-1, #121722);
   }
 
   .panel-head {

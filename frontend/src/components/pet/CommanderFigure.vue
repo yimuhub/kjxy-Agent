@@ -84,64 +84,59 @@
     </g>
 
     <g class="fig-body">
-      <!-- 双脚：圆头布鞋 -->
+      <!-- 双脚：圆头布鞋（椭圆更憨） -->
       <g class="fig-shoes">
-        <rect
-          x="56"
-          y="176"
-          width="21"
-          height="13"
-          rx="6.5"
+        <ellipse
+          cx="65"
+          cy="181"
+          rx="13"
+          ry="9"
           :fill="palette.shoe"
         />
-        <rect
-          x="83"
-          y="176"
-          width="21"
-          height="13"
-          rx="6.5"
+        <ellipse
+          cx="95"
+          cy="181"
+          rx="13"
+          ry="9"
           :fill="palette.shoe"
         />
-        <rect
-          x="56"
-          y="184"
-          width="21"
-          height="5"
-          rx="2.5"
-          :fill="palette.shoe"
-          opacity="0.55"
+        <ellipse
+          cx="62"
+          cy="178"
+          rx="5"
+          ry="2.4"
+          fill="#ffffff"
+          opacity="0.22"
         />
-        <rect
-          x="83"
-          y="184"
-          width="21"
-          height="5"
-          rx="2.5"
-          :fill="palette.shoe"
-          opacity="0.55"
+        <ellipse
+          cx="92"
+          cy="178"
+          rx="5"
+          ry="2.4"
+          fill="#ffffff"
+          opacity="0.22"
         />
       </g>
-      <!-- 裤腿 -->
+      <!-- 短粗裤腿 + 卷裤脚 -->
       <rect
         x="59"
-        y="160"
+        y="158"
         width="17"
-        height="20"
-        rx="5"
+        height="22"
+        rx="7"
         :fill="palette.pants"
       />
       <rect
         x="84"
-        y="160"
+        y="158"
         width="17"
-        height="20"
-        rx="5"
+        height="22"
+        rx="7"
         :fill="palette.pants"
       />
-      <!-- 卷裤脚 -->
       <rect
         x="57.5"
-        y="173"
+        y="171"
         width="20"
         height="7"
         rx="3.5"
@@ -149,56 +144,79 @@
       />
       <rect
         x="82.5"
-        y="173"
+        y="171"
         width="20"
         height="7"
         rx="3.5"
         :fill="palette.pantsDark"
       />
 
-      <!-- 圆滚滚的背带裤身子 -->
+      <!-- 圆滚滚蛋形身子：上窄下宽，坐墩一样敦实 -->
       <path
-        d="M52 116q0-10 10-10h36q10 0 10 10v42q0 12-12 12H64q-12 0-12-12z"
+        d="M56 122q0-16 13-18h22q13 2 13 18v26q0 18-15 20h-18q-15-2-15-20z"
         :fill="palette.pants"
       />
-      <!-- 裤兜 -->
+      <!-- 圆角补丁兜 + 针脚 -->
       <path
-        d="M70 148h20v10q0 5-5 5h-10q-5 0-5-5z"
+        d="M71 146h18v9q0 5-5 5h-8q-5 0-5-5z"
         :fill="palette.pantsDark"
-        opacity="0.75"
+        opacity="0.7"
       />
-      <!-- 背带 + 扣子 -->
       <path
-        d="M62 108l4 34"
+        d="M73 150h14"
+        :stroke="palette.pantsDark"
+        stroke-width="1"
+        stroke-dasharray="2 2.4"
+        stroke-linecap="round"
+        opacity="0.9"
+        fill="none"
+      />
+      <!-- 背带 + 大圆扣 -->
+      <path
+        d="M63 110l4 32"
         :stroke="palette.band"
         stroke-width="7"
         stroke-linecap="round"
       />
       <path
-        d="M98 108l-4 34"
+        d="M97 110l-4 32"
         :stroke="palette.band"
         stroke-width="7"
         stroke-linecap="round"
       />
       <circle
-        cx="64"
+        cx="65"
         cy="142"
-        r="4"
+        r="4.6"
         :fill="palette.metal"
       />
       <circle
-        cx="96"
+        cx="95"
         cy="142"
-        r="4"
+        r="4.6"
         :fill="palette.metal"
       />
-      <!-- 衬衫肩块与领口 -->
+      <circle
+        cx="63.6"
+        cy="140.6"
+        r="1.4"
+        fill="#ffffff"
+        opacity="0.8"
+      />
+      <circle
+        cx="93.6"
+        cy="140.6"
+        r="1.4"
+        fill="#ffffff"
+        opacity="0.8"
+      />
+      <!-- 衬衫肩块与圆领口 -->
       <path
-        d="M50 112q0-14 12-16h36q12 2 12 16v6H50z"
+        d="M51 114q0-15 13-17h32q13 2 13 17v4H51z"
         :fill="palette.shirt"
       />
       <path
-        d="M72 96h16v6q-4 4-8 4t-8-4z"
+        d="M72 97h16v5q-4 4.4-8 4.4t-8-4.4z"
         :fill="palette.skinDark"
         opacity="0.35"
       />
@@ -206,43 +224,43 @@
       <!-- 刨土手：袖 + 手 + 锄头（整组绕左肩起落） -->
       <g class="fig-arm-dig">
         <rect
-          x="38"
-          y="100"
-          width="16"
-          height="34"
-          rx="8"
+          x="39"
+          y="98"
+          width="15"
+          height="32"
+          rx="7.5"
           :fill="palette.shirt"
         />
         <rect
-          x="38"
-          y="126"
-          width="16"
-          height="8"
-          rx="4"
+          x="39"
+          y="124"
+          width="15"
+          height="7"
+          rx="3.5"
           :fill="palette.shirt"
           opacity="0.7"
         />
         <circle
-          cx="46"
-          cy="138"
-          r="8"
+          cx="46.5"
+          cy="136"
+          r="7.5"
           :fill="palette.skin"
         />
         <g class="fig-hoe">
           <rect
-            x="42.4"
-            y="128"
-            width="7.2"
-            height="62"
-            rx="3.6"
+            x="42.8"
+            y="126"
+            width="7"
+            height="60"
+            rx="3.5"
             :fill="palette.handle"
           />
           <path
-            d="M32 186q10-10 28-8l-6 10q-12 2-22-2z"
+            d="M32 184q10-11 28-9l-6 11q-13 2-22-2z"
             :fill="palette.metal"
           />
           <path
-            d="M36 184q8-6 20-6"
+            d="M36 182q8-6 20-6"
             :stroke="palette.soilLight"
             stroke-width="1.6"
             fill="none"
@@ -252,31 +270,31 @@
       </g>
     </g>
 
-    <!-- 头组：大头 + 五官 + 白胡子，擦汗/点头都绕这里转 -->
+    <!-- 头组：Q 版大头 + 水汪汪大眼 + 白胡子，擦汗/点头都绕这里转 -->
     <g class="fig-head">
       <!-- 耳朵 -->
       <circle
-        cx="34"
-        cy="82"
+        cx="31"
+        cy="80"
         r="9"
         :fill="palette.skin"
       />
       <circle
-        cx="126"
-        cy="82"
+        cx="129"
+        cy="80"
         r="9"
         :fill="palette.skin"
       />
       <circle
-        cx="34"
-        cy="82"
+        cx="31"
+        cy="80"
         r="4"
         :fill="palette.skinDark"
         opacity="0.5"
       />
       <circle
-        cx="126"
-        cy="82"
+        cx="129"
+        cy="80"
         r="4"
         :fill="palette.skinDark"
         opacity="0.5"
@@ -284,114 +302,174 @@
       <!-- 大圆脸 -->
       <circle
         cx="80"
-        cy="76"
-        r="45"
+        cy="74"
+        r="48"
         :fill="palette.skin"
+      />
+      <!-- 脸侧高光：额头一点光，皮肤更透亮 -->
+      <ellipse
+        cx="60"
+        cy="48"
+        rx="10"
+        ry="6"
+        fill="#ffffff"
+        opacity="0.28"
+        transform="rotate(-24 60 48)"
       />
       <!-- 腮红 -->
       <ellipse
-        cx="54"
+        cx="49"
         cy="88"
-        rx="8.5"
-        ry="5"
+        rx="10"
+        ry="5.5"
         :fill="palette.blush"
-        opacity="0.55"
+        opacity="0.5"
       />
       <ellipse
-        cx="106"
+        cx="111"
         cy="88"
-        rx="8.5"
-        ry="5"
+        rx="10"
+        ry="5.5"
         :fill="palette.blush"
-        opacity="0.55"
+        opacity="0.5"
       />
-      <!-- 眼睛：白底 + 双高光 -->
+      <!-- 眼睛：水汪汪大圆眼 + 双高光 + 下缘反光 -->
       <g class="fig-eyes">
         <circle
-          cx="64"
-          cy="70"
-          r="9"
+          cx="61"
+          cy="66"
+          r="11.5"
           fill="#ffffff"
         />
         <circle
-          cx="96"
-          cy="70"
-          r="9"
+          cx="99"
+          cy="66"
+          r="11.5"
           fill="#ffffff"
         />
         <circle
-          cx="65.5"
-          cy="71.5"
-          r="4.6"
+          cx="62.5"
+          cy="68"
+          r="5.8"
           :fill="palette.line"
         />
         <circle
-          cx="97.5"
-          cy="71.5"
-          r="4.6"
+          cx="100.5"
+          cy="68"
+          r="5.8"
           :fill="palette.line"
         />
         <circle
-          cx="63.6"
-          cy="69"
-          r="1.7"
+          cx="60.6"
+          cy="65.8"
+          r="2.2"
           fill="#ffffff"
         />
         <circle
-          cx="95.6"
-          cy="69"
-          r="1.7"
+          cx="98.6"
+          cy="65.8"
+          r="2.2"
           fill="#ffffff"
+        />
+        <circle
+          cx="64.6"
+          cy="70.6"
+          r="1.1"
+          fill="#ffffff"
+          opacity="0.85"
+        />
+        <circle
+          cx="102.6"
+          cy="70.6"
+          r="1.1"
+          fill="#ffffff"
+          opacity="0.85"
+        />
+        <path
+          d="M53.5 59.5q7.5-4.5 15-0.5"
+          :stroke="palette.line"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          fill="none"
+          opacity="0.55"
+        />
+        <path
+          d="M91.5 59q7.5-4 15 0.5"
+          :stroke="palette.line"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          fill="none"
+          opacity="0.55"
         />
       </g>
-      <!-- 白眉 -->
+      <!-- 白眉：圆圆的长寿眉 -->
       <path
-        d="M55 56q9-6 18-1"
+        d="M52 50q10-7 21-2"
         :stroke="palette.beard"
-        stroke-width="3.4"
+        stroke-width="3.8"
         stroke-linecap="round"
         fill="none"
       />
       <path
-        d="M87 55q9-5 18 1"
+        d="M87 48q11-5 21 2"
         :stroke="palette.beard"
-        stroke-width="3.4"
+        stroke-width="3.8"
         stroke-linecap="round"
         fill="none"
       />
-      <!-- 鼻 -->
-      <circle
+      <!-- 鼻：小圆鼻 -->
+      <ellipse
         cx="80"
         cy="82"
-        r="5.5"
+        rx="4.4"
+        ry="3.4"
         :fill="palette.skinDark"
-        opacity="0.75"
+        opacity="0.6"
       />
-      <!-- 八字胡 -->
+      <!-- 八字胡：两撇软乎的白胡子 -->
       <path
-        d="M80 90q-12-2-19 6q10 3 19-2z"
+        d="M80 88q-13-3-21 6q5 5 13 3q5-1 8-4z"
         :fill="palette.beard"
       />
       <path
-        d="M80 90q12-2 19 6q-10 3-19-2z"
+        d="M80 88q13-3 21 6q-5 5-13 3q-5-1-8-4z"
         :fill="palette.beard"
       />
-      <!-- 笑口 -->
+      <!-- 笑口：张嘴笑，露一点舌头 -->
       <path
         class="fig-mouth"
-        d="M72 100q8 7 16 0"
-        :stroke="palette.mouth"
-        stroke-width="2.6"
-        stroke-linecap="round"
-        fill="none"
+        d="M72 95q8 8 16 0q-1.5 8-8 8t-8-8z"
+        :fill="palette.mouth"
       />
-      <!-- 山羊白胡团 -->
-      <path
-        d="M80 98q-13 2-11 12q4 8 11 8t11-8q2-10-11-12z"
+      <ellipse
+        cx="80"
+        cy="101"
+        rx="3.4"
+        ry="1.6"
+        fill="#ffffff"
+        opacity="0.35"
+      />
+      <!-- 云朵白胡团：三个圆鼓鼓的泡泡 -->
+      <circle
+        cx="68"
+        cy="111"
+        r="6.5"
+        :fill="palette.beard"
+      />
+      <circle
+        cx="92"
+        cy="111"
+        r="6.5"
+        :fill="palette.beard"
+      />
+      <circle
+        cx="80"
+        cy="114"
+        r="8"
         :fill="palette.beard"
       />
       <path
-        d="M74 106q6 4 12 0"
+        d="M74 113q6 4 12 0"
         :stroke="palette.skinDark"
         stroke-width="1.4"
         stroke-linecap="round"
@@ -400,7 +478,7 @@
       />
     </g>
 
-    <!-- 草帽：宽檐 + 圆顶 + 帽带 + 编织纹（扇风时整顶掀起） -->
+    <!-- 草帽：宽檐 + 圆顶 + 帽带 + 帽檐小芽（扇风时整顶掀起） -->
     <g class="fig-hat">
       <ellipse
         cx="80"
@@ -417,11 +495,11 @@
         opacity="0.5"
       />
       <path
-        d="M50 30q30-16 60 0l-3 12q-27-10-54 0z"
+        d="M49 32q3-18 31-18t31 18l-2 8q-29-11-58 0z"
         :fill="palette.hat"
       />
       <path
-        d="M50 30q30-16 60 0"
+        d="M49 32q3-18 31-18"
         :stroke="palette.hatDark"
         stroke-width="1.6"
         fill="none"
@@ -444,46 +522,64 @@
         fill="#ffffff"
         opacity="0.18"
       />
+      <!-- 帽带上的小嫩芽：憨里带点灵气 -->
+      <path
+        d="M103 32q7-7 11-5q-2 7-11 7z"
+        :fill="palette.leaf"
+      />
+      <circle
+        cx="80"
+        cy="14.5"
+        r="3.4"
+        :fill="palette.hatDark"
+      />
+      <circle
+        cx="79"
+        cy="13.5"
+        r="1.1"
+        fill="#ffffff"
+        opacity="0.55"
+      />
     </g>
 
     <!-- 擦汗手：抬袖贴额，白毛巾（带红边） -->
     <g class="fig-arm-wipe">
       <rect
-        x="100"
-        y="100"
-        width="16"
-        height="34"
-        rx="8"
+        x="106"
+        y="98"
+        width="15"
+        height="32"
+        rx="7.5"
         :fill="palette.shirt"
       />
       <rect
-        x="100"
-        y="126"
-        width="16"
-        height="8"
-        rx="4"
+        x="106"
+        y="124"
+        width="15"
+        height="7"
+        rx="3.5"
         :fill="palette.shirt"
         opacity="0.7"
       />
       <circle
-        cx="108"
-        cy="138"
-        r="8"
+        cx="113.5"
+        cy="136"
+        r="7.5"
         :fill="palette.skin"
       />
       <g class="fig-towel">
         <rect
-          x="99"
-          y="132"
-          width="18"
-          height="13"
-          rx="4"
+          x="102"
+          y="131"
+          width="20"
+          height="14"
+          rx="5"
           :fill="palette.towel"
         />
         <rect
-          x="99"
+          x="102"
           y="141"
-          width="18"
+          width="20"
           height="4"
           rx="2"
           :fill="palette.band"
@@ -495,15 +591,15 @@
     <!-- 汗珠 -->
     <g class="fig-sweat">
       <path
-        d="M50 54q4.4 7.6 0 10.6q-4.4-3 0-10.6z"
+        d="M44 52q4.4 7.6 0 10.6q-4.4-3 0-10.6z"
         :fill="palette.sweat"
       />
       <path
-        d="M111 56q4 7 0 10q-4-3 0-10z"
+        d="M116 54q4 7 0 10q-4-3 0-10z"
         :fill="palette.sweat"
       />
       <path
-        d="M120 74q3 5 0 7.4q-3-2.4 0-7.4z"
+        d="M124 72q3 5 0 7.4q-3-2.4 0-7.4z"
         :fill="palette.sweat"
       />
     </g>
@@ -511,14 +607,14 @@
     <!-- 扇帽风线 -->
     <g class="fig-wind">
       <path
-        d="M118 82q12-5 19 2"
+        d="M122 82q12-5 19 2"
         :stroke="palette.sweat"
         stroke-width="2.8"
         stroke-linecap="round"
         fill="none"
       />
       <path
-        d="M122 93q11-4 16 2"
+        d="M126 93q11-4 16 2"
         :stroke="palette.sweat"
         stroke-width="2"
         stroke-linecap="round"
@@ -526,20 +622,20 @@
       />
     </g>
 
-    <!-- 打盹 z -->
+    <!-- 打盹 z（放在帽檐外右上，不压帽子） -->
     <g class="fig-zzz">
       <text
-        x="110"
-        y="36"
+        x="130"
+        y="30"
         :fill="palette.line"
-        font-size="16"
+        font-size="15"
         font-weight="bold"
       >z</text>
       <text
-        x="126"
-        y="22"
+        x="144"
+        y="17"
         :fill="palette.line"
-        font-size="11"
+        font-size="10.5"
       >z</text>
     </g>
   </svg>
@@ -547,31 +643,32 @@
 
 <script setup lang="ts">
   /**
-   * 拟人化农民小人（v3.56 重画）：Q 版大圆脸、双高光圆眼、白眉八字胡山羊胡、
-   * 背带裤布鞋、宽檐草帽，站在有禾苗的田垄上。
+   * 拟人化农民小人（v3.70 再重画）：头身比更大、水汪汪大圆眼、云朵白胡团、
+   * 蛋形墩子身、圆头布鞋，帽带上多一棵小嫩芽——往「憨态可掬」再走一步。
    *
    * 两层驱动，互不打架：
    * - mood 来自真实事件（忙碌/思考/开心/担心/打盹），优先级最高；
-   * - action 是发呆时的自我循环（刨土 → 擦汗 → 扇草帽 → 点头），
+   * - action 是发呆时的自我循环（刨土 → 擦汗 → 扇草帽 → 挥手 → 点头），
    *   「什么都不干」的时候也有桌面宠物的动态感。
    *
-   * v3.56 只重画造型：动画锚点（fig-hat/fig-arm-dig/fig-arm-wipe/…）与
-   * transform-origin 坐标保持不变，keyframes 零改动，8 套皮肤字段照常生效。
+   * 动画锚点（fig-hat/fig-arm-dig/fig-arm-wipe/…）与 transform-origin
+   * 坐标保持不变，keyframes 只增不改，8 套皮肤字段照常生效。
    */
   import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
   import { MOOD_LABEL, type PetMood } from '@/utils/petCopilot'
   import type { PetSkin } from '@/utils/petSkins'
 
-  type FigureAction = 'idle' | 'dig' | 'wipe' | 'fan' | 'nod'
+  type FigureAction = 'idle' | 'dig' | 'wipe' | 'fan' | 'wave' | 'nod'
 
   /** 发呆循环：每个动作演多久（ms），够看清又不会腻 */
   const ACTION_HOLD: Record<Exclude<FigureAction, 'idle'>, number> = {
     dig: 2600,
     wipe: 2200,
     fan: 2400,
+    wave: 2400,
     nod: 1500,
   }
-  const ACTION_ORDER: Exclude<FigureAction, 'idle'>[] = ['dig', 'wipe', 'fan', 'nod']
+  const ACTION_ORDER: Exclude<FigureAction, 'idle'>[] = ['dig', 'wipe', 'fan', 'wave', 'nod']
   /** 发呆多久才开始自己找活干 */
   const IDLE_BEFORE_ACTION = 1800
 
@@ -775,6 +872,19 @@
 
   .act-nod .fig-eyes {
     animation: fig-happy-eye 0.75s ease-in-out 2, fig-blink 4.4s infinite;
+  }
+
+  /* ---------- 发呆自循环：抡起锄头打招呼 ---------- */
+  .act-wave .fig-arm-dig {
+    animation: fig-wave-hi 0.8s ease-in-out 3;
+  }
+
+  .act-wave .fig-head {
+    animation: fig-head-tilt 0.8s ease-in-out 3;
+  }
+
+  .act-wave .fig-eyes {
+    animation: fig-happy-eye 0.8s ease-in-out 3, fig-blink 4.4s infinite;
   }
 
   /* ---------- 真实情绪优先 ---------- */
@@ -1033,6 +1143,17 @@
     }
   }
 
+  /* 挥手打招呼：锄头举过肩来回摆 */
+  @keyframes fig-wave-hi {
+    0%,
+    100% {
+      transform: rotate(0deg);
+    }
+    50% {
+      transform: rotate(-46deg);
+    }
+  }
+
   @keyframes fig-hat-tilt {
     0%,
     100% {
@@ -1139,6 +1260,10 @@
 
     .act-fan .fig-arm-wipe {
       transform: rotate(-32deg);
+    }
+
+    .act-wave .fig-arm-dig {
+      transform: rotate(-40deg);
     }
 
     .mood-busy .fig-towel,

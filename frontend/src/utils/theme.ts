@@ -42,6 +42,14 @@ export function initTheme(): 'light' | 'dark' {
   mql.addEventListener('change', () => {
     if (mode === 'system') apply()
   })
+  // 跨窗口同步（v3.70）：桌宠窗口等同类 Window 改了偏好，本窗口跟着切。
+  // storage 事件只在「别的」窗口触发，正好用于主窗 → 桌宠窗的跟随。
+  window.addEventListener('storage', event => {
+    if (event.key === STORAGE_KEY && event.newValue) {
+      mode = readStored()
+      apply()
+    }
+  })
   apply()
   return resolvedTheme()
 }

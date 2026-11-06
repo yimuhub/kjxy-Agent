@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.69.0
+  version: 3.70.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -3887,6 +3887,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/farm/weather/brief:
+    get:
+      tags:
+      - v1
+      - farm
+      summary: Weather Brief
+      description: 未来 24/48 小时天气摘要。复用 farm_agent 设置里的天气供应商配置与缓存。
+      operationId: weather_brief_api_v1_farm_weather_brief_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
   /api/v1/farm/alerts:
     post:
       tags:
@@ -13821,6 +13837,45 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - HTTPBearer: []
+  /api/v1/setup/status:
+    get:
+      tags:
+      - v1
+      - setup
+      summary: Setup Status
+      operationId: setup_status_api_v1_setup_status_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /api/v1/setup/initialize:
+    post:
+      tags:
+      - v1
+      - setup
+      summary: Initialize
+      description: 一次性初始化：超管 + 首个小院 + 画像/品牌/开关，返回自动登录 token。
+      operationId: initialize_api_v1_setup_initialize_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InitializeRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/yards/current/self-improve:
     get:
       tags:
@@ -16133,6 +16188,96 @@ components:
       - data
       title: IngestBody
       description: 设备侧推送报文：data 为 厂商字段→原始值 的扁平/嵌套对象（连接器设备可带 field_map 配置）。
+    InitializeRequest:
+      properties:
+        username:
+          type: string
+          maxLength: 32
+          minLength: 3
+          title: Username
+        password:
+          type: string
+          maxLength: 128
+          minLength: 10
+          title: Password
+        display_name:
+          type: string
+          maxLength: 64
+          minLength: 1
+          title: Display Name
+        email:
+          anyOf:
+          - type: string
+            maxLength: 255
+          - type: 'null'
+          title: Email
+        yard_name:
+          type: string
+          maxLength: 128
+          minLength: 1
+          title: Yard Name
+        province:
+          type: string
+          maxLength: 64
+          title: Province
+          default: ''
+        city:
+          type: string
+          maxLength: 64
+          title: City
+          default: ''
+        profile_types:
+          items:
+            type: string
+          type: array
+          maxItems: 10
+          title: Profile Types
+        yard_description:
+          type: string
+          maxLength: 64
+          title: Yard Description
+          default: ''
+        app_name:
+          type: string
+          maxLength: 40
+          title: App Name
+          default: ''
+        primary_color:
+          type: string
+          maxLength: 20
+          title: Primary Color
+          default: ''
+        search_enabled:
+          type: boolean
+          title: Search Enabled
+          default: true
+        agent_generate_enabled:
+          type: boolean
+          title: Agent Generate Enabled
+          default: true
+        agent_generate_daily_limit:
+          type: integer
+          maximum: 200.0
+          minimum: 0.0
+          title: Agent Generate Daily Limit
+          default: 10
+        journal_enabled:
+          type: boolean
+          title: Journal Enabled
+          default: true
+        deployment:
+          type: string
+          pattern: ^(desktop|server|cloud)$
+          title: Deployment
+          default: desktop
+      additionalProperties: false
+      type: object
+      required:
+      - username
+      - password
+      - display_name
+      - yard_name
+      title: InitializeRequest
     InvitationAcceptRequest:
       properties:
         username:

@@ -34,7 +34,7 @@
     padding: 12px 14px;
     border: 1px solid var(--ds-border, #e5e7eb);
     border-radius: var(--ds-radius-md, 10px);
-    background: var(--ds-surface, #fafafa);
+    background: var(--ds-bg-1, #fafafa);
   }
   .stat-value {
     font-size: 22px;

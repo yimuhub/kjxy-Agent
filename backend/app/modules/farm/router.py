@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse
 from app.core.deps import CurrentUser, get_db_session, require_yard_permission
 from app.core.errors import AppError
 from app.core.responses import ok, paged
-from app.modules.farm import diagnosis_service, service, workorder_service
+from app.modules.farm import diagnosis_service, service, weather, workorder_service
 from app.modules.farm.schemas import (
     AlertCreate,
     CycleCreate,
@@ -33,6 +33,7 @@ from app.modules.farm.schemas import (
     WorkOrderReceipt,
     WorkOrderUpdate,
 )
+from app.modules.yards.settings_service import get_setting
 
 router = APIRouter(prefix="/farm", tags=["farm"])
 
@@ -448,6 +449,50 @@ def safe_harvest(
             **data,
             "applied_on": data["applied_on"].isoformat(),
             "earliest_harvest_on": data["earliest_harvest_on"].isoformat(),
+        },
+        request,
+    )
+
+
+# ---------------------------------------------------------------------------
+# 天气摘要（v3.70）：桌宠/概览轮播用，未配置供应商时 configured=False 不报错
+# ---------------------------------------------------------------------------
+
+
+@router.get("/weather/brief")
+def weather_brief(
+    request: Request,
+    user: CurrentUser = Depends(require_yard_permission("farm:read")),
+    db=Depends(get_db_session),
+):
+    """未来 24/48 小时天气摘要。复用 farm_agent 设置里的天气供应商配置与缓存。"""
+    yard = _yard_id(user)
+    setting = get_setting(db, yard, "farm_agent")
+    data, warnings = weather.forecast(yard, setting)
+    if data is None:
+        return ok(
+            {
+                "configured": False,
+                "brief": None,
+                "warning": warnings[0] if warnings else None,
+            },
+            request,
+        )
+    day = data.get("next_24h") or {}
+    horizon = data.get("next_48h") or {}
+    return ok(
+        {
+            "configured": True,
+            "brief": {
+                "temp_max": day.get("temp_max"),
+                "temp_min": day.get("temp_min"),
+                "rain_mm": day.get("rain_mm"),
+                "wind_max_ms": day.get("wind_max_ms"),
+                "humidity_mean": day.get("humidity_mean"),
+                "tomorrow_temp_min": horizon.get("temp_min"),
+                "generated_at": data.get("generated_at"),
+            },
+            "warning": None,
         },
         request,
     )

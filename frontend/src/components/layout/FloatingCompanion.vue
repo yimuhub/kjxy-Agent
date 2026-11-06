@@ -10,6 +10,7 @@
       <div
         v-if="wide && !expanded && bubbleText"
         class="companion-bubble"
+        :class="{ 'bubble-below': bubbleBelow }"
         data-companion-bubble
       >
         {{ bubbleText }}
@@ -168,6 +169,7 @@
     writeCompanionSessionId,
   } from '@/utils/companionChat'
   import { companionCoversCorner } from '@/utils/companionDock'
+  import { collectPetLines } from '@/utils/petBrief'
   import {
     MOOD_LABEL,
     greetingFor,
@@ -251,11 +253,36 @@
 
   const historyCount = computed(() => store.messages.length)
 
+  /**
+   * 气泡轮播（v3.70）：固定两句（时段问候 + 场景提示）打底，
+   * 再叠加周期拉取的小院实况（天气/工单/警报/后台任务），每 10 秒换一句；
+   * 事件短句（任务结果等）随时插队，说完接着轮播。
+   */
+  const dataLines = ref<string[]>([])
+  const tickerIndex = ref(0)
+  let briefTimer: number | null = null
+  let tickerTimer: number | null = null
+
+  const ambientLines = computed(() => [greetingFor(), sceneTip(scene.value), ...dataLines.value])
+
   const bubbleText = computed(() => {
     if (speech.value) return speech.value
-    if (scene.value !== 'general') return sceneTip(scene.value)
-    return greetingFor()
+    const lines = ambientLines.value
+    if (lines.length === 0) return ''
+    return lines[tickerIndex.value % lines.length] ?? lines[0]
   })
+
+  /** 小院实况拉取失败就只说固定两句，不打断陪伴 */
+  async function refreshBriefs(): Promise<void> {
+    try {
+      dataLines.value = await collectPetLines(permission => auth.hasPermission(permission))
+    } catch {
+      dataLines.value = []
+    }
+  }
+
+  /** 小人贴着屏幕顶时气泡翻到脚下，避免探出视口 */
+  const bubbleBelow = computed(() => pos.value.y < 150)
 
   const anchorStyle = computed(() => ({ left: `${pos.value.x}px`, top: `${pos.value.y}px` }))
 
@@ -424,6 +451,8 @@
   function handleEvent(event: PetEvent): void {
     if (event.type === 'scene' && event.scene) {
       scene.value = event.scene
+      // 切页立刻说这个页面的提示（轮播第 2 句是场景提示）
+      tickerIndex.value = 1
       return
     }
     if (event.type === 'say' && event.text) {
@@ -505,6 +534,11 @@
     window.addEventListener(PET_OVERLAY_EVENT, onOverlayEvent)
     void loadCommanderSettings()
     void ensureCompanionSession()
+    void refreshBriefs()
+    briefTimer = window.setInterval(() => void refreshBriefs(), 5 * 60 * 1000)
+    tickerTimer = window.setInterval(() => {
+      if (!speech.value) tickerIndex.value += 1
+    }, 10 * 1000)
   })
 
   onBeforeUnmount(() => {
@@ -512,6 +546,8 @@
     unlisten?.()
     stopPanelDrag?.()
     stopResize?.()
+    if (briefTimer !== null) window.clearInterval(briefTimer)
+    if (tickerTimer !== null) window.clearInterval(tickerTimer)
     if (speechTimer !== null) window.clearTimeout(speechTimer)
     window.removeEventListener('storage', onStorage)
     window.removeEventListener('resize', onResize)
@@ -532,24 +568,58 @@
     user-select: none;
   }
 
+  /*
+   * 气泡挂在头像正上方（v3.70 修复）：以前 bottom: 82px 会压在农民小人的
+   * 脸和草帽上；现在整颗抬到头顶以上，加个小尾巴指回去。小人贴着屏幕顶时
+   * 翻到脚下（bubble-below），保证任何落位都能读全。
+   */
   .companion-bubble {
     position: absolute;
     right: 0;
-    bottom: 82px;
+    bottom: calc(100% + 10px);
+    z-index: 2;
     width: max-content;
-    max-width: 220px;
-    padding: 6px 10px;
+    max-width: 240px;
+    padding: 7px 11px;
     border: 1px solid var(--ds-border);
     border-radius: 10px;
-    background: var(--ds-surface, #161b26);
+    background: var(--ds-bg-1, #161b26);
     color: var(--ds-text-2, #cfd8e6);
-    font-size: 12px;
+    font-size: 12.5px;
     line-height: 1.5;
     box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
 
     /* 气泡只是提示，不能替头像吃掉点击：否则正好压在对话输入区右下角的
        「普通/指挥官」切换上，用户点下去没反应 */
     pointer-events: none;
+  }
+
+  .companion-bubble::after {
+    content: '';
+    position: absolute;
+    right: 26px;
+    bottom: -5px;
+    width: 9px;
+    height: 9px;
+    border-right: 1px solid var(--ds-border);
+    border-bottom: 1px solid var(--ds-border);
+    border-radius: 0 0 3px 0;
+    background: var(--ds-bg-1, #161b26);
+    transform: rotate(45deg);
+  }
+
+  .companion-bubble.bubble-below {
+    bottom: auto;
+    top: calc(100% + 10px);
+  }
+
+  .companion-bubble.bubble-below::after {
+    bottom: auto;
+    top: -5px;
+    border: none;
+    border-left: 1px solid var(--ds-border);
+    border-top: 1px solid var(--ds-border);
+    border-radius: 3px 0 0 0;
   }
 
   .companion-avatar {
@@ -588,9 +658,10 @@
 
   .avatar-state {
     padding: 1px 7px;
+    border: 1px solid var(--ds-border);
     border-radius: 999px;
-    background: rgba(10, 14, 22, 0.62);
-    color: #b9c6da;
+    background: var(--ds-bg-1, rgba(10, 14, 22, 0.62));
+    color: var(--ds-text-2, #b9c6da);
     font-size: 10.5px;
     letter-spacing: 0.02em;
   }
@@ -607,7 +678,7 @@
     overflow: hidden;
     border: 1px solid var(--ds-border);
     border-radius: 14px;
-    background: var(--ds-surface, #121722);
+    background: var(--ds-bg-1, #121722);
     box-shadow: 0 18px 44px rgba(0, 0, 0, 0.36);
   }
 

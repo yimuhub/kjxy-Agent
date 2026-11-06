@@ -1,0 +1,2374 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>农民伯伯重画预览（v3.70）</title>
+<style>
+  body { margin: 0; font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif; }
+  .band { padding: 28px 20px; }
+  .band.dark { background: #121722; }
+  .band.light { background: #f5f7fb; }
+  h1 { text-align: center; margin: 24px 0 4px; color: #e8eefb; font-size: 20px; }
+  .band.light h1 { color: #1b2333; }
+  p.sub { text-align: center; margin: 0 0 8px; color: #8b98ad; font-size: 13px; }
+  .row { display: flex; gap: 48px; justify-content: center; align-items: flex-end; flex-wrap: wrap; }
+  .card { text-align: center; }
+  .card .tag { display: inline-block; margin-bottom: 12px; padding: 3px 12px; border-radius: 999px; font-size: 13px;
+    border: 1px solid rgba(150,172,196,.35); color: #cfd8e6; }
+  .band.light .card .tag { border-color: rgba(15,23,42,.18); color: #47536b; }
+  .card svg { display: block; margin: 0 auto; }
+  .note { max-width: 640px; margin: 20px auto 0; color: #8b98ad; font-size: 12.5px; line-height: 1.8; }
+</style>
+</head>
+<body>
+  <h1>农民伯伯重画对比 · 新版更 Q 更憨</h1>
+  <p class="sub">左旧右新；上暗色桌面、下亮色桌面。发呆动作照旧：刨土 → 擦汗 → 扇草帽 → 挥手（新增）→ 点头。</p>
+
+  <div class="band dark">
+    <div class="row">
+      <div class="card"><span class="tag">旧版 v3.56</span><svg class="fig" viewBox="0 0 160 200" width="230" height="287">
+    <!-- 地面影子 -->
+    <ellipse
+      class="fig-shadow"
+      cx="80"
+      cy="193"
+      rx="44"
+      ry="7"
+    />
+
+    <!-- 土垄与禾苗：给小人一个"站在田里"的场景感 -->
+    <g class="fig-ground">
+      <ellipse
+        cx="80"
+        cy="190"
+        rx="58"
+        ry="7"
+        fill="#a97b53"
+        opacity="0.55"
+      />
+      <ellipse
+        cx="46"
+        cy="192"
+        rx="22"
+        ry="5"
+        fill="#8a6242"
+        opacity="0.8"
+      />
+      <g class="fig-sprout">
+        <path
+          d="M24 190q0-7 5-11"
+          stroke="#69a244"
+          stroke-width="2.2"
+          stroke-linecap="round"
+          fill="none"
+        />
+        <ellipse
+          cx="27.5"
+          cy="177"
+          rx="4.6"
+          ry="2.8"
+          fill="#69a244"
+          transform="rotate(-28 27.5 177)"
+        />
+        <ellipse
+          cx="22"
+          cy="180"
+          rx="4.2"
+          ry="2.6"
+          fill="#69a244"
+          opacity="0.8"
+          transform="rotate(24 22 180)"
+        />
+      </g>
+      <g
+        class="fig-sprout"
+        transform="translate(108 2)"
+      >
+        <path
+          d="M24 190q1-6 5-10"
+          stroke="#69a244"
+          stroke-width="2.2"
+          stroke-linecap="round"
+          fill="none"
+        />
+        <ellipse
+          cx="27.5"
+          cy="178"
+          rx="4.4"
+          ry="2.7"
+          fill="#69a244"
+          transform="rotate(-24 27.5 178)"
+        />
+      </g>
+    </g>
+
+    <g class="fig-body">
+      <!-- 双脚：圆头布鞋 -->
+      <g class="fig-shoes">
+        <rect
+          x="56"
+          y="176"
+          width="21"
+          height="13"
+          rx="6.5"
+          fill="#6b5138"
+        />
+        <rect
+          x="83"
+          y="176"
+          width="21"
+          height="13"
+          rx="6.5"
+          fill="#6b5138"
+        />
+        <rect
+          x="56"
+          y="184"
+          width="21"
+          height="5"
+          rx="2.5"
+          fill="#6b5138"
+          opacity="0.55"
+        />
+        <rect
+          x="83"
+          y="184"
+          width="21"
+          height="5"
+          rx="2.5"
+          fill="#6b5138"
+          opacity="0.55"
+        />
+      </g>
+      <!-- 裤腿 -->
+      <rect
+        x="59"
+        y="160"
+        width="17"
+        height="20"
+        rx="5"
+        fill="#5f7f4c"
+      />
+      <rect
+        x="84"
+        y="160"
+        width="17"
+        height="20"
+        rx="5"
+        fill="#5f7f4c"
+      />
+      <!-- 卷裤脚 -->
+      <rect
+        x="57.5"
+        y="173"
+        width="20"
+        height="7"
+        rx="3.5"
+        fill="#4c6a3e"
+      />
+      <rect
+        x="82.5"
+        y="173"
+        width="20"
+        height="7"
+        rx="3.5"
+        fill="#4c6a3e"
+      />
+
+      <!-- 圆滚滚的背带裤身子 -->
+      <path
+        d="M52 116q0-10 10-10h36q10 0 10 10v42q0 12-12 12H64q-12 0-12-12z"
+        fill="#5f7f4c"
+      />
+      <!-- 裤兜 -->
+      <path
+        d="M70 148h20v10q0 5-5 5h-10q-5 0-5-5z"
+        fill="#4c6a3e"
+        opacity="0.75"
+      />
+      <!-- 背带 + 扣子 -->
+      <path
+        d="M62 108l4 34"
+        stroke="#6b8f4e"
+        stroke-width="7"
+        stroke-linecap="round"
+      />
+      <path
+        d="M98 108l-4 34"
+        stroke="#6b8f4e"
+        stroke-width="7"
+        stroke-linecap="round"
+      />
+      <circle
+        cx="64"
+        cy="142"
+        r="4"
+        fill="#a8b2bd"
+      />
+      <circle
+        cx="96"
+        cy="142"
+        r="4"
+        fill="#a8b2bd"
+      />
+      <!-- 衬衫肩块与领口 -->
+      <path
+        d="M50 112q0-14 12-16h36q12 2 12 16v6H50z"
+        fill="#8fb6d9"
+      />
+      <path
+        d="M72 96h16v6q-4 4-8 4t-8-4z"
+        fill="#d19a63"
+        opacity="0.35"
+      />
+
+      <!-- 刨土手：袖 + 手 + 锄头（整组绕左肩起落） -->
+      <g class="fig-arm-dig">
+        <rect
+          x="38"
+          y="100"
+          width="16"
+          height="34"
+          rx="8"
+          fill="#8fb6d9"
+        />
+        <rect
+          x="38"
+          y="126"
+          width="16"
+          height="8"
+          rx="4"
+          fill="#8fb6d9"
+          opacity="0.7"
+        />
+        <circle
+          cx="46"
+          cy="138"
+          r="8"
+          fill="#e8b47f"
+        />
+        <g class="fig-hoe">
+          <rect
+            x="42.4"
+            y="128"
+            width="7.2"
+            height="62"
+            rx="3.6"
+            fill="#9c7245"
+          />
+          <path
+            d="M32 186q10-10 28-8l-6 10q-12 2-22-2z"
+            fill="#a8b2bd"
+          />
+          <path
+            d="M36 184q8-6 20-6"
+            stroke="#a97b53"
+            stroke-width="1.6"
+            fill="none"
+            opacity="0.8"
+          />
+        </g>
+      </g>
+    </g>
+
+    <!-- 头组：大头 + 五官 + 白胡子，擦汗/点头都绕这里转 -->
+    <g class="fig-head">
+      <!-- 耳朵 -->
+      <circle
+        cx="34"
+        cy="82"
+        r="9"
+        fill="#e8b47f"
+      />
+      <circle
+        cx="126"
+        cy="82"
+        r="9"
+        fill="#e8b47f"
+      />
+      <circle
+        cx="34"
+        cy="82"
+        r="4"
+        fill="#d19a63"
+        opacity="0.5"
+      />
+      <circle
+        cx="126"
+        cy="82"
+        r="4"
+        fill="#d19a63"
+        opacity="0.5"
+      />
+      <!-- 大圆脸 -->
+      <circle
+        cx="80"
+        cy="76"
+        r="45"
+        fill="#e8b47f"
+      />
+      <!-- 腮红 -->
+      <ellipse
+        cx="54"
+        cy="88"
+        rx="8.5"
+        ry="5"
+        fill="#f0a58f"
+        opacity="0.55"
+      />
+      <ellipse
+        cx="106"
+        cy="88"
+        rx="8.5"
+        ry="5"
+        fill="#f0a58f"
+        opacity="0.55"
+      />
+      <!-- 眼睛：白底 + 双高光 -->
+      <g class="fig-eyes">
+        <circle
+          cx="64"
+          cy="70"
+          r="9"
+          fill="#ffffff"
+        />
+        <circle
+          cx="96"
+          cy="70"
+          r="9"
+          fill="#ffffff"
+        />
+        <circle
+          cx="65.5"
+          cy="71.5"
+          r="4.6"
+          fill="#33291f"
+        />
+        <circle
+          cx="97.5"
+          cy="71.5"
+          r="4.6"
+          fill="#33291f"
+        />
+        <circle
+          cx="63.6"
+          cy="69"
+          r="1.7"
+          fill="#ffffff"
+        />
+        <circle
+          cx="95.6"
+          cy="69"
+          r="1.7"
+          fill="#ffffff"
+        />
+      </g>
+      <!-- 白眉 -->
+      <path
+        d="M55 56q9-6 18-1"
+        stroke="#f4f1ea"
+        stroke-width="3.4"
+        stroke-linecap="round"
+        fill="none"
+      />
+      <path
+        d="M87 55q9-5 18 1"
+        stroke="#f4f1ea"
+        stroke-width="3.4"
+        stroke-linecap="round"
+        fill="none"
+      />
+      <!-- 鼻 -->
+      <circle
+        cx="80"
+        cy="82"
+        r="5.5"
+        fill="#d19a63"
+        opacity="0.75"
+      />
+      <!-- 八字胡 -->
+      <path
+        d="M80 90q-12-2-19 6q10 3 19-2z"
+        fill="#f4f1ea"
+      />
+      <path
+        d="M80 90q12-2 19 6q-10 3-19-2z"
+        fill="#f4f1ea"
+      />
+      <!-- 笑口 -->
+      <path
+        class="fig-mouth"
+        d="M72 100q8 7 16 0"
+        stroke="#a8514a"
+        stroke-width="2.6"
+        stroke-linecap="round"
+        fill="none"
+      />
+      <!-- 山羊白胡团 -->
+      <path
+        d="M80 98q-13 2-11 12q4 8 11 8t11-8q2-10-11-12z"
+        fill="#f4f1ea"
+      />
+      <path
+        d="M74 106q6 4 12 0"
+        stroke="#d19a63"
+        stroke-width="1.4"
+        stroke-linecap="round"
+        fill="none"
+        opacity="0.35"
+      />
+    </g>
+
+    <!-- 草帽：宽檐 + 圆顶 + 帽带 + 编织纹（扇风时整顶掀起） -->
+    <g class="fig-hat">
+      <ellipse
+        cx="80"
+        cy="42"
+        rx="48"
+        ry="13"
+        fill="#d8a944"
+      />
+      <path
+        d="M40 42q40 13 80 0"
+        stroke="#a87c2c"
+        stroke-width="1.6"
+        fill="none"
+        opacity="0.5"
+      />
+      <path
+        d="M50 30q30-16 60 0l-3 12q-27-10-54 0z"
+        fill="#d8a944"
+      />
+      <path
+        d="M50 30q30-16 60 0"
+        stroke="#a87c2c"
+        stroke-width="1.6"
+        fill="none"
+        opacity="0.55"
+      />
+      <rect
+        x="52"
+        y="33"
+        width="56"
+        height="7"
+        rx="3.5"
+        fill="#6b8f4e"
+      />
+      <rect
+        x="52"
+        y="33"
+        width="56"
+        height="3"
+        rx="1.5"
+        fill="#ffffff"
+        opacity="0.18"
+      />
+    </g>
+
+    <!-- 擦汗手：抬袖贴额，白毛巾（带红边） -->
+    <g class="fig-arm-wipe">
+      <rect
+        x="100"
+        y="100"
+        width="16"
+        height="34"
+        rx="8"
+        fill="#8fb6d9"
+      />
+      <rect
+        x="100"
+        y="126"
+        width="16"
+        height="8"
+        rx="4"
+        fill="#8fb6d9"
+        opacity="0.7"
+      />
+      <circle
+        cx="108"
+        cy="138"
+        r="8"
+        fill="#e8b47f"
+      />
+      <g class="fig-towel">
+        <rect
+          x="99"
+          y="132"
+          width="18"
+          height="13"
+          rx="4"
+          fill="#f6f1e5"
+        />
+        <rect
+          x="99"
+          y="141"
+          width="18"
+          height="4"
+          rx="2"
+          fill="#6b8f4e"
+          opacity="0.85"
+        />
+      </g>
+    </g>
+
+    <!-- 汗珠 -->
+    <g class="fig-sweat">
+      <path
+        d="M50 54q4.4 7.6 0 10.6q-4.4-3 0-10.6z"
+        fill="#bfe3ff"
+      />
+      <path
+        d="M111 56q4 7 0 10q-4-3 0-10z"
+        fill="#bfe3ff"
+      />
+      <path
+        d="M120 74q3 5 0 7.4q-3-2.4 0-7.4z"
+        fill="#bfe3ff"
+      />
+    </g>
+
+    <!-- 扇帽风线 -->
+    <g class="fig-wind">
+      <path
+        d="M118 82q12-5 19 2"
+        stroke="#bfe3ff"
+        stroke-width="2.8"
+        stroke-linecap="round"
+        fill="none"
+      />
+      <path
+        d="M122 93q11-4 16 2"
+        stroke="#bfe3ff"
+        stroke-width="2"
+        stroke-linecap="round"
+        fill="none"
+      />
+    </g>
+
+    <!-- 打盹 z -->
+    <g class="fig-zzz">
+      <text
+        x="110"
+        y="36"
+        fill="#33291f"
+        font-size="16"
+        font-weight="bold"
+      >z</text>
+      <text
+        x="126"
+        y="22"
+        fill="#33291f"
+        font-size="11"
+      >z</text>
+    </g>
+  </svg></div>
+      <div class="card"><span class="tag">新版 v3.70</span><svg class="fig" viewBox="0 0 160 200" width="230" height="287">
+    <!-- 地面影子 -->
+    <ellipse
+      class="fig-shadow"
+      cx="80"
+      cy="193"
+      rx="44"
+      ry="7"
+    />
+
+    <!-- 土垄与禾苗：给小人一个"站在田里"的场景感 -->
+    <g class="fig-ground">
+      <ellipse
+        cx="80"
+        cy="190"
+        rx="58"
+        ry="7"
+        fill="#a97b53"
+        opacity="0.55"
+      />
+      <ellipse
+        cx="46"
+        cy="192"
+        rx="22"
+        ry="5"
+        fill="#8a6242"
+        opacity="0.8"
+      />
+      <g class="fig-sprout">
+        <path
+          d="M24 190q0-7 5-11"
+          stroke="#69a244"
+          stroke-width="2.2"
+          stroke-linecap="round"
+          fill="none"
+        />
+        <ellipse
+          cx="27.5"
+          cy="177"
+          rx="4.6"
+          ry="2.8"
+          fill="#69a244"
+          transform="rotate(-28 27.5 177)"
+        />
+        <ellipse
+          cx="22"
+          cy="180"
+          rx="4.2"
+          ry="2.6"
+          fill="#69a244"
+          opacity="0.8"
+          transform="rotate(24 22 180)"
+        />
+      </g>
+      <g
+        class="fig-sprout"
+        transform="translate(108 2)"
+      >
+        <path
+          d="M24 190q1-6 5-10"
+          stroke="#69a244"
+          stroke-width="2.2"
+          stroke-linecap="round"
+          fill="none"
+        />
+        <ellipse
+          cx="27.5"
+          cy="178"
+          rx="4.4"
+          ry="2.7"
+          fill="#69a244"
+          transform="rotate(-24 27.5 178)"
+        />
+      </g>
+    </g>
+
+    <g class="fig-body">
+      <!-- 双脚：圆头布鞋（椭圆更憨） -->
+      <g class="fig-shoes">
+        <ellipse
+          cx="65"
+          cy="181"
+          rx="13"
+          ry="9"
+          fill="#6b5138"
+        />
+        <ellipse
+          cx="95"
+          cy="181"
+          rx="13"
+          ry="9"
+          fill="#6b5138"
+        />
+        <ellipse
+          cx="62"
+          cy="178"
+          rx="5"
+          ry="2.4"
+          fill="#ffffff"
+          opacity="0.22"
+        />
+        <ellipse
+          cx="92"
+          cy="178"
+          rx="5"
+          ry="2.4"
+          fill="#ffffff"
+          opacity="0.22"
+        />
+      </g>
+      <!-- 短粗裤腿 + 卷裤脚 -->
+      <rect
+        x="59"
+        y="158"
+        width="17"
+        height="22"
+        rx="7"
+        fill="#5f7f4c"
+      />
+      <rect
+        x="84"
+        y="158"
+        width="17"
+        height="22"
+        rx="7"
+        fill="#5f7f4c"
+      />
+      <rect
+        x="57.5"
+        y="171"
+        width="20"
+        height="7"
+        rx="3.5"
+        fill="#4c6a3e"
+      />
+      <rect
+        x="82.5"
+        y="171"
+        width="20"
+        height="7"
+        rx="3.5"
+        fill="#4c6a3e"
+      />
+
+      <!-- 圆滚滚蛋形身子：上窄下宽，坐墩一样敦实 -->
+      <path
+        d="M56 122q0-16 13-18h22q13 2 13 18v26q0 18-15 20h-18q-15-2-15-20z"
+        fill="#5f7f4c"
+      />
+      <!-- 圆角补丁兜 + 针脚 -->
+      <path
+        d="M71 146h18v9q0 5-5 5h-8q-5 0-5-5z"
+        fill="#4c6a3e"
+        opacity="0.7"
+      />
+      <path
+        d="M73 150h14"
+        stroke="#4c6a3e"
+        stroke-width="1"
+        stroke-dasharray="2 2.4"
+        stroke-linecap="round"
+        opacity="0.9"
+        fill="none"
+      />
+      <!-- 背带 + 大圆扣 -->
+      <path
+        d="M63 110l4 32"
+        stroke="#6b8f4e"
+        stroke-width="7"
+        stroke-linecap="round"
+      />
+      <path
+        d="M97 110l-4 32"
+        stroke="#6b8f4e"
+        stroke-width="7"
+        stroke-linecap="round"
+      />
+      <circle
+        cx="65"
+        cy="142"
+        r="4.6"
+        fill="#a8b2bd"
+      />
+      <circle
+        cx="95"
+        cy="142"
+        r="4.6"
+        fill="#a8b2bd"
+      />
+      <circle
+        cx="63.6"
+        cy="140.6"
+        r="1.4"
+        fill="#ffffff"
+        opacity="0.8"
+      />
+      <circle
+        cx="93.6"
+        cy="140.6"
+        r="1.4"
+        fill="#ffffff"
+        opacity="0.8"
+      />
+      <!-- 衬衫肩块与圆领口 -->
+      <path
+        d="M51 114q0-15 13-17h32q13 2 13 17v4H51z"
+        fill="#8fb6d9"
+      />
+      <path
+        d="M72 97h16v5q-4 4.4-8 4.4t-8-4.4z"
+        fill="#d19a63"
+        opacity="0.35"
+      />
+
+      <!-- 刨土手：袖 + 手 + 锄头（整组绕左肩起落） -->
+      <g class="fig-arm-dig">
+        <rect
+          x="39"
+          y="98"
+          width="15"
+          height="32"
+          rx="7.5"
+          fill="#8fb6d9"
+        />
+        <rect
+          x="39"
+          y="124"
+          width="15"
+          height="7"
+          rx="3.5"
+          fill="#8fb6d9"
+          opacity="0.7"
+        />
+        <circle
+          cx="46.5"
+          cy="136"
+          r="7.5"
+          fill="#e8b47f"
+        />
+        <g class="fig-hoe">
+          <rect
+            x="42.8"
+            y="126"
+            width="7"
+            height="60"
+            rx="3.5"
+            fill="#9c7245"
+          />
+          <path
+            d="M32 184q10-11 28-9l-6 11q-13 2-22-2z"
+            fill="#a8b2bd"
+          />
+          <path
+            d="M36 182q8-6 20-6"
+            stroke="#a97b53"
+            stroke-width="1.6"
+            fill="none"
+            opacity="0.8"
+          />
+        </g>
+      </g>
+    </g>
+
+    <!-- 头组：Q 版大头 + 水汪汪大眼 + 白胡子，擦汗/点头都绕这里转 -->
+    <g class="fig-head">
+      <!-- 耳朵 -->
+      <circle
+        cx="31"
+        cy="80"
+        r="9"
+        fill="#e8b47f"
+      />
+      <circle
+        cx="129"
+        cy="80"
+        r="9"
+        fill="#e8b47f"
+      />
+      <circle
+        cx="31"
+        cy="80"
+        r="4"
+        fill="#d19a63"
+        opacity="0.5"
+      />
+      <circle
+        cx="129"
+        cy="80"
+        r="4"
+        fill="#d19a63"
+        opacity="0.5"
+      />
+      <!-- 大圆脸 -->
+      <circle
+        cx="80"
+        cy="74"
+        r="48"
+        fill="#e8b47f"
+      />
+      <!-- 脸侧高光：额头一点光，皮肤更透亮 -->
+      <ellipse
+        cx="60"
+        cy="48"
+        rx="10"
+        ry="6"
+        fill="#ffffff"
+        opacity="0.28"
+        transform="rotate(-24 60 48)"
+      />
+      <!-- 腮红 -->
+      <ellipse
+        cx="49"
+        cy="88"
+        rx="10"
+        ry="5.5"
+        fill="#f0a58f"
+        opacity="0.5"
+      />
+      <ellipse
+        cx="111"
+        cy="88"
+        rx="10"
+        ry="5.5"
+        fill="#f0a58f"
+        opacity="0.5"
+      />
+      <!-- 眼睛：水汪汪大圆眼 + 双高光 + 下缘反光 -->
+      <g class="fig-eyes">
+        <circle
+          cx="61"
+          cy="66"
+          r="11.5"
+          fill="#ffffff"
+        />
+        <circle
+          cx="99"
+          cy="66"
+          r="11.5"
+          fill="#ffffff"
+        />
+        <circle
+          cx="62.5"
+          cy="68"
+          r="5.8"
+          fill="#33291f"
+        />
+        <circle
+          cx="100.5"
+          cy="68"
+          r="5.8"
+          fill="#33291f"
+        />
+        <circle
+          cx="60.6"
+          cy="65.8"
+          r="2.2"
+          fill="#ffffff"
+        />
+        <circle
+          cx="98.6"
+          cy="65.8"
+          r="2.2"
+          fill="#ffffff"
+        />
+        <circle
+          cx="64.6"
+          cy="70.6"
+          r="1.1"
+          fill="#ffffff"
+          opacity="0.85"
+        />
+        <circle
+          cx="102.6"
+          cy="70.6"
+          r="1.1"
+          fill="#ffffff"
+          opacity="0.85"
+        />
+        <path
+          d="M53.5 59.5q7.5-4.5 15-0.5"
+          stroke="#33291f"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          fill="none"
+          opacity="0.55"
+        />
+        <path
+          d="M91.5 59q7.5-4 15 0.5"
+          stroke="#33291f"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          fill="none"
+          opacity="0.55"
+        />
+      </g>
+      <!-- 白眉：圆圆的长寿眉 -->
+      <path
+        d="M52 50q10-7 21-2"
+        stroke="#f4f1ea"
+        stroke-width="3.8"
+        stroke-linecap="round"
+        fill="none"
+      />
+      <path
+        d="M87 48q11-5 21 2"
+        stroke="#f4f1ea"
+        stroke-width="3.8"
+        stroke-linecap="round"
+        fill="none"
+      />
+      <!-- 鼻：小圆鼻 -->
+      <ellipse
+        cx="80"
+        cy="82"
+        rx="4.4"
+        ry="3.4"
+        fill="#d19a63"
+        opacity="0.6"
+      />
+      <!-- 八字胡：两撇软乎的白胡子 -->
+      <path
+        d="M80 88q-13-3-21 6q5 5 13 3q5-1 8-4z"
+        fill="#f4f1ea"
+      />
+      <path
+        d="M80 88q13-3 21 6q-5 5-13 3q-5-1-8-4z"
+        fill="#f4f1ea"
+      />
+      <!-- 笑口：张嘴笑，露一点舌头 -->
+      <path
+        class="fig-mouth"
+        d="M72 95q8 8 16 0q-1.5 8-8 8t-8-8z"
+        fill="#a8514a"
+      />
+      <ellipse
+        cx="80"
+        cy="101"
+        rx="3.4"
+        ry="1.6"
+        fill="#ffffff"
+        opacity="0.35"
+      />
+      <!-- 云朵白胡团：三个圆鼓鼓的泡泡 -->
+      <circle
+        cx="68"
+        cy="111"
+        r="6.5"
+        fill="#f4f1ea"
+      />
+      <circle
+        cx="92"
+        cy="111"
+        r="6.5"
+        fill="#f4f1ea"
+      />
+      <circle
+        cx="80"
+        cy="114"
+        r="8"
+        fill="#f4f1ea"
+      />
+      <path
+        d="M74 113q6 4 12 0"
+        stroke="#d19a63"
+        stroke-width="1.4"
+        stroke-linecap="round"
+        fill="none"
+        opacity="0.35"
+      />
+    </g>
+
+    <!-- 草帽：宽檐 + 圆顶 + 帽带 + 帽檐小芽（扇风时整顶掀起） -->
+    <g class="fig-hat">
+      <ellipse
+        cx="80"
+        cy="42"
+        rx="48"
+        ry="13"
+        fill="#d8a944"
+      />
+      <path
+        d="M40 42q40 13 80 0"
+        stroke="#a87c2c"
+        stroke-width="1.6"
+        fill="none"
+        opacity="0.5"
+      />
+      <path
+        d="M49 32q3-18 31-18t31 18l-2 8q-29-11-58 0z"
+        fill="#d8a944"
+      />
+      <path
+        d="M49 32q3-18 31-18"
+        stroke="#a87c2c"
+        stroke-width="1.6"
+        fill="none"
+        opacity="0.55"
+      />
+      <rect
+        x="52"
+        y="33"
+        width="56"
+        height="7"
+        rx="3.5"
+        fill="#6b8f4e"
+      />
+      <rect
+        x="52"
+        y="33"
+        width="56"
+        height="3"
+        rx="1.5"
+        fill="#ffffff"
+        opacity="0.18"
+      />
+      <!-- 帽带上的小嫩芽：憨里带点灵气 -->
+      <path
+        d="M103 32q7-7 11-5q-2 7-11 7z"
+        fill="#69a244"
+      />
+      <circle
+        cx="80"
+        cy="14.5"
+        r="3.4"
+        fill="#a87c2c"
+      />
+      <circle
+        cx="79"
+        cy="13.5"
+        r="1.1"
+        fill="#ffffff"
+        opacity="0.55"
+      />
+    </g>
+
+    <!-- 擦汗手：抬袖贴额，白毛巾（带红边） -->
+    <g class="fig-arm-wipe">
+      <rect
+        x="106"
+        y="98"
+        width="15"
+        height="32"
+        rx="7.5"
+        fill="#8fb6d9"
+      />
+      <rect
+        x="106"
+        y="124"
+        width="15"
+        height="7"
+        rx="3.5"
+        fill="#8fb6d9"
+        opacity="0.7"
+      />
+      <circle
+        cx="113.5"
+        cy="136"
+        r="7.5"
+        fill="#e8b47f"
+      />
+      <g class="fig-towel">
+        <rect
+          x="102"
+          y="131"
+          width="20"
+          height="14"
+          rx="5"
+          fill="#f6f1e5"
+        />
+        <rect
+          x="102"
+          y="141"
+          width="20"
+          height="4"
+          rx="2"
+          fill="#6b8f4e"
+          opacity="0.85"
+        />
+      </g>
+    </g>
+
+    <!-- 汗珠 -->
+    <g class="fig-sweat">
+      <path
+        d="M44 52q4.4 7.6 0 10.6q-4.4-3 0-10.6z"
+        fill="#bfe3ff"
+      />
+      <path
+        d="M116 54q4 7 0 10q-4-3 0-10z"
+        fill="#bfe3ff"
+      />
+      <path
+        d="M124 72q3 5 0 7.4q-3-2.4 0-7.4z"
+        fill="#bfe3ff"
+      />
+    </g>
+
+    <!-- 扇帽风线 -->
+    <g class="fig-wind">
+      <path
+        d="M122 82q12-5 19 2"
+        stroke="#bfe3ff"
+        stroke-width="2.8"
+        stroke-linecap="round"
+        fill="none"
+      />
+      <path
+        d="M126 93q11-4 16 2"
+        stroke="#bfe3ff"
+        stroke-width="2"
+        stroke-linecap="round"
+        fill="none"
+      />
+    </g>
+
+    <!-- 打盹 z（放在帽檐外右上，不压帽子） -->
+    <g class="fig-zzz">
+      <text
+        x="130"
+        y="30"
+        fill="#33291f"
+        font-size="15"
+        font-weight="bold"
+      >z</text>
+      <text
+        x="144"
+        y="17"
+        fill="#33291f"
+        font-size="10.5"
+      >z</text>
+    </g>
+  </svg></div>
+    </div>
+  </div>
+
+  <div class="band light">
+    <div class="row">
+      <div class="card"><span class="tag">旧版 v3.56</span><svg class="fig" viewBox="0 0 160 200" width="230" height="287">
+    <!-- 地面影子 -->
+    <ellipse
+      class="fig-shadow"
+      cx="80"
+      cy="193"
+      rx="44"
+      ry="7"
+    />
+
+    <!-- 土垄与禾苗：给小人一个"站在田里"的场景感 -->
+    <g class="fig-ground">
+      <ellipse
+        cx="80"
+        cy="190"
+        rx="58"
+        ry="7"
+        fill="#a97b53"
+        opacity="0.55"
+      />
+      <ellipse
+        cx="46"
+        cy="192"
+        rx="22"
+        ry="5"
+        fill="#8a6242"
+        opacity="0.8"
+      />
+      <g class="fig-sprout">
+        <path
+          d="M24 190q0-7 5-11"
+          stroke="#69a244"
+          stroke-width="2.2"
+          stroke-linecap="round"
+          fill="none"
+        />
+        <ellipse
+          cx="27.5"
+          cy="177"
+          rx="4.6"
+          ry="2.8"
+          fill="#69a244"
+          transform="rotate(-28 27.5 177)"
+        />
+        <ellipse
+          cx="22"
+          cy="180"
+          rx="4.2"
+          ry="2.6"
+          fill="#69a244"
+          opacity="0.8"
+          transform="rotate(24 22 180)"
+        />
+      </g>
+      <g
+        class="fig-sprout"
+        transform="translate(108 2)"
+      >
+        <path
+          d="M24 190q1-6 5-10"
+          stroke="#69a244"
+          stroke-width="2.2"
+          stroke-linecap="round"
+          fill="none"
+        />
+        <ellipse
+          cx="27.5"
+          cy="178"
+          rx="4.4"
+          ry="2.7"
+          fill="#69a244"
+          transform="rotate(-24 27.5 178)"
+        />
+      </g>
+    </g>
+
+    <g class="fig-body">
+      <!-- 双脚：圆头布鞋 -->
+      <g class="fig-shoes">
+        <rect
+          x="56"
+          y="176"
+          width="21"
+          height="13"
+          rx="6.5"
+          fill="#6b5138"
+        />
+        <rect
+          x="83"
+          y="176"
+          width="21"
+          height="13"
+          rx="6.5"
+          fill="#6b5138"
+        />
+        <rect
+          x="56"
+          y="184"
+          width="21"
+          height="5"
+          rx="2.5"
+          fill="#6b5138"
+          opacity="0.55"
+        />
+        <rect
+          x="83"
+          y="184"
+          width="21"
+          height="5"
+          rx="2.5"
+          fill="#6b5138"
+          opacity="0.55"
+        />
+      </g>
+      <!-- 裤腿 -->
+      <rect
+        x="59"
+        y="160"
+        width="17"
+        height="20"
+        rx="5"
+        fill="#5f7f4c"
+      />
+      <rect
+        x="84"
+        y="160"
+        width="17"
+        height="20"
+        rx="5"
+        fill="#5f7f4c"
+      />
+      <!-- 卷裤脚 -->
+      <rect
+        x="57.5"
+        y="173"
+        width="20"
+        height="7"
+        rx="3.5"
+        fill="#4c6a3e"
+      />
+      <rect
+        x="82.5"
+        y="173"
+        width="20"
+        height="7"
+        rx="3.5"
+        fill="#4c6a3e"
+      />
+
+      <!-- 圆滚滚的背带裤身子 -->
+      <path
+        d="M52 116q0-10 10-10h36q10 0 10 10v42q0 12-12 12H64q-12 0-12-12z"
+        fill="#5f7f4c"
+      />
+      <!-- 裤兜 -->
+      <path
+        d="M70 148h20v10q0 5-5 5h-10q-5 0-5-5z"
+        fill="#4c6a3e"
+        opacity="0.75"
+      />
+      <!-- 背带 + 扣子 -->
+      <path
+        d="M62 108l4 34"
+        stroke="#6b8f4e"
+        stroke-width="7"
+        stroke-linecap="round"
+      />
+      <path
+        d="M98 108l-4 34"
+        stroke="#6b8f4e"
+        stroke-width="7"
+        stroke-linecap="round"
+      />
+      <circle
+        cx="64"
+        cy="142"
+        r="4"
+        fill="#a8b2bd"
+      />
+      <circle
+        cx="96"
+        cy="142"
+        r="4"
+        fill="#a8b2bd"
+      />
+      <!-- 衬衫肩块与领口 -->
+      <path
+        d="M50 112q0-14 12-16h36q12 2 12 16v6H50z"
+        fill="#8fb6d9"
+      />
+      <path
+        d="M72 96h16v6q-4 4-8 4t-8-4z"
+        fill="#d19a63"
+        opacity="0.35"
+      />
+
+      <!-- 刨土手：袖 + 手 + 锄头（整组绕左肩起落） -->
+      <g class="fig-arm-dig">
+        <rect
+          x="38"
+          y="100"
+          width="16"
+          height="34"
+          rx="8"
+          fill="#8fb6d9"
+        />
+        <rect
+          x="38"
+          y="126"
+          width="16"
+          height="8"
+          rx="4"
+          fill="#8fb6d9"
+          opacity="0.7"
+        />
+        <circle
+          cx="46"
+          cy="138"
+          r="8"
+          fill="#e8b47f"
+        />
+        <g class="fig-hoe">
+          <rect
+            x="42.4"
+            y="128"
+            width="7.2"
+            height="62"
+            rx="3.6"
+            fill="#9c7245"
+          />
+          <path
+            d="M32 186q10-10 28-8l-6 10q-12 2-22-2z"
+            fill="#a8b2bd"
+          />
+          <path
+            d="M36 184q8-6 20-6"
+            stroke="#a97b53"
+            stroke-width="1.6"
+            fill="none"
+            opacity="0.8"
+          />
+        </g>
+      </g>
+    </g>
+
+    <!-- 头组：大头 + 五官 + 白胡子，擦汗/点头都绕这里转 -->
+    <g class="fig-head">
+      <!-- 耳朵 -->
+      <circle
+        cx="34"
+        cy="82"
+        r="9"
+        fill="#e8b47f"
+      />
+      <circle
+        cx="126"
+        cy="82"
+        r="9"
+        fill="#e8b47f"
+      />
+      <circle
+        cx="34"
+        cy="82"
+        r="4"
+        fill="#d19a63"
+        opacity="0.5"
+      />
+      <circle
+        cx="126"
+        cy="82"
+        r="4"
+        fill="#d19a63"
+        opacity="0.5"
+      />
+      <!-- 大圆脸 -->
+      <circle
+        cx="80"
+        cy="76"
+        r="45"
+        fill="#e8b47f"
+      />
+      <!-- 腮红 -->
+      <ellipse
+        cx="54"
+        cy="88"
+        rx="8.5"
+        ry="5"
+        fill="#f0a58f"
+        opacity="0.55"
+      />
+      <ellipse
+        cx="106"
+        cy="88"
+        rx="8.5"
+        ry="5"
+        fill="#f0a58f"
+        opacity="0.55"
+      />
+      <!-- 眼睛：白底 + 双高光 -->
+      <g class="fig-eyes">
+        <circle
+          cx="64"
+          cy="70"
+          r="9"
+          fill="#ffffff"
+        />
+        <circle
+          cx="96"
+          cy="70"
+          r="9"
+          fill="#ffffff"
+        />
+        <circle
+          cx="65.5"
+          cy="71.5"
+          r="4.6"
+          fill="#33291f"
+        />
+        <circle
+          cx="97.5"
+          cy="71.5"
+          r="4.6"
+          fill="#33291f"
+        />
+        <circle
+          cx="63.6"
+          cy="69"
+          r="1.7"
+          fill="#ffffff"
+        />
+        <circle
+          cx="95.6"
+          cy="69"
+          r="1.7"
+          fill="#ffffff"
+        />
+      </g>
+      <!-- 白眉 -->
+      <path
+        d="M55 56q9-6 18-1"
+        stroke="#f4f1ea"
+        stroke-width="3.4"
+        stroke-linecap="round"
+        fill="none"
+      />
+      <path
+        d="M87 55q9-5 18 1"
+        stroke="#f4f1ea"
+        stroke-width="3.4"
+        stroke-linecap="round"
+        fill="none"
+      />
+      <!-- 鼻 -->
+      <circle
+        cx="80"
+        cy="82"
+        r="5.5"
+        fill="#d19a63"
+        opacity="0.75"
+      />
+      <!-- 八字胡 -->
+      <path
+        d="M80 90q-12-2-19 6q10 3 19-2z"
+        fill="#f4f1ea"
+      />
+      <path
+        d="M80 90q12-2 19 6q-10 3-19-2z"
+        fill="#f4f1ea"
+      />
+      <!-- 笑口 -->
+      <path
+        class="fig-mouth"
+        d="M72 100q8 7 16 0"
+        stroke="#a8514a"
+        stroke-width="2.6"
+        stroke-linecap="round"
+        fill="none"
+      />
+      <!-- 山羊白胡团 -->
+      <path
+        d="M80 98q-13 2-11 12q4 8 11 8t11-8q2-10-11-12z"
+        fill="#f4f1ea"
+      />
+      <path
+        d="M74 106q6 4 12 0"
+        stroke="#d19a63"
+        stroke-width="1.4"
+        stroke-linecap="round"
+        fill="none"
+        opacity="0.35"
+      />
+    </g>
+
+    <!-- 草帽：宽檐 + 圆顶 + 帽带 + 编织纹（扇风时整顶掀起） -->
+    <g class="fig-hat">
+      <ellipse
+        cx="80"
+        cy="42"
+        rx="48"
+        ry="13"
+        fill="#d8a944"
+      />
+      <path
+        d="M40 42q40 13 80 0"
+        stroke="#a87c2c"
+        stroke-width="1.6"
+        fill="none"
+        opacity="0.5"
+      />
+      <path
+        d="M50 30q30-16 60 0l-3 12q-27-10-54 0z"
+        fill="#d8a944"
+      />
+      <path
+        d="M50 30q30-16 60 0"
+        stroke="#a87c2c"
+        stroke-width="1.6"
+        fill="none"
+        opacity="0.55"
+      />
+      <rect
+        x="52"
+        y="33"
+        width="56"
+        height="7"
+        rx="3.5"
+        fill="#6b8f4e"
+      />
+      <rect
+        x="52"
+        y="33"
+        width="56"
+        height="3"
+        rx="1.5"
+        fill="#ffffff"
+        opacity="0.18"
+      />
+    </g>
+
+    <!-- 擦汗手：抬袖贴额，白毛巾（带红边） -->
+    <g class="fig-arm-wipe">
+      <rect
+        x="100"
+        y="100"
+        width="16"
+        height="34"
+        rx="8"
+        fill="#8fb6d9"
+      />
+      <rect
+        x="100"
+        y="126"
+        width="16"
+        height="8"
+        rx="4"
+        fill="#8fb6d9"
+        opacity="0.7"
+      />
+      <circle
+        cx="108"
+        cy="138"
+        r="8"
+        fill="#e8b47f"
+      />
+      <g class="fig-towel">
+        <rect
+          x="99"
+          y="132"
+          width="18"
+          height="13"
+          rx="4"
+          fill="#f6f1e5"
+        />
+        <rect
+          x="99"
+          y="141"
+          width="18"
+          height="4"
+          rx="2"
+          fill="#6b8f4e"
+          opacity="0.85"
+        />
+      </g>
+    </g>
+
+    <!-- 汗珠 -->
+    <g class="fig-sweat">
+      <path
+        d="M50 54q4.4 7.6 0 10.6q-4.4-3 0-10.6z"
+        fill="#bfe3ff"
+      />
+      <path
+        d="M111 56q4 7 0 10q-4-3 0-10z"
+        fill="#bfe3ff"
+      />
+      <path
+        d="M120 74q3 5 0 7.4q-3-2.4 0-7.4z"
+        fill="#bfe3ff"
+      />
+    </g>
+
+    <!-- 扇帽风线 -->
+    <g class="fig-wind">
+      <path
+        d="M118 82q12-5 19 2"
+        stroke="#bfe3ff"
+        stroke-width="2.8"
+        stroke-linecap="round"
+        fill="none"
+      />
+      <path
+        d="M122 93q11-4 16 2"
+        stroke="#bfe3ff"
+        stroke-width="2"
+        stroke-linecap="round"
+        fill="none"
+      />
+    </g>
+
+    <!-- 打盹 z -->
+    <g class="fig-zzz">
+      <text
+        x="110"
+        y="36"
+        fill="#33291f"
+        font-size="16"
+        font-weight="bold"
+      >z</text>
+      <text
+        x="126"
+        y="22"
+        fill="#33291f"
+        font-size="11"
+      >z</text>
+    </g>
+  </svg></div>
+      <div class="card"><span class="tag">新版 v3.70</span><svg class="fig" viewBox="0 0 160 200" width="230" height="287">
+    <!-- 地面影子 -->
+    <ellipse
+      class="fig-shadow"
+      cx="80"
+      cy="193"
+      rx="44"
+      ry="7"
+    />
+
+    <!-- 土垄与禾苗：给小人一个"站在田里"的场景感 -->
+    <g class="fig-ground">
+      <ellipse
+        cx="80"
+        cy="190"
+        rx="58"
+        ry="7"
+        fill="#a97b53"
+        opacity="0.55"
+      />
+      <ellipse
+        cx="46"
+        cy="192"
+        rx="22"
+        ry="5"
+        fill="#8a6242"
+        opacity="0.8"
+      />
+      <g class="fig-sprout">
+        <path
+          d="M24 190q0-7 5-11"
+          stroke="#69a244"
+          stroke-width="2.2"
+          stroke-linecap="round"
+          fill="none"
+        />
+        <ellipse
+          cx="27.5"
+          cy="177"
+          rx="4.6"
+          ry="2.8"
+          fill="#69a244"
+          transform="rotate(-28 27.5 177)"
+        />
+        <ellipse
+          cx="22"
+          cy="180"
+          rx="4.2"
+          ry="2.6"
+          fill="#69a244"
+          opacity="0.8"
+          transform="rotate(24 22 180)"
+        />
+      </g>
+      <g
+        class="fig-sprout"
+        transform="translate(108 2)"
+      >
+        <path
+          d="M24 190q1-6 5-10"
+          stroke="#69a244"
+          stroke-width="2.2"
+          stroke-linecap="round"
+          fill="none"
+        />
+        <ellipse
+          cx="27.5"
+          cy="178"
+          rx="4.4"
+          ry="2.7"
+          fill="#69a244"
+          transform="rotate(-24 27.5 178)"
+        />
+      </g>
+    </g>
+
+    <g class="fig-body">
+      <!-- 双脚：圆头布鞋（椭圆更憨） -->
+      <g class="fig-shoes">
+        <ellipse
+          cx="65"
+          cy="181"
+          rx="13"
+          ry="9"
+          fill="#6b5138"
+        />
+        <ellipse
+          cx="95"
+          cy="181"
+          rx="13"
+          ry="9"
+          fill="#6b5138"
+        />
+        <ellipse
+          cx="62"
+          cy="178"
+          rx="5"
+          ry="2.4"
+          fill="#ffffff"
+          opacity="0.22"
+        />
+        <ellipse
+          cx="92"
+          cy="178"
+          rx="5"
+          ry="2.4"
+          fill="#ffffff"
+          opacity="0.22"
+        />
+      </g>
+      <!-- 短粗裤腿 + 卷裤脚 -->
+      <rect
+        x="59"
+        y="158"
+        width="17"
+        height="22"
+        rx="7"
+        fill="#5f7f4c"
+      />
+      <rect
+        x="84"
+        y="158"
+        width="17"
+        height="22"
+        rx="7"
+        fill="#5f7f4c"
+      />
+      <rect
+        x="57.5"
+        y="171"
+        width="20"
+        height="7"
+        rx="3.5"
+        fill="#4c6a3e"
+      />
+      <rect
+        x="82.5"
+        y="171"
+        width="20"
+        height="7"
+        rx="3.5"
+        fill="#4c6a3e"
+      />
+
+      <!-- 圆滚滚蛋形身子：上窄下宽，坐墩一样敦实 -->
+      <path
+        d="M56 122q0-16 13-18h22q13 2 13 18v26q0 18-15 20h-18q-15-2-15-20z"
+        fill="#5f7f4c"
+      />
+      <!-- 圆角补丁兜 + 针脚 -->
+      <path
+        d="M71 146h18v9q0 5-5 5h-8q-5 0-5-5z"
+        fill="#4c6a3e"
+        opacity="0.7"
+      />
+      <path
+        d="M73 150h14"
+        stroke="#4c6a3e"
+        stroke-width="1"
+        stroke-dasharray="2 2.4"
+        stroke-linecap="round"
+        opacity="0.9"
+        fill="none"
+      />
+      <!-- 背带 + 大圆扣 -->
+      <path
+        d="M63 110l4 32"
+        stroke="#6b8f4e"
+        stroke-width="7"
+        stroke-linecap="round"
+      />
+      <path
+        d="M97 110l-4 32"
+        stroke="#6b8f4e"
+        stroke-width="7"
+        stroke-linecap="round"
+      />
+      <circle
+        cx="65"
+        cy="142"
+        r="4.6"
+        fill="#a8b2bd"
+      />
+      <circle
+        cx="95"
+        cy="142"
+        r="4.6"
+        fill="#a8b2bd"
+      />
+      <circle
+        cx="63.6"
+        cy="140.6"
+        r="1.4"
+        fill="#ffffff"
+        opacity="0.8"
+      />
+      <circle
+        cx="93.6"
+        cy="140.6"
+        r="1.4"
+        fill="#ffffff"
+        opacity="0.8"
+      />
+      <!-- 衬衫肩块与圆领口 -->
+      <path
+        d="M51 114q0-15 13-17h32q13 2 13 17v4H51z"
+        fill="#8fb6d9"
+      />
+      <path
+        d="M72 97h16v5q-4 4.4-8 4.4t-8-4.4z"
+        fill="#d19a63"
+        opacity="0.35"
+      />
+
+      <!-- 刨土手：袖 + 手 + 锄头（整组绕左肩起落） -->
+      <g class="fig-arm-dig">
+        <rect
+          x="39"
+          y="98"
+          width="15"
+          height="32"
+          rx="7.5"
+          fill="#8fb6d9"
+        />
+        <rect
+          x="39"
+          y="124"
+          width="15"
+          height="7"
+          rx="3.5"
+          fill="#8fb6d9"
+          opacity="0.7"
+        />
+        <circle
+          cx="46.5"
+          cy="136"
+          r="7.5"
+          fill="#e8b47f"
+        />
+        <g class="fig-hoe">
+          <rect
+            x="42.8"
+            y="126"
+            width="7"
+            height="60"
+            rx="3.5"
+            fill="#9c7245"
+          />
+          <path
+            d="M32 184q10-11 28-9l-6 11q-13 2-22-2z"
+            fill="#a8b2bd"
+          />
+          <path
+            d="M36 182q8-6 20-6"
+            stroke="#a97b53"
+            stroke-width="1.6"
+            fill="none"
+            opacity="0.8"
+          />
+        </g>
+      </g>
+    </g>
+
+    <!-- 头组：Q 版大头 + 水汪汪大眼 + 白胡子，擦汗/点头都绕这里转 -->
+    <g class="fig-head">
+      <!-- 耳朵 -->
+      <circle
+        cx="31"
+        cy="80"
+        r="9"
+        fill="#e8b47f"
+      />
+      <circle
+        cx="129"
+        cy="80"
+        r="9"
+        fill="#e8b47f"
+      />
+      <circle
+        cx="31"
+        cy="80"
+        r="4"
+        fill="#d19a63"
+        opacity="0.5"
+      />
+      <circle
+        cx="129"
+        cy="80"
+        r="4"
+        fill="#d19a63"
+        opacity="0.5"
+      />
+      <!-- 大圆脸 -->
+      <circle
+        cx="80"
+        cy="74"
+        r="48"
+        fill="#e8b47f"
+      />
+      <!-- 脸侧高光：额头一点光，皮肤更透亮 -->
+      <ellipse
+        cx="60"
+        cy="48"
+        rx="10"
+        ry="6"
+        fill="#ffffff"
+        opacity="0.28"
+        transform="rotate(-24 60 48)"
+      />
+      <!-- 腮红 -->
+      <ellipse
+        cx="49"
+        cy="88"
+        rx="10"
+        ry="5.5"
+        fill="#f0a58f"
+        opacity="0.5"
+      />
+      <ellipse
+        cx="111"
+        cy="88"
+        rx="10"
+        ry="5.5"
+        fill="#f0a58f"
+        opacity="0.5"
+      />
+      <!-- 眼睛：水汪汪大圆眼 + 双高光 + 下缘反光 -->
+      <g class="fig-eyes">
+        <circle
+          cx="61"
+          cy="66"
+          r="11.5"
+          fill="#ffffff"
+        />
+        <circle
+          cx="99"
+          cy="66"
+          r="11.5"
+          fill="#ffffff"
+        />
+        <circle
+          cx="62.5"
+          cy="68"
+          r="5.8"
+          fill="#33291f"
+        />
+        <circle
+          cx="100.5"
+          cy="68"
+          r="5.8"
+          fill="#33291f"
+        />
+        <circle
+          cx="60.6"
+          cy="65.8"
+          r="2.2"
+          fill="#ffffff"
+        />
+        <circle
+          cx="98.6"
+          cy="65.8"
+          r="2.2"
+          fill="#ffffff"
+        />
+        <circle
+          cx="64.6"
+          cy="70.6"
+          r="1.1"
+          fill="#ffffff"
+          opacity="0.85"
+        />
+        <circle
+          cx="102.6"
+          cy="70.6"
+          r="1.1"
+          fill="#ffffff"
+          opacity="0.85"
+        />
+        <path
+          d="M53.5 59.5q7.5-4.5 15-0.5"
+          stroke="#33291f"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          fill="none"
+          opacity="0.55"
+        />
+        <path
+          d="M91.5 59q7.5-4 15 0.5"
+          stroke="#33291f"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          fill="none"
+          opacity="0.55"
+        />
+      </g>
+      <!-- 白眉：圆圆的长寿眉 -->
+      <path
+        d="M52 50q10-7 21-2"
+        stroke="#f4f1ea"
+        stroke-width="3.8"
+        stroke-linecap="round"
+        fill="none"
+      />
+      <path
+        d="M87 48q11-5 21 2"
+        stroke="#f4f1ea"
+        stroke-width="3.8"
+        stroke-linecap="round"
+        fill="none"
+      />
+      <!-- 鼻：小圆鼻 -->
+      <ellipse
+        cx="80"
+        cy="82"
+        rx="4.4"
+        ry="3.4"
+        fill="#d19a63"
+        opacity="0.6"
+      />
+      <!-- 八字胡：两撇软乎的白胡子 -->
+      <path
+        d="M80 88q-13-3-21 6q5 5 13 3q5-1 8-4z"
+        fill="#f4f1ea"
+      />
+      <path
+        d="M80 88q13-3 21 6q-5 5-13 3q-5-1-8-4z"
+        fill="#f4f1ea"
+      />
+      <!-- 笑口：张嘴笑，露一点舌头 -->
+      <path
+        class="fig-mouth"
+        d="M72 95q8 8 16 0q-1.5 8-8 8t-8-8z"
+        fill="#a8514a"
+      />
+      <ellipse
+        cx="80"
+        cy="101"
+        rx="3.4"
+        ry="1.6"
+        fill="#ffffff"
+        opacity="0.35"
+      />
+      <!-- 云朵白胡团：三个圆鼓鼓的泡泡 -->
+      <circle
+        cx="68"
+        cy="111"
+        r="6.5"
+        fill="#f4f1ea"
+      />
+      <circle
+        cx="92"
+        cy="111"
+        r="6.5"
+        fill="#f4f1ea"
+      />
+      <circle
+        cx="80"
+        cy="114"
+        r="8"
+        fill="#f4f1ea"
+      />
+      <path
+        d="M74 113q6 4 12 0"
+        stroke="#d19a63"
+        stroke-width="1.4"
+        stroke-linecap="round"
+        fill="none"
+        opacity="0.35"
+      />
+    </g>
+
+    <!-- 草帽：宽檐 + 圆顶 + 帽带 + 帽檐小芽（扇风时整顶掀起） -->
+    <g class="fig-hat">
+      <ellipse
+        cx="80"
+        cy="42"
+        rx="48"
+        ry="13"
+        fill="#d8a944"
+      />
+      <path
+        d="M40 42q40 13 80 0"
+        stroke="#a87c2c"
+        stroke-width="1.6"
+        fill="none"
+        opacity="0.5"
+      />
+      <path
+        d="M49 32q3-18 31-18t31 18l-2 8q-29-11-58 0z"
+        fill="#d8a944"
+      />
+      <path
+        d="M49 32q3-18 31-18"
+        stroke="#a87c2c"
+        stroke-width="1.6"
+        fill="none"
+        opacity="0.55"
+      />
+      <rect
+        x="52"
+        y="33"
+        width="56"
+        height="7"
+        rx="3.5"
+        fill="#6b8f4e"
+      />
+      <rect
+        x="52"
+        y="33"
+        width="56"
+        height="3"
+        rx="1.5"
+        fill="#ffffff"
+        opacity="0.18"
+      />
+      <!-- 帽带上的小嫩芽：憨里带点灵气 -->
+      <path
+        d="M103 32q7-7 11-5q-2 7-11 7z"
+        fill="#69a244"
+      />
+      <circle
+        cx="80"
+        cy="14.5"
+        r="3.4"
+        fill="#a87c2c"
+      />
+      <circle
+        cx="79"
+        cy="13.5"
+        r="1.1"
+        fill="#ffffff"
+        opacity="0.55"
+      />
+    </g>
+
+    <!-- 擦汗手：抬袖贴额，白毛巾（带红边） -->
+    <g class="fig-arm-wipe">
+      <rect
+        x="106"
+        y="98"
+        width="15"
+        height="32"
+        rx="7.5"
+        fill="#8fb6d9"
+      />
+      <rect
+        x="106"
+        y="124"
+        width="15"
+        height="7"
+        rx="3.5"
+        fill="#8fb6d9"
+        opacity="0.7"
+      />
+      <circle
+        cx="113.5"
+        cy="136"
+        r="7.5"
+        fill="#e8b47f"
+      />
+      <g class="fig-towel">
+        <rect
+          x="102"
+          y="131"
+          width="20"
+          height="14"
+          rx="5"
+          fill="#f6f1e5"
+        />
+        <rect
+          x="102"
+          y="141"
+          width="20"
+          height="4"
+          rx="2"
+          fill="#6b8f4e"
+          opacity="0.85"
+        />
+      </g>
+    </g>
+
+    <!-- 汗珠 -->
+    <g class="fig-sweat">
+      <path
+        d="M44 52q4.4 7.6 0 10.6q-4.4-3 0-10.6z"
+        fill="#bfe3ff"
+      />
+      <path
+        d="M116 54q4 7 0 10q-4-3 0-10z"
+        fill="#bfe3ff"
+      />
+      <path
+        d="M124 72q3 5 0 7.4q-3-2.4 0-7.4z"
+        fill="#bfe3ff"
+      />
+    </g>
+
+    <!-- 扇帽风线 -->
+    <g class="fig-wind">
+      <path
+        d="M122 82q12-5 19 2"
+        stroke="#bfe3ff"
+        stroke-width="2.8"
+        stroke-linecap="round"
+        fill="none"
+      />
+      <path
+        d="M126 93q11-4 16 2"
+        stroke="#bfe3ff"
+        stroke-width="2"
+        stroke-linecap="round"
+        fill="none"
+      />
+    </g>
+
+    <!-- 打盹 z（放在帽檐外右上，不压帽子） -->
+    <g class="fig-zzz">
+      <text
+        x="130"
+        y="30"
+        fill="#33291f"
+        font-size="15"
+        font-weight="bold"
+      >z</text>
+      <text
+        x="144"
+        y="17"
+        fill="#33291f"
+        font-size="10.5"
+      >z</text>
+    </g>
+  </svg></div>
+    </div>
+    <p class="note">新版改动：头再大一圈（头身比 ≈ 1:1）、水汪汪大圆眼（双层高光 + 上睫毛线）、云朵白胡团、蛋形墩子身 + 圆头布鞋、帽带小嫩芽、张嘴笑露舌、腮红加大。动画锚点与皮肤字段全部不变，8 套皮肤照常可用。</p>
+  </div>
+</body>
+</html>

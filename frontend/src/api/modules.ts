@@ -2876,9 +2876,27 @@ export interface FarmAgentOverview {
   today_executed: number
 }
 
+/** 天气摘要（v3.70）：桌宠/概览轮播用；未配置供应商时 configured=false */
+export interface FarmWeatherBrief {
+  configured: boolean
+  brief: {
+    temp_max: number | null
+    temp_min: number | null
+    rain_mm: number | null
+    wind_max_ms: number | null
+    humidity_mean: number | null
+    tomorrow_temp_min: number | null
+    generated_at: string | null
+  } | null
+  warning: string | null
+}
+
 export const farmAgentApi = {
   overview(): Promise<FarmAgentOverview> {
     return unwrap(api.get<ApiResponse<FarmAgentOverview>>('/farm/automation/overview'))
+  },
+  weatherBrief(): Promise<FarmWeatherBrief> {
+    return unwrap(api.get<ApiResponse<FarmWeatherBrief>>('/farm/weather/brief'))
   },
   runs(page = 1, pageSize = 20): Promise<ListResult<FarmAgentRun>> {
     return unwrapList(

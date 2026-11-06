@@ -37,9 +37,9 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test:e2e": "playwright test",
-    "test:unit": "node --experimental-strip-types --test src/components/teams/teams.test.mjs src/utils/format.test.mjs src/utils/status.test.mjs src/utils/version.test.mjs src/utils/petCopilot.test.mjs src/utils/menuAtoms.test.mjs src/utils/petOverlay.test.mjs src/utils/commanderArtifacts.test.mjs",
+    "test:unit": "node --experimental-strip-types --test src/components/teams/teams.test.mjs src/utils/format.test.mjs src/utils/status.test.mjs src/utils/version.test.mjs src/utils/petCopilot.test.mjs src/utils/petBriefLines.test.mjs src/utils/menuAtoms.test.mjs src/utils/petOverlay.test.mjs src/utils/commanderArtifacts.test.mjs",
     "type-check": "vue-tsc --noEmit"
   },
   "type": "module",
-  "version": "3.69.0"
+  "version": "3.70.0"
 }
