@@ -204,6 +204,20 @@
         </el-breadcrumb>
         <div class="spacer" />
 
+        <!-- 主题三态切换（v3.69）：跟随系统 → 亮色 → 暗色 循环 -->
+        <el-tooltip
+          :content="`主题：${themeModeLabel()}（点击切换）`"
+          placement="bottom"
+        >
+          <button
+            type="button"
+            class="theme-toggle"
+            :aria-label="`主题：${themeModeLabel()}`"
+            @click="cycleTheme"
+          >
+            {{ themeIcon }}
+          </button>
+        </el-tooltip>
         <!-- 全局顶栏 Token 实时统计胶囊（点击跳转用量看板） -->
         <el-tooltip
           v-if="!showNoYardNotice"
@@ -390,6 +404,7 @@
   } from '@element-plus/icons-vue'
   import type { Component } from 'vue'
   import { useAuthStore } from '@/stores/auth'
+  import { setThemeMode, themeMode, type ThemeMode } from '@/utils/theme'
   import { useBrandingStore } from '@/stores/branding'
   import { useMenuStore, type DiyMenuGroup, type DiyMenuNode } from '@/stores/menu'
   import { llmTraceApi } from '@/api/modules'
@@ -596,7 +611,28 @@
   const collapsed = ref(false)
   const isMobile = ref(false)
   const drawerOpen = ref(false)
-  const mqlMobile = window.matchMedia('(max-width: 768px)')
+  
+  /* ---------- 主题三态（v3.69） ---------- */
+  const localThemeMode = ref<ThemeMode>(themeMode())
+  const themeIcon = computed(() =>
+    localThemeMode.value === 'system' ? '🌓' : localThemeMode.value === 'light' ? '☀️' : '🌙',
+  )
+  function themeModeLabel(): string {
+    return localThemeMode.value === 'system'
+      ? '跟随系统'
+      : localThemeMode.value === 'light'
+        ? '亮色'
+        : '暗色'
+  }
+  function cycleTheme(): void {
+    const order: ThemeMode[] = ['system', 'light', 'dark']
+    const next = order[(order.indexOf(localThemeMode.value) + 1) % 3]
+    setThemeMode(next)
+    localThemeMode.value = next
+  }
+
+
+const mqlMobile = window.matchMedia('(max-width: 768px)')
   const mqlCompact = window.matchMedia('(max-width: 900px)')
 
   function syncViewport() {
@@ -1084,5 +1120,23 @@
     .skip-link {
       transition: none;
     }
+  }
+
+  .theme-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    margin-right: 10px;
+    border: 1px solid var(--ds-border);
+    border-radius: 10px;
+    background: var(--ds-glass);
+    cursor: pointer;
+    font-size: 16px;
+    transition: background 0.2s;
+  }
+  .theme-toggle:hover {
+    background: var(--ds-glass-strong);
   }
 </style>

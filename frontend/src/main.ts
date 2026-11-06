@@ -3,6 +3,7 @@ import { createPinia } from 'pinia'
 import 'element-plus/dist/index.css'
 import 'element-plus/theme-chalk/dark/css-vars.css'
 import './styles/design-system.css'
+import { initTheme } from './utils/theme'
 
 import App from './App.vue'
 import { colResize } from './directives/columnResize'
@@ -11,8 +12,8 @@ import { useAuthStore } from './stores/auth'
 import { useBrandingStore } from './stores/branding'
 import { syncDesktopPetOnStartup } from './utils/desktop'
 
-// 设计系统 v2「静夜玻璃」为暗色主题：在样式装载前给 html 挂 dark 类
-document.documentElement.classList.add('dark')
+// 主题三态（v3.69）：跟随系统/亮/暗——样式装载后、挂载前应用，避免闪色
+initTheme()
 
 /**
  * 桌面安装包：壳用 URL hash 传入一次性令牌（不进服务器日志），

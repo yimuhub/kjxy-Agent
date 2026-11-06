@@ -167,6 +167,128 @@ html.dark {
   --el-pagination-hover-color: var(--ds-accent);
 }
 
+/* ============================================================
+ * 亮色主题「晨光」(html.light, v3.69)：三态主题（跟随系统/亮/暗）
+ * 覆盖全部 --ds-* 色彩 token + Element Plus 桥接（与暗色同构）
+ * ============================================================ */
+html.light {
+  --ds-bg-0: #F5F7FB;
+  --ds-bg-1: #FFFFFF;
+  --ds-bg-2: #EEF2F8;
+  --ds-glass: rgba(15, 23, 42, 0.04);
+  --ds-glass-strong: rgba(15, 23, 42, 0.07);
+  --ds-field: rgba(15, 23, 42, 0.035);
+  --ds-border: rgba(15, 23, 42, 0.12);
+  --ds-border-strong: rgba(15, 23, 42, 0.2);
+  --ds-text-1: #1B2333;
+  --ds-text-2: #47536B;
+  --ds-text-3: #8A94A8;
+  /* 主色沿用品牌色（对比度按亮底校准） */
+  --ds-accent: #5A5FE8;
+  --ds-accent-text: #4F46E5;
+  --ds-accent-2: #0891B2;
+  --ds-success: #0E9F6E;
+  --ds-warning: #D97706;
+  --ds-danger: #DC2626;
+  --ds-grad-brand: linear-gradient(135deg, #6366F1 0%, #22D3EE 100%);
+  --ds-grad-brand-hover: linear-gradient(135deg, #4F52C1 0%, #0E7490 100%);
+  --ds-shadow: 0 8px 32px rgba(15, 23, 42, 0.1);
+
+  /* ---- Element Plus 亮色桥接 ---- */
+  --el-color-primary: var(--ds-accent);
+  --el-color-primary-light-3: #8B8FF2;
+  --el-color-primary-light-5: #A9ABF6;
+  --el-color-primary-light-7: #C8C9FA;
+  --el-color-primary-light-8: #D8D9FB;
+  --el-color-primary-light-9: #EDEDFD;
+  --el-color-primary-dark-2: #4F52C1;
+
+  --el-color-success: var(--ds-success);
+  --el-color-success-light-3: #4DBF9B;
+  --el-color-success-light-5: #7DD0B6;
+  --el-color-success-light-7: #ADE1D1;
+  --el-color-success-light-8: #C6EBDB;
+  --el-color-success-light-9: #E3F5EC;
+  --el-color-success-dark-2: #0B7F58;
+
+  --el-color-warning: var(--ds-warning);
+  --el-color-warning-light-3: #E09B3D;
+  --el-color-warning-light-5: #EAB565;
+  --el-color-warning-light-7: #F4CFA0;
+  --el-color-warning-light-8: #F8DDC0;
+  --el-color-warning-light-9: #FBEFE0;
+  --el-color-warning-dark-2: #AE5F05;
+
+  --el-color-danger: var(--ds-danger);
+  --el-color-danger-light-3: #E45858;
+  --el-color-danger-light-5: #EC8484;
+  --el-color-danger-light-7: #F3B1B1;
+  --el-color-danger-light-8: #F7C8C8;
+  --el-color-danger-light-9: #FBE0E0;
+  --el-color-danger-dark-2: #B01E1E;
+  --el-color-error: var(--ds-danger);
+  --el-color-error-light-3: #E45858;
+  --el-color-error-light-5: #EC8484;
+  --el-color-error-light-7: #F3B1B1;
+  --el-color-error-light-8: #F7C8C8;
+  --el-color-error-light-9: #FBE0E0;
+  --el-color-error-dark-2: #B01E1E;
+
+  --el-color-info: #6B7A94;
+  --el-color-info-light-3: #8D98AC;
+  --el-color-info-light-5: #A9B1C2;
+  --el-color-info-light-7: #C5CBD8;
+  --el-color-info-light-8: #D3D8E3;
+  --el-color-info-light-9: #E9ECF2;
+  --el-color-info-dark-2: #56617A;
+
+  --el-bg-color: var(--ds-bg-1);
+  --el-bg-color-page: var(--ds-bg-0);
+  --el-bg-color-overlay: #FFFFFF;
+  --el-text-color-primary: var(--ds-text-1);
+  --el-text-color-regular: var(--ds-text-1);
+  --el-text-color-secondary: var(--ds-text-2);
+  --el-text-color-placeholder: var(--ds-text-3);
+  --el-text-color-disabled: rgba(74, 85, 104, 0.5);
+  --el-border-color: var(--ds-border);
+  --el-border-color-light: var(--ds-border);
+  --el-border-color-lighter: var(--ds-border);
+  --el-border-color-extra-light: var(--ds-bg-2);
+  --el-fill-color: var(--ds-glass);
+  --el-fill-color-light: var(--ds-field);
+  --el-fill-color-lighter: var(--ds-field);
+  --el-fill-color-blank: var(--ds-bg-1);
+  --el-mask-color: rgba(245, 247, 251, 0.6);
+
+  --el-menu-bg-color: transparent;
+  --el-menu-text-color: var(--ds-text-2);
+  --el-menu-hover-bg-color: var(--ds-glass-strong);
+  --el-menu-hover-text-color: var(--ds-text-1);
+  --el-menu-active-color: var(--ds-accent);
+
+  --el-table-bg-color: transparent;
+  --el-table-tr-bg-color: transparent;
+  --el-table-header-bg-color: transparent;
+  --el-table-border-color: var(--ds-border);
+  --el-table-text-color: var(--ds-text-1);
+  --el-table-header-text-color: var(--ds-text-2);
+  --el-table-row-hover-bg-color: var(--ds-glass);
+  --el-table-current-row-bg-color: var(--ds-glass-strong);
+
+  --el-input-bg-color: #FFFFFF;
+  --el-input-border-color: var(--ds-border);
+}
+
+/* 亮色下 EP 暗色组件（tooltip 等）保持深色可读 */
+html.light .el-popper.is-dark {
+  background: #1D2433;
+  color: #E8EAF2;
+}
+html.light .el-popper.is-dark .el-popper__arrow::before {
+  background: #1D2433;
+  border-color: transparent;
+}
+
 /* ============ 基座：页面背景 + 光斑 + 选中/滚动条 ============ */
 html {
   background: var(--ds-bg-0);
