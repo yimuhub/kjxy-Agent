@@ -616,3 +616,153 @@ __all__ = [
     "overview",
     "session_messages",
 ]
+
+
+# ---------------------------------------------------------------------------
+# 投入产出看板（v3.71）：把「平台替客户干了多少活、省了多少时间、花了多少钱」
+# 汇成一页。人时折算系数是明示的估算口径，界面原样展示，不假装精确。
+# ---------------------------------------------------------------------------
+
+#: 人时折算系数（小时/件）：与运营口径对齐后可在常量层调整
+HOURS_PER_CLOSED_ORDER = 0.25
+HOURS_PER_REVIEWED_DIAGNOSIS = 0.5
+HOURS_PER_COMPLETED_RUN = 1.0
+
+WO_CLOSED_STATUSES = ("done", "closed")
+WO_ACTIVE_STATUSES = ("open", "assigned", "in_progress")
+
+
+def roi_dashboard(db: Session, yard_id: str, days: int = 30) -> dict[str, Any]:
+    """投入产出聚合：效率、质量、成本、人时节省（估算口径明示）。"""
+    from app.modules.commander.models import CommanderRun
+    from app.modules.farm.models import CropDiagnosis, FarmRecord, WorkOrder
+    from app.modules.knowledge.models import KnowledgeDocument
+
+    days = _clamp_days(days)
+    window_start = _window_start(days)
+    today = _utcnow().date()
+
+    # ---- 工单 ----
+    wo_rows = db.scalars(select(WorkOrder).where(WorkOrder.yard_id == yard_id)).all()
+    wo_total = len(wo_rows)
+    wo_closed = sum(1 for row in wo_rows if row.status in WO_CLOSED_STATUSES)
+    wo_active = sum(1 for row in wo_rows if row.status in WO_ACTIVE_STATUSES)
+    wo_overdue = sum(
+        1
+        for row in wo_rows
+        if row.status in WO_ACTIVE_STATUSES and row.due_on is not None and row.due_on < today
+    )
+    close_hours: list[float] = []
+    for order_row in wo_rows:
+        closed_at = _as_utc(order_row.closed_at)
+        started_at = _as_utc(order_row.created_at)
+        if (
+            order_row.status in WO_CLOSED_STATUSES
+            and closed_at is not None
+            and started_at is not None
+        ):
+            hours = (closed_at - started_at).total_seconds() / 3600
+            if hours >= 0:
+                close_hours.append(hours)
+    wo_avg_close_hours = round(sum(close_hours) / len(close_hours), 1) if close_hours else None
+
+    # ---- 诊断 ----
+    diag_rows = db.scalars(select(CropDiagnosis).where(CropDiagnosis.yard_id == yard_id)).all()
+    diag_total = len(diag_rows)
+    diag_reviewed_rows = [row for row in diag_rows if row.expert_reviewed_at is not None]
+    diag_reviewed = len(diag_reviewed_rows)
+    review_hours: list[float] = []
+    for diag_row in diag_reviewed_rows:
+        reviewed_at = _as_utc(diag_row.expert_reviewed_at)
+        requested_at = _as_utc(diag_row.created_at)
+        if reviewed_at is not None and requested_at is not None:
+            hours = (reviewed_at - requested_at).total_seconds() / 3600
+            if hours >= 0:
+                review_hours.append(hours)
+    diag_avg_review_hours = (
+        round(sum(review_hours) / len(review_hours), 1) if review_hours else None
+    )
+
+    # ---- 指挥官运行（窗口内） ----
+    run_rows = db.scalars(
+        select(CommanderRun).where(
+            CommanderRun.yard_id == yard_id,
+            CommanderRun.created_at >= window_start,
+        )
+    ).all()
+    run_total = len(run_rows)
+    run_completed = sum(1 for row in run_rows if row.status == "completed")
+    run_success_rate = round(run_completed / run_total * 100, 1) if run_total else None
+    run_tokens = sum(int(row.tokens_total or 0) for row in run_rows)
+
+    # ---- 成本（窗口内 LLM 账本） ----
+    cost_row = db.execute(
+        select(
+            func.coalesce(func.sum(LLMCall.estimated_cost), 0.0),
+            func.coalesce(func.sum(LLMCall.input_tokens), 0),
+            func.coalesce(func.sum(LLMCall.output_tokens), 0),
+            func.count(LLMCall.id),
+        ).where(LLMCall.yard_id == yard_id, LLMCall.created_at >= window_start)
+    ).one()
+    cost_yuan = round(float(cost_row[0] or 0), 2)
+    tokens_in = int(cost_row[1] or 0)
+    tokens_out = int(cost_row[2] or 0)
+    call_count = int(cost_row[3] or 0)
+
+    # ---- 资产沉淀（累计） ----
+    record_count = (
+        db.scalar(select(func.count()).select_from(FarmRecord).where(FarmRecord.yard_id == yard_id))
+        or 0
+    )
+    doc_count = (
+        db.scalar(
+            select(func.count())
+            .select_from(KnowledgeDocument)
+            .where(KnowledgeDocument.yard_id == yard_id)
+        )
+        or 0
+    )
+
+    # ---- 人时节省（估算口径） ----
+    saved_hours = round(
+        wo_closed * HOURS_PER_CLOSED_ORDER
+        + diag_reviewed * HOURS_PER_REVIEWED_DIAGNOSIS
+        + run_completed * HOURS_PER_COMPLETED_RUN,
+        1,
+    )
+
+    return {
+        "window_days": days,
+        "work_orders": {
+            "total": wo_total,
+            "closed": wo_closed,
+            "active": wo_active,
+            "overdue": wo_overdue,
+            "close_rate": round(wo_closed / wo_total * 100, 1) if wo_total else None,
+            "avg_close_hours": wo_avg_close_hours,
+        },
+        "diagnoses": {
+            "total": diag_total,
+            "reviewed": diag_reviewed,
+            "avg_review_hours": diag_avg_review_hours,
+        },
+        "commander_runs": {
+            "total": run_total,
+            "completed": run_completed,
+            "success_rate": run_success_rate,
+            "tokens": run_tokens,
+        },
+        "cost": {
+            "yuan": cost_yuan,
+            "tokens_in": tokens_in,
+            "tokens_out": tokens_out,
+            "calls": call_count,
+        },
+        "assets": {"farm_records": int(record_count), "knowledge_docs": int(doc_count)},
+        "saved_hours_estimate": saved_hours,
+        "saved_hours_assumptions": {
+            "closed_order_hours": HOURS_PER_CLOSED_ORDER,
+            "reviewed_diagnosis_hours": HOURS_PER_REVIEWED_DIAGNOSIS,
+            "completed_run_hours": HOURS_PER_COMPLETED_RUN,
+        },
+    }

@@ -36,7 +36,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, TypedDict
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
@@ -62,6 +62,7 @@ from app.modules.commander import (
     planner,
 )
 from app.modules.commander import settings as commander_settings
+from app.modules.commander.ledger import subtask_ledger_tokens as _subtask_ledger_tokens
 from app.modules.commander.models import (
     RUN_CANCELLED,
     RUN_COMPLETED,
@@ -80,7 +81,6 @@ from app.modules.commander.models import (
     CommanderRun,
     CommanderSubtask,
 )
-from app.modules.llm.models import LLMCall
 from app.modules.llm.schemas import ChatMessage
 from app.modules.llm.service import complete_with_logging
 from app.modules.memory import service as memory_service
@@ -1571,32 +1571,6 @@ def _capability_gap_message(
         "原因：现有助手与可用工具不具备完成该任务的能力，这不是需要你补充信息的问题；"
         "换上具备相应设备/工具的助手后重试即可。"
     )
-
-
-def _subtask_ledger_tokens(db: Session, run_id: str, seq: int) -> tuple[int, int] | None:
-    """``llm_calls`` 账本里第 ``seq`` 号子任务已花掉的 (input, output) token。
-
-    只认带 seq 的 task_id 前缀族——``cmd-<run>-<seq>-`` 是助手执行、
-    ``cmd-self-<run>-<seq>-`` 是指挥官亲自执行——所以并行的兄弟子任务不会串账。
-    文档链路（``chat-doc-*``）不带 seq，仍由 ``_invoke_agent`` 的自报值兜住。
-    读不到时返回 ``None``：上一次调用失败可能把 Session 留在待回滚状态，记账不能拖垮执行。
-    """
-    try:
-        row = db.execute(
-            select(
-                func.coalesce(func.sum(LLMCall.input_tokens), 0),
-                func.coalesce(func.sum(LLMCall.output_tokens), 0),
-            ).where(
-                or_(
-                    LLMCall.task_id.like(f"cmd-{run_id[:12]}-{seq}-%"),
-                    LLMCall.task_id.like(f"cmd-self-{run_id[:10]}-{seq}-%"),
-                )
-            )
-        ).one()
-    except Exception as exc:  # noqa: BLE001 - 只为尽力读数，失败即放弃本轮记账
-        log.warning("commander ledger read failed run=%s seq=%s: %s", run_id, seq, exc)
-        return None
-    return int(row[0] or 0), int(row[1] or 0)
 
 
 async def _run_one(

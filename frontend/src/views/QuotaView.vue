@@ -601,6 +601,13 @@
       >
         <QuotaRequests :can-approve="canApproveQuota" />
       </el-tab-pane>
+      <el-tab-pane
+        label="套餐与兑换"
+        name="billing"
+        lazy
+      >
+        <BillingPanel />
+      </el-tab-pane>
     </el-tabs>
   </div>
 </template>
@@ -620,6 +627,7 @@
   import UsageTrendChart from '@/components/usage/UsageTrendChart.vue'
   import QuotaPolicies from '@/components/quota/QuotaPolicies.vue'
   import QuotaRequests from '@/components/quota/QuotaRequests.vue'
+  import BillingPanel from '@/components/quota/BillingPanel.vue'
   import AsyncState from '@/components/AsyncState.vue'
   import { classifyError, type ViewState } from '@/utils/status'
   import { useAuthStore } from '@/stores/auth'

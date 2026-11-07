@@ -83,3 +83,17 @@ export function workOrderPriorityRank(priority: string): number {
   const order = ['critical', 'high', 'normal', 'low']
   return order.indexOf(priority) === -1 ? order.length : order.indexOf(priority)
 }
+
+/** 逾期工单 → 短句（没有逾期返回空串；today 传 YYYY-MM-DD 便于单测） */
+export function overdueOrderLine(
+  orders: { due_on: string | null; status: string; title: string }[],
+  today: string,
+): string {
+  const active = orders.filter(item => ['open', 'assigned', 'in_progress'].includes(item.status))
+  const overdue = active.filter(
+    item => typeof item.due_on === 'string' && item.due_on !== '' && item.due_on < today,
+  )
+  if (overdue.length === 0) return ''
+  if (overdue.length === 1) return `有 1 张工单已逾期：「${overdue[0].title}」，抓紧处理。`
+  return `有 ${overdue.length} 张工单已逾期，最急的一张：「${overdue[0].title}」。`
+}

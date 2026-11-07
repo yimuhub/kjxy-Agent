@@ -15,6 +15,7 @@ from app.modules.asr.router import router as asr_router
 from app.modules.audit.router import router as audit_router
 from app.modules.auth.router import router as auth_router
 from app.modules.auth.sso_router import router as sso_router
+from app.modules.billing.router import router as billing_router
 from app.modules.bots.router import router as bots_router
 from app.modules.branding.router import router as branding_router
 from app.modules.chat.router import media_router as chat_media_router
@@ -73,6 +74,7 @@ router.include_router(yard_permissions_router)  # 逐人授权：/yards/current/
 router.include_router(yard_signup_router)
 router.include_router(yard_invite_router)
 router.include_router(yard_settings_router)  # /yards/current/settings|roles（系统设置 + 角色权限）
+router.include_router(billing_router)  # /billing/*（套餐/兑换码/开通订单，v3.71）
 router.include_router(tasks_router)
 router.include_router(knowledge_router)
 router.include_router(library_router)  # /library（官方技能库/插件库：清单/同步/更新/回滚 v3.35）

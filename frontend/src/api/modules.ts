@@ -2923,6 +2923,94 @@ export const farmAgentApi = {
   },
 }
 
+// ---------- 订阅计费（v3.71）：套餐 / 兑换码 / 开通订单 ----------
+
+export interface BillingPlanItem {
+  metric: string
+  window: string
+  amount: number
+  note: string
+}
+
+export interface BillingPlan {
+  code: string
+  name: string
+  kind: 'subscription' | 'booster'
+  price_yuan: number
+  tagline: string
+  items: BillingPlanItem[]
+}
+
+export interface BillingOrder {
+  id: string
+  yard_id: string
+  plan_code: string
+  status: 'pending' | 'paid' | 'cancelled'
+  price_yuan: number
+  voucher_note: string | null
+  requester_name: string | null
+  decided_at: string | null
+  decision_note: string | null
+  granted: boolean
+  created_at: string | null
+}
+
+export interface BillingCode {
+  id: string
+  code: string
+  plan_code: string
+  status: 'unused' | 'redeemed' | 'disabled' | 'expired'
+  note: string | null
+  expires_at: string | null
+  redeemed_yard_id: string | null
+  redeemed_at: string | null
+  created_at: string | null
+}
+
+export const billingApi = {
+  plans(): Promise<BillingPlan[]> {
+    return unwrap(api.get<ApiResponse<BillingPlan[]>>('/billing/plans'))
+  },
+  redeem(code: string): Promise<BillingOrder> {
+    return unwrap(api.post<ApiResponse<BillingOrder>>('/billing/redeem', { code }))
+  },
+  createOrder(planCode: string, voucherNote?: string): Promise<BillingOrder> {
+    return unwrap(
+      api.post<ApiResponse<BillingOrder>>('/billing/orders', {
+        plan_code: planCode,
+        voucher_note: voucherNote,
+      }),
+    )
+  },
+  listOrders(scope: 'yard' | 'all' = 'yard'): Promise<BillingOrder[]> {
+    return unwrap(api.get<ApiResponse<BillingOrder[]>>('/billing/orders', { params: { scope } }))
+  },
+  cancelOrder(orderId: string): Promise<BillingOrder> {
+    return unwrap(api.post<ApiResponse<BillingOrder>>(`/billing/orders/${orderId}/cancel`, {}))
+  },
+  confirmOrder(orderId: string, note: string): Promise<BillingOrder> {
+    return unwrap(
+      api.post<ApiResponse<BillingOrder>>(`/billing/orders/${orderId}/confirm`, { note }),
+    )
+  },
+  createCodes(planCode: string, count: number, note?: string, ttlDays = 90): Promise<BillingCode[]> {
+    return unwrap(
+      api.post<ApiResponse<BillingCode[]>>('/billing/codes', {
+        plan_code: planCode,
+        count,
+        note,
+        ttl_days: ttlDays,
+      }),
+    )
+  },
+  listCodes(status?: string): Promise<BillingCode[]> {
+    return unwrap(api.get<ApiResponse<BillingCode[]>>('/billing/codes', { params: { status } }))
+  },
+  disableCode(codeId: string): Promise<BillingCode> {
+    return unwrap(api.post<ApiResponse<BillingCode>>(`/billing/codes/${codeId}/disable`, {}))
+  },
+}
+
 // ---------- 推送通道（v3.28 前端入口；后端 /settings/push-channels） ----------
 
 export type PushChannelKind = 'wecom_robot' | 'dingtalk' | 'generic_webhook'

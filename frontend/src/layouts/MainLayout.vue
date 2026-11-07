@@ -380,6 +380,7 @@
   import {
     ArrowDown,
     Checked,
+    Coin,
     ChatDotRound,
     Connection,
     Cpu,
@@ -445,6 +446,7 @@
     Setting: markRaw(Setting),
     User: markRaw(User),
     DataLine: markRaw(DataLine),
+    Coin: markRaw(Coin),
     TrendCharts: markRaw(TrendCharts),
     Menu: markRaw(Menu),
   }

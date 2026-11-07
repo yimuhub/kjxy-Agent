@@ -68,6 +68,9 @@ def _startup_wiring() -> None:
                 from app.modules.devices.worker_tasks import (
                     start_inline_scheduler as start_devices_poll,
                 )
+                from app.modules.farm.worker_tasks import (
+                    start_inline_scheduler as start_workorder_escalate,
+                )
                 from app.modules.memory.tasks import (
                     start_inline_scheduler as start_memory_poll,
                 )
@@ -81,6 +84,8 @@ def _startup_wiring() -> None:
                 start_eval_poll()
                 start_learning_poll()
                 start_iteration_poll()
+                # 逾期工单升级（v3.71）：Celery beat 每 6h 一次，桌面 inline 同口径补齐
+                start_workorder_escalate()
         except Exception as e:
             log.warning("inline schedulers start failed: %s", e)
 
@@ -186,7 +191,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="科技小院多智能体平台", version="3.70.0", lifespan=lifespan)
+    app = FastAPI(title="科技小院多智能体平台", version="3.71.0", lifespan=lifespan)
     app.add_middleware(RequestIDMiddleware)
     app.add_exception_handler(AppError, app_error_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)

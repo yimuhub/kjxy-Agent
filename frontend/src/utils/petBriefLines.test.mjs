@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { alertLine, weatherLine, workOrderLine, workOrderPriorityRank } from './petBriefLines.ts'
+import {
+  alertLine,
+  overdueOrderLine,
+  weatherLine,
+  workOrderLine,
+  workOrderPriorityRank,
+} from './petBriefLines.ts'
 
 test('未配置天气或字段缺失时不产句', () => {
   assert.equal(weatherLine({ configured: false, brief: null, warning: '未配置' }), '')
@@ -107,4 +113,20 @@ test('紧急度排序权重 critical 最先', () => {
   assert.equal(workOrderPriorityRank('critical'), 0)
   assert.equal(workOrderPriorityRank('high'), 1)
   assert.equal(workOrderPriorityRank('unknown'), 4)
+})
+
+test('逾期工单单独提醒，未到期不产句', () => {
+  const orders = [
+    { due_on: '2026-11-01', status: 'in_progress', title: '大棚检修' },
+    { due_on: '2026-11-05', status: 'open', title: '补苗' },
+    { due_on: '2026-11-20', status: 'assigned', title: '巡田' },
+    { due_on: '2026-11-01', status: 'done', title: '已闭环不算逾期' },
+  ]
+  const line = overdueOrderLine(orders, '2026-11-07')
+  assert.match(line, /2 张工单已逾期/)
+  assert.match(line, /大棚检修/)
+  assert.equal(overdueOrderLine(orders, '2026-11-01'), '')
+  const single = overdueOrderLine([{ due_on: '2026-11-01', status: 'open', title: '追肥' }], '2026-11-07')
+  assert.match(single, /1 张工单已逾期/)
+  assert.match(single, /追肥/)
 })

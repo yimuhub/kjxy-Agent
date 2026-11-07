@@ -1,7 +1,7 @@
 """0070 yard_journal：工作日志/月报（角色工作台 P0）。"""
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = "0070_yard_journal"
 down_revision = "0069_enable_runtime_plugins"

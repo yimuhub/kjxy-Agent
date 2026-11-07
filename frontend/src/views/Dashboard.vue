@@ -18,6 +18,8 @@
     </header>
 
     <!-- 快捷动作：把每天真实要做的事放在第一屏 -->
+    <FirstRunGuide />
+
     <section class="quick-actions">
       <el-button
         type="primary"
@@ -314,6 +316,7 @@
     type WorkOrder,
   } from '@/api/modules'
   import { useAuthStore } from '@/stores/auth'
+  import FirstRunGuide from '@/components/onboarding/FirstRunGuide.vue'
   import { parseApiTime } from '@/utils/format'
 
   interface FallbackBodyProps {

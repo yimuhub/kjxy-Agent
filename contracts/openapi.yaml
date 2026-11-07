@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.70.0
+  version: 3.71.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -1281,6 +1281,38 @@ paths:
               schema: {}
       security:
       - HTTPBearer: []
+  /api/v1/yards/current/owner/roi:
+    get:
+      tags:
+      - v1
+      - owner
+      summary: Roi
+      description: 投入产出看板（v3.71）：效率/质量/成本/人时节省一页聚合。
+      operationId: roi_api_v1_yards_current_owner_roi_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: days
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 90
+          minimum: 1
+          default: 30
+          title: Days
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/yards/current/owner/member-usage:
     get:
       tags:
@@ -1957,6 +1989,269 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - HTTPBearer: []
+  /api/v1/billing/plans:
+    get:
+      tags:
+      - v1
+      - billing
+      summary: List Plans
+      operationId: list_plans_api_v1_billing_plans_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/billing/redeem:
+    post:
+      tags:
+      - v1
+      - billing
+      summary: Redeem
+      operationId: redeem_api_v1_billing_redeem_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RedeemBody'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/billing/orders:
+    post:
+      tags:
+      - v1
+      - billing
+      summary: Create Order
+      operationId: create_order_api_v1_billing_orders_post
+      security:
+      - HTTPBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderCreateBody'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - v1
+      - billing
+      summary: List Orders
+      operationId: list_orders_api_v1_billing_orders_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: scope
+        in: query
+        required: false
+        schema:
+          type: string
+          maxLength: 8
+          default: yard
+          title: Scope
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 500
+          minimum: 1
+          default: 100
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/billing/orders/{order_id}/cancel:
+    post:
+      tags:
+      - v1
+      - billing
+      summary: Cancel Order
+      operationId: cancel_order_api_v1_billing_orders__order_id__cancel_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: order_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Order Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/billing/orders/{order_id}/confirm:
+    post:
+      tags:
+      - v1
+      - billing
+      summary: Confirm Order
+      operationId: confirm_order_api_v1_billing_orders__order_id__confirm_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: order_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Order Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderConfirmBody'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/billing/codes:
+    post:
+      tags:
+      - v1
+      - billing
+      summary: Create Codes
+      operationId: create_codes_api_v1_billing_codes_post
+      security:
+      - HTTPBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CodeCreateBody'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - v1
+      - billing
+      summary: List Codes
+      operationId: list_codes_api_v1_billing_codes_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 12
+          - type: 'null'
+          title: Status
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 500
+          minimum: 1
+          default: 100
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/billing/codes/{code_id}/disable:
+    post:
+      tags:
+      - v1
+      - billing
+      summary: Disable Code
+      operationId: disable_code_api_v1_billing_codes__code_id__disable_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: code_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Code Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/tasks:
     post:
       tags:
@@ -15379,6 +15674,35 @@ components:
       additionalProperties: false
       type: object
       title: ClusterNodeUpdate
+    CodeCreateBody:
+      properties:
+        plan_code:
+          type: string
+          maxLength: 32
+          minLength: 2
+          title: Plan Code
+        count:
+          type: integer
+          maximum: 200.0
+          minimum: 1.0
+          title: Count
+          default: 1
+        note:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Note
+        ttl_days:
+          type: integer
+          maximum: 365.0
+          minimum: 1.0
+          title: Ttl Days
+          default: 90
+      type: object
+      required:
+      - plan_code
+      title: CodeCreateBody
     ConnectorConfigIn:
       properties:
         url:
@@ -16746,6 +17070,32 @@ components:
       required:
       - model_key
       title: OfficialTrialBody
+    OrderConfirmBody:
+      properties:
+        note:
+          type: string
+          maxLength: 500
+          title: Note
+          default: 对公转账已到账
+      type: object
+      title: OrderConfirmBody
+    OrderCreateBody:
+      properties:
+        plan_code:
+          type: string
+          maxLength: 32
+          minLength: 2
+          title: Plan Code
+        voucher_note:
+          anyOf:
+          - type: string
+            maxLength: 500
+          - type: 'null'
+          title: Voucher Note
+      type: object
+      required:
+      - plan_code
+      title: OrderCreateBody
     OrgPositionCreate:
       properties:
         org_unit_id:
@@ -17953,6 +18303,17 @@ components:
           title: Metadata Json
       type: object
       title: RecordUpdate
+    RedeemBody:
+      properties:
+        code:
+          type: string
+          maxLength: 24
+          minLength: 4
+          title: Code
+      type: object
+      required:
+      - code
+      title: RedeemBody
     RefreshRequest:
       properties:
         refresh_token:

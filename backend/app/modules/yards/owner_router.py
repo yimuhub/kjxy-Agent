@@ -91,6 +91,17 @@ def overview(
     return ok(insights_service.overview(db, _yard_id(user)), request)
 
 
+@router.get("/roi")
+def roi(
+    request: Request,
+    days: int = Query(default=30, ge=1, le=90),
+    user: CurrentUser = Depends(require_yard_permission("insights:read")),
+    db: Session = Depends(get_db_session),
+):
+    """投入产出看板（v3.71）：效率/质量/成本/人时节省一页聚合。"""
+    return ok(insights_service.roi_dashboard(db, _yard_id(user), days=days), request)
+
+
 @router.get("/member-usage")
 def member_usage(
     request: Request,

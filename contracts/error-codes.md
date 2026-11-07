@@ -333,3 +333,16 @@
 | `PROTECTED_CONFIRM_REQUIRED` | 400 | 角色权限或逐人授权涉及保护型权限，需负责人携带 `confirm_protected=true` 二次确认 |
 | `ROLE_EDIT_FORBIDDEN` | 403 | 越出角色管理层级（管理员改管理员/负责人角色，或管理员配置保护型权限） |
 | `MENU_PROFILE_INVALID` | 400 | 工作台视图配置非法：模式不在 minimal/standard/full、预设超上限或结构不合法 |
+
+## 订阅计费（v3.71）
+
+| 错误码 | HTTP | 说明 |
+|--------|------|------|
+| `BILLING_PLAN_NOT_FOUND` | 404 | 套餐编码不存在（发码/下单/确认时校验） |
+| `BILLING_CODE_INVALID` | 400/404 | 兑换码为空、不存在或当前状态不可用 |
+| `BILLING_CODE_USED` | 409 | 兑换码已被使用（重复兑换拒绝） |
+| `BILLING_CODE_DISABLED` | 409 | 兑换码已作废 |
+| `BILLING_CODE_EXPIRED` | 409 | 兑换码超过有效期（顺带落库为 expired） |
+| `BILLING_VOUCHER_REQUIRED` | 400 | 加油包线下下单必须附转账凭证说明 |
+| `BILLING_ORDER_NOT_FOUND` | 404 | 订单不存在或不属于本小院 |
+| `BILLING_ORDER_CLOSED` | 409 | 订单已处理（确认/取消仅限待确认订单；幂等闸） |

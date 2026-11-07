@@ -11,6 +11,7 @@ import { api } from '@/api/client'
 import { farmAgentApi, workOrderApi } from '@/api/modules'
 import {
   alertLine,
+  overdueOrderLine,
   weatherLine,
   workOrderLine,
   workOrderPriorityRank,
@@ -42,13 +43,14 @@ export async function runningTaskLine(): Promise<string> {
     : `后台有 ${total} 个任务在跑，出结果我会喊你。`
 }
 
-/** 待处理工单：拉回来按紧急度排，再拼短句 */
+/** 待处理工单：拉回来按紧急度排，再拼短句；逾期单独提醒 */
 async function pendingWorkOrderLine(): Promise<string> {
   const res = await workOrderApi.list({ page: 1, page_size: 20 })
   const active = res.items
     .filter(item => (ACTIVE_ORDER_STATUS as readonly string[]).includes(item.status))
     .sort((a, b) => workOrderPriorityRank(a.priority) - workOrderPriorityRank(b.priority))
-  return workOrderLine(active)
+  const today = new Date().toISOString().slice(0, 10)
+  return overdueOrderLine(res.items, today) || workOrderLine(active)
 }
 
 /** 一次数据源盘点：天气/工单/警报/后台任务 → 短句列表（失败源静默跳过） */

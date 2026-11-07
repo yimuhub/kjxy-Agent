@@ -71,6 +71,8 @@ export const ALL_MENU_ATOMS: DiyMenuLeaf[] = [
   { key: 'tasks', path: '/tasks', title: '任务中心', iconName: 'List', permission: 'tasks:read' },
   { key: 'bots', path: '/bots', title: 'IM 机器人', iconName: 'ChatDotRound', permission: 'settings:manage', roles: ADMIN_ROLES },
   { key: 'quota', path: '/quota', title: 'Token 与用量', iconName: 'DataLine', permission: 'insights:read' },
+  { key: 'roi', path: '/roi', title: '投入产出', iconName: 'Coin', permission: 'insights:read', roles: ADMIN_ROLES },
+  { key: 'board', path: '/board', title: '运行大屏', iconName: 'Odometer', permission: 'insights:read', roles: ADMIN_ROLES },
   { key: 'model-center', path: '/model-center', title: '模型中心', iconName: 'Cpu', permission: 'llm:manage', roles: ADMIN_ROLES },
   { key: 'members', path: '/members', title: '成员管理', iconName: 'User', permission: 'members:manage', roles: ADMIN_ROLES },
   { key: 'settings', path: '/settings', title: '系统设置', iconName: 'Setting', permission: 'settings:manage', roles: ADMIN_ROLES, locked: true },

@@ -1295,9 +1295,42 @@ export interface GrantRow {
   grants: string[]
 }
 
+/** 投入产出看板（v3.71）：效率/质量/成本/人时节省聚合 */
+export interface RoiDashboard {
+  window_days: number
+  work_orders: {
+    total: number
+    closed: number
+    active: number
+    overdue: number
+    close_rate: number | null
+    avg_close_hours: number | null
+  }
+  diagnoses: { total: number; reviewed: number; avg_review_hours: number | null }
+  commander_runs: {
+    total: number
+    completed: number
+    success_rate: number | null
+    tokens: number
+  }
+  cost: { yuan: number; tokens_in: number; tokens_out: number; calls: number }
+  assets: { farm_records: number; knowledge_docs: number }
+  saved_hours_estimate: number
+  saved_hours_assumptions: {
+    closed_order_hours: number
+    reviewed_diagnosis_hours: number
+    completed_run_hours: number
+  }
+}
+
 export const ownerApi = {
   overview(): Promise<OwnerOverview> {
     return unwrap(api.get<ApiResponse<OwnerOverview>>('/yards/current/owner/overview'))
+  },
+  roi(days = 30): Promise<RoiDashboard> {
+    return unwrap(
+      api.get<ApiResponse<RoiDashboard>>('/yards/current/owner/roi', { params: { days } }),
+    )
   },
   memberUsage(
     days = 7,

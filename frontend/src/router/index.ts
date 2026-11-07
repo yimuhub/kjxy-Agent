@@ -15,6 +15,8 @@ const ADMIN_ROLES = ['yard_owner', 'yard_admin', 'platform_admin']
 
 /** 业务页按路由懒加载，首屏只下载登录页与主框架 */
 const Dashboard = () => import('@/views/Dashboard.vue')
+const RoiView = () => import('@/views/RoiView.vue')
+const BoardView = () => import('@/views/BoardView.vue')
 const ChatView = () => import('@/views/ChatView.vue')
 const CommanderView = () => import('@/views/CommanderView.vue')
 const PetView = () => import('@/views/PetView.vue')
@@ -180,6 +182,20 @@ const routes: RouteRecordRaw[] = [
         name: 'Quota',
         component: QuotaView,
         meta: { title: '用量额度', permission: 'insights:read' },
+      },
+      {
+        // 数据大屏（v3.71 轻量版）：电视/投影展示用，60s 自动刷新
+        path: 'board',
+        name: 'Board',
+        component: BoardView,
+        meta: { title: '运行大屏', roles: ADMIN_ROLES, permission: 'insights:read' },
+      },
+      {
+        // 投入产出看板（v3.71）：给院长/负责人一页讲清平台回报
+        path: 'roi',
+        name: 'Roi',
+        component: RoiView,
+        meta: { title: '投入产出', roles: ADMIN_ROLES, permission: 'insights:read' },
       },
       {
         path: 'members',

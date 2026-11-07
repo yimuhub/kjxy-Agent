@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tech-yard-platform"
-version = "3.70.0"
+version = "3.71.0"
 description = "科技小院多智能体自生长开发平台"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -56,6 +56,10 @@ line-length = 100
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 ignore = ["B008"]  # FastAPI Depends() 作为参数默认值的标准写法
+
+[tool.ruff.lint.per-file-ignores]
+# 联网回归脚本：一行一条完整请求/断言便于逐项核对，放宽行宽与未用变量
+"backend/scripts/net_full_check.py" = ["E501", "B007"]
 
 [tool.mypy]
 python_version = "3.12"
