@@ -143,6 +143,31 @@ def _with_persistent_platform_admin(user: User, roles: list[str]) -> list[str]:
     return roles
 
 
+def is_platform_admin(user: User) -> bool:
+    """实时超管判定（唯一权限源）：持久标志 OR 部署名单，二者完全等价。
+
+    所有平台管理员闸门（core.deps、发码/确认、订单 scope=all、审批/工单异步
+    执行的角色重建）都必须经此判定，不得只看 JWT 快照或只认部署名单，否则
+    初始化向导超管会被误拒、撤权又不能即时生效（审查 B6）。生产弱名单由启动
+    校验与 bootstrap 防御拦截，此处不重复；状态（停用/待审）由各闸门单独校验。
+    """
+    if getattr(user, "platform_admin", False):
+        return True
+    return user.username in settings.platform_admin_username_list
+
+
+def _platform_admin_roles(
+    db: Session, user: User, roles: list[str], *, request_id: str
+) -> list[str]:
+    """统一超管角色补齐：部署名单 bootstrap（含弱名防御）+ 持久标志。
+
+    登录、SSO、刷新、改密重签等所有签发 JWT 的路径都必须经此，避免某条路径
+    漏掉一种来源导致刷新/改密后超管降权（审查 B6）。
+    """
+    roles = _bootstrap_platform_admin(db, user, roles, request_id=request_id)
+    return _with_persistent_platform_admin(user, roles)
+
+
 def _user_out(user: User) -> UserOut:
     return UserOut(
         user_id=user.id,
@@ -246,9 +271,8 @@ def login(
 
     roles = chosen.roles if chosen else []
     chosen_yard_id = chosen.yard_id if chosen else None
-    # 平台管理员 bootstrap：用户名在配置名单中则授予 platform_admin（含弱名单运行时防御）
-    roles = _bootstrap_platform_admin(db, user, roles, request_id=request_id)
-    roles = _with_persistent_platform_admin(user, roles)
+    # 平台管理员补齐：部署名单 bootstrap（含弱名防御）+ 持久标志，统一经 helper（B6）
+    roles = _platform_admin_roles(db, user, roles, request_id=request_id)
 
     user.last_login_at = _utcnow()
     refresh_token = _issue_refresh_session(
@@ -298,8 +322,7 @@ def issue_login_response(
     chosen = next((t for t in yards if t.yard_id == yard_id), None)
     if chosen is None:
         raise AppError("YARD_FORBIDDEN", "您不属于该小院。", http_status=403)
-    roles = _bootstrap_platform_admin(db, user, list(chosen.roles), request_id=request_id)
-    roles = _with_persistent_platform_admin(user, roles)
+    roles = _platform_admin_roles(db, user, list(chosen.roles), request_id=request_id)
     user.last_login_at = _utcnow()
     refresh_token = _issue_refresh_session(
         db, user_id=user.id, yard_id=chosen.yard_id, token_version=user.token_version
@@ -397,7 +420,7 @@ def refresh(db: Session, refresh_token: str, *, request_id: str) -> RefreshRespo
         if membership is None:
             raise AppError("YARD_FORBIDDEN", "您不属于该小院。", http_status=403)
         roles = [membership.role]
-    roles = _bootstrap_platform_admin(db, user, roles, request_id=request_id)
+    roles = _platform_admin_roles(db, user, roles, request_id=request_id)
 
     if session is not None:
         session.revoked_at = _utcnow()
@@ -600,7 +623,7 @@ def change_password(
             roles = [membership.role]
         else:
             yard_id = None
-    roles = _bootstrap_platform_admin(db, user, roles, request_id=request_id)
+    roles = _platform_admin_roles(db, user, roles, request_id=request_id)
     refresh_token = _issue_refresh_session(
         db, user_id=user.id, yard_id=yard_id, token_version=user.token_version
     )

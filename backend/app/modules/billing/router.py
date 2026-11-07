@@ -20,6 +20,8 @@ from app.core.deps import (
 )
 from app.core.errors import AppError
 from app.core.responses import ok
+from app.modules.auth.models import User
+from app.modules.auth.service import is_platform_admin
 from app.modules.billing import service
 
 router = APIRouter(prefix="/billing", tags=["billing"])
@@ -103,9 +105,13 @@ def list_orders(
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db_session),
 ):
-    # scope=all 仅供平台管理员拉全平台订单；其余按本小院
+    # scope=all 仅供平台管理员拉全平台订单；JWT 预检 + 数据库实时复核，
+    # 与发码/确认闸门一致，撤权即时生效（审查 B6）；其余按本小院
     if scope == "all":
         if "platform_admin" not in user.roles:
+            raise AppError("FORBIDDEN", "仅平台管理员可查看全部订单。", http_status=403)
+        row = db.get(User, user.user_id)
+        if row is None or row.status != "active" or not is_platform_admin(row):
             raise AppError("FORBIDDEN", "仅平台管理员可查看全部订单。", http_status=403)
         return ok(service.list_orders(db, yard_id=None, limit=limit), request)
     return ok(service.list_orders(db, yard_id=_yard_id(user), limit=limit), request)

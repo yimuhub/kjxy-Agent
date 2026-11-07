@@ -105,9 +105,9 @@ def workorder_dispatch_handler(
     工具被风险拦截（TOOL_RISK_BLOCKED）时：把审批单与任务关联后提交，
     重新抛出，由 worker 将任务置为 awaiting_review（见 worker_tasks）。
     """
-    from app.core.config import settings
     from app.core.deps import YardContext
     from app.modules.auth.models import User
+    from app.modules.auth.service import is_platform_admin
     from app.modules.tasks.worker_tasks import _get_session_factory
     from app.modules.yards import repository as yard_repo
 
@@ -121,11 +121,7 @@ def workorder_dispatch_handler(
         if membership is not None:
             roles = [membership.role]
         user = db.get(User, actor_id)
-        if (
-            user is not None
-            and user.username in settings.platform_admin_username_list
-            and "platform_admin" not in roles
-        ):
+        if user is not None and is_platform_admin(user) and "platform_admin" not in roles:
             roles = ["platform_admin", *roles]
         ctx = YardContext(
             yard_id=yard_id,

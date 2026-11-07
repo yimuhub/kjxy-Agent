@@ -13,7 +13,6 @@ from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
 from app.core.deps import (
     CurrentUser,
     YardContext,
@@ -25,6 +24,7 @@ from app.core.errors import AppError
 from app.core.responses import ok, paged
 from app.modules.audit.service import log_audit
 from app.modules.auth.models import User
+from app.modules.auth.service import is_platform_admin
 from app.modules.tasks import state_machine as sm
 from app.modules.tasks.models import Task
 from app.modules.tasks.service import TaskService
@@ -82,11 +82,7 @@ def _requester_roles(db: Session, yard_id: str, user_id: str) -> list[str]:
     if membership is not None:
         roles = [membership.role]
     user = db.get(User, user_id)
-    if (
-        user is not None
-        and user.username in settings.platform_admin_username_list
-        and "platform_admin" not in roles
-    ):
+    if user is not None and is_platform_admin(user) and "platform_admin" not in roles:
         roles = ["platform_admin", *roles]
     return roles
 
