@@ -8,7 +8,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin
@@ -28,6 +28,15 @@ class WorkspaceProject(Base, TimestampMixin):
     __table_args__ = (
         UniqueConstraint("yard_id", "name", name="uq_workspace_projects_yard_name"),
         Index("ix_workspace_projects_yard_status", "yard_id", "status"),
+        # 同一宿主目录只允许一个 active 工作区（跨小院独占的数据库兜底）；
+        # 部分索引放行 archived 行，归档后目录可重新注册。
+        Index(
+            "uq_workspace_projects_root_active",
+            "root_path",
+            unique=True,
+            sqlite_where=text("status = 'active'"),
+            postgresql_where=text("status = 'active'"),
+        ),
     )
 
     yard_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)

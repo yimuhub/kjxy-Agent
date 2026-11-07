@@ -521,6 +521,39 @@ def create_project(
             details={"name": clean_name},
         )
     root = _root(root_path)
+    taken = (
+        db.query(WorkspaceProject)
+        .filter(
+            WorkspaceProject.root_path == str(root),
+            WorkspaceProject.status == PROJECT_STATUS_ACTIVE,
+        )
+        .first()
+    )
+    if taken is not None:
+        raise AppError(
+            "WORKSPACE_ROOT_TAKEN",
+            "该目录已被注册为工作区，同一目录只能注册一次。",
+            http_status=409,
+            details={"root_path": str(root)},
+        )
+    # 跨院祖先/后代重叠同样越界：注册父目录就能读写其他小院子目录里的文件。
+    # 同院嵌套不涉边界，放行。
+    for (other_raw,) in (
+        db.query(WorkspaceProject.root_path)
+        .filter(
+            WorkspaceProject.yard_id != ctx.yard_id,
+            WorkspaceProject.status == PROJECT_STATUS_ACTIVE,
+        )
+        .all()
+    ):
+        other = Path(other_raw)
+        if root.is_relative_to(other) or other.is_relative_to(root):
+            raise AppError(
+                "WORKSPACE_ROOT_TAKEN",
+                "该目录与其他小院的工作区重叠。",
+                http_status=409,
+                details={"root_path": str(root)},
+            )
     patterns = [str(item).strip() for item in (allowed_paths or []) if str(item).strip()]
     for pattern in patterns:
         if ".." in PurePosixPath(pattern).parts:
@@ -539,6 +572,14 @@ def create_project(
         db.flush()
     except IntegrityError as e:
         db.rollback()
+        # 并发下服务层预检可能同时放行，由部分唯一索引兜底；按约束名区分同根与同名
+        if "root_path" in str(e.orig) or "uq_workspace_projects_root_active" in str(e.orig):
+            raise AppError(
+                "WORKSPACE_ROOT_TAKEN",
+                "该目录已被注册为工作区，同一目录只能注册一次。",
+                http_status=409,
+                details={"root_path": str(root)},
+            ) from e
         raise AppError(
             "WORKSPACE_PROJECT_EXISTS",
             "同名工作区已存在。",

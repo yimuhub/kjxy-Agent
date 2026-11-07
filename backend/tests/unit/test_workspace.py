@@ -14,6 +14,8 @@ from app.modules.library import manifest_v2
 from app.modules.library.models import PluginConsent
 from app.modules.plugins.models import PluginManifest
 from app.modules.workspace import service
+from app.modules.workspace.models import WorkspaceProject
+from sqlalchemy.exc import IntegrityError
 
 YARD = "yard-workspace"
 
@@ -575,3 +577,88 @@ def test_link_switch_to_outside_root_between_preview_and_apply(
         service.apply_change(db_session, _ctx(), change["id"])
     assert exc.value.code == "WORKSPACE_PATH_INVALID"
     assert outside.read_text(encoding="utf-8") == "outside"
+
+
+def test_cross_yard_same_root_is_rejected(db_session, workspace_root):
+    _project(db_session, workspace_root)
+    with pytest.raises(AppError) as exc:
+        service.create_project(
+            db_session,
+            _ctx("other-yard"),
+            name="theirs",
+            root_path=str(workspace_root),
+            description=None,
+            allowed_paths=None,
+        )
+    assert exc.value.code == "WORKSPACE_ROOT_TAKEN"
+    assert exc.value.http_status == 409
+
+
+def test_same_yard_same_root_is_rejected(db_session, workspace_root):
+    _project(db_session, workspace_root)
+    with pytest.raises(AppError) as exc:
+        _project(db_session, workspace_root, name="second")
+    assert exc.value.code == "WORKSPACE_ROOT_TAKEN"
+
+
+def test_cross_yard_child_root_is_rejected(db_session, workspace_root):
+    child = workspace_root / "sub"
+    child.mkdir()
+    _project(db_session, workspace_root)
+    with pytest.raises(AppError) as exc:
+        service.create_project(
+            db_session,
+            _ctx("other-yard"),
+            name="child",
+            root_path=str(child),
+            description=None,
+            allowed_paths=None,
+        )
+    assert exc.value.code == "WORKSPACE_ROOT_TAKEN"
+
+
+def test_cross_yard_parent_root_is_rejected(db_session, workspace_root):
+    child = workspace_root / "sub"
+    child.mkdir()
+    _project(db_session, child)
+    with pytest.raises(AppError) as exc:
+        service.create_project(
+            db_session,
+            _ctx("other-yard"),
+            name="parent",
+            root_path=str(workspace_root),
+            description=None,
+            allowed_paths=None,
+        )
+    assert exc.value.code == "WORKSPACE_ROOT_TAKEN"
+
+
+def test_archived_root_can_be_reregistered(db_session, workspace_root):
+    project = _project(db_session, workspace_root)
+    service.archive_project(db_session, _ctx(), project["id"])
+    other = service.create_project(
+        db_session,
+        _ctx("other-yard"),
+        name="takeover",
+        root_path=str(workspace_root),
+        description=None,
+        allowed_paths=None,
+    )
+    assert other["root_path"] == str(workspace_root.resolve())
+
+
+def test_root_unique_index_enforced_at_db_level(db_session, workspace_root):
+    """绕过服务层预检直接写库：部分唯一索引必须兜底拒绝同根 active。"""
+    _project(db_session, workspace_root)
+    db_session.add(
+        WorkspaceProject(
+            yard_id="other-yard",
+            name="race",
+            root_path=str(workspace_root.resolve()),
+            allowed_paths=["**/*"],
+            status="active",
+        )
+    )
+    with pytest.raises(IntegrityError):
+        db_session.flush()
+    db_session.rollback()
