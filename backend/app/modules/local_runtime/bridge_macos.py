@@ -44,36 +44,66 @@ _KEY_SCRIPT = (
     "on run argv\n"
     "set theKey to item 1 of argv\n"
     "set theMods to item 2 of argv\n"
+    # 默认分隔符不是逗号；不显式设置会把 "command,shift" 拆成单字符，修饰键静默失效
+    "set savedDelims to AppleScript's text item delimiters\n"
+    'set AppleScript\'s text item delimiters to ","\n'
     "set modList to text items of theMods\n"
+    "set AppleScript's text item delimiters to savedDelims\n"
     'tell application "System Events"\n'
     "repeat with m in modList\n"
-    'if m is "command" then key down command\n'
-    'if m is "option" then key down option\n'
-    'if m is "shift" then key down shift\n'
-    'if m is "control" then key down control\n'
+    'if (m as text) is "command" then key down command\n'
+    'if (m as text) is "option" then key down option\n'
+    'if (m as text) is "shift" then key down shift\n'
+    'if (m as text) is "control" then key down control\n'
     "end repeat\n"
-    'if theKey is "return" then key code 36\n'
-    'else if theKey is "tab" then key code 48\n'
-    'else if theKey is "escape" then key code 53\n'
-    'else if theKey is "space" then key code 49\n'
-    'else if theKey is "delete" then key code 51\n'
-    'else if theKey is "forward_delete" then key code 117\n'
-    'else if theKey is "home" then key code 115\n'
-    'else if theKey is "end" then key code 119\n'
-    'else if theKey is "page_up" then key code 116\n'
-    'else if theKey is "page_down" then key code 121\n'
-    'else if theKey is "up" then key code 126\n'
-    'else if theKey is "down" then key code 125\n'
-    'else if theKey is "left" then key code 123\n'
-    'else if theKey is "right" then key code 124\n'
+    # 单行 if 在行尾即结束，else if 必须属于多行 if 块
+    "try\n"
+    'if theKey is "return" then\n'
+    "key code 36\n"
+    'else if theKey is "tab" then\n'
+    "key code 48\n"
+    'else if theKey is "escape" then\n'
+    "key code 53\n"
+    'else if theKey is "space" then\n'
+    "key code 49\n"
+    'else if theKey is "delete" then\n'
+    "key code 51\n"
+    'else if theKey is "forward_delete" then\n'
+    "key code 117\n"
+    'else if theKey is "home" then\n'
+    "key code 115\n"
+    'else if theKey is "end" then\n'
+    "key code 119\n"
+    'else if theKey is "page_up" then\n'
+    "key code 116\n"
+    'else if theKey is "page_down" then\n'
+    "key code 121\n"
+    'else if theKey is "up" then\n'
+    "key code 126\n"
+    'else if theKey is "down" then\n'
+    "key code 125\n"
+    'else if theKey is "left" then\n'
+    "key code 123\n"
+    'else if theKey is "right" then\n'
+    "key code 124\n"
     "else\n"
     "keystroke theKey\n"
     "end if\n"
+    "on error errMsg number errNum\n"
+    # 按键失败也必须释放修饰键，否则 command/shift 卡在按下状态
     "repeat with m in modList\n"
-    'if m is "command" then key up command\n'
-    'if m is "option" then key up option\n'
-    'if m is "shift" then key up shift\n'
-    'if m is "control" then key up control\n'
+    'if (m as text) is "command" then key up command\n'
+    'if (m as text) is "option" then key up option\n'
+    'if (m as text) is "shift" then key up shift\n'
+    'if (m as text) is "control" then key up control\n'
+    "end repeat\n"
+    "error errMsg number errNum\n"
+    "end try\n"
+    "repeat with m in modList\n"
+    'if (m as text) is "command" then key up command\n'
+    'if (m as text) is "option" then key up option\n'
+    'if (m as text) is "shift" then key up shift\n'
+    'if (m as text) is "control" then key up control\n'
     "end repeat\n"
     "end tell\n"
     "end run"

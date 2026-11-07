@@ -481,3 +481,41 @@ def test_linux_unknown_action_raises(monkeypatch):
 
     with pytest.raises(bridge_linux.BridgeError):
         bridge_linux.execute("run_shell", {})
+
+
+def test_macos_applescripts_compile():
+    """只编译不执行：单行 if 接 else if 曾导致 press_key 脚本整体编译失败（-2741）。"""
+    import shutil
+    import subprocess
+    import tempfile
+    from pathlib import Path
+
+    from app.modules.local_runtime import bridge_macos
+
+    if not shutil.which("osacompile"):
+        pytest.skip("osacompile 仅 macOS 提供")
+    scripts = {
+        "key": bridge_macos._KEY_SCRIPT,
+        "type": bridge_macos._TYPE_SCRIPT,
+        "click": bridge_macos._CLICK_SCRIPT,
+        "window": bridge_macos._WINDOW_SCRIPT,
+    }
+    with tempfile.TemporaryDirectory() as tmp:
+        for name, script in scripts.items():
+            src = Path(tmp) / f"{name}.applescript"
+            out = Path(tmp) / f"{name}.scpt"
+            src.write_text(script, encoding="utf-8")
+            proc = subprocess.run(
+                ["osacompile", "-o", str(out), str(src)], capture_output=True, text=True
+            )
+            assert proc.returncode == 0, f"{name} 编译失败：{proc.stderr.strip()[:200]}"
+
+
+def test_macos_key_script_sets_comma_delimiter_and_releases_modifiers():
+    """修饰键按逗号拆分必须显式设分隔符；按键异常路径也要 key up。"""
+    from app.modules.local_runtime import bridge_macos
+
+    script = bridge_macos._KEY_SCRIPT
+    assert 'text item delimiters to ","' in script
+    assert "on error" in script
+    assert script.count("key up command") == 2  # 正常路径 + 异常路径各一次
