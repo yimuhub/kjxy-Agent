@@ -163,6 +163,14 @@ export const useAuthStore = defineStore('auth', () => {
     } catch {
       // 后端注销失败也不阻塞本地退出
     }
+    // 清掉上个账号的对话内存（会话列表/消息/附件），否则同浏览器换账号会
+    // 短暂看到别人的对话（审查 F1）。动态导入避免 store 之间的静态环。
+    try {
+      const { resetAllChatStores } = await import('./chat')
+      resetAllChatStores()
+    } catch {
+      // 对话状态清理失败不阻塞退出
+    }
     clear()
   }
 

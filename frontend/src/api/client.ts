@@ -14,6 +14,21 @@ export const REFRESH_TOKEN_KEY = 'ky_refresh_token'
 /** 错误 toast 同文案去重（挂载期并发失败只弹一条） */
 const _lastToast: { text: string; at: number } = { text: '', at: 0 }
 
+function toastOnce(text: string): void {
+  const now = Date.now()
+  if (text === _lastToast.text && now - _lastToast.at < 2500) return
+  _lastToast.text = text
+  _lastToast.at = now
+  // 悬浮指挥官伙伴常驻在 2600/2601，Element Plus 提示默认基数只有 2000：
+  // 不抬层级时，页面右下角报错会被小人盖住，用户以为「点了没反应」。
+  ElMessage.error({ message: text, zIndex: TOAST_Z_INDEX })
+}
+
+/** 请求没有拿到响应（超时/断网/被取消）：写操作结果未知，调用方需回查（审查 F3） */
+export function isNoResponseError(err: unknown): boolean {
+  return err instanceof AxiosError && !err.response && err.code !== 'ERR_CANCELED'
+}
+
 export const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE ?? '/api/v1',
   timeout: 30_000,
@@ -130,21 +145,24 @@ api.interceptors.response.use(
         localStorage.removeItem(REFRESH_TOKEN_KEY)
         return Promise.reject(error)
       }
+      // 无响应（超时/断网）：写操作结果未知，必须提示用户去核对，不能静默
+      // 让「点了没反应」诱导重复提交（审查 F3）。
+      if (!config?.skipErrorToast && !error.response && error.code !== 'ERR_CANCELED') {
+        const method = (config?.method || 'get').toUpperCase()
+        const isWrite = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)
+        toastOnce(
+          isWrite
+            ? '请求超时或网络中断，结果未确认；请刷新确认是否已生效，避免重复提交'
+            : '网络连接中断，请检查网络后重试',
+        )
+        return Promise.reject(error)
+      }
       // 统一错误 toast：错误码优先映射为中文文案，未命中且为纯英文时兜底，
       // 不把原始英文细节抛给用户；opt-out 见 config.skipErrorToast
       if (!config?.skipErrorToast && error.response) {
         const { code, message } = extractErrorMessage(error)
         const text = friendlyErrorMessage(code, message)
-        // 同文案 2.5s 去重：挂载期并发失败（同一组件同时打 4 个接口）不再叠 4 条
-        const now = Date.now()
-        if (text === _lastToast.text && now - _lastToast.at < 2500) {
-          return Promise.reject(error)
-        }
-        _lastToast.text = text
-        _lastToast.at = now
-        // 悬浮指挥官伙伴常驻在 2600/2601，Element Plus 提示默认基数只有 2000：
-        // 不抬层级时，页面右下角报错会被小人盖住，用户以为「点了没反应」。
-        ElMessage.error({ message: text, zIndex: TOAST_Z_INDEX })
+        toastOnce(text)
       }
     }
     return Promise.reject(error)

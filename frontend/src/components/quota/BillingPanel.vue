@@ -339,6 +339,7 @@
     type BillingOrder,
     type BillingPlan,
   } from '@/api/modules'
+  import { isNoResponseError } from '@/api/client'
   import { useAuthStore } from '@/stores/auth'
 
   const auth = useAuthStore()
@@ -440,14 +441,37 @@
 
   async function doOrder(): Promise<void> {
     if (!activePlan.value) return
+    const plan = activePlan.value
+    // 提交前记住已有待确认订单：回查只认「新增」的那一张，避免把旧单当成本次结果
+    const pendingBefore = new Set(
+      orders.value.filter(o => o.status === 'pending').map(o => o.id),
+    )
     busy.value = true
     try {
-      await billingApi.createOrder(activePlan.value.code, orderNote.value.trim() || undefined)
+      await billingApi.createOrder(plan.code, orderNote.value.trim() || undefined)
       ElMessage.success('订单已提交，等待平台管理员确认到账')
       orderOpen.value = false
       await refresh()
-    } catch {
-      /* 同上 */
+    } catch (err) {
+      // 超时/断网：写操作结果未知，回查订单列表确认，避免用户重复下单（审查 F3）
+      if (isNoResponseError(err)) {
+        try {
+          const latest = await billingApi.listOrders('yard')
+          orders.value = latest
+          const created = latest.find(
+            o => o.plan_code === plan.code && o.status === 'pending' && !pendingBefore.has(o.id),
+          )
+          if (created) {
+            ElMessage.warning(`提交超时，但已核对到订单创建成功（${plan.name}），等待平台确认到账`)
+            orderOpen.value = false
+          } else {
+            ElMessage.warning('提交超时，未确认订单是否创建成功；请先刷新列表确认，再决定是否重试')
+          }
+        } catch {
+          ElMessage.warning('提交超时，且暂时无法核对订单；请稍后刷新列表确认，避免重复下单')
+        }
+      }
+      /* 其它错误 toast 由拦截器统一提示 */
     } finally {
       busy.value = false
     }

@@ -349,6 +349,16 @@ function buildChatStore(scope: string) {
     let roundSeq = 0
 
     /**
+     * 本轮 init 帧落库的用户消息序号（审查 F4）。
+     * 断流后按序号判定发言是否已落库，不再用「内容相同」猜——历史里同一条
+     * 文字会让重发的消息被误判为已成功，草稿被清空且气泡丢失。
+     */
+    let streamUserSeq = 0
+
+    /** 当前在途的 SSE 连接：退出登录时必须关掉，别让旧账号的帧继续写状态 */
+    let streamHandle: SseHandle | null = null
+
+    /**
      * 乐观消息的本地 id 序号：用 `Date.now()` 做 id 在同一毫秒内发两条（脚本连发、
      * 用户连点）会撞出重复的 v-for key，Vue 遇到重复 key 的补丁行为不保证，表现为
      * 气泡错位/丢内容。改成实例内自增，天然唯一。
@@ -826,6 +836,43 @@ function buildChatStore(scope: string) {
     function resetRoundView() {
       liveMembers.value = {}
       roundDone.value = false
+    }
+
+    /**
+     * 退出登录时清空本实例（审查 F1）：
+     * store 是跨组件常驻的，不清会把上一个账号的会话列表、消息、附件留在内存里，
+     * 同浏览器换账号后短暂看到别人的对话。令牌已失效，保留这些状态也没有意义。
+     */
+    function resetForLogout() {
+      roundSeq += 1
+      focusToken += 1
+      creatingSession = null
+      streamUserSeq = 0
+      streamHandle?.close()
+      streamHandle = null
+      sending.value = false
+      uploading.value = false
+      sessions.value = []
+      sessionFilter.value = 'active'
+      batchMode.value = false
+      batchIds.value = new Set()
+      activeId.value = ''
+      messages.value = []
+      attachments.value = []
+      liveSteps.value = []
+      streamError.value = ''
+      mentionCandidates.value = []
+      mention.value = null
+      participants.value = []
+      groupPolicy.value = 'auto'
+      liveMembers.value = {}
+      roundDone.value = false
+      Object.keys(commanderRuns.value).forEach(runId => stopCommanderPoll(runId))
+      commanderRuns.value = {}
+      clarifyRequest.value = null
+      clarifyAnswers.value = {}
+      skillCardOps.value = {}
+      pluginCardOps.value = {}
     }
 
     /** 拉成员表（新端点，失败不弹 toast：会话可能还没有成员概念） */
@@ -1610,6 +1657,7 @@ function buildChatStore(scope: string) {
             liveSteps.value = []
           }
           handle?.close()
+          if (streamHandle === handle) streamHandle = null
           resolve(outcome)
         }
 
@@ -1622,6 +1670,7 @@ function buildChatStore(scope: string) {
             const data = parseFrameData(frame.data)
             if (frame.event === CHAT_SSE_EVENTS.init) {
               const um = data.user_message
+              streamUserSeq = Number((um as ChatMessage | undefined)?.seq ?? 0)
               replaceLocalUser(localId, um ? asMessage(um) : undefined)
             } else if (frame.event === CHAT_SSE_EVENTS.step) {
               const steps = (data.steps as ChatStep[] | undefined) ?? []
@@ -1724,6 +1773,7 @@ function buildChatStore(scope: string) {
             finish('broken')
           },
         })
+        streamHandle = handle
       })
     }
 
@@ -1759,6 +1809,13 @@ function buildChatStore(scope: string) {
       // 本轮的点名与策略在发送瞬间定格：发完即清，下一条回到自动路由
       const extras: CommanderSendExtras = { ...currentExtras(), ...overrides }
       const seq = ++roundSeq
+      // 断流后按序号判断发言是否落库（审查 F4）：记住发之前已见过的最大序号，
+      // init 帧没到时分不清是历史同文还是本次新消息，就用它做下界。
+      const maxSeqBefore = messages.value.reduce(
+        (max, m) => (typeof m.seq === 'number' && m.seq > max ? m.seq : max),
+        0,
+      )
+      streamUserSeq = 0
       sending.value = true
       liveSteps.value = []
       streamError.value = ''
@@ -1801,9 +1858,18 @@ function buildChatStore(scope: string) {
         }
         // 降级：以服务端记录为准（失败/中止的助手消息已落库，诚实呈现）
         await loadMessages().catch(() => undefined)
-        const persisted = messages.value.some(
-          m => m.role === 'user' && m.content === draft && m.id !== local.id,
-        )
+        // 请求关联判定：init 帧给了本次用户消息序号就用序号对齐；没给则要求
+        // 内容相同且序号大于发送前最大值，避免历史同文消息被误判成已落库（F4）。
+        const persisted =
+          streamUserSeq > 0
+            ? messages.value.some(m => m.seq === streamUserSeq)
+            : messages.value.some(
+                m =>
+                  m.role === 'user' &&
+                  m.content === draft &&
+                  typeof m.seq === 'number' &&
+                  m.seq > maxSeqBefore,
+              )
         if (persisted) {
           attachments.value = attachments.value.filter(a => !attIds.includes(a.id))
           if (extras.target_code) clearMention()
@@ -2069,6 +2135,7 @@ function buildChatStore(scope: string) {
       loadMessages,
       selectSession,
       newSession,
+      resetForLogout,
       renameSession,
       removeSession,
       /* 会话列表管理（0043）：筛选 / 三点菜单 / 批量 / 分支 / 授权模式 */
@@ -2135,6 +2202,9 @@ export type ChatStoreInstance = ReturnType<ChatStoreDefinition>
  */
 const chatStoreDefinitions = new Map<string, ChatStoreDefinition>()
 
+/** 已实例化的对话 store：退出登录时统一清空（审查 F1） */
+const chatStoreInstances = new Set<ChatStoreInstance>()
+
 /**
  * 取一个对话实例的状态。
  * @param scope 实例标识；主对话用默认值，弹出面板/群聊各传自己的 id
@@ -2145,5 +2215,15 @@ export function useChatStore(scope: string = MAIN_CHAT_SCOPE): ChatStoreInstance
     definition = buildChatStore(scope)
     chatStoreDefinitions.set(scope, definition)
   }
-  return definition()
+  const instance = definition()
+  chatStoreInstances.add(instance)
+  return instance
+}
+
+/**
+ * 退出登录：清空所有对话实例（主对话 + 弹出面板 + 群聊），
+ * 避免同一浏览器换账号后短暂看到上一个账号的会话与消息（审查 F1）。
+ */
+export function resetAllChatStores(): void {
+  for (const instance of chatStoreInstances) instance.resetForLogout()
 }

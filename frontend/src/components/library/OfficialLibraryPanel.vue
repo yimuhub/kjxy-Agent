@@ -125,8 +125,8 @@
           <el-button
             size="small"
             type="primary"
-            :disabled="update.pinned"
             :loading="updatingId === update.id"
+            :disabled="update.pinned || stateStale"
             @click="updateFromCenter(update)"
           >
             更新
@@ -134,6 +134,24 @@
         </li>
       </ul>
     </section>
+
+    <el-alert
+      v-if="stateStale"
+      class="stale-alert"
+      type="warning"
+      :closable="false"
+      show-icon
+      title="安装台账待重新同步：上一步变更已提交，但没能确认实际版本。为避免在错误状态上继续操作，更新/回滚/固定已暂停。"
+    >
+      <el-button
+        size="small"
+        :loading="resyncing"
+        aria-label="重新同步已安装版本"
+        @click="resync"
+      >
+        重新同步
+      </el-button>
+    </el-alert>
 
     <el-alert
       v-if="offline"
@@ -304,7 +322,7 @@
               type="primary"
               size="small"
               :loading="busy === `${row.key}:install`"
-              :disabled="offline || row.retired"
+              :disabled="offline || row.retired || stateStale"
               :title="offline ? '离线状态下暂不可安装' : ''"
               :aria-label="`安装 ${row.name}`"
               @click="installItem(row)"
@@ -316,7 +334,7 @@
               type="primary"
               size="small"
               :loading="busy === `${row.key}:update`"
-              :disabled="offline"
+              :disabled="offline || stateStale"
               :title="offline ? '离线状态下暂不可更新' : ''"
               :aria-label="`更新 ${row.name}`"
               @click="updateItem(row)"
@@ -326,6 +344,7 @@
             <el-button
               v-if="row.hasInstall && row.previousVersion"
               size="small"
+              :disabled="stateStale"
               :loading="busy === `${row.key}:rollback`"
               :aria-label="`回滚 ${row.name}`"
               @click="rollbackItem(row)"
@@ -340,6 +359,7 @@
               <el-switch
                 size="small"
                 :model-value="row.pinned"
+                :disabled="stateStale"
                 :loading="busy === `${row.key}:pin`"
                 :aria-label="`固定 ${row.name} 的版本`"
                 @change="onPinChange(row, $event)"
@@ -348,7 +368,7 @@
               <el-switch
                 size="small"
                 :model-value="row.autoUpdate"
-                :disabled="row.pinned"
+                :disabled="row.pinned || stateStale"
                 :loading="busy === `${row.key}:auto`"
                 :aria-label="`${row.name} 自动更新`"
                 @change="onAutoUpdateChange(row, $event)"
@@ -531,6 +551,12 @@ const offline = ref(false)
 const networkDown = ref(false)
 const checking = ref(false)
 const busy = ref('')
+/**
+ * 写操作后回读失败/版本不符：界面上的安装台账已不可信（审查 F2）。
+ * 置位后暂停所有变更，先「重新同步」拿到真实版本，避免在错误状态上继续更新/回滚。
+ */
+const stateStale = ref(false)
+const resyncing = ref(false)
 
 const configured = computed(
   () => sources.value.length > 0 || (status.value?.sources?.length ?? 0) > 0,
@@ -779,11 +805,41 @@ async function refreshSummary() {
   }
 }
 
-async function loadInstalls() {
+/** 读取已安装台账；返回是否成功，供写操作后判定「回读是否可信」（审查 F2）。 */
+async function syncInstalls(): Promise<boolean> {
   try {
     installs.value = await officialLibraryApi.installs()
+    return true
   } catch {
-    // 已安装台账读取失败时保留原状态，不打断条目浏览
+    // 已安装台账读取失败时保留原状态，不打断条目浏览；调用方据返回值决定是否提示
+    return false
+  }
+}
+
+async function loadInstalls() {
+  await syncInstalls()
+}
+
+/** 回读失败或版本对不上：显式提示，并暂停后续变更直到重新同步成功。 */
+function markStateStale(message: string) {
+  stateStale.value = true
+  ElMessage.warning(message)
+}
+
+async function resync() {
+  if (resyncing.value) return
+  resyncing.value = true
+  try {
+    const synced = await syncInstalls()
+    if (!synced) {
+      ElMessage.error('重新同步失败：仍然读不到已安装台账，请检查网络或稍后再试。')
+      return
+    }
+    await Promise.all([refreshSummary(), loadUpdates()])
+    stateStale.value = false
+    ElMessage.success('已重新同步安装台账')
+  } finally {
+    resyncing.value = false
   }
 }
 
@@ -949,11 +1005,19 @@ async function installItem(row: OfficialRow) {
 }
 
 async function doInstall(row: OfficialRow) {
+  if (stateStale.value) return
   busy.value = `${row.key}:install`
   try {
     await officialLibraryApi.installItem(row.item.id, row.item.version)
-    ElMessage.success(`「${row.name}」已安装`)
-    await Promise.all([loadInstalls(), refreshSummary(), loadUpdates()])
+    const synced = await syncInstalls()
+    if (!synced) {
+      markStateStale(
+        `「${row.name}」安装已提交，但读取已安装台账失败，界面可能不是最新；重新同步前请勿继续变更。`,
+      )
+    } else {
+      ElMessage.success(`「${row.name}」已安装`)
+      await Promise.all([refreshSummary(), loadUpdates()])
+    }
   } catch (err) {
     reportFailure(err, `安装「${row.name}」`)
   } finally {
@@ -978,14 +1042,26 @@ async function updateItem(row: OfficialRow) {
 }
 
 async function doUpdate(row: OfficialRow) {
-  if (!row.install) return
+  if (!row.install || stateStale.value) return
+  const installId = row.install.id
   busy.value = `${row.key}:update`
   try {
-    const result = await officialLibraryApi.updateInstall(row.install.id)
-    ElMessage.success(
-      `「${row.name}」已更新到 ${result.installed_version || row.latest || '最新版本'}`,
-    )
-    await Promise.all([loadInstalls(), refreshSummary(), loadUpdates()])
+    const result = await officialLibraryApi.updateInstall(installId)
+    const expected = result.installed_version || row.latest || ''
+    const synced = await syncInstalls()
+    const fresh = synced ? installs.value.find(item => item.id === installId) : undefined
+    if (!synced || !fresh) {
+      markStateStale(
+        `「${row.name}」更新已提交，但读取已安装版本失败，界面可能不是最新；重新同步前请勿继续变更。`,
+      )
+    } else if (expected && fresh.installed_version !== expected) {
+      markStateStale(
+        `「${row.name}」更新已提交，但回读版本为 ${fresh.installed_version || '未知'}（期望 ${expected}）；请先重新同步。`,
+      )
+    } else {
+      ElMessage.success(`「${row.name}」已更新到 ${fresh.installed_version || expected || '最新版本'}`)
+      await Promise.all([refreshSummary(), loadUpdates()])
+    }
   } catch (err) {
     reportFailure(err, `更新「${row.name}」`)
   } finally {
@@ -1009,7 +1085,9 @@ async function updateFromCenter(update: LibraryUpdate) {
 }
 
 async function rollbackItem(row: OfficialRow) {
-  if (!row.install || busy.value) return
+  if (!row.install || busy.value || stateStale.value) return
+  const installId = row.install.id
+  const before = row.install.installed_version || ''
   const target = row.install.previous_version || '上一版本'
   try {
     await ElMessageBox.confirm(
@@ -1022,9 +1100,23 @@ async function rollbackItem(row: OfficialRow) {
   }
   busy.value = `${row.key}:rollback`
   try {
-    const result = await officialLibraryApi.rollbackInstall(row.install.id)
-    ElMessage.success(`「${row.name}」已回滚到 ${result.installed_version || target}`)
-    await Promise.all([loadInstalls(), refreshSummary(), loadUpdates()])
+    const result = await officialLibraryApi.rollbackInstall(installId)
+    const expected = result.installed_version || (target !== '上一版本' ? target : '')
+    const synced = await syncInstalls()
+    const fresh = synced ? installs.value.find(item => item.id === installId) : undefined
+    const confirmed = fresh
+      ? expected
+        ? fresh.installed_version === expected
+        : fresh.installed_version !== before
+      : false
+    if (!confirmed) {
+      markStateStale(
+        `「${row.name}」回滚已提交，但${synced ? '回读版本与预期不一致' : '读取已安装版本失败'}；重新同步前请勿继续变更。`,
+      )
+    } else {
+      ElMessage.success(`「${row.name}」已回滚到 ${fresh?.installed_version || expected || target}`)
+      await Promise.all([refreshSummary(), loadUpdates()])
+    }
   } catch (err) {
     reportFailure(err, `回滚「${row.name}」`)
   } finally {
@@ -1033,7 +1125,7 @@ async function rollbackItem(row: OfficialRow) {
 }
 
 async function onPinChange(row: OfficialRow, value: string | number | boolean) {
-  if (!row.install || busy.value) return
+  if (!row.install || busy.value || stateStale.value) return
   const pinned = value === true
   busy.value = `${row.key}:pin`
   try {
@@ -1048,7 +1140,7 @@ async function onPinChange(row: OfficialRow, value: string | number | boolean) {
 }
 
 async function onAutoUpdateChange(row: OfficialRow, value: string | number | boolean) {
-  if (!row.install || busy.value) return
+  if (!row.install || busy.value || stateStale.value) return
   const autoUpdate = value === true
   busy.value = `${row.key}:auto`
   try {
@@ -1100,6 +1192,9 @@ onMounted(() => {
   margin-left: auto;
 }
 .offline-alert {
+  margin: 0;
+}
+.stale-alert {
   margin: 0;
 }
 .inline-hint {
