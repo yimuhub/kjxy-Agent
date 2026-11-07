@@ -194,9 +194,12 @@ def _fetch_meta(base_url: str) -> tuple[dict[str, Any], int]:
     meta_url = f"{base_url.rstrip('/')}/api/v1/meta"
     check_egress_url(meta_url, context="cluster_probe", allow_local=True)
     started = perf_counter()
+    # trust_env=False：探测对象是集群内节点，必须直连；同时避免环境里的
+    # NO_PROXY 条目（如 `[::1]`）被 httpx 当 URL 解析而抛 InvalidURL，误判离线。
     with httpx.Client(
         timeout=httpx.Timeout(PROBE_TIMEOUT_SECONDS, connect=PROBE_TIMEOUT_SECONDS),
         follow_redirects=False,
+        trust_env=False,
     ) as client:
         response = client.get(meta_url)
     latency = round((perf_counter() - started) * 1000)

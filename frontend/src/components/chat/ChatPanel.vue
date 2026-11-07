@@ -1246,7 +1246,11 @@
    * 尚无会话时先记在 draft 键上，建好会话后搬过去，避免「刚切好的模式被默认值冲掉」。
    */
   watch(
-    [() => props.store.activeId, () => props.defaultExecutionMode],
+    [
+      () => props.store.activeId,
+      () => props.defaultExecutionMode,
+      () => props.store.activeSession?.execution_mode,
+    ],
     ([sessionId, defaultMode]) => {
       if (!sessionId) {
         const draft = localStorage.getItem(COMMANDER_DRAFT_KEY)
@@ -1265,8 +1269,12 @@
         localStorage.removeItem(COMMANDER_DRAFT_KEY)
         return
       }
-      // 本机没记过就信服务端：换设备/清缓存后仍回到会话真实模式
-      const savedOnServer = props.store.activeSession?.execution_mode ?? null
+      // 本机没记过就信服务端：换设备/清缓存后仍回到会话真实模式。
+      // 必须确认服务端值属于当前会话——新建会话时列表还没换下来，
+      // 直接读 activeSession 会把上一个会话（如指挥官伙伴）的模式带进新会话。
+      const active = props.store.activeSession
+      const savedOnServer =
+        active && active.id === sessionId ? (active.execution_mode ?? null) : null
       if (isExecutionModeValue(savedOnServer)) {
         executionMode.value = savedOnServer
         return

@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.71.0
+  version: 3.72.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -17798,9 +17798,9 @@ components:
           default: month
         limit_value:
           type: number
-          minimum: 0.0
+          minimum: -1.0
           title: Limit Value
-          description: tokens/calls 为个数，cost 为元
+          description: tokens/calls 为个数，cost 为元；-1=无限制，0=零余额（拒绝服务），>0=硬上限
         on_exceed:
           type: string
           enum:

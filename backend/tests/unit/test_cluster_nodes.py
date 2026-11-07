@@ -324,3 +324,40 @@ def test_probe_allows_loopback_but_still_guards_egress(monkeypatch):
         "context": "cluster_probe",
         "allow_local": True,
     }
+
+
+def test_probe_ignores_ambient_proxy_env(monkeypatch):
+    """集群探测必须直连：环境里的 NO_PROXY/代理不得参与。
+
+    `NO_PROXY=[::1]` 这类条目会被 httpx 当 URL 解析并抛 InvalidURL，
+    原来会让同机节点被误判为离线。
+    """
+    captured: dict[str, object] = {}
+
+    class _Resp:
+        status_code = 200
+
+        def json(self):
+            return {"data": {"version": "3.72.0", "migration_head": HEAD}}
+
+    class _Client:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def get(self, url: str):
+            captured["url"] = url
+            return _Resp()
+
+    monkeypatch.setattr(service, "check_egress_url", lambda *a, **k: None)
+    monkeypatch.setattr(service.httpx, "Client", _Client)
+
+    data, _latency = service._fetch_meta("http://127.0.0.1:8001")
+    assert captured["trust_env"] is False
+    assert captured["url"] == "http://127.0.0.1:8001/api/v1/meta"
+    assert data["version"] == "3.72.0"

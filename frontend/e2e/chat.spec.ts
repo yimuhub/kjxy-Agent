@@ -79,6 +79,33 @@ test.describe('对话附件与能力生成', () => {
     expect(errors).toEqual([])
   })
 
+  test('新建会话按服务端默认模式发送，不继承上一个会话的指挥官模式', async ({ page }) => {
+    await login(page)
+    await page.goto('/chat')
+    // 悬浮伙伴的常驻会话就是指挥官模式：新建会话若沿用它的模式，
+    // 普通提问会被当成指挥官目标执行（v3.72 修复的串会话缺陷）。
+    await expect(page.locator('.session-list').first()).toBeVisible()
+    await page.locator('.new-btn').click()
+    await expect(page.locator('.chat-empty')).toBeVisible()
+
+    if (!(await page.locator('.exec-seg').isVisible())) {
+      test.skip(true, '本环境未启用指挥官，无法验证模式继承')
+    }
+
+    const [stream] = await Promise.all([
+      page.waitForRequest(
+        req => req.method() === 'POST' && req.url().endsWith('/messages/stream'),
+      ),
+      (async () => {
+        await page.getByRole('textbox', { name: '对话输入' }).fill('今天适合巡田吗？')
+        await page.getByRole('textbox', { name: '对话输入' }).press('Enter')
+      })(),
+    ])
+    const body = stream.postDataJSON() as { execution_mode?: string }
+    expect(body.execution_mode ?? 'standard').toBe('standard')
+    await expect(page.locator('.msg-row.assistant').last()).toBeVisible({ timeout: 30_000 })
+  })
+
   test('对话内生成能力草稿并发布，卡片可渲染可操作', async ({ page }) => {
     // 能力规格由模型生成，往返时长随负载浮动
     test.setTimeout(120_000)

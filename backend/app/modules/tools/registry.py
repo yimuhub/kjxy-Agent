@@ -10,6 +10,7 @@ import inspect
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 import jsonschema
 from sqlalchemy.orm import Session
@@ -389,7 +390,7 @@ class ToolRegistry:
             # 并阻塞取消/心跳。注意 wait_for 超时只是不再等待，底层线程的副作用
             # 可能仍会继续（审计中标记 side_effects_may_continue），不是强制取消。
             if inspect.iscoroutinefunction(tool.func):
-                raw = tool.func(params, ctx)
+                raw: Awaitable[Any] = tool.func(params, ctx)
             else:
                 raw = asyncio.to_thread(tool.func, params, ctx)
             result = await asyncio.wait_for(raw, timeout=tool.timeout_seconds)
