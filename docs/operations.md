@@ -46,7 +46,18 @@ docker compose down
 COMPOSE="docker compose -f compose.yaml -f compose.production.yaml" ./deploy/scripts/backup.sh /backup/techyard-20261016
 ```
 
-备份内容：PostgreSQL dump（`pg_dump`）、文件卷（`/data/files` 打包）。备份文件设 600 权限，敏感环境加密存放。
+备份内容：PostgreSQL dump（`pg_dump`）、文件卷（`/data/files` 打包），以及三份校验清单：
+
+| 文件 | 用途 |
+| --- | --- |
+| `files.sha256` | 备份时刻每个文件的 sha256，恢复后逐文件比对 |
+| `db.revision` | 备份时刻的 Alembic 版本，恢复后严格比对（不一致直接失败） |
+| `db.counts` | 备份时刻各基表行数，恢复后对照（备份与取数之间可能有写入，差异只告警） |
+| `SHA256SUMS` | 上述产物的校验和，恢复前先验备份未损坏 |
+
+备份文件设 600 权限，敏感环境加密存放。`pg_dump` 是快照一致的，备份期间不需要停服；
+SQLite（原生部署）由 `deploy/native/server/upgrade.sh` 用 `sqlite3` backup API 备份，
+包含 WAL 中已提交未 checkpoint 的事务。
 
 > **上线前必做**：在预发/副本环境完整执行一次 backup→restore 演练并记录耗时（RTO）与数据范围；
 > 未演练的备份不视为可用备份。
@@ -54,14 +65,29 @@ COMPOSE="docker compose -f compose.yaml -f compose.production.yaml" ./deploy/scr
 ## 恢复
 
 ```bash
-./deploy/scripts/restore.sh /backup/techyard-20261016
+./deploy/scripts/restore.sh /backup/techyard-20261016        # 交互确认
+./deploy/scripts/restore.sh -y /backup/techyard-20261016     # 脚本/演练免确认
 ```
 
-恢复后执行：`alembic upgrade head` → 健康检查 → 主流程冒烟（登录→上传→问答→审核）。
+恢复是**破坏性**操作，脚本按以下顺序执行，任一步失败即中止：
+
+1. 校验 `SHA256SUMS`、gzip/tar 完整性；旧格式备份（无清单）会显式告警；
+2. 把当前数据库与文件卷快照到临时目录并打印路径（恢复失败可回退）；
+3. 停 `api/worker/scheduler`，在**单事务**内 `DROP SCHEMA public CASCADE` + 导入 dump
+   （`psql -1 -v ON_ERROR_STOP=1`）：导入中途失败整体回滚，不会留下空库或半恢复状态；
+4. 严格比对 Alembic 版本、对照行数清单；
+5. 清空文件卷再解包，按 `files.sha256` 逐文件比对，不一致直接失败；
+6. `alembic upgrade head` → 拉起服务 → `/health/ready` 通过才宣布完成。
+
+恢复后仍需人工冒烟：登录→上传→问答→审核。
 
 ## 升级
 
 1. 确认版本兼容矩阵（CHANGELOG）→ 2. 备份 → 3. 拉取固定版本镜像 → 4. 执行迁移 → 5. 重建容器 → 6. 健康检查 → 7. 冒烟测试 → 8. 记录版本。
+
+原生 systemd 部署用 `deploy/native/server/upgrade.sh <tag>`：自动备份（SQLite backup API /
+`pg_dump`）→ checkout → 迁移 → 重启 → 健康检查。迁移失败或健康检查失败都会回滚代码、
+恢复备份库并重启；PG 恢复同样是 `ON_ERROR_STOP` + 单事务。
 
 ### 本地/单机升级顺序（避免「当前后端版本不支持该操作」）
 
