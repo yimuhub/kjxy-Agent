@@ -179,6 +179,9 @@ class QuotaGrant(Base, TimestampMixin):
     policy_id: Mapped[str] = mapped_column(String(36), nullable=False)
     #: 追加额度（tokens/calls 为个数，cost 为元）
     amount: Mapped[float] = mapped_column(Float, nullable=False)
+    #: 剩余可用额度：跨自然月持续扣减，保证有效期内累计消费不超过购买量（审查 B4）。
+    #: 历史数据为 NULL，按 amount 视为未消费。
+    remaining: Mapped[float | None] = mapped_column(Float, nullable=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     request_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)

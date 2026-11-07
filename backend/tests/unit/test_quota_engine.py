@@ -272,3 +272,134 @@ def test_unlimited_and_zero_payloads_are_json_safe(db_session):
     assert zero_payload["effective_limit"] == 0
     assert zero_payload["remaining"] == 0
     json.dumps(zero_payload)
+
+
+# ---------------------------------------------------------------------------
+# 审查 B4：加油包余额跨自然月连续，有效期内累计消费不超过购买量
+# ---------------------------------------------------------------------------
+
+JAN = datetime(2026, 1, 15, 12, tzinfo=UTC)
+FEB = datetime(2026, 2, 1, 9, tzinfo=UTC)
+
+
+def _grant(db, policy, *, amount: float, expires_at: datetime, remaining: float | None = None):
+    row = QuotaGrant(
+        yard_id=YARD,
+        policy_id=policy.id,
+        amount=amount,
+        remaining=remaining,
+        expires_at=expires_at,
+    )
+    db.add(row)
+    db.commit()
+    return row
+
+
+def test_booster_balance_survives_month_rollover(db_session):
+    """30 天加油包跨自然月：月初窗口归零不会让同一笔额度重新满额。"""
+    policy = _policy(db_session, limit_value=0, on_exceed="block")
+    grant = _grant(
+        db_session,
+        policy,
+        amount=1_000_000,
+        remaining=1_000_000,
+        expires_at=JAN + timedelta(days=30),
+    )
+    engine.preflight(db_session, YARD, now=JAN)
+    engine.charge(db_session, YARD, tokens=600_000, now=JAN)
+    db_session.commit()
+    db_session.refresh(grant)
+    assert grant.remaining == 400_000
+
+    # 进入 2 月：窗口用量归零，但包余额只剩 40 万
+    assert engine.current_usage(db_session, policy, now=FEB)[0] == 0
+    assert engine.grant_total(db_session, policy.id, FEB) == 400_000
+    engine.preflight(db_session, YARD, now=FEB)
+    engine.charge(db_session, YARD, tokens=400_000, now=FEB)
+    db_session.commit()
+    db_session.refresh(grant)
+    assert grant.remaining == 0
+
+    with pytest.raises(AppError) as exc:
+        engine.preflight(db_session, YARD, now=FEB)
+    assert exc.value.code == "QUOTA_EXCEEDED"
+    assert exc.value.details["used"] == 400_000
+    assert exc.value.details["limit"] == 400_000
+    # 两个窗口合计正好 100 万 = 购买量，月初没有重复发放
+    assert engine.current_usage(db_session, policy, now=JAN)[0] == 600_000
+
+
+def test_baseline_is_consumed_before_grant_balance(db_session):
+    """同一窗口内先用基线额度，超出部分才扣加油包余额。"""
+    policy = _policy(db_session, limit_value=100_000, on_exceed="block")
+    grant = _grant(
+        db_session,
+        policy,
+        amount=1_000_000,
+        remaining=1_000_000,
+        expires_at=JAN + timedelta(days=30),
+    )
+    engine.charge(db_session, YARD, tokens=150_000, now=JAN)
+    db_session.commit()
+    db_session.refresh(grant)
+    # 10 万基线先扣，只有 5 万从包余额扣
+    assert grant.remaining == 950_000
+    # 跨月后基线重新计算，包余额保持 95 万
+    assert engine.effective_limit(db_session, policy, FEB) == 100_000 + 950_000
+
+
+def test_expired_booster_still_denies_after_window_rollover(db_session):
+    """加油包在窗口切换前到期：即使新窗口用量归零也拒绝，余额不复活。"""
+    policy = _policy(db_session, limit_value=0, on_exceed="block")
+    _grant(
+        db_session,
+        policy,
+        amount=1_000_000,
+        remaining=1_000_000,
+        expires_at=JAN + timedelta(days=20),
+    )
+    engine.charge(db_session, YARD, tokens=500_000, now=JAN)
+    db_session.commit()
+
+    march = datetime(2026, 3, 1, 9, tzinfo=UTC)
+    assert engine.grant_total(db_session, policy.id, march) == 0
+    assert engine.effective_limit(db_session, policy, march) == 0
+    with pytest.raises(AppError):
+        engine.preflight(db_session, YARD, now=march)
+
+
+def test_legacy_grant_without_remaining_counts_as_full(db_session):
+    """存量 grant 没有 remaining：按 amount 视为未消费，记账后落库余额。"""
+    policy = _policy(db_session, limit_value=0, on_exceed="block")
+    grant = _grant(
+        db_session,
+        policy,
+        amount=500,
+        expires_at=JAN + timedelta(days=30),
+    )
+    assert grant.remaining is None
+    assert engine.grant_total(db_session, policy.id, JAN) == 500
+    assert engine.effective_limit(db_session, policy, JAN) == 500
+
+    engine.charge(db_session, YARD, tokens=100, now=JAN)
+    db_session.commit()
+    db_session.refresh(grant)
+    assert grant.remaining == 400
+
+
+def test_multiple_grants_consume_earliest_expiry_first(db_session):
+    """多笔临时额度按到期先后扣减，先到期的先用完。"""
+    policy = _policy(db_session, limit_value=0, on_exceed="block")
+    early = _grant(
+        db_session, policy, amount=300, remaining=300, expires_at=JAN + timedelta(days=10)
+    )
+    late = _grant(
+        db_session, policy, amount=700, remaining=700, expires_at=JAN + timedelta(days=20)
+    )
+    engine.charge(db_session, YARD, tokens=400, now=JAN)
+    db_session.commit()
+    db_session.refresh(early)
+    db_session.refresh(late)
+    assert early.remaining == 0
+    assert late.remaining == 600
+    assert engine.grant_total(db_session, policy.id, JAN) == 600

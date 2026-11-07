@@ -32,7 +32,8 @@ def _policy_payload(db: Session, policy: QuotaPolicy) -> dict[str, Any]:
     # 无限制（limit_value<0）→ effective_limit 为 inf，序列化转 null 并打标，
     # 与「零余额」（limit==0，拒绝服务）严格区分（审查 B3）。
     unlimited = not math.isfinite(limit)
-    grants = 0.0 if unlimited else max(0.0, limit - float(policy.limit_value))
+    # 临时额度按剩余余额展示（已跨窗口扣减），不能再用 effective_limit-limit 反推（审查 B4）
+    grants = 0.0 if unlimited else engine.grant_total(db, policy.id)
     percent = 0.0 if unlimited or limit <= 0 else round(used / limit * 100, 2)
     return {
         "id": policy.id,

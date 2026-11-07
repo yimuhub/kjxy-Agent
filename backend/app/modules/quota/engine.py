@@ -116,13 +116,69 @@ def matching_policies(
 
 
 def grant_total(db: Session, policy_id: str, now: datetime | None = None) -> float:
+    """未到期临时额度的剩余可用量（已扣过消费，审查 B4）。"""
     moment = now or datetime.now(UTC)
     total = db.execute(
-        select(func.coalesce(func.sum(QuotaGrant.amount), 0.0)).where(
-            QuotaGrant.policy_id == policy_id, QuotaGrant.expires_at > moment
-        )
+        select(
+            func.coalesce(func.sum(func.coalesce(QuotaGrant.remaining, QuotaGrant.amount)), 0.0)
+        ).where(QuotaGrant.policy_id == policy_id, QuotaGrant.expires_at > moment)
     ).scalar_one()
-    return float(total or 0.0)
+    return max(0.0, float(total or 0.0))
+
+
+def _consume_grants(
+    db: Session, policy_id: str, amount: float, now: datetime | None = None
+) -> float:
+    """按到期先后扣减临时额度余额，返回未被额度覆盖（落在基线）的数量。
+
+    临时额度是包级余额：跨自然月窗口继续扣减，避免月初窗口归零后同一笔
+    加油包被再次全额使用（审查 B4）。扣减用条件 UPDATE，跨 SQLite/Postgres
+    可移植；并发下条件不满足时重读，最多 4 轮。
+    """
+    moment = now or datetime.now(UTC)
+    left = float(amount)
+    if left <= 0:
+        return 0.0
+    available_expr = func.coalesce(QuotaGrant.remaining, QuotaGrant.amount)
+    for _ in range(4):
+        if left <= 0:
+            break
+        rows = db.execute(
+            select(QuotaGrant.id, available_expr)
+            .where(
+                QuotaGrant.policy_id == policy_id,
+                QuotaGrant.expires_at > moment,
+                available_expr > 0,
+            )
+            .order_by(QuotaGrant.expires_at.asc(), QuotaGrant.created_at.asc())
+        ).all()
+        if not rows:
+            break
+        progressed = False
+        for grant_id, available in rows:
+            if left <= 0:
+                break
+            take = min(float(available), left)
+            if take <= 0:
+                continue
+            result = db.execute(
+                update(QuotaGrant)
+                .where(
+                    QuotaGrant.id == grant_id,
+                    QuotaGrant.expires_at > moment,
+                    available_expr >= take,
+                )
+                .values(remaining=available_expr - take)
+                .execution_options(synchronize_session=False)
+            )
+            if getattr(result, "rowcount", 0) == 1:
+                left -= take
+                progressed = True
+            else:
+                break
+        if not progressed:
+            break
+    return left
 
 
 def is_unlimited(policy: QuotaPolicy) -> bool:
@@ -135,14 +191,17 @@ def is_unlimited(policy: QuotaPolicy) -> bool:
 
 
 def effective_limit(db: Session, policy: QuotaPolicy, now: datetime | None = None) -> float:
-    """有效上限 = 基线上限 + 未到期临时额度。
+    """可用预算上限：本窗口基线未用尽部分 + 临时额度余额。
 
-    无限制策略返回 ``math.inf``（调用方据此跳过拦截与告警，序列化时转 null）；
-    零余额策略返回 0，由 preflight 当作「已用尽」处理（审查 B3）。
+    取值 ``max(limit_value, used) + grant_remaining``：窗口已用超过基线时，
+    判断退化为「临时额度还有余额」，不会把已扣过的额度重复计入；零余额策略
+    返回 0，由 preflight 当作「已用尽」处理（审查 B3）。无限制策略返回
+    ``math.inf``（调用方据此跳过拦截与告警，序列化时转 null）。
     """
     if is_unlimited(policy):
         return math.inf
-    return float(policy.limit_value) + grant_total(db, policy.id, now)
+    used, _start = current_usage(db, policy, now=now)
+    return max(float(policy.limit_value), used) + grant_total(db, policy.id, now)
 
 
 def current_usage(
@@ -421,6 +480,13 @@ def charge(
         # 无限制策略仍记账（可观测），但不按上限告警（审查 B3）
         if is_unlimited(policy):
             continue
+        # 基线优先：本窗口基线未用尽的部分先消化本次用量，超出部分才从临时
+        # 额度余额扣。余额跨自然月持续扣减，有效期内累计消费不超过购买量（B4）。
+        used_before = max(0.0, used - amount)
+        baseline_left = max(0.0, float(policy.limit_value) - used_before)
+        spill = max(0.0, amount - baseline_left)
+        if spill > 0:
+            _consume_grants(db, policy.id, spill, now)
         limit = effective_limit(db, policy, now)
         if limit > 0:
             ratio = used / limit * 100
@@ -503,6 +569,7 @@ def approve_request(
         yard_id=request.yard_id,
         policy_id=policy.id,
         amount=amount,
+        remaining=amount,
         expires_at=expires,
         request_id=request.id,
         created_by=decided_by,

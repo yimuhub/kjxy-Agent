@@ -165,6 +165,7 @@ def _apply_plan_grants(db: Session, *, yard_id: str, plan: Plan, actor_id: str) 
                 yard_id=yard_id,
                 policy_id=policy.id,
                 amount=item.amount,
+                remaining=item.amount,
                 expires_at=expires,
                 created_by=actor_id,
             )
