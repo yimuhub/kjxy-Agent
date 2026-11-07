@@ -62,7 +62,17 @@ services:
     profiles: !reset []
     environment:
       APP_ENV: production
+      # 基础 compose 的 scheduler 固定了无密码 broker；生产 redis 开启 requirepass 后
+      # 必须在这里补齐，否则 beat 连不上 broker（审查 O1）。
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/2
 
   redis:
     restart: always
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:?请设置 REDIS_PASSWORD}
+    environment:
+      # 容器内健康检查需要凭证；compose 插值不会自动注入容器环境（审查 O1）
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?请设置 REDIS_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]

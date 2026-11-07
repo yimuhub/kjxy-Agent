@@ -35,10 +35,15 @@ services:
   redis:
     image: redis:7-alpine
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:?请设置 REDIS_PASSWORD}
+    environment:
+      # compose 插值变量不等于容器环境变量：健康检查在容器内执行，
+      # 必须显式注入，否则 redis-cli 无凭证 → NOAUTH → api 依赖 healthy 被阻断（审查 O1）。
+      # REDISCLI_AUTH 让 redis-cli 自动读取，避免密码出现在进程参数里。
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?请设置 REDIS_PASSWORD}
     volumes:
       - redis:/data
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a $$REDIS_PASSWORD ping | grep PONG"]
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
