@@ -117,9 +117,11 @@
           </el-checkbox>
         </el-checkbox-group>
 
-        <!-- 展开全部：下拉弹框承载完整列表（含独立搜索），再点收回 -->
+        <!-- 展开全部：下拉弹框承载完整列表（含独立搜索），再点收回。
+             挂载条件用全部可选项而非过滤结果：搜索无匹配时要留在弹层里显示空态，
+             否则输入第一个字就会把弹层（连同搜索框）整个卸载掉。 -->
         <el-popover
-          v-if="filteredOptions.length > COLLAPSED_ROWS"
+          v-if="expanded || props.options.length > COLLAPSED_ROWS"
           :visible="expanded"
           placement="bottom-start"
           :width="popoverWidth"
@@ -132,7 +134,7 @@
               :aria-expanded="expanded"
               @click="expanded = !expanded"
             >
-              {{ expanded ? '收起全部 ▴' : `展开全部 ${filteredOptions.length} 项 ▾` }}
+              {{ expanded ? '收起全部 ▴' : `展开全部 ${props.options.length} 项 ▾` }}
             </button>
           </template>
           <div class="ext-popover-body">

@@ -73,7 +73,12 @@ test.describe('指挥官伙伴（v3.51）', () => {
     await expect(companion).toBeVisible()
     await handle.click()
     await expect(panel.locator('[data-panel="companion"] textarea')).toBeVisible()
-    await expect(panel.locator('.msg-row', { hasText: '记一笔：今天下午给东一号地浇水' })).toBeVisible()
+    // 助理回复会引用原话，按 user 行断言避免 strict mode 命中两行
+    await expect(
+      panel
+        .locator('.msg-row.user', { hasText: '记一笔：今天下午给东一号地浇水' })
+        .last(),
+    ).toBeVisible()
     // 面板回到拖过的大小与位置
     const afterReload = await panel.evaluate(el => ({
       left: (el as HTMLElement).style.left,

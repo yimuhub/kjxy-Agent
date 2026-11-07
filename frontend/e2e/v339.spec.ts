@@ -173,9 +173,11 @@ test.describe('计划卡编辑（v3.39）', () => {
 
       const bar = page.locator('.exec-seg')
       await bar.getByText('指挥官', { exact: true }).click()
+      // 明确要 Word 交付：规划器按能力目录稳定排出「整理内容 → 生成文件」两步，
+      // 不依赖真实模型（CI/E2E 用 fake LLM 时也能拿到 >=2 个子任务）
       await page
         .locator('textarea')
-        .fill('为春耕生产做准备：列出 3 项农资清单，再给出灌溉建议')
+        .fill('为春耕生产做准备：整理一份 Word 农资清单文档，列出 3 项农资并给出灌溉建议')
       await page.locator('textarea').press('Enter')
 
       const plan = page.locator('.commander-plan')
@@ -184,19 +186,20 @@ test.describe('计划卡编辑（v3.39）', () => {
       const before = await rows.count()
       expect(before).toBeGreaterThanOrEqual(2)
 
-      // 改第一条指令
-      await rows.first().getByRole('button', { name: '编辑' }).click()
-      const edited = '列出春耕必需的 3 项农资，并逐项标注用途与用量'
-      await rows.first().locator('.edit-main textarea').fill(edited)
-      // 删除最后一条（至少保留 1 条）
-      await rows.last().getByRole('button', { name: '删除' }).click()
+      // 改交付任务（最后一条）的指令
+      await rows.last().getByRole('button', { name: '编辑' }).click()
+      const edited = '调用 doc.generate 生成 Word 农资清单，列出 3 项农资及用途用量，并给出灌溉建议'
+      await rows.last().locator('.edit-main textarea').fill(edited)
+      // 删除第一条内容任务：交付任务不能删（后端会按设计补回），删内容任务才能稳定减行
+      await rows.first().getByRole('button', { name: '删除' }).click()
+      await expect(rows).toHaveCount(before - 1)
       await plan.getByRole('button', { name: '保存修改' }).click()
       await expect(
         page.locator('.el-message').filter({ hasText: '计划已更新' }).first(),
       ).toBeVisible({ timeout: 30_000 })
 
-      await expect(rows.first()).toContainText(edited)
       await expect(rows).toHaveCount(before - 1)
+      await expect(rows.first()).toContainText(edited)
     } finally {
       await putCommander(request, token, {
         enabled: Boolean(baseline.enabled ?? true),

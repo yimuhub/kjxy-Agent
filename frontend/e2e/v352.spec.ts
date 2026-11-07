@@ -1,5 +1,39 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type APIRequestContext } from '@playwright/test'
 import { login } from './helpers'
+
+/** 伙伴面板的模型下拉来自已接入供应商；空库先造一台，结束后删除 */
+async function seedSupplier(request: APIRequestContext): Promise<string> {
+  const resp = await request.post('/api/v1/auth/login', {
+    data: { username: 'admin', password: 'admin123' },
+  })
+  expect(resp.ok()).toBeTruthy()
+  const token = (await resp.json()).data.access_token as string
+  const name = `E2E伙伴模型${Date.now().toString().slice(-6)}`
+  const created = await request.post('/api/v1/llm/providers', {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      name,
+      provider_type: 'openai',
+      base_url: 'http://127.0.0.1:9/v1',
+      model_id: 'e2e-chat',
+      api_key: 'e2e-placeholder-key',
+      available_models: ['e2e-chat'],
+    },
+  })
+  expect(created.ok()).toBeTruthy()
+  const supplier = (await created.json()).data
+  return supplier.id as string
+}
+
+async function removeSupplier(request: APIRequestContext, id: string): Promise<void> {
+  const resp = await request.post('/api/v1/auth/login', {
+    data: { username: 'admin', password: 'admin123' },
+  })
+  const token = (await resp.json()).data.access_token as string
+  await request.delete(`/api/v1/llm/providers/${id}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
 
 /**
  * v3.52 悬浮伙伴「能力」抽屉 + 农民小人动效：
@@ -10,68 +44,73 @@ import { login } from './helpers'
  */
 
 test.describe('指挥官伙伴能力与动效（v3.52）', () => {
-  test('伙伴面板内可选大模型并保存，刷新后仍是同一个模型', async ({ page }) => {
-    await login(page)
-    await page.locator('[data-companion-handle]').click()
-    await expect(page.locator('[data-companion-panel]')).toBeVisible()
+  test('伙伴面板内可选大模型并保存，刷新后仍是同一个模型', async ({ page, request }) => {
+    const supplierId = await seedSupplier(request)
+    try {
+      await login(page)
+      await page.locator('[data-companion-handle]').click()
+      await expect(page.locator('[data-companion-panel]')).toBeVisible()
 
-    await page.getByRole('button', { name: '能力' }).click()
-    const abilities = page.locator('[data-companion-abilities]')
-    await expect(abilities).toBeVisible()
-    // 与系统设置同一份实现：模型 + 技能 + 工具三块都在
-    await expect(abilities.getByText('大模型', { exact: true })).toBeVisible()
-    await expect(abilities.getByText('技能与工具', { exact: true })).toBeVisible()
+      await page.getByRole('button', { name: '能力' }).click()
+      const abilities = page.locator('[data-companion-abilities]')
+      await expect(abilities).toBeVisible()
+      // 与系统设置同一份实现：模型 + 技能 + 工具三块都在
+      await expect(abilities.getByText('大模型', { exact: true })).toBeVisible()
+      await expect(abilities.getByText('技能与工具', { exact: true })).toBeVisible()
 
-    const before = await abilities.locator('.abilities-note').first().innerText()
+      const before = await abilities.locator('.abilities-note').first().innerText()
 
-    await abilities.locator('.model-select .el-select__wrapper').click()
-    const option = page.locator('.el-select-dropdown__item').first()
-    await expect(option).toBeVisible()
-    // 伙伴面板本体 z-index 2601：下拉必须开在面板之上，否则「看得见点不着」
-    const optionBox = await option.boundingBox()
-    expect(optionBox).not.toBeNull()
-    await expect
-      .poll(async () =>
-        page.evaluate(
-          ([x, y]) =>
-            document
-              .elementFromPoint(x, y)
-              ?.closest('.el-select-dropdown') !== null,
-          [optionBox!.x + optionBox!.width / 2, optionBox!.y + optionBox!.height / 2],
-        ),
-      )
-      .toBe(true)
-    const optionText = (await option.innerText()).trim()
-    await option.click()
+      await abilities.locator('.model-select .el-select__wrapper').click()
+      const option = page.locator('.el-select-dropdown__item').first()
+      await expect(option).toBeVisible()
+      // 伙伴面板本体 z-index 2601：下拉必须开在面板之上，否则「看得见点不着」
+      const optionBox = await option.boundingBox()
+      expect(optionBox).not.toBeNull()
+      await expect
+        .poll(async () =>
+          page.evaluate(
+            ([x, y]) =>
+              document
+                .elementFromPoint(x, y)
+                ?.closest('.el-select-dropdown') !== null,
+            [optionBox!.x + optionBox!.width / 2, optionBox!.y + optionBox!.height / 2],
+          ),
+        )
+        .toBe(true)
+      const optionText = (await option.innerText()).trim()
+      await option.click()
 
-    const saveButton = abilities.getByRole('button', { name: '保存模型' })
-    await expect(saveButton).toBeEnabled()
-    const saved = page.waitForResponse(
-      res => res.url().endsWith('/llm/bindings') && res.status() === 200,
-    )
-    await saveButton.click()
-    expect((await saved).status()).toBe(200)
-
-    // 提示语给的是「供应商 · 模型名」，不是内部 id
-    await expect
-      .poll(async () => abilities.locator('.abilities-note').first().innerText())
-      .toContain(optionText.split(' · ')[1] ?? optionText)
-
-    // 刷新后绑定还在（真的写到了 agent 层，而不是只改了前端状态）
-    await page.reload()
-    await page.locator('[data-companion-handle]').click()
-    await page.getByRole('button', { name: '能力' }).click()
-    const after = page.locator('[data-companion-abilities]')
-    await expect(after.locator('.abilities-note').first()).toContainText('已单独指定')
-
-    // 收尾：恢复原来的跟随默认，别把别的用例的模型选择带跑
-    if (before.includes('跟随')) {
-      const reset = after.getByRole('button', { name: '跟随默认' })
-      const cleared = page.waitForResponse(
+      const saveButton = abilities.getByRole('button', { name: '保存模型' })
+      await expect(saveButton).toBeEnabled()
+      const saved = page.waitForResponse(
         res => res.url().endsWith('/llm/bindings') && res.status() === 200,
       )
-      await reset.click()
-      await cleared
+      await saveButton.click()
+      expect((await saved).status()).toBe(200)
+
+      // 提示语给的是「供应商 · 模型名」，不是内部 id
+      await expect
+        .poll(async () => abilities.locator('.abilities-note').first().innerText())
+        .toContain(optionText.split(' · ')[1] ?? optionText)
+
+      // 刷新后绑定还在（真的写到了 agent 层，而不是只改了前端状态）
+      await page.reload()
+      await page.locator('[data-companion-handle]').click()
+      await page.getByRole('button', { name: '能力' }).click()
+      const after = page.locator('[data-companion-abilities]')
+      await expect(after.locator('.abilities-note').first()).toContainText('已单独指定')
+
+      // 收尾：恢复原来的跟随默认，别把别的用例的模型选择带跑
+      if (before.includes('跟随')) {
+        const reset = after.getByRole('button', { name: '跟随默认' })
+        const cleared = page.waitForResponse(
+          res => res.url().endsWith('/llm/bindings') && res.status() === 200,
+        )
+        await reset.click()
+        await cleared
+      }
+    } finally {
+      await removeSupplier(request, supplierId)
     }
   })
 

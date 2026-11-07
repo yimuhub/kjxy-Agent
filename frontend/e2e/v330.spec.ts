@@ -10,7 +10,7 @@ test.describe('v3.30 语音转写（本机离线 / 在线通道）', () => {
     await expect(page.getByText('自动（本机优先，在线兜底）')).toBeVisible()
     await expect(page.getByRole('radio', { name: '仅本机（离线）' })).toBeVisible()
     await expect(page.getByRole('radio', { name: '仅在线' })).toBeVisible()
-    await expect(page.getByText('本机模型')).toBeVisible()
+    await expect(page.getByText('本机模型', { exact: true })).toBeVisible()
     await expect(page.getByText('中文语音转写（轻量）')).toBeVisible()
     // 至少能看到「下载」或「删除」两个终态之一，且体积有展示
     await expect(page.locator('.model-row').first()).toContainText(/下载|删除/)

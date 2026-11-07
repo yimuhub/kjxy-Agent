@@ -3,7 +3,13 @@ import { defineConfig, devices } from '@playwright/test'
 /**
  * E2E 前置条件：后端已在 http://127.0.0.1:8000 运行，且执行过 `make seed-dev`
  * （演示账号 yard_admin / yard123）。前端由 webServer 自动拉起。
+ *
+ * 隔离实例（不碰本机 8000/5173）：先自行拉起后端与 vite，
+ * 再以 PLAYWRIGHT_BASE_URL=http://127.0.0.1:5174 运行，配置不再启动 webServer。
  */
+const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:5173'
+const externalServer = Boolean(process.env.PLAYWRIGHT_BASE_URL)
+
 export default defineConfig({
   testDir: './e2e',
   // 前端跑的是 Vite dev server（不是产物），冷启动要现场编译整棵模块图，
@@ -18,7 +24,7 @@ export default defineConfig({
   retries: 1,
   reporter: [['list']],
   use: {
-    baseURL: 'http://127.0.0.1:5173',
+    baseURL,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
@@ -34,10 +40,14 @@ export default defineConfig({
       testMatch: /mobile\.spec\.ts/,
     },
   ],
-  webServer: {
-    command: 'npm run dev',
-    url: 'http://127.0.0.1:5173',
-    reuseExistingServer: true,
-    timeout: 60_000,
-  },
+  ...(externalServer
+    ? {}
+    : {
+        webServer: {
+          command: 'npm run dev',
+          url: baseURL,
+          reuseExistingServer: true,
+          timeout: 60_000,
+        },
+      }),
 })

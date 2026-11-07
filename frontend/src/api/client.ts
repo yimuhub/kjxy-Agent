@@ -114,10 +114,17 @@ function refreshAccessToken(): Promise<string | null> {
   return refreshPromise
 }
 
+/** 公开页（与 router meta.public 对齐）：页面自身的探测请求 401 时不能被踢去登录 */
+const PUBLIC_PATHS = ['/login', '/signup', '/setup', '/share', '/invite', '/sso', '/pet']
+
+function isPublicPath(pathname: string): boolean {
+  return PUBLIC_PATHS.some(path => pathname === path || pathname.startsWith(`${path}/`))
+}
+
 function redirectToLogin(): void {
   localStorage.removeItem(TOKEN_KEY)
   localStorage.removeItem(REFRESH_TOKEN_KEY)
-  if (window.location.pathname.startsWith('/login')) return
+  if (isPublicPath(window.location.pathname)) return
   const redirect = encodeURIComponent(window.location.pathname + window.location.search)
   window.location.assign(`/login?redirect=${redirect}`)
 }

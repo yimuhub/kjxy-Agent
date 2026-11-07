@@ -40,8 +40,8 @@ test.describe('今日行动板（原概览）', () => {
     await page.locator('input[autocomplete="current-password"]').fill('operator123')
     await page.getByRole('button', { name: '登录', exact: true }).click()
 
-    // 一线角色不再先落数据页，进门即可开聊
-    await expect(page).toHaveURL(/\/chat$/)
+    // 一线角色（operator）进门直落日志工作台（全国平台日志考核口径，见 utils/home.ts）
+    await expect(page).toHaveURL(/\/journal$/)
     await page.goto('/')
     await expect(page.getByRole('heading', { name: '今日工作台' })).toBeVisible()
     await expect(page.getByRole('button', { name: '我的待办工单' })).toBeVisible()

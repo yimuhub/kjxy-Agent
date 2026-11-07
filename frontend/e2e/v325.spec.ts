@@ -307,7 +307,7 @@ test.describe('模型中心与工具目录（v3.25）', () => {
     await page.locator('input[autocomplete="username"]').fill('operator')
     await page.locator('input[autocomplete="current-password"]').fill('operator123')
     await page.getByRole('button', { name: '登录', exact: true }).click()
-    await expect(page).toHaveURL(/\/(chat)?$/)
+    await expect(page).toHaveURL(/\/(chat|journal)$/)
 
     await expect(page.locator('#main-nav').getByText('模型中心')).toHaveCount(0)
     await page.goto('/model-center')

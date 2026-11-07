@@ -1,6 +1,22 @@
 import { expect, test } from '@playwright/test'
 import { login } from './helpers'
 
+/** 空库时任务表不会渲染表头，先造一条可读名称任务再断言 */
+async function seedMockTask(request: import('@playwright/test').APIRequestContext): Promise<string> {
+  const loginResp = await request.post('/api/v1/auth/login', {
+    data: { username: 'yard_admin', password: 'yard123' },
+  })
+  expect(loginResp.ok()).toBeTruthy()
+  const token = (await loginResp.json()).data.access_token as string
+  const subject = `E2E可读任务${Date.now().toString().slice(-5)}`
+  const created = await request.post('/api/v1/tasks', {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { task_type: 'mock.echo', input: { content: subject } },
+  })
+  expect(created.ok()).toBeTruthy()
+  return subject
+}
+
 test.describe('v3.29 用量统计与可读性升级', () => {
   test('用量页：趋势图、区间切换、固定高度表格与 CSV 导出', async ({ page }) => {
     await login(page)
@@ -33,7 +49,8 @@ test.describe('v3.29 用量统计与可读性升级', () => {
     expect((await traceDownload).suggestedFilename()).toMatch(/^llm-traces-\d{4}-\d{2}-\d{2}\.csv$/)
   })
 
-  test('任务中心：列表首列是可读任务名称', async ({ page }) => {
+  test('任务中心：列表首列是可读任务名称', async ({ page, request }) => {
+    const subject = await seedMockTask(request)
     await login(page)
     await page.goto('/tasks')
 
@@ -48,6 +65,8 @@ test.describe('v3.29 用量统计与可读性升级', () => {
       .first()
     await expect(firstTitle).not.toHaveText('')
     await expect(firstTitle.locator('.task-title')).toBeVisible()
+    // 类型中文名 + 输入主体（不是任务 id）
+    await expect(taskCard.locator('.task-title').filter({ hasText: subject })).toBeVisible()
   })
 
   test('新建智能体：按名称/职责自动绑定相关技能', async ({ page }) => {

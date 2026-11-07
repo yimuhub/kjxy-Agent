@@ -28,11 +28,12 @@ export default defineConfig({
   },
   server: {
     host: '127.0.0.1',
-    port: 5173,
+    // 隔离实例（E2E/联调）可用环境变量换端口与后端目标，默认值保持不变
+    port: Number(process.env.VITE_DEV_PORT ?? 5173),
     proxy: {
       // 开发时代理后端 API，避免跨域；后端默认 http://localhost:8000
       '/api': {
-        target: 'http://127.0.0.1:8000',
+        target: process.env.VITE_API_TARGET ?? 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
     },

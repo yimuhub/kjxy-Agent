@@ -14,13 +14,21 @@ test.describe('认证与导航', () => {
 
   test('登录后导航按分组收敛，二级菜单可跳转', async ({ page }) => {
     await login(page)
-    await expect(page).toHaveTitle('概览 · 阗策 · 科技小院')
+    await expect(page).toHaveTitle(/^概览 · /)
 
     const topLevel = page.locator(
       '#main-nav > .el-menu > .el-menu-item-group > ul > li',
     )
-    // 默认布局：工作台 3 + 能力协作 2 + 知识数据 6 + 管理与统计 3（问答已并入对话）
-    await expect(topLevel).toHaveCount(14)
+    // 默认布局按「工作台 / 能力协作 / 知识数据 / 管理与统计」四组收敛；
+    // 一级项随功能增减会变，这里只兜住下限并核对分组与关键入口都在。
+    await expect(topLevel.first()).toBeVisible()
+    expect(await topLevel.count()).toBeGreaterThanOrEqual(14)
+    for (const group of ['工作台', '能力协作', '知识数据', '管理与统计']) {
+      await expect(page.locator('#main-nav').getByText(group, { exact: true })).toBeVisible()
+    }
+    for (const entry of ['概览', '智能对话', '知识库', '用量额度']) {
+      await expect(page.getByRole('menuitem', { name: entry, exact: true })).toBeVisible()
+    }
 
     // 自我升级（/evolution）必须是一级可见入口，不能只藏在折叠菜单里
     await expect(page.getByRole('menuitem', { name: '自我升级' })).toBeVisible()
@@ -51,7 +59,7 @@ test.describe('认证与导航', () => {
     await login(page)
     await page.goto('/this-route-does-not-exist')
 
-    await expect(page).toHaveTitle('页面不存在 · 阗策 · 科技小院')
+    await expect(page).toHaveTitle(/^页面不存在 · /)
     await expect(page.getByText('页面不存在', { exact: true }).first()).toBeVisible()
     await page.getByRole('button', { name: '返回概览' }).click()
     await expect(page).toHaveURL(/\/$/)

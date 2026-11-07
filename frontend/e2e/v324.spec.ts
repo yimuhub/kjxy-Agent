@@ -112,7 +112,7 @@ test.describe('权限与千人千面（v3.24）', () => {
     await page.locator('input[autocomplete="username"]').fill('operator')
     await page.locator('input[autocomplete="current-password"]').fill('operator123')
     await page.getByRole('button', { name: '登录', exact: true }).click()
-    await expect(page).toHaveURL(/\/(chat)?$/)
+    await expect(page).toHaveURL(/\/(chat|journal)$/)
 
     const nav = page.locator('#main-nav')
     await expect(nav.getByText('智能对话')).toBeVisible()

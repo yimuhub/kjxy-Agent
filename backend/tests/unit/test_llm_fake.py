@@ -45,6 +45,34 @@ async def test_fake_token_estimate_by_chars():
 
 
 @pytest.mark.asyncio
+async def test_fake_plan_prompt_returns_complete_sections():
+    """方案合成提示词要回放可解析的分章方案，否则 CI 只能看到「缺章」。"""
+    from app.modules.chat.plan import SECTIONS, _missing_sections, _split_sections, _thin_sections
+
+    system = "你是科技小院的方案合成器。\n" + "\n".join(f"## {name}" for name, _ in SECTIONS)
+    req = LLMRequest(
+        messages=[
+            ChatMessage(role="system", content=system),
+            ChatMessage(role="user", content="写一份小麦赤霉病的防治方案"),
+        ],
+        metadata={"yard_id": "t-001", "request_id": "req-plan"},
+    )
+    resp = await FakeProvider().complete(req)
+
+    assert _missing_sections(resp.content) == []
+    assert _thin_sections(_split_sections(resp.content)) == []
+    assert len(_split_sections(resp.content)) == len(SECTIONS)
+
+
+@pytest.mark.asyncio
+async def test_fake_plain_prompt_keeps_generic_answer():
+    """非方案请求不受影响，仍是统一的 Mock 文本。"""
+    req = _make_request("水稻纹枯病怎么防治？")
+    resp = await FakeProvider().complete(req)
+    assert resp.content.startswith("【Mock 模型回答】")
+
+
+@pytest.mark.asyncio
 async def test_service_writes_success_row(db_session):
     req = _make_request()
     resp = await complete_with_logging(db_session, req)

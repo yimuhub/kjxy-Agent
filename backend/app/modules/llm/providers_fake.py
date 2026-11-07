@@ -17,6 +17,10 @@ MODEL_NAME = "fake-mock-1"
 # Mock 调用不产生真实成本
 PRICE_PER_1K_USD = 0.0
 
+#: 方案合成的系统提示前缀（chat/plan.py）。命中时回放带章节的可解析方案，
+#: 否则分章渲染、取证统计与导出链路在 CI 里永远只能看到「缺章」。
+PLAN_SYSTEM_MARKER = "你是科技小院的方案合成器"
+
 # ------------------------------------------------------------ 脚本回放（测试注入）
 #: 待回放脚本队列：每项 {"content": str|None, "tool_calls": [{"id","name","args"}],
 #: "error": {"code","message"}}；error 项模拟 provider 抛 AppError（LLM 失败路径）
@@ -38,6 +42,29 @@ def reset_scripted_tool_responses() -> None:
 def estimate_tokens(text: str) -> int:
     """按字符数估算 token（Mock 专用，不代表真实分词结果）。"""
     return max(1, len(text))
+
+
+def _plan_mock_content(messages: list) -> str | None:
+    """方案合成请求 → 按系统提示里的章节契约回放可解析的 Mock 方案。
+
+    章节标题直接从提示词里取，避免在 Mock 里复制一份章节表；正文固定且足够长，
+    满足「章节写实」判定，让 CI 能覆盖分章渲染、取证统计与导出流程。
+    """
+    system = "\n".join(m.content for m in messages if m.role == "system")
+    if PLAN_SYSTEM_MARKER not in system:
+        return None
+    headings = [line[3:].strip() for line in system.splitlines() if line.startswith("## ")]
+    if not headings:
+        return None
+    blocks = []
+    for index, heading in enumerate(headings, 1):
+        blocks.append(
+            f"## {heading}\n"
+            f"（Mock 方案，仅供开发与 CI 验证链路。）第 {index} 节按小院现有资料执行："
+            "先核对田块与作物现状，再按计划实施并记录用量，完成后回填验收数据；"
+            "未覆盖的证据缺口写入待确认事项，投产前需由当地专家复核。（模型推断，需当地核实）"
+        )
+    return "\n\n".join(blocks)
 
 
 class FakeProvider:
@@ -95,16 +122,20 @@ class FakeProvider:
             scripted = self._from_script(_SCRIPT.pop(0), request)
             if scripted is not None:
                 return scripted
-        question = next(
-            (m.content for m in reversed(request.messages) if m.role == "user"),
-            "",
-        )
-        summary = " ".join(str(question).split())[:48]
-        content = (
-            "【Mock 模型回答】这是开发/CI 环境的确定性模拟回答，未调用真实模型。\n"
-            f"您的问题摘要：「{summary}」。\n"
-            "如需真实回答，请将 LLM_PROVIDER 切换为 openai_compatible 并配置密钥。"
-        )
+        plan = _plan_mock_content(request.messages)
+        if plan is not None:
+            content = plan
+        else:
+            question = next(
+                (m.content for m in reversed(request.messages) if m.role == "user"),
+                "",
+            )
+            summary = " ".join(str(question).split())[:48]
+            content = (
+                "【Mock 模型回答】这是开发/CI 环境的确定性模拟回答，未调用真实模型。\n"
+                f"您的问题摘要：「{summary}」。\n"
+                "如需真实回答，请将 LLM_PROVIDER 切换为 openai_compatible 并配置密钥。"
+            )
         input_text = "\n".join(f"{m.role}:{m.content}" for m in request.messages)
         return LLMResponse(
             content=content,

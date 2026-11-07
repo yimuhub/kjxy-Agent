@@ -1,5 +1,31 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type APIRequestContext } from '@playwright/test'
 import { login } from './helpers'
+
+/** 造一台只在本次出现的设备：诊断弹窗的设备下拉依赖真实接入数据 */
+async function seedDevice(request: APIRequestContext): Promise<string> {
+  const tokenResp = await request.post('/api/v1/auth/login', {
+    data: { username: 'yard_admin', password: 'yard123' },
+  })
+  expect(tokenResp.ok()).toBeTruthy()
+  const token = (await tokenResp.json()).data.access_token as string
+
+  const name = `E2E诊断站${Date.now().toString().slice(-6)}`
+  const created = await request.post('/api/v1/devices', {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { name, device_type: 'weather', source_type: 'webhook' },
+  })
+  expect(created.ok()).toBeTruthy()
+  const device = (await created.json()).data
+  const ingest = await request.post(`/api/v1/devices/${device.id}/ingest`, {
+    headers: { 'X-Device-Token': device.device_token },
+    data: {
+      reported_at: new Date().toISOString(),
+      data: { temp: 24, humidity: 62, rain: 0 },
+    },
+  })
+  expect(ingest.ok()).toBeTruthy()
+  return name
+}
 
 /**
  * v3.27 诊断材料与设备自动诊断：
@@ -85,7 +111,8 @@ test.describe('v3.27 诊断材料与设备自动诊断', () => {
     await expect(detail.getByText('e2e-leaf.png')).toBeVisible()
   })
 
-  test('引用已接入设备由 Agent 自动诊断并高亮标记', async ({ page }) => {
+  test('引用已接入设备由 Agent 自动诊断并高亮标记', async ({ page, request }) => {
+    const deviceName = await seedDevice(request)
     await login(page)
     await page.goto('/diagnosis')
     await page.getByRole('button', { name: '新建诊断' }).first().click()
@@ -93,15 +120,19 @@ test.describe('v3.27 诊断材料与设备自动诊断', () => {
     const dialog = page.getByRole('dialog').filter({ hasText: '新建作物诊断' })
     const deviceSelect = dialog.locator('.el-form-item').filter({ hasText: '引用设备' })
     await deviceSelect.locator('.el-select').click()
-    const option = page.getByRole('option', { name: /^演示气象站（/ })
+    const option = page.getByRole('option', { name: new RegExp(`^${deviceName}（`) })
     await expect(option).toBeVisible({ timeout: 10_000 })
     await option.click()
+
+    // 隔离库里可能没有地块，作物取不到默认值就会被前端拦下
+    const cropInput = dialog.locator('.el-form-item').filter({ hasText: '作物' }).locator('input')
+    if (!(await cropInput.inputValue())) await cropInput.fill('水稻')
 
     await dialog.getByRole('button', { name: '设备自动诊断' }).click()
 
     const detail = page.getByRole('dialog').filter({ hasText: '专家复核' })
     await expect(detail).toBeVisible({ timeout: 30_000 })
     await expect(detail.getByText(/Agent 自动诊断/).first()).toBeVisible()
-    await expect(detail.getByText(/演示气象站/).first()).toBeVisible()
+    await expect(detail.getByText(deviceName).first()).toBeVisible()
   })
 })

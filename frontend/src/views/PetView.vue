@@ -364,6 +364,7 @@
     type PetScene,
   } from '@/utils/petCopilot'
   import { collectPetLines } from '@/utils/petBrief'
+  import { TOKEN_KEY } from '@/api/client'
 
   const route = useRoute()
   const router = useRouter()
@@ -394,6 +395,11 @@
   })
 
   async function refreshBriefs(): Promise<void> {
+    // 公开桌宠页未登录时不拉小院实况，避免无意义的 401 探测
+    if (!localStorage.getItem(TOKEN_KEY)) {
+      dataLines.value = []
+      return
+    }
     try {
       dataLines.value = await collectPetLines()
     } catch {

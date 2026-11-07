@@ -20,23 +20,40 @@ test.describe('智能体编辑弹窗绑定拆分', () => {
     await expect(skillItem).toBeVisible()
     await expect(pluginItem).toBeVisible()
 
-    // 技能区列出系统已安装的技能（演示小院含 12 个内置农业技能）
-    const skillNames = skillItem.locator('.ext-name')
-    await expect(skillNames.first()).toBeVisible()
-    const skillTotal = await skillNames.count()
-    expect(skillTotal).toBeGreaterThanOrEqual(5)
+    // 折叠态只渲染前 3 行
+    await expect(skillItem.locator('.ext-name').first()).toBeVisible()
+
+    // 「展开全部」把完整列表放进 teleport 到 body 的弹层，断言必须落在弹层内
+    const expand = skillItem.getByRole('button', { name: /展开全部/ })
+    await expect(expand).toBeVisible()
+    await expand.click()
+    const popover = page.locator('.ext-popover')
+    await expect(popover).toBeVisible()
+    const popoverNames = popover.locator('.ext-name')
+    expect(await popoverNames.count()).toBeGreaterThanOrEqual(5)
 
     // 分区搜索框生效：无匹配时显示空状态
-    await skillItem.locator('.ext-search input').fill('肯定不存在的技能xyz')
-    await expect(skillItem.locator('.ext-empty')).toBeVisible()
-    await skillItem.locator('.ext-search input').fill('')
+    const searchInput = popover.locator('.ext-search input')
+    await searchInput.fill('肯定不存在的技能xyz')
+    await expect(popover.locator('.ext-empty')).toBeVisible()
+    await searchInput.fill('')
+    await expect(popoverNames.first()).toBeVisible()
 
-    // 插件区同样可读（演示小院至少有 1 个已启用插件）
-    await expect(pluginItem.locator('.ext-name').first()).toBeVisible()
+    // 收起弹层，回到表单项内操作
+    await skillItem.getByRole('button', { name: /收起全部/ }).click()
+    await expect(popover).toBeHidden()
+
+    // 插件区要么列出已安装插件，要么给出可操作的空态指引（新库未必装了插件）
+    const pluginEmpty = pluginItem.getByText(/暂无可绑定的扩展插件/)
+    if (await pluginEmpty.isVisible()) {
+      await expect(pluginItem.getByRole('button', { name: '去插件与技能库' })).toBeVisible()
+    } else {
+      await expect(pluginItem.locator('.ext-name').first()).toBeVisible()
+    }
 
     // 勾选一个技能 → 计数变化；取消不保存，避免污染演示数据
     const before = await skillItem.locator('.ext-count').innerText()
-    await skillNames.first().click()
+    await skillItem.locator('.ext-name').first().click()
     await expect(skillItem.locator('.ext-count')).not.toHaveText(before)
     await dialog.getByRole('button', { name: '取消' }).click()
     await expect(dialog).toHaveCount(0)
