@@ -202,8 +202,11 @@ def test_duplicate_contact_rejected(client, world):
     assert resp.json()["error"]["code"] == "EMAIL_TAKEN"
 
 
-def test_existing_account_attached_without_new_password(client, db_session, world):
-    create_user(db_session, username="outsider", password="Passw0rd123", display_name="外部账号")
+def test_existing_account_requires_invite_not_direct_attach(client, db_session, world):
+    """已有全局账号不能凭用户名单方面挂接（审查 B1）：返回 409 且不建成员关系。"""
+    outsider = create_user(
+        db_session, username="outsider", password="Passw0rd123", display_name="外部账号"
+    )
     db_session.commit()
     token = _login(client, "owner1", "Passw0rd123", world["yard"].id)
     resp = client.post(
@@ -211,15 +214,14 @@ def test_existing_account_attached_without_new_password(client, db_session, worl
         json={"username": "outsider", "role": "viewer"},
         headers=_hdr(token),
     )
-    assert resp.status_code == 201, resp.text
-    assert resp.json()["data"]["initial_password"] is None
-    again = client.post(
-        f"{PREFIX}/yards/current/members",
-        json={"username": "outsider", "role": "viewer"},
-        headers=_hdr(token),
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["error"]["code"] == "MEMBER_INVITE_REQUIRED"
+    assert (
+        db_session.query(YardMembership)
+        .filter_by(yard_id=world["yard"].id, user_id=outsider.id)
+        .first()
+        is None
     )
-    assert again.status_code == 409
-    assert again.json()["error"]["code"] == "MEMBER_EXISTS"
 
 
 def test_reset_password_increments_token_version(client, db_session, world):

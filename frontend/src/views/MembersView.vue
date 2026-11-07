@@ -668,9 +668,10 @@
       @closed="resetBatch"
     >
       <p class="dialog-tip">
-        每行一个已有账号，格式：<code>用户名,角色</code>。角色可填
+        每行一个账号，格式：<code>用户名,角色</code>。角色可填
         <code>yard_admin</code> / <code>expert</code> / <code>operator</code> / <code>viewer</code>，或直接写中文。
-        后端暂未提供批量新建账号能力，因此批量导入仅支持「已有账号加入小院」模式；新同事请使用「邀请链接」。
+        为保护账号安全，已有平台账号须由本人通过「邀请链接」确认加入，不能凭用户名单方面挂接；
+        批量导入会逐行校验并提示哪些账号需要邀请。新同事请直接用「邀请链接」。
       </p>
       <el-input
         v-model="batchText"

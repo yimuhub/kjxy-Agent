@@ -228,18 +228,14 @@ def create_member(
             raise AppError("MEMBER_EXISTS", "该用户已是本小院成员。", http_status=409)
         if user.status == "disabled":
             raise AppError("ACCOUNT_DISABLED", "该账号已停用，无法加入。", http_status=403)
-        # 已有账号：只补空字段，不覆盖本人资料与密码
-        fill_email = email if email and not user.email else None
-        fill_phone = phone if phone and not user.phone else None
-        ensure_contact_unique(db, email=fill_email, phone=fill_phone)
-        if req.display_name and not user.display_name:
-            user.display_name = req.display_name.strip()
-        if fill_email:
-            user.email = fill_email
-        if fill_phone:
-            user.phone = fill_phone
-        if user.status == "pending":
-            user.status = "active"
+        # 已有全局账号必须由本人确认加入：邀请链接接受时校验原密码（invitations.accept）。
+        # 不允许管理员凭用户名单方面挂接，否则不可信小院管理员可挂接受害者后再重置其
+        # 全局密码，接管其在原院的身份（审查 B1）。新账号仍走下方创建分支。
+        raise AppError(
+            "MEMBER_INVITE_REQUIRED",
+            "该用户名已是平台账号，须由本人通过「邀请链接」确认加入，不能直接挂接。",
+            http_status=409,
+        )
     else:
         ensure_contact_unique(db, email=email, phone=phone)
         clean_display = (req.display_name or "").strip() or username
@@ -435,6 +431,19 @@ def reset_member_password(
         and membership.role in {"yard_owner", "yard_admin"}
     ):
         raise AppError("FORBIDDEN", "无权重置该成员密码。", http_status=403)
+
+    # 重置改的是全局 User 凭证。非平台管理员且非本人时，不得重置平台账号或
+    # 跨院共享账号（在其他小院仍有效）的全局密码，否则本院管理员可借此接管
+    # 受害者在原院的身份（审查 B1）。本人自助与平台管理员不受此限。
+    if "platform_admin" not in ctx.roles and user_id != ctx.user_id:
+        if getattr(user, "platform_admin", False):
+            raise AppError("FORBIDDEN", "不能重置平台管理员的全局密码。", http_status=403)
+        if _has_other_active_membership(db, user_id, ctx.yard_id):
+            raise AppError(
+                "FORBIDDEN",
+                "该账号在其他小院仍是有效成员，不能由本院重置其全局密码；请由本人自助修改或联系平台管理员。",
+                http_status=403,
+            )
 
     temporary = generate_password(12)
     user.password_hash = hash_password(temporary)

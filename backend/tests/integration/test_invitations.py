@@ -134,7 +134,8 @@ def test_invitation_requires_member_manage_permission(client, db_session):
     assert resp.status_code == 403
 
 
-def test_batch_add_members_partial_success(client, db_session):
+def test_batch_add_existing_accounts_require_invite(client, db_session):
+    """批量导入不再单方面挂接已有账号（审查 B1）：逐条返回需邀请/不存在。"""
     yard = create_yard(db_session, name="批量导入空间")
     create_user(db_session, username="worker_ok", password="Passw0rd123")
     db_session.commit()
@@ -152,8 +153,8 @@ def test_batch_add_members_partial_success(client, db_session):
     )
     assert resp.status_code == 201, resp.text
     data = resp.json()["data"]
-    assert [m["username"] for m in data["added"]] == ["worker_ok"]
-    assert {f["error_code"] for f in data["failed"]} == {"NOT_FOUND", "MEMBER_EXISTS"}
+    assert data["added"] == []
+    assert {f["error_code"] for f in data["failed"]} == {"NOT_FOUND", "MEMBER_INVITE_REQUIRED"}
 
     members = client.get("/api/v1/yards/current/members", headers=_hdr(yard.id))
-    assert members.json()["meta"]["total"] == 1
+    assert members.json()["meta"]["total"] == 0

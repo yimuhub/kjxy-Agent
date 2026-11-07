@@ -111,11 +111,10 @@ def test_b_user_cannot_add_member_to_a(api_client, world, db_session):
     assert yard_repo.get_memberships_by_user(db_session, carol.id) == []
 
 
-def test_a_admin_adds_member_visible_only_in_a(api_client, world, db_session):
-    """A 的 yard_admin 添加成员后，该成员只出现在 A 的成员列表中。"""
+def test_a_admin_adds_member_visible_only_in_a(api_client, world):
+    """A 的 yard_admin 新建成员后，该成员只出现在 A 的成员列表中。"""
     token_a = _login(api_client, "alice", "pw-alice")["access_token"]
-    auth_repo.create_user(db_session, username="dave", password="pw-dave")
-    db_session.commit()
+    # 全新用户名由 create_member 直接建号入组；已有全局账号须走邀请确认（B1）。
     r = api_client.post(
         f"{PREFIX}/yards/current/members",
         json={"username": "dave", "role": "viewer"},

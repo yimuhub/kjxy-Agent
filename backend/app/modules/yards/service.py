@@ -88,30 +88,11 @@ def _add_member(
         raise AppError("NOT_FOUND", "用户不存在。", http_status=404)
     if repo.get_membership(db, ctx.yard_id, user.id) is not None:
         raise AppError("MEMBER_EXISTS", "该用户已是本小院成员。", http_status=409)
-
-    if display_name and not user.display_name:
-        user.display_name = display_name
-    membership = repo.add_membership(db, yard_id=ctx.yard_id, user_id=user.id, role=role)
-    log_audit(
-        db,
-        yard_id=ctx.yard_id,
-        actor_id=ctx.user_id,
-        action="member_added",
-        resource_type="yard_member",
-        resource_id=user.id,
-        result="success",
-        request_id=request_id,
-        metadata={"username": user.username, "role": role},
-    )
-    db.flush()
-    return YardMemberOut(
-        user_id=user.id,
-        username=user.username,
-        display_name=user.display_name,
-        email=user.email,
-        role=membership.role,
-        status=membership.status,
-        joined_at=membership.created_at,
+    # 已有全局账号须本人通过邀请链接确认加入，批量导入不再单方面挂接（审查 B1）。
+    raise AppError(
+        "MEMBER_INVITE_REQUIRED",
+        "该用户名已是平台账号，须由本人通过「邀请链接」确认加入。",
+        http_status=409,
     )
 
 
