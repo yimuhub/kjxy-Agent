@@ -8,6 +8,7 @@ on:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     services:
       postgres:
         image: pgvector/pgvector:pg17
@@ -31,44 +32,48 @@ jobs:
       APP_SECRET_KEY: ci-secret-key-for-tests-only-min-32-chars
       LLM_PROVIDER: fake
       EMBEDDING_PROVIDER: mock
+      UV_FROZEN: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install dependencies
-        run: |
-          cd backend
-          pip install -e "..[dev]"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Install dependencies (consume uv.lock, not ad-hoc pip resolve)
+        run: uv sync --frozen --extra dev
       - name: Migrations on clean database
         run: |
           cd backend
-          alembic upgrade head
+          uv run alembic upgrade head
       - name: Version consistency
-        run: python scripts/check_versions.py
+        run: uv run python scripts/check_versions.py
       - name: UI standards (centered dialogs / resizable tables)
-        run: python scripts/check_ui_standards.py
+        run: uv run python scripts/check_ui_standards.py
       - name: Lint
         run: |
           cd backend
-          ruff check app tests
-          ruff format --check app tests
+          uv run ruff check app tests
+          uv run ruff format --check app tests
       - name: Type check
         run: |
           cd backend
-          mypy app
+          uv run mypy app
       - name: Unit and security tests
         run: |
           cd backend
-          python -m pytest tests -q
+          uv run python -m pytest tests -q
       - name: Migration chain reversible
         run: |
           cd backend
-          alembic downgrade -1
-          alembic upgrade head
+          uv run alembic downgrade -1
+          uv run alembic upgrade head
       - name: OpenAPI contract drift check
         run: |
-          python backend/scripts/generate_openapi.py
+          uv run python backend/scripts/generate_openapi.py
           git diff --exit-code contracts/openapi.yaml
 
   # 本机语音转写（v3.30）：同一份 ONNX 模型在三端都要能装、能跑、能删。
@@ -79,28 +84,34 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     env:
       ASR_MODEL_DIR: ${{ github.workspace }}/.asr-models
+      UV_FROZEN: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install dependencies
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Install dependencies (consume uv.lock)
         shell: bash
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+        run: uv sync --frozen --extra dev
       - uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/.asr-models
           key: asr-paraformer-zh-small-3ef6c193-${{ runner.os }}
       - name: ASR smoke（下载→识别→删除）
         shell: bash
-        run: python backend/scripts/asr_smoke.py
+        run: uv run python backend/scripts/asr_smoke.py
 
   frontend:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -125,8 +136,83 @@ jobs:
           cd frontend
           npm run build
 
+  # 真实浏览器冒烟（审查 O4）：此前 CI 没有任何 Playwright 步骤。
+  # 这里跑一条确定性冒烟链（登录失败提示 / 登录进首页 / 侧栏渲染 / 404 返回），
+  # 全量 E2E 由发布前一键任务执行；冒烟失败即阻断合并。
+  e2e-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: app_user
+          POSTGRES_PASSWORD: ci-password
+          POSTGRES_DB: techyard
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U app_user -d techyard"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+    env:
+      DATABASE_URL: postgresql+psycopg://app_user:ci-password@localhost:5432/techyard
+      REDIS_URL: redis://localhost:6379/0
+      CELERY_BROKER_URL: redis://localhost:6379/1
+      APP_SECRET_KEY: ci-secret-key-for-tests-only-min-32-chars
+      LLM_PROVIDER: fake
+      EMBEDDING_PROVIDER: mock
+      UV_FROZEN: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Install backend dependencies
+        run: uv sync --frozen --extra dev
+      - name: Migrate and seed
+        run: |
+          cd backend
+          uv run alembic upgrade head
+          uv run python -m app.db.seed
+      - name: Start backend
+        run: |
+          cd backend
+          uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 > /tmp/backend.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8000/health/live >/dev/null 2>&1; then exit 0; fi
+            sleep 2
+          done
+          echo "backend 未就绪"; tail -n 100 /tmp/backend.log; exit 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend + Playwright browser
+        run: |
+          cd frontend
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Playwright smoke
+        run: |
+          cd frontend
+          npx playwright test e2e/ci-smoke.spec.ts --project=chromium
+      - name: Backend log on failure
+        if: failure()
+        run: tail -n 200 /tmp/backend.log
+
   config:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Validate compose (base + production overlay)
@@ -136,9 +222,21 @@ jobs:
             POSTGRES_PASSWORD=ci-password REDIS_PASSWORD=ci-password \
             docker compose -f compose.yaml -f compose.production.yaml config >/dev/null
           rm -f .env
+      - name: Validate compose (prod standalone)
+        run: |
+          cat > .env.production <<EOF
+          POSTGRES_PASSWORD=ci-postgres-password
+          REDIS_PASSWORD=ci-redis-password
+          APP_SECRET_KEY=$(python3 -c "import secrets;print(secrets.token_hex(32))")
+          PLATFORM_ADMIN_USERNAMES=ci-admin
+          HTTP_PORT=8080
+          EOF
+          docker compose --env-file .env.production -f docker-compose.prod.yaml config >/dev/null
+          rm -f .env.production
 
   docker:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Build api image
@@ -147,3 +245,46 @@ jobs:
         run: docker build -f deploy/docker/worker.Dockerfile -t techyard-worker:ci .
       - name: Build web image
         run: docker build -f deploy/docker/web.Dockerfile -t techyard-web:ci .
+      # 构建成功不等于能启动：至少把镜像拉起来做一次导入自检
+      - name: api image starts and imports app
+        run: docker run --rm techyard-api:ci python -c "import app.main; print('api import ok')"
+
+  # 生产编排真实启动冒烟（审查 O4/O1）：不是只跑 compose config，而是 build →
+  # migrate → 依赖健康检查 → 通过 web 入口访问，验证 Redis 凭证链、迁移服务和 nginx。
+  stack-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare production env (dummy values, never reused)
+        run: |
+          cat > .env.production <<EOF
+          POSTGRES_PASSWORD=ci-postgres-password
+          REDIS_PASSWORD=ci-redis-password
+          APP_SECRET_KEY=$(python3 -c "import secrets;print(secrets.token_hex(32))")
+          PLATFORM_ADMIN_USERNAMES=ci-admin
+          HTTP_PORT=8080
+          SIGNUP_ENABLED=false
+          EOF
+      - name: Up (build + migrate + start)
+        run: docker compose --env-file .env.production -f docker-compose.prod.yaml up -d --build
+      - name: Wait for api healthy
+        run: |
+          DC="docker compose --env-file .env.production -f docker-compose.prod.yaml"
+          CID=$($DC ps -q api)
+          for i in $(seq 1 60); do
+            STATUS=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$CID")
+            if [ "$STATUS" = "healthy" ]; then echo "api healthy"; exit 0; fi
+            sleep 5
+          done
+          $DC ps || true
+          $DC logs --no-color --tail=200 || true
+          exit 1
+      - name: Health + web entry
+        run: |
+          DC="docker compose --env-file .env.production -f docker-compose.prod.yaml"
+          $DC exec -T api python -c "import urllib.request;print(urllib.request.urlopen('http://localhost:8000/health/ready').status)"
+          curl -fsS http://127.0.0.1:8080/ | head -c 200
+      - name: Tear down
+        if: always()
+        run: docker compose --env-file .env.production -f docker-compose.prod.yaml down -v

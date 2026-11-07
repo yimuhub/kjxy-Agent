@@ -19,6 +19,7 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -27,8 +28,79 @@ jobs:
       - name: Verify tag matches every version surface
         run: python scripts/check_versions.py --tag "${GITHUB_REF_NAME}"
 
+  # 发布前置门禁（审查 O4）：release 不再只校验版本号，必须先在打标签的 commit 上
+  # 跑通与 CI 同口径的后端/前端门禁，否则不进入三平台构建。
+  quality-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: app_user
+          POSTGRES_PASSWORD: ci-password
+          POSTGRES_DB: techyard
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U app_user -d techyard"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+    env:
+      DATABASE_URL: postgresql+psycopg://app_user:ci-password@localhost:5432/techyard
+      REDIS_URL: redis://localhost:6379/0
+      CELERY_BROKER_URL: redis://localhost:6379/1
+      APP_SECRET_KEY: ci-secret-key-for-tests-only-min-32-chars
+      LLM_PROVIDER: fake
+      EMBEDDING_PROVIDER: mock
+      UV_FROZEN: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Backend dependencies (frozen lock)
+        run: uv sync --frozen --extra dev
+      - name: Migrations clean + reversible
+        run: |
+          cd backend
+          uv run alembic upgrade head
+          uv run alembic downgrade -1
+          uv run alembic upgrade head
+      - name: Lint / type / tests
+        run: |
+          cd backend
+          uv run ruff check app tests
+          uv run ruff format --check app tests
+          uv run mypy app
+          uv run python -m pytest tests -q
+      - name: Contract drift
+        run: |
+          uv run python backend/scripts/generate_openapi.py
+          git diff --exit-code contracts/openapi.yaml
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Frontend gates
+        run: |
+          cd frontend
+          npm ci
+          npm run lint
+          npm run test:unit
+          npm run build
+
   release:
-    needs: verify
+    needs: [verify, quality-gate]
     strategy:
       fail-fast: false
       matrix:
@@ -46,17 +118,27 @@ jobs:
             # deb 安装方式；AppImage 免安装——两者都出（rpmbuild 不可用故不出 rpm）
             bundles: deb
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    env:
+      UV_FROZEN: "1"
     steps:
       # —— 以下步骤链复用 client.yml 已实测的模式 ——
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: |
+            frontend/package-lock.json
+            client/desktop/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
       - name: Install linux system deps
         if: runner.os == 'Linux'
@@ -76,10 +158,15 @@ jobs:
       - name: Build PyInstaller sidecar（本地引擎）
         shell: bash
         run: |
-          python -m pip install --upgrade pip pyinstaller
-          # 脚本前置条件：项目与全部运行依赖就位（sidecar --collect-all app 需要真实导入）
-          python -m pip install --quiet -e .
-          bash backend/scripts/build_sidecar.sh
+          # 依赖必须来自 uv.lock（不再临时 pip 解析），否则三平台产物依赖不可复现
+          uv sync --frozen --extra dev
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            PY="$(pwd)/.venv/Scripts/python.exe"
+          else
+            PY="$(pwd)/.venv/bin/python"
+          fi
+          uv pip install --python "$PY" pyinstaller
+          PYTHON="$PY" bash backend/scripts/build_sidecar.sh
           ls -la backend/dist
       - name: Stage sidecar binary (tauri target-triple naming)
         shell: bash
@@ -92,7 +179,7 @@ jobs:
         working-directory: client/desktop
         shell: bash
         run: |
-          npm install
+          npm ci
           npx tauri icon icons-src/app-icon.png
       # 签名 + 打包 + 建 Release + 上传产物（安装包、.sig、各平台更新清单并合并 latest.json）：
       # tauri-action 用 GITHUB_TOKEN 走 GitHub API 上传（等效 softprops/action-gh-release/gh CLI），

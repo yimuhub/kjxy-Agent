@@ -26,16 +26,26 @@ jobs:
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    env:
+      UV_FROZEN: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: |
+            frontend/package-lock.json
+            client/desktop/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
       - name: Install linux system deps
         if: runner.os == 'Linux'
@@ -52,10 +62,14 @@ jobs:
       - name: Build PyInstaller sidecar（本地引擎）
         shell: bash
         run: |
-          python -m pip install --upgrade pip pyinstaller
-          # 脚本前置条件：项目与全部运行依赖就位（sidecar --collect-all app 需要真实导入）
-          python -m pip install --quiet -e .
-          bash backend/scripts/build_sidecar.sh
+          uv sync --frozen --extra dev
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            PY="$(pwd)/.venv/Scripts/python.exe"
+          else
+            PY="$(pwd)/.venv/bin/python"
+          fi
+          uv pip install --python "$PY" pyinstaller
+          PYTHON="$PY" bash backend/scripts/build_sidecar.sh
           ls -la backend/dist
       - name: Stage sidecar binary (tauri target-triple naming)
         shell: bash
@@ -68,7 +82,7 @@ jobs:
         working-directory: client/desktop
         shell: bash
         run: |
-          npm install
+          npm ci
           npx tauri icon icons-src/app-icon.png
       - name: Tauri build（无证书→未签名内测包；mac ad-hoc）
         uses: tauri-apps/tauri-action@v0
@@ -93,11 +107,12 @@ jobs:
   android:
     if: inputs.mode == 'android'
     runs-on: ubuntu-22.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - uses: actions/setup-java@v4

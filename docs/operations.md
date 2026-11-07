@@ -106,6 +106,21 @@ curl -s http://127.0.0.1:8000/api/v1/meta                   # 确认 version 与
 
 1. 停止扩大影响 → 2. 恢复上版本镜像/配置 → 3. 若迁移不可逆，按备份恢复流程处理（禁止假设"回滚镜像=数据库自动恢复"）→ 4. 验证健康与主流程。
 
+## 发布与签名
+
+- 推 `v*` 标签触发 Release：先跑 `verify`（各版本面一致）与 `quality-gate`
+  （后端 ruff/mypy/pytest/迁移可逆/契约漂移 + 前端 lint/单测/构建），全部通过才进入
+  三平台构建；任一失败不会产出安装包。
+- 依赖锁：Python 一律 `uv sync --frozen`（uv.lock）；前端与桌面一律 `npm ci`
+  （各自 package-lock.json）；Node 统一 22，与 `frontend/package.json` 的 `engines>=22` 对齐。
+- CI 另有真实浏览器冒烟（Playwright）与生产编排启动冒烟（compose build→migrate→healthy→
+  web 入口），不再只做 `compose config` 与镜像构建。
+- 更新包签名：Tauri updater 使用 minisign（Secrets 中的 `TAURI_SIGNING_PRIVATE_KEY`），
+  应用内自动升级链路可用。
+- **平台代码签名/公证尚未完成**：macOS 未做 Developer ID 签名与公证，Windows 未做
+  Authenticode。首次安装会出现 Gatekeeper / SmartScreen 提示；对外正式分发前必须补齐
+  证书与 CI Secrets，不能把「updater 有签名」当成「安装包已被系统信任」。
+
 ## 生产注意
 
 - 服务器版（免 Docker）安装脚本默认 `APP_ENV=production`，初始账号为随机口令并写入
