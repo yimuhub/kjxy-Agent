@@ -162,6 +162,16 @@ def _root(raw: str) -> Path:
         raise _fail("WORKSPACE_ROOT_INVALID", "项目根必须是目录。")
     if root == Path("/") or root in _HARD_DENIED_ROOTS:
         raise _fail("WORKSPACE_ROOT_DENIED", "不允许把系统目录注册为工作区。")
+    # 敏感目录本身作根时，根内文件不再带有可识别的敏感路径段（如 .ssh/config），
+    # 必须在注册入口就拒绝，而不是依赖文件级名单。
+    root_name = root.name.casefold()
+    if (
+        {part.casefold() for part in root.parts} & _DENIED_PARTS
+        or root_name in _DENIED_NAMES
+        or root_name.startswith(".env.")
+        or root_name.endswith(_DENIED_SUFFIXES)
+    ):
+        raise _fail("WORKSPACE_ROOT_DENIED", "不允许把敏感目录注册为工作区。")
     if not any(root.is_relative_to(base) for base in allowed_roots()):
         raise _fail(
             "WORKSPACE_ROOT_DENIED",
@@ -169,6 +179,15 @@ def _root(raw: str) -> Path:
             allowed_roots=[str(item) for item in allowed_roots()],
         )
     return root
+
+
+def _check_sensitive(rel: str) -> None:
+    lower_parts = {part.casefold() for part in PurePosixPath(rel).parts}
+    if lower_parts & _DENIED_PARTS:
+        raise _fail("WORKSPACE_PATH_DENIED", "该目录不允许修改。")
+    name = PurePosixPath(rel).name.casefold()
+    if name in _DENIED_NAMES or name.startswith(".env.") or name.endswith(_DENIED_SUFFIXES):
+        raise _fail("WORKSPACE_PATH_DENIED", "敏感文件不允许修改。")
 
 
 def _normalize_rel(raw: str) -> str:
@@ -181,12 +200,7 @@ def _normalize_rel(raw: str) -> str:
     rel = pure.as_posix()
     if not rel or rel == ".":
         raise _fail("WORKSPACE_PATH_INVALID", "文件路径不能是项目根。")
-    lower_parts = {part.casefold() for part in PurePosixPath(rel).parts}
-    if lower_parts & _DENIED_PARTS:
-        raise _fail("WORKSPACE_PATH_DENIED", "该目录不允许修改。")
-    name = PurePosixPath(rel).name.casefold()
-    if name in _DENIED_NAMES or name.startswith(".env.") or name.endswith(_DENIED_SUFFIXES):
-        raise _fail("WORKSPACE_PATH_DENIED", "敏感文件不允许修改。")
+    _check_sensitive(rel)
     return rel
 
 
@@ -255,6 +269,19 @@ def _target(project: WorkspaceProject, raw: str) -> tuple[str, Path]:
     target = (root / rel).resolve()
     if not target.is_relative_to(root):
         raise _fail("WORKSPACE_PATH_INVALID", "文件路径解析后越出项目根。", path=rel)
+    # 软链接可把「看起来正常」的输入名指向根内敏感文件或白名单外文件，
+    # 必须对解析后的真实路径复查；预览/应用/回滚每次都重新过这道闸，
+    # 预览后切换链接目标也会在应用时被拦下。
+    real_rel = target.relative_to(root).as_posix()
+    if real_rel == ".":
+        raise _fail("WORKSPACE_PATH_INVALID", "文件路径不能是项目根。", path=rel)
+    _check_sensitive(real_rel)
+    if not _matches_allowed(real_rel, project.allowed_paths):
+        raise _fail(
+            "WORKSPACE_PATH_DENIED",
+            "该路径不在项目允许修改的范围内。",
+            allowed_paths=project.allowed_paths or [],
+        )
     return rel, target
 
 

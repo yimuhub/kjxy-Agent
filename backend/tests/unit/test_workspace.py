@@ -434,3 +434,144 @@ def test_status_lists_authorized_plugins(db_session, workspace_root):
     assert "read-only" not in ids
     assert result["git_available"] is True or result["git_available"] is False
     assert result["allowed_roots"] == [str(workspace_root.resolve())]
+
+
+def _symlink(link: Path, target: Path) -> None:
+    try:
+        link.symlink_to(target)
+    except OSError:
+        pytest.skip("当前环境不支持创建符号链接")
+
+
+def test_symlink_to_sensitive_file_inside_root_is_rejected(db_session, workspace_root):
+    """输入名正常、resolve 后指向根内 .env：必须按真实目标拒绝。"""
+    secret = workspace_root / ".env"
+    secret.write_text("TOKEN=x", encoding="utf-8")
+    _symlink(workspace_root / "notes.txt", secret)
+    project = _project(db_session, workspace_root)
+    with pytest.raises(AppError) as exc:
+        service.read_file(db_session, _ctx(), project["id"], "notes.txt")
+    assert exc.value.code == "WORKSPACE_PATH_DENIED"
+
+
+def test_symlinked_directory_into_denied_dir_is_rejected(db_session, workspace_root):
+    aws = workspace_root / ".aws"
+    aws.mkdir()
+    (aws / "credentials").write_text("secret", encoding="utf-8")
+    _symlink(workspace_root / "config", aws)
+    project = _project(db_session, workspace_root)
+    with pytest.raises(AppError) as exc:
+        service.read_file(db_session, _ctx(), project["id"], "config/credentials")
+    assert exc.value.code == "WORKSPACE_PATH_DENIED"
+
+
+def test_symlink_cannot_escape_allowed_paths(db_session, workspace_root):
+    readme = workspace_root / "README.md"
+    readme.write_text("readme", encoding="utf-8")
+    src = workspace_root / "src"
+    src.mkdir()
+    _symlink(src / "evil.txt", readme)
+    project = service.create_project(
+        db_session,
+        _ctx(),
+        name="narrow-link",
+        root_path=str(workspace_root),
+        description=None,
+        allowed_paths=["src/**"],
+    )
+    with pytest.raises(AppError) as exc:
+        service.read_file(db_session, _ctx(), project["id"], "src/evil.txt")
+    assert exc.value.code == "WORKSPACE_PATH_DENIED"
+    with pytest.raises(AppError) as exc:
+        service.preview_change(
+            db_session,
+            _ctx(),
+            project_id=project["id"],
+            plugin_id="workspace_editor",
+            path="src/evil.txt",
+            content="overwrite",
+        )
+    assert exc.value.code == "WORKSPACE_PATH_DENIED"
+    assert readme.read_text(encoding="utf-8") == "readme"
+
+
+def test_sensitive_directory_cannot_be_root(db_session, workspace_root):
+    ssh = workspace_root / ".ssh"
+    ssh.mkdir()
+    with pytest.raises(AppError) as exc:
+        service.create_project(
+            db_session,
+            _ctx(),
+            name="ssh-root",
+            root_path=str(ssh),
+            description=None,
+            allowed_paths=None,
+        )
+    assert exc.value.code == "WORKSPACE_ROOT_DENIED"
+    alias = workspace_root / "alias"
+    _symlink(alias, ssh)
+    with pytest.raises(AppError) as exc:
+        service.create_project(
+            db_session,
+            _ctx(),
+            name="alias-root",
+            root_path=str(alias),
+            description=None,
+            allowed_paths=None,
+        )
+    assert exc.value.code == "WORKSPACE_ROOT_DENIED"
+
+
+def test_link_switch_to_sensitive_between_preview_and_apply(db_session, workspace_root):
+    row = _plugin(db_session)
+    _grant(db_session, row)
+    normal = workspace_root / "normal.txt"
+    normal.write_text("one", encoding="utf-8")
+    secret = workspace_root / ".env"
+    secret.write_text("TOKEN=x", encoding="utf-8")
+    link = workspace_root / "entry.txt"
+    _symlink(link, normal)
+    project = _project(db_session, workspace_root)
+    change = service.preview_change(
+        db_session,
+        _ctx(),
+        project_id=project["id"],
+        plugin_id=row.plugin_id,
+        path="entry.txt",
+        content="two",
+    )
+    link.unlink()
+    link.symlink_to(secret)
+    with pytest.raises(AppError) as exc:
+        service.apply_change(db_session, _ctx(), change["id"])
+    assert exc.value.code == "WORKSPACE_PATH_DENIED"
+    assert secret.read_text(encoding="utf-8") == "TOKEN=x"
+    assert normal.read_text(encoding="utf-8") == "one"
+
+
+def test_link_switch_to_outside_root_between_preview_and_apply(
+    db_session, workspace_root, tmp_path
+):
+    row = _plugin(db_session)
+    _grant(db_session, row)
+    normal = workspace_root / "normal.txt"
+    normal.write_text("one", encoding="utf-8")
+    outside = tmp_path.parent / "ws-switch-outside.txt"
+    outside.write_text("outside", encoding="utf-8")
+    link = workspace_root / "entry.txt"
+    _symlink(link, normal)
+    project = _project(db_session, workspace_root)
+    change = service.preview_change(
+        db_session,
+        _ctx(),
+        project_id=project["id"],
+        plugin_id=row.plugin_id,
+        path="entry.txt",
+        content="two",
+    )
+    link.unlink()
+    link.symlink_to(outside)
+    with pytest.raises(AppError) as exc:
+        service.apply_change(db_session, _ctx(), change["id"])
+    assert exc.value.code == "WORKSPACE_PATH_INVALID"
+    assert outside.read_text(encoding="utf-8") == "outside"
