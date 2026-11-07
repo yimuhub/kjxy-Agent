@@ -3,10 +3,11 @@
 模型 YardQuota 与业务逻辑同文件，方便 ensure/check/get 三函数自包含；
 signup worker 只需调用 ensure_quota(db, yard_id)（幂等）即完成配额初始化。
 
-月度重置说明（规范 §16.1）：YardQuota 没有“所属计费期”列，加列需要 migration
-（本轮禁止改 migration）。月度清零由 beat 任务 quota.monthly_reset
-（app/workers/heartbeat_tasks.py）落地：Redis 键判定当月是否已清，每日检查、当月仅执行一次。
-GET 响应中的 period 为当前自然月标注；运营侧另有 90%/100% 告警与 PATCH 限额调控。
+月度重置说明（规范 §16.1）：月度清零由 ``quota.monthly_reset``
+（app/workers/heartbeat_tasks.py）落地，幂等标记是 ``reset_period`` 列上的条件
+UPDATE——服务器由 beat 每日检查，桌面单机由内嵌维护线程检查，两条通道共用同一实现，
+不依赖 Redis。GET 响应中的 period 为当前自然月标注；运营侧另有 90%/100% 告警与
+PATCH 限额调控。
 """
 
 from datetime import UTC, datetime
@@ -51,6 +52,9 @@ class YardQuota(Base, TimestampMixin):
     knowledge_docs_used: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     tasks_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=500)
     tasks_used: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    #: 最近一次自然月清零所属期（YYYY-MM）。作为幂等标记：Quota.monthly_reset 只
+    #: 更新「NULL 或不是本月」的行，多进程并发也只会清一次（审查 O6）。
+    reset_period: Mapped[str | None] = mapped_column(String(7), nullable=True)
 
 
 def ensure_quota(db: Session, yard_id: str) -> YardQuota:

@@ -77,6 +77,9 @@ def _startup_wiring() -> None:
                 from app.modules.self_improve.worker_tasks import (
                     start_inline_scheduler as start_si_poll,
                 )
+                from app.workers.heartbeat_tasks import (
+                    start_inline_scheduler as start_ops_maintenance,
+                )
 
                 start_devices_poll()
                 start_si_poll()
@@ -86,6 +89,9 @@ def _startup_wiring() -> None:
                 start_iteration_poll()
                 # 逾期工单升级（v3.71）：Celery beat 每 6h 一次，桌面 inline 同口径补齐
                 start_workorder_escalate()
+                # 超时任务回收 + legacy 配额月清零（v3.72 / 审查 O6）：
+                # 这两项原来只挂在 beat 上，桌面没有 worker/beat 就成了永久缺口
+                start_ops_maintenance()
         except Exception as e:
             log.warning("inline schedulers start failed: %s", e)
 

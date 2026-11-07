@@ -6,17 +6,27 @@
   每条回收写 task_events 与审计，单轮结束按日期去重汇总一条 send_alert。
 - ``workers.heartbeat``：每 60 秒刷新 worker 心跳键，保证无在途任务时
   /health/worker 也能反映 beat/worker 进程存活。
+- ``quota.monthly_reset``：每日检查一次 legacy ``YardQuota`` 自然月清零，用
+  ``reset_period`` 列做幂等标记（条件 UPDATE，多进程并发也只会清一次）。
 
 queued → failed 不经过状态机 set_status：状态机只允许 queued → running/cancelled，
 修改 TRANSITIONS 需 ADR（见 state_machine.py）。回收属规范 §7.5 明确定义的运维兜底，
 对 queued 直接写库进入终态，但同时写入 task_events 与审计保证可追溯；
 running → failed 是合法转移，仍经由 TaskService.set_status。
+
+桌面单机（TASKS_INLINE_MODE=true）没有 beat/worker，``start_inline_scheduler``
+在 API 进程内用 daemon 线程补齐这两项维护（审查 O6）：
+- 超时回收：每 5 分钟一轮，与 beat 同口径；
+- legacy 月清零：每小时检查一次，靠 ``reset_period`` 条件 UPDATE 保证当月只清一次
+  （原实现依赖 Redis 键，桌面无 Redis 时永远不清）。
 """
 
+import threading
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -30,6 +40,14 @@ log = get_logger(__name__)
 
 #: 单轮最多回收条数：防止极端堆积时长事务阻塞 beat 工作进程
 _REAP_BATCH_LIMIT = 200
+
+#: inline 模式的巡检节奏（秒）：回收与 beat 对齐；月清零只做日期判断，1 小时足够
+INLINE_REAP_SECONDS = 300
+INLINE_QUOTA_CHECK_SECONDS = 3600
+
+_scheduler_started = False
+_scheduler_lock = threading.Lock()
+_stop_event = threading.Event()
 
 #: 会话工厂，可被测试覆盖（与 worker_tasks 同一约定）
 _session_factory: Callable[[], Session] | None = None
@@ -161,43 +179,44 @@ def worker_heartbeat() -> None:
     mark_worker_alive()
 
 
-@celery_app.task(name="quota.monthly_reset")
-def quota_monthly_reset() -> bool:
-    """月度配额清零（幂等，不依赖数据库加列）。
+def reset_legacy_quota_periods(db: Session, period: str | None = None) -> int:
+    """legacy ``YardQuota`` 自然月清零，返回本轮被清零的行数。
 
-    用 Redis 键 ``quota:reset:{YYYY-MM}``（SET NX + 40 天 TTL）判定"本月是否已重置"：
-    只有当月第一个抢到键的进程执行清零；Redis 不可用时跳过（下一轮 beat 再试），
-    宁可晚清不可重复清。YardQuota 加 period 列需 migration，按规范 §6.4 走 ADR 后再演进。
+    幂等标记落在 ``yard_quotas.reset_period``（YYYY-MM）：条件 UPDATE 只命中
+    「从未清零」或「记的是别的月份」的行，数据库保证只清一次——不再依赖 Redis 键，
+    桌面单机没有 Redis 也能按月清零；多进程/多次调用重复执行也安全（第二次 0 行）。
     """
-    from datetime import UTC, datetime
-
-    from sqlalchemy import update
-
-    period = datetime.now(UTC).strftime("%Y-%m")
-    key = f"techyard:quota:reset:{period}"
-    try:
-        import redis
-
-        client = redis.Redis.from_url(
-            settings.redis_url, socket_connect_timeout=2, socket_timeout=2
-        )
-        ok = client.set(key, "1", nx=True, ex=40 * 86400)
-        if not ok:
-            return False  # 本月已重置过
-    except Exception as e:  # Redis 故障：跳过本轮，下一轮 beat 再试
-        log.warning("quota_monthly_reset skipped (redis unavailable): %s", e)
-        return False
-
     from app.modules.yards.quota import YardQuota
 
+    period = period or datetime.now(UTC).strftime("%Y-%m")
+    result = db.execute(
+        update(YardQuota)
+        .where(
+            (YardQuota.reset_period.is_(None)) | (YardQuota.reset_period != period),
+        )
+        .values(
+            llm_calls_used=0,
+            knowledge_docs_used=0,
+            tasks_used=0,
+            reset_period=period,
+        )
+        .execution_options(synchronize_session=False)
+    )
+    db.commit()
+    reset_rows = int(getattr(result, "rowcount", 0) or 0)
+    if reset_rows:
+        log.info("legacy quota monthly reset done for %s: %s rows", period, reset_rows)
+    return reset_rows
+
+
+@celery_app.task(name="quota.monthly_reset")
+def quota_monthly_reset() -> int:
+    """Celery 入口：legacy 配额月清零（幂等，见 reset_legacy_quota_periods）。"""
     db = _get_session_factory()()
     try:
-        db.execute(update(YardQuota).values(llm_calls_used=0, knowledge_docs_used=0, tasks_used=0))
-        db.commit()
+        return reset_legacy_quota_periods(db)
     finally:
         db.close()
-    log.info("quota monthly reset done for %s", period)
-    return True
 
 
 @celery_app.task(name="workorders.escalate_overdue")
@@ -212,3 +231,54 @@ def escalate_overdue_work_orders() -> dict[str, int]:
         return stats
     finally:
         db.close()
+
+
+def _run_with_session(fn: Callable[[Session], object], label: str) -> None:
+    db = _get_session_factory()()
+    try:
+        fn(db)
+    except Exception as e:  # noqa: BLE001 - 调度线程绝不因单次失败退出
+        db.rollback()
+        log.warning("inline %s failed: %s", label, e)
+    finally:
+        db.close()
+
+
+def start_inline_scheduler() -> bool:
+    """TASKS_INLINE_MODE 下启动维护线程（幂等）。返回是否新启动。
+
+    桌面单机没有 Celery worker/beat：超时任务回收与 legacy 配额月清零必须由
+    API 进程补上，否则僵尸任务永远停在 running、旧额度也永远不清零（审查 O6）。
+    """
+    global _scheduler_started
+    with _scheduler_lock:
+        if _scheduler_started:
+            return False
+        _scheduler_started = True
+    if not settings.tasks_inline_mode:
+        return False
+
+    def _loop() -> None:
+        log.info(
+            "ops inline scheduler started (reap=%ss, quota=%ss)",
+            INLINE_REAP_SECONDS,
+            INLINE_QUOTA_CHECK_SECONDS,
+        )
+        next_reap = 0.0
+        next_quota = 0.0
+        while True:
+            now = time.monotonic()
+            wait = max(0.5, min(next_reap, next_quota) - now)
+            if _stop_event.wait(timeout=wait):
+                return
+            now = time.monotonic()
+            if now >= next_reap:
+                _run_with_session(reap_once, "reap_stale")
+                next_reap = now + INLINE_REAP_SECONDS
+            if now >= next_quota:
+                _run_with_session(reset_legacy_quota_periods, "quota monthly reset")
+                next_quota = now + INLINE_QUOTA_CHECK_SECONDS
+
+    thread = threading.Thread(target=_loop, name="ops-maintenance", daemon=True)
+    thread.start()
+    return True

@@ -114,3 +114,29 @@ curl -s http://127.0.0.1:8000/api/v1/meta                   # 确认 version 与
   `migrate` 服务使用同一 `API_IMAGE`。
 - 数据库与 Redis 不暴露公网端口；Redis 设密码。
 - 首次发布前完成至少一次恢复演练并记录 RTO。
+
+## 部署形态与能力差异
+
+两种形态共用同一套代码，但后台能力不等价，交付时必须按客户实际形态说明（审查 O6）：
+
+| 能力 | Docker / 生产栈（PostgreSQL + Redis + Celery） | 桌面 / 原生单机（SQLite + inline） |
+| --- | --- | --- |
+| 知识检索 | pgvector 向量候选，候选集由索引决定 | 关键词/向量退化路径，按 `retrieval_scan_limit`（默认 2000）截断扫描 |
+| 后台任务 | Celery worker 执行、可重试、跨进程 | 进程内同步降级线程；进程退出时在途任务中断，靠超时回收兜底 |
+| 超时任务回收 | beat 每 5 分钟 `tasks.reap_stale` | 内嵌维护线程每 5 分钟，同口径同实现 |
+| legacy 配额月清零 | beat 每日 `quota.monthly_reset`，`reset_period` 列条件 UPDATE 幂等 | 内嵌维护线程每小时检查，同一实现，不依赖 Redis |
+| 指标与告警 | `/metrics` 文本；多进程各自计数，需按实例聚合 | 单进程计数，重启归零；告警依赖本机通道 |
+| 写并发 | 多 API 实例 + Redis 队列 | 单进程 + SQLite 写串行化 |
+| 备份恢复 | `deploy/scripts/backup.sh` / `restore.sh`（PG dump + 卷） | `deploy/native/server/upgrade.sh` 自带库备份与自动回滚 |
+
+桌面形态定位是「小院本地、5 人以内使用」；多院/高并发场景必须使用生产栈。
+
+## 容量与 SLA 口径
+
+- 现有性能基线（[docs/perf-baseline-2026-11-07.md](perf-baseline-2026-11-07.md)）是
+  **本机 dev、SQLite + inline、单并发 n=10** 的口径，只回答「接口本身快不快」，
+  不能作为生产 SLA 承诺。
+- 生产 SLA 必须以**目标拓扑**（PostgreSQL + Redis + Celery + 多 API 实例）的压测结果为准；
+  压测完成前只承诺可用性探针口径（`/health/live`、`/health/ready`、`/health/worker`），
+  不承诺 P95 时延与并发数。
+- SSE 长连接数、PG 写锁、会话列表大分页这三项必须进下一次 locust 场景。

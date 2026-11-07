@@ -104,8 +104,52 @@ def test_beat_schedule_registered():
     entries = {entry["task"]: entry["schedule"] for entry in schedules.values()}
     assert entries["tasks.reap_stale"] == 300.0  # 每 5 分钟
     assert entries["workers.heartbeat"] == 60.0  # 每 60 秒
+    assert entries["quota.monthly_reset"] == 86400.0  # 每日检查、当月只清一次
     assert "tasks.reap_stale" in celery_app.tasks
     assert "workers.heartbeat" in celery_app.tasks
+    # 桌面内嵌维护与 beat 的回收节奏保持一致（审查 O6）
+    assert heartbeat_tasks.INLINE_REAP_SECONDS == 300
+
+
+def test_legacy_quota_monthly_reset_is_idempotent(db_session):
+    """月清零靠 reset_period 条件 UPDATE：当月只清一次，重复调用不再抹数据。"""
+    from app.modules.yards.quota import YardQuota
+
+    quota = YardQuota(
+        yard_id="yard-reset",
+        llm_calls_used=12,
+        knowledge_docs_used=3,
+        tasks_used=7,
+        reset_period="2026-10",
+    )
+    db_session.add(quota)
+    db_session.commit()
+
+    assert heartbeat_tasks.reset_legacy_quota_periods(db_session, period="2026-11") == 1
+    db_session.expire_all()
+    assert (quota.llm_calls_used, quota.knowledge_docs_used, quota.tasks_used) == (0, 0, 0)
+    assert quota.reset_period == "2026-11"
+
+    # 同月再跑：没有命中行，不会把当月新产生的用量再清零
+    quota.llm_calls_used = 4
+    db_session.commit()
+    assert heartbeat_tasks.reset_legacy_quota_periods(db_session, period="2026-11") == 0
+    db_session.expire_all()
+    assert quota.llm_calls_used == 4
+
+
+def test_legacy_quota_reset_covers_never_reset_rows(db_session):
+    """从旧版本升上来的行 reset_period 为 NULL，应被首次巡检清零并打上月份。"""
+    from app.modules.yards.quota import YardQuota
+
+    quota = YardQuota(yard_id="yard-null", llm_calls_used=5)
+    db_session.add(quota)
+    db_session.commit()
+
+    assert heartbeat_tasks.reset_legacy_quota_periods(db_session, period="2026-11") == 1
+    db_session.expire_all()
+    assert quota.llm_calls_used == 0
+    assert quota.reset_period == "2026-11"
 
 
 @pytest.fixture()
