@@ -124,9 +124,7 @@ def browse_directories(base: str = "") -> dict[str, Any]:
             "current": "",
             "parent": None,
             "allowed_roots": [str(r) for r in roots],
-            "directories": [
-                {"name": r.name or str(r), "path": str(r)} for r in roots
-            ],
+            "directories": [{"name": r.name or str(r), "path": str(r)} for r in roots],
         }
     path = _root(base)  # 复用存在/目录/越权校验
     if not any(path == root or path.is_relative_to(root) for root in allowed_roots()):

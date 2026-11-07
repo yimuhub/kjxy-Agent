@@ -17,6 +17,7 @@
     <el-card shadow="never">
       <template #header>按{{ insights.group_label }}看达标进度</template>
       <el-table
+        v-col-resize
         :data="insights.groups"
         size="small"
       >

@@ -24,6 +24,7 @@
     />
 
     <el-table
+      v-col-resize
       :data="items"
       v-loading="loading"
       :default-sort="{ prop: 'journal_count', order: 'descending' }"

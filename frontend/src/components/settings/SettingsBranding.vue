@@ -227,6 +227,7 @@
       </p>
 
       <el-table
+        v-col-resize
         :data="grants"
         size="small"
         v-loading="grantsLoading"

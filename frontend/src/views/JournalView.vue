@@ -72,6 +72,7 @@
 
     <!-- 列表 -->
     <el-table
+      v-col-resize
       :data="rows"
       v-loading="loading"
       empty-text="还没有日志，点上方「生成今日草稿」开始"
@@ -151,6 +152,7 @@
     <!-- 编辑/查看弹窗 -->
     <el-dialog
       v-model="editVisible"
+      append-to-body
       :title="editing?.title || '日志'"
       width="640px"
       top="6vh"

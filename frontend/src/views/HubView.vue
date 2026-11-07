@@ -124,6 +124,7 @@
       <!-- 兜底：未知模式仍给通用聚合表 -->
       <el-table
         v-else
+        v-col-resize
         :data="items"
         v-loading="loading"
         :default-sort="{ prop: 'journal_count', order: 'descending' }"
@@ -174,6 +175,7 @@
     <!-- 新建枢纽（模式选择） -->
     <el-dialog
       v-model="createVisible"
+      append-to-body
       title="新建枢纽 · 选择运营模式"
       width="560px"
     >
@@ -231,6 +233,7 @@
     <!-- 关联小院：下拉直选；一院可同时被多个枢纽以不同口径关联 -->
     <el-dialog
       v-model="attachVisible"
+      append-to-body
       title="关联小院到本枢纽"
       width="520px"
     >
@@ -285,10 +288,12 @@
     <!-- 管理关联：解除本枢纽与该院的关系（不动其他枢纽） -->
     <el-dialog
       v-model="relationVisible"
+      append-to-body
       title="管理本枢纽的小院关联"
       width="560px"
     >
       <el-table
+        v-col-resize
         :data="items"
         size="small"
         empty-text="还没有关联小院"
@@ -331,6 +336,7 @@
     <!-- 添加成员：下拉直选，无需手动找用户 ID -->
     <el-dialog
       v-model="memberVisible"
+      append-to-body
       title="添加枢纽成员"
       width="480px"
     >

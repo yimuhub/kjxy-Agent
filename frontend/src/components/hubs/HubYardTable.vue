@@ -1,5 +1,6 @@
 <template>
   <el-table
+    v-col-resize
     :data="items"
     size="small"
     :default-sort="{ prop: 'journal_count', order: 'descending' }"

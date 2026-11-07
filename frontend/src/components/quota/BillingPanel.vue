@@ -65,6 +65,7 @@
     <div class="orders">
       <h4>本小院订单</h4>
       <el-table
+        v-col-resize
         :data="orders"
         size="small"
         empty-text="还没有订单"
@@ -159,6 +160,7 @@
           </el-button>
         </div>
         <el-table
+          v-col-resize
           :data="codes"
           size="small"
           max-height="260"
@@ -211,6 +213,7 @@
       <div class="admin-zone">
         <h4>平台管理员 · 待确认订单</h4>
         <el-table
+          v-col-resize
           :data="allOrders"
           size="small"
           max-height="260"
@@ -270,6 +273,7 @@
     <!-- 兑换 / 下单对话框 -->
     <el-dialog
       v-model="redeemOpen"
+      append-to-body
       :title="`兑换 · ${activePlan?.name ?? ''}`"
       width="420px"
     >
@@ -292,6 +296,7 @@
 
     <el-dialog
       v-model="orderOpen"
+      append-to-body
       :title="`对公转账下单 · ${activePlan?.name ?? ''}`"
       width="460px"
     >

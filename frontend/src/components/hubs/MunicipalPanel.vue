@@ -5,6 +5,7 @@
     <el-card shadow="never">
       <template #header>县域覆盖与进度</template>
       <el-table
+        v-col-resize
         :data="insights.groups"
         size="small"
       >
