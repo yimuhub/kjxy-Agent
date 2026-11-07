@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from app.core.errors import AppError
@@ -28,8 +29,11 @@ SETTINGS_KEY = "quota"
 def _policy_payload(db: Session, policy: QuotaPolicy) -> dict[str, Any]:
     used, start = engine.current_usage(db, policy)
     limit = engine.effective_limit(db, policy)
-    grants = max(0.0, limit - float(policy.limit_value))
-    percent = round(used / limit * 100, 2) if limit > 0 else 0.0
+    # 无限制（limit_value<0）→ effective_limit 为 inf，序列化转 null 并打标，
+    # 与「零余额」（limit==0，拒绝服务）严格区分（审查 B3）。
+    unlimited = not math.isfinite(limit)
+    grants = 0.0 if unlimited else max(0.0, limit - float(policy.limit_value))
+    percent = 0.0 if unlimited or limit <= 0 else round(used / limit * 100, 2)
     return {
         "id": policy.id,
         "scope_type": policy.scope_type,
@@ -40,10 +44,11 @@ def _policy_payload(db: Session, policy: QuotaPolicy) -> dict[str, Any]:
         "window": policy.window,
         "window_label": WINDOW_LABELS.get(policy.window, policy.window),
         "limit_value": policy.limit_value,
+        "unlimited": unlimited,
         "granted": round(grants, 4),
-        "effective_limit": round(limit, 4),
+        "effective_limit": None if unlimited else round(limit, 4),
         "used": round(used, 4),
-        "remaining": round(max(limit - used, 0.0), 4),
+        "remaining": None if unlimited else round(max(limit - used, 0.0), 4),
         "usage_percent": percent,
         "on_exceed": policy.on_exceed,
         "on_exceed_label": ON_EXCEED_LABELS.get(policy.on_exceed, policy.on_exceed),

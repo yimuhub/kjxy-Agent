@@ -86,6 +86,12 @@ REQUEST_STATUSES: tuple[str, ...] = (
 SOURCE_MANUAL = "manual"
 SOURCE_TEMPLATE = "template"
 
+#: 额度上限语义（审查 B3）：limit_value < 0 是显式「无限制」哨兵（不设上限）；
+#: limit_value == 0 是「零余额」——无临时额度时拒绝服务，绝不等同于无限制。
+#: 二者必须区分：付费套餐到账建 limit_value=0 的基线策略 + 限时 grant，grant
+#: 到期后 effective_limit 归零即应拒绝/转申请，而不是悄悄变成无限免费用。
+UNLIMITED_LIMIT = -1.0
+
 
 class QuotaPolicy(Base, TimestampMixin):
     __tablename__ = "quota_policies"
@@ -102,7 +108,8 @@ class QuotaPolicy(Base, TimestampMixin):
     scope_key: Mapped[str] = mapped_column(String(100), nullable=False, default="")
     metric: Mapped[str] = mapped_column(String(16), nullable=False, default=METRIC_TOKENS)
     window: Mapped[str] = mapped_column(String(8), nullable=False, default=WINDOW_MONTH)
-    #: tokens 用整数 token；calls 用次数；cost 用元（两位小数）
+    #: tokens 用整数 token；calls 用次数；cost 用元（两位小数）。
+    #: <0（UNLIMITED_LIMIT）=无限制；0=零余额（拒绝服务）；>0=该窗口硬上限。
     limit_value: Mapped[float] = mapped_column(Float, nullable=False, default=0)
     on_exceed: Mapped[str] = mapped_column(String(16), nullable=False, default=ON_EXCEED_APPROVE)
     #: manual=人工配置；template=环境模板生成（换模板时可被覆盖）

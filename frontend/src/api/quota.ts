@@ -28,10 +28,12 @@ export interface QuotaPolicyItem {
   window: QuotaWindow
   window_label: string
   limit_value: number
+  /** 显式无限制（limit_value<0）：effective_limit/remaining 为 null，不设上限 */
+  unlimited: boolean
   granted: number
-  effective_limit: number
+  effective_limit: number | null
   used: number
-  remaining: number
+  remaining: number | null
   usage_percent: number
   on_exceed: QuotaOnExceed
   on_exceed_label: string

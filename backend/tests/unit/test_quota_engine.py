@@ -1,12 +1,20 @@
 """分级额度引擎：层级匹配、Token 记账、三种超限动作、临时额度与过期。"""
 
+import json
+import math
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from app.core.errors import AppError
 from app.modules.agents.models import YardAgent
-from app.modules.quota import engine
-from app.modules.quota.models import STATUS_APPROVED, QuotaGrant, QuotaPolicy, QuotaRequest
+from app.modules.quota import engine, service
+from app.modules.quota.models import (
+    STATUS_APPROVED,
+    UNLIMITED_LIMIT,
+    QuotaGrant,
+    QuotaPolicy,
+    QuotaRequest,
+)
 
 YARD = "y-quota"
 
@@ -165,3 +173,102 @@ def test_calls_metric_is_prepaid(db_session):
     db_session.commit()
     with pytest.raises(AppError):
         engine.preflight(db_session, YARD)  # 2 + 1 > 2
+
+
+# ---------------------------------------------------------------------------
+# 审查 B3：区分「无限制」与「零余额」，到期失败关闭而非无限免费
+# ---------------------------------------------------------------------------
+
+
+def test_zero_limit_is_zero_balance_not_unlimited(db_session):
+    """limit_value=0 且无临时额度 = 零余额，必须拒绝（旧实现误当无限制放行）。"""
+    policy = _policy(db_session, limit_value=0, on_exceed="block")
+    assert engine.effective_limit(db_session, policy) == 0
+    with pytest.raises(AppError) as exc:
+        engine.preflight(db_session, YARD)
+    assert exc.value.code == "QUOTA_EXCEEDED"
+    assert exc.value.details["limit"] == 0
+    assert exc.value.details["used"] == 0
+    assert exc.value.details["requestable"] is False
+
+
+def test_zero_limit_approve_opens_request(db_session):
+    """零余额 + approve：拒绝并自动建提额申请（付费到期转申请，而非放行）。"""
+    _policy(db_session, limit_value=0, on_exceed="approve")
+    with pytest.raises(AppError) as exc:
+        engine.preflight(db_session, YARD, requester_id="u-operator")
+    assert exc.value.details["requestable"] is True
+    assert exc.value.details["request_id"]
+    pending = db_session.query(QuotaRequest).filter(QuotaRequest.status == "pending").count()
+    assert pending == 1
+
+
+def test_zero_limit_calls_denies_first_call(db_session):
+    """次数指标零余额：前付费 0+1<=0 不成立，第一次调用即拒绝。"""
+    _policy(db_session, metric="calls", limit_value=0, on_exceed="block")
+    with pytest.raises(AppError):
+        engine.preflight(db_session, YARD)
+
+
+def test_unlimited_sentinel_always_allows(db_session):
+    """limit_value<0 是显式无限制：无论用多少都放行，effective_limit=inf。"""
+    policy = _policy(db_session, limit_value=UNLIMITED_LIMIT, on_exceed="block")
+    assert engine.is_unlimited(policy)
+    assert engine.effective_limit(db_session, policy) == math.inf
+    engine.charge(db_session, YARD, tokens=10**12)
+    db_session.commit()
+    engine.preflight(db_session, YARD)  # 不抛错
+    engine.preflight(db_session, YARD, now=datetime.now(UTC) + timedelta(days=400))
+
+
+def test_grant_expiry_restores_zero_balance_denial(db_session):
+    """B3 核心到期边界：billing 式 limit_value=0 基线 + 限时 grant。
+
+    grant 有效期内放行；到期后 effective_limit 归零 → 拒绝服务，绝不变成
+    无限免费用（旧实现到期后 limit<=0 被跳过 = 无限制，正是商用漏洞）。
+    """
+    policy = _policy(db_session, limit_value=0, on_exceed="block")
+    expiry = datetime.now(UTC) + timedelta(days=30)
+    db_session.add(QuotaGrant(yard_id=YARD, policy_id=policy.id, amount=1000, expires_at=expiry))
+    db_session.commit()
+
+    before = expiry - timedelta(seconds=1)
+    assert engine.effective_limit(db_session, policy, before) == 1000
+    engine.preflight(db_session, YARD, now=before)  # 有效期内放行
+
+    # 到期当刻及之后：临时额度失效，回到零余额 → 拒绝
+    for moment in (expiry, expiry + timedelta(seconds=1), expiry + timedelta(days=1)):
+        assert engine.effective_limit(db_session, policy, moment) == 0
+        with pytest.raises(AppError) as exc:
+            engine.preflight(db_session, YARD, now=moment)
+        assert exc.value.code == "QUOTA_EXCEEDED"
+        assert exc.value.details["limit"] == 0
+
+
+def test_grant_expiry_boundary_is_strictly_greater(db_session):
+    """到期判定用 expires_at > now：等于到期时刻即失效（边界不宽限）。"""
+    policy = _policy(db_session, limit_value=0, on_exceed="block")
+    expiry = datetime.now(UTC).replace(microsecond=0) + timedelta(days=7)
+    db_session.add(QuotaGrant(yard_id=YARD, policy_id=policy.id, amount=500, expires_at=expiry))
+    db_session.commit()
+    assert engine.effective_limit(db_session, policy, expiry - timedelta(microseconds=1)) == 500
+    assert engine.effective_limit(db_session, policy, expiry) == 0
+
+
+def test_unlimited_and_zero_payloads_are_json_safe(db_session):
+    """无限制 payload 把 inf 转 null 并打 unlimited 标；零余额标 0，均可 JSON 序列化。"""
+    unlimited = _policy(db_session, limit_value=UNLIMITED_LIMIT, metric="tokens", window="month")
+    payload = service._policy_payload(db_session, unlimited)
+    assert payload["unlimited"] is True
+    assert payload["effective_limit"] is None
+    assert payload["remaining"] is None
+    assert payload["usage_percent"] == 0.0
+    json.dumps(payload)  # 不抛 ValueError（inf 不可序列化）
+
+    # 零余额策略：换一个窗口避免与上面唯一键冲突
+    zero = _policy(db_session, limit_value=0, metric="tokens", window="day")
+    zero_payload = service._policy_payload(db_session, zero)
+    assert zero_payload["unlimited"] is False
+    assert zero_payload["effective_limit"] == 0
+    assert zero_payload["remaining"] == 0
+    json.dumps(zero_payload)

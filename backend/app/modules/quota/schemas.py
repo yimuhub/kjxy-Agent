@@ -17,7 +17,10 @@ class PolicyUpsertRequest(BaseModel):
     scope_key: str = Field(default="", max_length=100, description="yard 作用域留空")
     metric: Metric = "tokens"
     window: WindowType = "month"
-    limit_value: float = Field(ge=0, description="tokens/calls 为个数，cost 为元")
+    limit_value: float = Field(
+        ge=-1,
+        description="tokens/calls 为个数，cost 为元；-1=无限制，0=零余额（拒绝服务），>0=硬上限",
+    )
     on_exceed: OnExceed = "approve"
     note: str | None = Field(default=None, max_length=200)
     enabled: bool = True

@@ -10,6 +10,7 @@ Token / 金额是后付费指标（调用前不知道要花多少），因此预
 
 from __future__ import annotations
 
+import math
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -124,7 +125,23 @@ def grant_total(db: Session, policy_id: str, now: datetime | None = None) -> flo
     return float(total or 0.0)
 
 
+def is_unlimited(policy: QuotaPolicy) -> bool:
+    """显式「无限制」哨兵：limit_value < 0（审查 B3）。
+
+    与「零余额」严格区分——limit_value == 0 且无有效临时额度时是零余额，
+    必须按 on_exceed 拒绝/转申请，绝不放行。
+    """
+    return float(policy.limit_value) < 0
+
+
 def effective_limit(db: Session, policy: QuotaPolicy, now: datetime | None = None) -> float:
+    """有效上限 = 基线上限 + 未到期临时额度。
+
+    无限制策略返回 ``math.inf``（调用方据此跳过拦截与告警，序列化时转 null）；
+    零余额策略返回 0，由 preflight 当作「已用尽」处理（审查 B3）。
+    """
+    if is_unlimited(policy):
+        return math.inf
     return float(policy.limit_value) + grant_total(db, policy.id, now)
 
 
@@ -325,9 +342,12 @@ def preflight(
     for policy, _scope_key in matching_policies(
         db, yard_id, agent_code=agent_code, supplier_id=supplier_id, model=model, now=now
     ):
-        limit = effective_limit(db, policy, now)
-        if limit <= 0:
+        # 显式无限制（limit_value<0）直接放行；零余额（effective_limit==0）不再
+        # 跳过，而是按「已用尽」走 on_exceed 拒绝/转申请（审查 B3：到期失败关闭，
+        # 不再把零余额误当无限制放行）。
+        if is_unlimited(policy):
             continue
+        limit = effective_limit(db, policy, now)
         used, _start = current_usage(db, policy, now=now)
         # 调用次数是前付费（这次要占 1 次）；Token / 金额是后付费，用满即止
         allowed = used + 1 <= limit if policy.metric == METRIC_CALLS else used < limit
@@ -398,6 +418,9 @@ def charge(
             amount=amount,
             now=now,
         )
+        # 无限制策略仍记账（可观测），但不按上限告警（审查 B3）
+        if is_unlimited(policy):
+            continue
         limit = effective_limit(db, policy, now)
         if limit > 0:
             ratio = used / limit * 100

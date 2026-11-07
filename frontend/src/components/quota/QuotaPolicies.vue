@@ -116,7 +116,8 @@
           width="150"
         >
           <template #default="{ row }">
-            <span>{{ formatValue(row.metric, row.used) }} / {{ formatValue(row.metric, row.effective_limit) }}</span>
+            <span v-if="row.unlimited">{{ formatValue(row.metric, row.used) }} / 无限制</span>
+            <span v-else>{{ formatValue(row.metric, row.used) }} / {{ formatValue(row.metric, row.effective_limit ?? 0) }}</span>
             <div
               v-if="row.granted > 0"
               class="grant-tip"
@@ -308,12 +309,18 @@
           </el-radio-group>
         </el-form-item>
         <el-form-item :label="limitLabel">
-          <el-input-number
-            v-model="form.limit_value"
-            :min="0"
-            :step="stepForMetric"
-            style="width: 180px"
-          />
+          <div class="limit-row">
+            <el-input-number
+              v-model="form.limit_value"
+              :min="0"
+              :step="stepForMetric"
+              :disabled="form.unlimited"
+              style="width: 180px"
+            />
+            <el-checkbox v-model="form.unlimited">
+              不设上限
+            </el-checkbox>
+          </div>
           <span class="hint">{{ limitHint }}</span>
         </el-form-item>
         <el-form-item label="超出后">
@@ -402,6 +409,7 @@
     metric: 'tokens' as QuotaMetric,
     window: 'month' as 'day' | 'month',
     limit_value: 1_000_000,
+    unlimited: false,
     on_exceed: 'approve' as 'warn' | 'block' | 'approve',
     note: '',
   })
@@ -410,11 +418,11 @@
     form.metric === 'tokens' ? '额度（Token）' : form.metric === 'calls' ? '额度（次）' : '额度（元）',
   )
   const stepForMetric = computed(() => (form.metric === 'tokens' ? 100_000 : form.metric === 'calls' ? 100 : 10))
-  const limitHint = computed(() =>
-    form.metric === 'cost'
-      ? '金额按供应商单价估算；未填单价的供应商用默认常量，误差较大'
-      : '填 0 表示不允许该对象继续调用',
-  )
+  const limitHint = computed(() => {
+    if (form.unlimited) return '不设上限：只记账、不拦截'
+    if (form.metric === 'cost') return '金额按供应商单价估算；未填单价的供应商用默认常量，误差较大'
+    return '填 0 表示零余额：没有有效临时额度时拒绝调用，而不是无限制'
+  })
 
   function formatValue(metric: QuotaMetric, value: number): string {
     if (metric === 'cost') return `¥${Number(value).toFixed(2)}`
@@ -471,13 +479,17 @@
     form.scope_key = row?.scope_key ?? ''
     form.metric = row?.metric ?? 'tokens'
     form.window = row?.window ?? 'month'
-    form.limit_value = row?.limit_value ?? (form.window === 'day' ? 100_000 : 1_000_000)
+    form.unlimited = row ? row.limit_value < 0 : false
+    form.limit_value = row && row.limit_value >= 0
+      ? row.limit_value
+      : (form.window === 'day' ? 100_000 : 1_000_000)
     form.on_exceed = row?.on_exceed ?? 'approve'
     form.note = row?.note ?? ''
     editorVisible.value = true
   }
 
   function onMetricChange() {
+    if (form.unlimited) return
     form.limit_value = form.metric === 'tokens' ? (form.window === 'day' ? 100_000 : 1_000_000) : form.metric === 'calls' ? 500 : 10
   }
 
@@ -493,7 +505,7 @@
         scope_key: form.scope_key.trim(),
         metric: form.metric,
         window: form.window,
-        limit_value: form.limit_value,
+        limit_value: form.unlimited ? -1 : form.limit_value,
         on_exceed: form.on_exceed,
         note: form.note || null,
       })
@@ -595,5 +607,10 @@
   .grant-tip {
     font-size: 11px;
     color: #d97706;
+  }
+  .limit-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
   }
 </style>
