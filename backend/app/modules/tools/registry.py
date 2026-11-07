@@ -385,12 +385,16 @@ class ToolRegistry:
             )
         started = time.perf_counter()
         try:
-            raw = tool.func(params, ctx)
-            result = (
-                await asyncio.wait_for(raw, timeout=tool.timeout_seconds)
-                if inspect.isawaitable(raw)
-                else raw
-            )
+            # 同步实现必须放线程池：直接在事件循环线程调用会让 timeout 形同虚设
+            # 并阻塞取消/心跳。注意 wait_for 超时只是不再等待，底层线程的副作用
+            # 可能仍会继续（审计中标记 side_effects_may_continue），不是强制取消。
+            if inspect.iscoroutinefunction(tool.func):
+                raw = tool.func(params, ctx)
+            else:
+                raw = asyncio.to_thread(tool.func, params, ctx)
+            result = await asyncio.wait_for(raw, timeout=tool.timeout_seconds)
+            if inspect.isawaitable(result):
+                result = await asyncio.wait_for(result, timeout=tool.timeout_seconds)
         except TimeoutError as e:
             self._audit(
                 db,
@@ -399,7 +403,11 @@ class ToolRegistry:
                 request_id,
                 result="failure",
                 latency_ms=_ms(started),
-                extra={"stage": "executing", "param_keys": param_keys},
+                extra={
+                    "stage": "executing",
+                    "param_keys": param_keys,
+                    "side_effects_may_continue": not inspect.iscoroutinefunction(tool.func),
+                },
             )
             log_bypass(False, _ms(started))
             raise AppError(

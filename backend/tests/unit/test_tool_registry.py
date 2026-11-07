@@ -178,6 +178,63 @@ async def test_timeout(db_session):
 
 
 @pytest.mark.asyncio
+async def test_sync_tool_timeout_and_loop_responsive(db_session):
+    """同步工具超时必须兑现，且不阻塞事件循环（审查 S3）。"""
+    import threading
+    import time as _time
+
+    release = threading.Event()
+
+    def slow_sync(params, ctx):
+        release.wait(5)  # 模拟慢系统调用；超时后线程仍存活属预期
+        return {}
+
+    reg = ToolRegistry()
+    reg.register(
+        _echo_def(
+            code="test.slow_sync",
+            func=slow_sync,
+            input_schema={"type": "object"},
+            timeout_seconds=0.05,
+        )
+    )
+    ticks = 0
+
+    async def heartbeat():
+        nonlocal ticks
+        for _ in range(20):
+            await asyncio.sleep(0.01)
+            ticks += 1
+
+    beat = asyncio.create_task(heartbeat())
+    started = _time.perf_counter()
+    try:
+        with pytest.raises(AppError) as e:
+            await reg.execute(db_session, "test.slow_sync", {}, _ctx(), "req-sync-t")
+    finally:
+        release.set()
+        await beat
+    elapsed = _time.perf_counter() - started
+    assert e.value.code == "TOOL_TIMEOUT"
+    assert elapsed < 1.0  # 不再等慢函数执行完
+    assert ticks >= 3  # 超时等待期间事件循环仍在运转
+    db_session.commit()
+    audit = db_session.query(AuditLog).filter_by(request_id="req-sync-t").one()
+    assert audit.metadata_json["side_effects_may_continue"] is True
+
+
+@pytest.mark.asyncio
+async def test_sync_tool_success_runs(db_session):
+    def echo_sync(params, ctx):
+        return {"echo": params.get("msg"), "user": ctx.user_id}
+
+    reg = ToolRegistry()
+    reg.register(_echo_def(code="test.echo_sync", func=echo_sync))
+    out = await reg.execute(db_session, "test.echo_sync", {"msg": "hi"}, _ctx(), "req-sync-ok")
+    assert out == {"echo": "hi", "user": "u-001"}
+
+
+@pytest.mark.asyncio
 async def test_success_audits_param_keys_only(db_session):
     reg = ToolRegistry()
     reg.register(_echo_def(input_schema={"type": "object"}))
