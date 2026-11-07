@@ -39,7 +39,10 @@ class Metrics:
                 self.http_latency_sum[route] = 0.0
             for i, bound in enumerate(_LATENCY_BUCKETS):
                 if seconds <= bound:
+                    # 每个样本只计入第一个命中的桶，导出时再做前缀累加（审查 O5）：
+                    # 两边都累积会让 le=0.05 也涨到样本数，破坏 Prometheus 语义。
                     buckets[i] += 1
+                    break
             self.http_latency_sum[route] += seconds
             self.http_latency_count[route] += 1
 
