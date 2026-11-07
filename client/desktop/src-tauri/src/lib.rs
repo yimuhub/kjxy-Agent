@@ -14,7 +14,6 @@
 //! TODO 注释标明。
 
 use std::fs;
-use std::io::Read;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -178,46 +177,42 @@ fn tighten_secret_file(path: &Path) {
     }
 }
 
+/// 生成 32 字节密码学安全随机数（审查 O3）。
+/// 统一走系统 CSPRNG（macOS/Windows/Linux 均由 getrandom 适配），失败直接报错，
+/// 不再用「时间 + PID + 固定盐」哈希兜底——那种值可预测，等于没有密钥。
+fn secure_random_32() -> Result<[u8; 32], String> {
+    let mut buf = [0u8; 32];
+    getrandom::fill(&mut buf).map_err(|e| format!("系统安全随机数不可用：{e}"))?;
+    Ok(buf)
+}
+
+/// 旧版本在 /dev/urandom 不可用时用 8 字节哈希重复填充 32 字节，
+/// 落盘后表现为「64 位十六进制里每 16 个字符完全相同」。命中则视为弱密钥，
+/// 启动时自动轮换（重新生成并覆盖），已泄露/可预测的旧值不再继续使用。
+fn is_legacy_weak_hex(hex: &str) -> bool {
+    let bytes = hex.as_bytes();
+    bytes.len() == 64
+        && bytes[0..16] == bytes[16..32]
+        && bytes[0..16] == bytes[32..48]
+        && bytes[0..16] == bytes[48..64]
+}
+
+fn random_hex() -> Result<String, String> {
+    Ok(secure_random_32()?.iter().map(|b| format!("{b:02x}")).collect())
+}
+
 /// 首次启动生成并持久化桌面实例专属 JWT 密钥（与服务器部署完全隔离）
 fn ensure_secret(dir: &PathBuf) -> Result<String, String> {
     let path = dir.join("secret.key");
     if let Ok(existing) = fs::read_to_string(&path) {
         let trimmed = existing.trim().to_string();
-        if trimmed.len() >= 48 {
+        if trimmed.len() >= 48 && !is_legacy_weak_hex(&trimmed) {
             // 旧版本落盘时没改权限；读到就顺手纠正，避免升级后仍长期 0644
             tighten_secret_file(&path);
             return Ok(trimmed);
         }
     }
-    // 无 rand crate：借系统熵源拼一个 64 位十六进制密钥
-    let mut buf = [0u8; 32];
-    // 熵源读取失败不再让整链 ?: 短路：读不到就明确走回退（原 or_else 里 Ok(()) 与
-    // Result<File, _> 类型冲突，cargo check E0282）
-    let entropy_ok = fs::File::open("/dev/urandom")
-        .or_else(|_| {
-            #[cfg(windows)]
-            {
-                fs::File::open(r"\\.\PhysicalDrive0") // 仅为读时间噪声回退，见 TODO
-            }
-            #[cfg(not(windows))]
-            {
-                Err(std::io::Error::last_os_error())
-            }
-        })
-        .and_then(|mut f| f.read_exact(&mut buf))
-        .is_ok();
-    if !entropy_ok {
-        // TODO(windows): urandom 不可用时退化到哈希(时间+pid)；上线前应换 getrandom
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-        let mut h = DefaultHasher::new();
-        (std::time::SystemTime::now(), std::process::id(), 0x5eedu64).hash(&mut h);
-        let v = h.finish();
-        for i in 0..32 {
-            buf[i] = (v >> (i % 8 * 8)) as u8;
-        }
-    }
-    let secret = buf.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    let secret = random_hex()?;
     fs::write(&path, &secret).map_err(|e| format!("写 secret.key 失败：{e}"))?;
     tighten_secret_file(&path);
     Ok(secret)
@@ -233,26 +228,12 @@ fn ensure_bootstrap_token(dir: &PathBuf) -> Result<String, String> {
     let path = dir.join("desktop-bootstrap.token");
     if let Ok(existing) = fs::read_to_string(&path) {
         let trimmed = existing.trim().to_string();
-        if trimmed.len() >= 32 {
+        if trimmed.len() >= 32 && !is_legacy_weak_hex(&trimmed) {
             tighten_secret_file(&path);
             return Ok(trimmed);
         }
     }
-    let mut buf = [0u8; 32];
-    let entropy_ok = fs::File::open("/dev/urandom")
-        .and_then(|mut f| f.read_exact(&mut buf))
-        .is_ok();
-    if !entropy_ok {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-        let mut h = DefaultHasher::new();
-        (std::time::SystemTime::now(), std::process::id(), 0xb007u64).hash(&mut h);
-        let v = h.finish();
-        for i in 0..32 {
-            buf[i] = (v >> (i % 8 * 8)) as u8;
-        }
-    }
-    let token = buf.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    let token = random_hex()?;
     fs::write(&path, &token).map_err(|e| format!("写 desktop-bootstrap.token 失败：{e}"))?;
     tighten_secret_file(&path);
     Ok(token)
@@ -265,26 +246,12 @@ fn ensure_instance_token(dir: &PathBuf) -> Result<String, String> {
     let path = dir.join("engine.instance.token");
     if let Ok(existing) = fs::read_to_string(&path) {
         let trimmed = existing.trim().to_string();
-        if trimmed.len() >= 32 {
+        if trimmed.len() >= 32 && !is_legacy_weak_hex(&trimmed) {
             tighten_secret_file(&path);
             return Ok(trimmed);
         }
     }
-    let mut buf = [0u8; 32];
-    let entropy_ok = fs::File::open("/dev/urandom")
-        .and_then(|mut f| f.read_exact(&mut buf))
-        .is_ok();
-    if !entropy_ok {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-        let mut h = DefaultHasher::new();
-        (std::time::SystemTime::now(), std::process::id(), 0x1d57u64).hash(&mut h);
-        let v = h.finish();
-        for i in 0..32 {
-            buf[i] = (v >> (i % 8 * 8)) as u8;
-        }
-    }
-    let token = buf.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    let token = random_hex()?;
     fs::write(&path, &token).map_err(|e| format!("写 engine.instance.token 失败：{e}"))?;
     tighten_secret_file(&path);
     Ok(token)
@@ -993,5 +960,23 @@ mod export_tests {
             pet_page_url(18700, "taro"),
             "http://127.0.0.1:18700/pet?skin=taro"
         );
+    }
+
+    #[test]
+    fn legacy_weak_hex_is_detected_for_rotation() {
+        // 旧兜底把 8 字节哈希重复 4 次（每 16 个十六进制字符相同）
+        assert!(is_legacy_weak_hex(&"5eed5eed5eed5eed".repeat(4)));
+        assert!(!is_legacy_weak_hex(&"5eed5eed5eed5eed".repeat(3)));
+        assert!(!is_legacy_weak_hex("short"));
+    }
+
+    #[test]
+    fn random_hex_is_csprng_backed() {
+        let a = random_hex().expect("系统 CSPRNG 不可用");
+        let b = random_hex().expect("系统 CSPRNG 不可用");
+        assert_eq!(a.len(), 64);
+        assert!(a.chars().all(|c| c.is_ascii_hexdigit()));
+        assert!(!is_legacy_weak_hex(&a));
+        assert_ne!(a, b);
     }
 }

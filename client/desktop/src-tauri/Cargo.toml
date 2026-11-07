@@ -29,6 +29,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dirs = "6"
 base64 = "0.22"
+# 桌面密钥/令牌必须用系统 CSPRNG（审查 O3），禁止时间+PID 哈希兜底
+getrandom = "0.3"
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]
