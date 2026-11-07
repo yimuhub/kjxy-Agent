@@ -519,3 +519,46 @@ def test_macos_key_script_sets_comma_delimiter_and_releases_modifiers():
     assert 'text item delimiters to ","' in script
     assert "on error" in script
     assert script.count("key up command") == 2  # 正常路径 + 异常路径各一次
+
+
+def test_execute_failure_audit_survives_caller_rollback(db_session, mac_bridge, monkeypatch):
+    """桥失败后调用方 rollback 业务事务，失败审计仍须持久（审查 S5）。"""
+    row = _manifest(db_session)
+    _grant(db_session, row)
+
+    def fail(platform, action, params):
+        raise bridge.BridgeError("合成桥失败")
+
+    monkeypatch.setattr(bridge, "execute", fail)
+    with pytest.raises(AppError) as exc:
+        service.execute(
+            db_session, _ctx(), plugin_id="computer_use", action="screenshot", params={}
+        )
+    assert exc.value.code == "RUNTIME_ACTION_FAILED"
+    db_session.rollback()  # 模拟路由/工具调用方的失败回滚
+    log = db_session.query(AuditLog).filter(AuditLog.action == "local_runtime_action").one()
+    assert log.result == "failure"
+    assert log.metadata_json["action"] == "screenshot"
+
+
+def test_execute_failure_audit_storage_error_keeps_original_error(
+    db_session, mac_bridge, monkeypatch
+):
+    """审计提交失败不得掩盖原始动作错误。"""
+    row = _manifest(db_session)
+    _grant(db_session, row)
+
+    def fail(platform, action, params):
+        raise bridge.BridgeError("合成桥失败")
+
+    monkeypatch.setattr(bridge, "execute", fail)
+
+    def broken_commit():
+        raise RuntimeError("合成存储失败")
+
+    monkeypatch.setattr(db_session, "commit", broken_commit)
+    with pytest.raises(AppError) as exc:
+        service.execute(
+            db_session, _ctx(), plugin_id="computer_use", action="screenshot", params={}
+        )
+    assert exc.value.code == "RUNTIME_ACTION_FAILED"

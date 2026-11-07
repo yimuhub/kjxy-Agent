@@ -337,6 +337,12 @@ def execute(
             latency_ms=latency_ms,
             error=str(e),
         )
+        # 失败审计必须先独立落库：调用方随后会 rollback 业务事务，
+        # 此处会话只有审计一条 pending 写入（之前全是读），提交不会带入业务半成品。
+        try:
+            db.commit()
+        except Exception:  # 审计存储失败不得掩盖原始动作错误
+            db.rollback()
         raise AppError(
             "RUNTIME_ACTION_FAILED",
             f"本机动作失败：{e}",
