@@ -8,7 +8,7 @@ on_exceed=approve 与配额页默认一致），追加一条带有效期的 Quot
 import secrets
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
@@ -192,17 +192,32 @@ def order_payload(row: BillingOrder) -> dict:
 def _mark_paid_and_grant(
     db: Session, order: BillingOrder, *, plan: Plan, actor_id: str, note: str
 ) -> None:
-    """到账统一入口：pending→paid + 写配额（幂等，granted_at 防重复）。"""
-    if order.status != ORDER_PENDING:
+    """到账统一入口：CAS 抢占 pending→paid，再在同一事务内写配额。
+
+    并发确认/兑换只有 rowcount==1 的赢家能入账，输家收到 409，绝不重复写
+    额度。抢占与入账同事务提交：写配额失败则整体回滚，订单回到 pending 可
+    重试（审查 B2）。granted_at IS NULL 双闸防任何已入账订单被再次抢占。
+    """
+    moment = _now()
+    claimed = db.execute(
+        update(BillingOrder)
+        .where(
+            BillingOrder.id == order.id,
+            BillingOrder.status == ORDER_PENDING,
+            BillingOrder.granted_at.is_(None),
+        )
+        .values(
+            status=ORDER_PAID,
+            granted_at=moment,
+            decided_by=actor_id,
+            decided_at=moment,
+            decision_note=note,
+        )
+    )
+    if claimed.rowcount != 1:  # type: ignore[attr-defined]
+        db.rollback()
         raise AppError("BILLING_ORDER_CLOSED", "该订单已处理，无需重复操作。", http_status=409)
-    if order.granted_at is not None:
-        return
-    moment = _apply_plan_grants(db, yard_id=order.yard_id, plan=plan, actor_id=actor_id)
-    order.status = ORDER_PAID
-    order.granted_at = moment
-    order.decided_by = actor_id
-    order.decided_at = moment
-    order.decision_note = note
+    _apply_plan_grants(db, yard_id=order.yard_id, plan=plan, actor_id=actor_id)
     db.commit()
 
 
@@ -212,7 +227,12 @@ def _mark_paid_and_grant(
 
 
 def redeem(db: Session, *, yard_id: str, code: str, user_id: str, user_name: str | None) -> dict:
-    """兑换码换套餐：码状态原子置为已兑换，订单直接进入已支付并到账。"""
+    """兑换码换套餐：CAS 原子占用码（unused→redeemed），订单直接进入已支付并到账。
+
+    并发兑换同一码只有 rowcount==1 的赢家建订单入账；码与订单一对一另由
+    code_id 唯一索引兜底（审查 B2）。占用、建单、入账同事务提交，任一步
+    失败整体回滚，码回到 unused 可重试。
+    """
     normalized = (code or "").strip().upper()
     if not normalized:
         raise AppError("BILLING_CODE_INVALID", "请输入兑换码。", http_status=400)
@@ -234,6 +254,21 @@ def redeem(db: Session, *, yard_id: str, code: str, user_id: str, user_name: str
     if plan is None:
         raise AppError("BILLING_PLAN_NOT_FOUND", "兑换码对应的套餐不存在。", http_status=404)
 
+    # CAS 抢占兑换码：并发兑换只有 rowcount==1 的赢家能继续建订单入账
+    claimed = db.execute(
+        update(BillingCode)
+        .where(BillingCode.id == row.id, BillingCode.status == CODE_UNUSED)
+        .values(
+            status=CODE_REDEEMED,
+            redeemed_yard_id=yard_id,
+            redeemed_by=user_id,
+            redeemed_at=_now(),
+        )
+    )
+    if claimed.rowcount != 1:  # type: ignore[attr-defined]
+        db.rollback()
+        raise AppError("BILLING_CODE_USED", "该兑换码已被使用。", http_status=409)
+
     order = BillingOrder(
         yard_id=yard_id,
         plan_code=plan.code,
@@ -246,10 +281,6 @@ def redeem(db: Session, *, yard_id: str, code: str, user_id: str, user_name: str
     )
     db.add(order)
     db.flush()
-    row.status = CODE_REDEEMED
-    row.redeemed_yard_id = yard_id
-    row.redeemed_by = user_id
-    row.redeemed_at = _now()
     _mark_paid_and_grant(db, order, plan=plan, actor_id=user_id, note=f"兑换码 {row.code} 自动到账")
     log_audit(
         db,
@@ -318,11 +349,19 @@ def cancel_order(db: Session, *, yard_id: str, order_id: str, user_id: str) -> d
     order = db.get(BillingOrder, order_id)
     if order is None or order.yard_id != yard_id:
         raise AppError("BILLING_ORDER_NOT_FOUND", "订单不存在。", http_status=404)
-    if order.status != ORDER_PENDING:
+    # CAS 抢占 pending→cancelled：与确认到账互斥，并发只有一个赢家（审查 B2）
+    claimed = db.execute(
+        update(BillingOrder)
+        .where(
+            BillingOrder.id == order_id,
+            BillingOrder.yard_id == yard_id,
+            BillingOrder.status == ORDER_PENDING,
+        )
+        .values(status=ORDER_CANCELLED, decided_by=user_id, decided_at=_now())
+    )
+    if claimed.rowcount != 1:  # type: ignore[attr-defined]
+        db.rollback()
         raise AppError("BILLING_ORDER_CLOSED", "仅待确认订单可以取消。", http_status=409)
-    order.status = ORDER_CANCELLED
-    order.decided_by = user_id
-    order.decided_at = _now()
     db.commit()
     return order_payload(order)
 
@@ -360,6 +399,15 @@ def disable_code(db: Session, *, code_id: str, actor_id: str) -> dict:
         raise AppError("BILLING_CODE_INVALID", "兑换码不存在。", http_status=404)
     if row.status == CODE_REDEEMED:
         raise AppError("BILLING_CODE_USED", "已兑换的码不能作废。", http_status=409)
-    row.status = CODE_DISABLED
+    # CAS 作废：仅当码仍未兑换时置 disabled，与并发兑换互斥，绝不覆盖已兑换
+    # 状态（审查 B2）；unused/expired/disabled 均可作废，保留原幂等语义。
+    claimed = db.execute(
+        update(BillingCode)
+        .where(BillingCode.id == code_id, BillingCode.status != CODE_REDEEMED)
+        .values(status=CODE_DISABLED)
+    )
+    if claimed.rowcount != 1:  # type: ignore[attr-defined]
+        db.rollback()
+        raise AppError("BILLING_CODE_USED", "已兑换的码不能作废。", http_status=409)
     db.commit()
     return code_payload(row)

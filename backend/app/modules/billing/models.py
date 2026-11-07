@@ -47,6 +47,10 @@ class BillingOrder(Base, TimestampMixin):
     __table_args__ = (
         Index("ix_billing_orders_yard_id", "yard_id"),
         Index("ix_billing_orders_status", "status"),
+        # 兑换码与订单一对一：同一 code_id 只允许一张订单（审查 B2 数据库兜底）。
+        # code_id 可空（对公转账订单无码），SQLite/Postgres 唯一索引视 NULL 互不
+        # 相等，故多张无码订单不受限；并发兑换由服务层 CAS + 本索引双重裁决。
+        Index("uq_billing_orders_code_id", "code_id", unique=True),
     )
 
     yard_id: Mapped[str] = mapped_column(String(36), nullable=False)
