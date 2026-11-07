@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from datetime import UTC, datetime
 from typing import Any
 
 from app.core.errors import AppError
@@ -16,6 +17,7 @@ from app.modules.quota.models import (
     SOURCE_TEMPLATE,
     STATUS_PENDING,
     WINDOW_LABELS,
+    QuotaGrant,
     QuotaPolicy,
     QuotaRequest,
 )
@@ -203,10 +205,32 @@ def upsert_policy(
     return _policy_payload(db, row)
 
 
+def _has_remaining_grant(db: Session, policy_id: str, moment: datetime) -> bool:
+    """该策略是否还有未到期的临时额度余额（含已购加油包，审查 B5）。"""
+    remaining_expr = func.coalesce(QuotaGrant.remaining, QuotaGrant.amount)
+    row = db.scalar(
+        select(QuotaGrant.id)
+        .where(
+            QuotaGrant.policy_id == policy_id,
+            QuotaGrant.expires_at > moment,
+            remaining_expr > 0,
+        )
+        .limit(1)
+    )
+    return row is not None
+
+
 def delete_policy(db: Session, *, yard_id: str, policy_id: str) -> None:
     row = db.get(QuotaPolicy, policy_id)
     if row is None or row.yard_id != yard_id:
         raise AppError("QUOTA_POLICY_NOT_FOUND", "额度策略不存在。", http_status=404)
+    # 删除会带走未到期的购买余额（grant 变成孤儿），先拦下（审查 B5）
+    if _has_remaining_grant(db, row.id, datetime.now(UTC)):
+        raise AppError(
+            "QUOTA_POLICY_HAS_GRANTS",
+            "该策略还有未到期的临时额度余额（含已购加油包），到期后或清零后才能删除。",
+            http_status=409,
+        )
     db.delete(row)
     db.commit()
 
@@ -214,14 +238,41 @@ def delete_policy(db: Session, *, yard_id: str, policy_id: str) -> None:
 def apply_environment(
     db: Session, *, yard_id: str, environment: str, actor_id: str
 ) -> dict[str, Any]:
-    """切换环境：只覆盖模板来源的策略，保留人工配置。"""
+    """切换环境：原地更新模板策略，保留人工配置与未到期购买权益。
+
+    旧实现按 ``source=template`` 整批删除再重建：策略 id 变化后，挂在旧模板
+    策略上的 quota_grants 成为孤儿，切换环境把已购加油包余额吞掉（审查 B5）。
+    现在按「作用域+指标+窗口」身份原地更新，id 不变；人工配置优先不覆盖；
+    不再保留的旧模板策略若仍携带未到期余额，也保留而不是删除。
+    """
     if environment not in environments.ENVIRONMENTS:
         raise AppError("INVALID_REQUEST", "未知的额度环境。", http_status=400)
-    db.query(QuotaPolicy).filter(
-        QuotaPolicy.yard_id == yard_id, QuotaPolicy.source == SOURCE_TEMPLATE
-    ).delete(synchronize_session=False)
+    moment = datetime.now(UTC)
+    existing = list(db.scalars(select(QuotaPolicy).where(QuotaPolicy.yard_id == yard_id)))
+    by_key = {(p.scope_type, p.scope_key, p.metric, p.window): p for p in existing}
+    keep: set[str] = set()
     for item in environments.template_policies(environment):
-        db.add(QuotaPolicy(yard_id=yard_id, created_by=actor_id, **item))
+        key = (item["scope_type"], item["scope_key"], item["metric"], item["window"])
+        row = by_key.get(key)
+        if row is not None and row.source != SOURCE_TEMPLATE:
+            keep.add(row.id)  # 人工改过的策略不被模板覆盖
+            continue
+        if row is None:
+            row = QuotaPolicy(yard_id=yard_id, created_by=actor_id, **item)
+            db.add(row)
+            db.flush()
+        else:
+            row.limit_value = item["limit_value"]
+            row.on_exceed = item["on_exceed"]
+            row.note = item.get("note")
+            row.enabled = True
+        keep.add(row.id)
+    for row in existing:
+        if row.id in keep or row.source != SOURCE_TEMPLATE:
+            continue
+        if _has_remaining_grant(db, row.id, moment):
+            continue  # 旧模板策略仍带购买余额，保留到用完/到期
+        db.delete(row)
     db.commit()
     update_setting(
         db,

@@ -209,3 +209,110 @@ def test_reset_policy_counter(client, yard):
     assert resp.status_code == 200, resp.text
     assert resp.json()["data"]["used"] == 0
     assert engine.window_start("month") == resp.json()["data"]["window_start"]
+
+
+# ---------------------------------------------------------------------------
+# 审查 B5：切换环境保留未到期购买权益（模板策略原地更新，grant 不孤儿）
+# ---------------------------------------------------------------------------
+
+
+def _tokens_policy(overview: dict) -> dict:
+    return next(p for p in overview["policies"] if p["metric"] == "tokens")
+
+
+def test_environment_switch_keeps_grant_policy_identity(client, db_session, yard):
+    from datetime import UTC, datetime, timedelta
+
+    from app.modules.quota import engine
+    from app.modules.quota.models import QuotaGrant
+
+    first = client.get("/api/v1/quota/overview", headers=_hdr(ADMIN, yard.id))
+    assert first.status_code == 200, first.text
+    policy = _tokens_policy(first.json()["data"])
+    db_session.add(
+        QuotaGrant(
+            yard_id=yard.id,
+            policy_id=policy["id"],
+            amount=2_000_000,
+            remaining=1_500_000,
+            expires_at=datetime.now(UTC) + timedelta(days=20),
+        )
+    )
+    db_session.commit()
+
+    switched = client.put(
+        "/api/v1/quota/environment",
+        json={"environment": "trial"},
+        headers=_hdr(ADMIN, yard.id),
+    )
+    assert switched.status_code == 200, switched.text
+    tokens = _tokens_policy(switched.json()["data"])
+    assert tokens["id"] == policy["id"], "模板策略原地更新，id 不变"
+    assert tokens["limit_value"] == 500_000
+    assert tokens["granted"] == 1_500_000, "未到期购买余额守恒"
+    assert engine.grant_total(db_session, policy["id"]) == 1_500_000
+
+
+def test_environment_switch_keeps_template_policy_with_balance(
+    client, db_session, yard, monkeypatch
+):
+    """新环境不再包含某模板策略时，只要还有未到期余额就保留，不吞已购额度。"""
+    from datetime import UTC, datetime, timedelta
+
+    from app.modules.quota import engine, environments, service
+    from app.modules.quota.models import QuotaGrant, QuotaPolicy
+
+    first = client.get("/api/v1/quota/overview", headers=_hdr(ADMIN, yard.id))
+    policy = _tokens_policy(first.json()["data"])
+    db_session.add(
+        QuotaGrant(
+            yard_id=yard.id,
+            policy_id=policy["id"],
+            amount=1_000_000,
+            remaining=800_000,
+            expires_at=datetime.now(UTC) + timedelta(days=10),
+        )
+    )
+    db_session.commit()
+
+    monkeypatch.setitem(
+        environments.ENVIRONMENTS,
+        "lean",
+        {"label": "精简", "description": "无模板策略", "policies": []},
+    )
+    # 直接走服务层：HTTP 契约的 environment 是 Literal，不允许新增未登记环境
+    service.apply_environment(db_session, yard_id=yard.id, environment="lean", actor_id=ADMIN)
+    kept = db_session.query(QuotaPolicy).filter(QuotaPolicy.id == policy["id"]).one_or_none()
+    assert kept is not None, "带余额的旧模板策略不能被删除"
+    assert engine.grant_total(db_session, policy["id"]) == 800_000
+
+
+def test_delete_policy_blocked_while_grant_balance_remains(client, db_session, yard):
+    from datetime import UTC, datetime, timedelta
+
+    from app.modules.quota.models import QuotaGrant
+
+    created = client.put(
+        "/api/v1/quota/policies",
+        json={"scope_type": "yard", "metric": "cost", "limit_value": 50, "on_exceed": "warn"},
+        headers=_hdr(ADMIN, yard.id),
+    )
+    policy_id = created.json()["data"]["id"]
+    grant = QuotaGrant(
+        yard_id=yard.id,
+        policy_id=policy_id,
+        amount=100,
+        remaining=100,
+        expires_at=datetime.now(UTC) + timedelta(days=5),
+    )
+    db_session.add(grant)
+    db_session.commit()
+
+    blocked = client.delete(f"/api/v1/quota/policies/{policy_id}", headers=_hdr(ADMIN, yard.id))
+    assert blocked.status_code == 409
+    assert blocked.json()["error"]["code"] == "QUOTA_POLICY_HAS_GRANTS"
+
+    grant.remaining = 0  # 余额用尽后允许删除
+    db_session.commit()
+    ok = client.delete(f"/api/v1/quota/policies/{policy_id}", headers=_hdr(ADMIN, yard.id))
+    assert ok.status_code == 200, ok.text
