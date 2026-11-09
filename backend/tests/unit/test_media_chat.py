@@ -9,7 +9,7 @@ import pytest
 from app.core.deps import YardContext
 from app.core.errors import AppError
 from app.modules.chat import media as chat_media
-from app.modules.media import service, store
+from app.modules.media import overlay, service, store
 from app.modules.media.models import KIND_IMAGE, KIND_VIDEO, MediaAsset
 from app.modules.media.overlay import render_poster
 from app.modules.yards.repository import create_yard
@@ -124,11 +124,24 @@ def test_render_poster_overlays_chinese_text():
         subtitle="科技助农 · 花期管理",
         footer="小院电话 138-0000-0000",
     )
-    assert overlaid is True
     assert mime == "image/png"
+    # CI 的 Linux runner 没有系统中文字体：此时不伪造叠字，原图返回并如实标记
+    if not overlay.has_cjk_font():
+        assert overlaid is False
+        assert data == source
+        return
+    assert overlaid is True
     assert data != source
     with Image.open(io.BytesIO(data)) as image:
         assert image.size == (512, 768)
+
+
+def test_render_poster_without_cjk_font_is_honest(monkeypatch):
+    monkeypatch.setattr(overlay, "font_path", lambda: "")
+    monkeypatch.setattr(overlay, "has_cjk_font", lambda: False)
+    source = _png_bytes()
+    data, mime, overlaid = render_poster(source, title="牡丹特色科技小院")
+    assert (data, mime, overlaid) == (source, "image/png", False)
 
 
 def test_video_authorization_and_budget(db_session):
