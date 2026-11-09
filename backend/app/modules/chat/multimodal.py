@@ -90,7 +90,7 @@ async def _post_vision(base_url: str, api_key: str, model: str, data_url: str) -
         "max_tokens": 600,
         "temperature": 0.1,
     }
-    async with httpx.AsyncClient(timeout=settings.llm_timeout_seconds) as client:
+    async with httpx.AsyncClient(timeout=settings.llm_timeout_seconds, trust_env=False) as client:
         try:
             resp = await client.post(
                 url, json=payload, headers={"Authorization": f"Bearer {api_key}"}

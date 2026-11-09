@@ -115,7 +115,7 @@ class OpenAICompatibleProvider:
         # 长产出可以按请求放宽超时；缺省沿用供应商/全局配置
         timeout = request.timeout_seconds or self.timeout
         try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
+            async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
                 resp = await client.post(
                     f"{self.base_url}/chat/completions",
                     json=payload,

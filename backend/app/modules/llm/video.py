@@ -241,7 +241,9 @@ class OpenAIVideoProvider:
         started = time.perf_counter()
         deadline = time.monotonic() + max(0, wait_seconds)
         try:
-            async with httpx.AsyncClient(timeout=self.timeout, transport=self.transport) as client:
+            async with httpx.AsyncClient(
+                timeout=self.timeout, transport=self.transport, trust_env=False
+            ) as client:
                 submit_path, data = await self._submit(client, request)
                 url = _video_url_of(data)
                 task_id = _task_id_of(data)
@@ -376,7 +378,9 @@ class DashScopeVideoProvider:
             f"{self.base_url}{self.endpoint_path}", context="video_generation", allow_local=True
         )
         try:
-            async with httpx.AsyncClient(timeout=self.timeout, transport=self.transport) as client:
+            async with httpx.AsyncClient(
+                timeout=self.timeout, transport=self.transport, trust_env=False
+            ) as client:
                 resp = await client.post(
                     f"{self.base_url}{self.endpoint_path}",
                     json=payload,

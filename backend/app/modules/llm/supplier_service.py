@@ -646,7 +646,10 @@ async def probe_models(
         return ProbeModelsResult(models=[], source="error", message=e.message)
 
     try:
-        client_kwargs: dict = {"timeout": MODELS_PROBE_TIMEOUT_SECONDS}
+        client_kwargs: dict = {
+            "timeout": MODELS_PROBE_TIMEOUT_SECONDS,
+            "trust_env": False,
+        }
         if _transport_override is not None:
             client_kwargs["transport"] = _transport_override
         async with httpx.AsyncClient(**client_kwargs) as client:
@@ -792,7 +795,7 @@ async def probe_upstream(
         return _fail(e.message)
 
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
             models_resp = None
             try:
                 models_resp = await client.get(f"{base}/models", headers=headers)
@@ -1695,7 +1698,9 @@ async def fetch_import_text(url: str) -> str:
         check_egress_url(current, context="supplier_import_url", allow_local=False)
         try:
             async with httpx.AsyncClient(
-                timeout=IMPORT_TIMEOUT_SECONDS, follow_redirects=False
+                timeout=IMPORT_TIMEOUT_SECONDS,
+                follow_redirects=False,
+                trust_env=False,
             ) as client:
                 resp = await client.get(
                     current,
@@ -1734,7 +1739,7 @@ async def _post_model_probe(
     from app.core.net_guard import check_egress_url
 
     check_egress_url(url, context="supplier_model_test", allow_local=True)
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
         return await client.post(url, json=payload, headers={"Authorization": f"Bearer {api_key}"})
 
 

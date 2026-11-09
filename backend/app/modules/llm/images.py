@@ -192,7 +192,9 @@ class OpenAIImagesProvider:
         check_egress_url(url, context="image_generation", allow_local=True)
         started = time.perf_counter()
         try:
-            async with httpx.AsyncClient(timeout=self.timeout, transport=self.transport) as client:
+            async with httpx.AsyncClient(
+                timeout=self.timeout, transport=self.transport, trust_env=False
+            ) as client:
                 resp = await client.post(
                     url,
                     json=self._payload(request, level=0),
@@ -341,7 +343,9 @@ class DashScopeImageProvider:
         deadline = time.monotonic() + self.timeout
         try:
             async with httpx.AsyncClient(
-                timeout=min(self.timeout, 60), transport=self.transport
+                timeout=min(self.timeout, 60),
+                transport=self.transport,
+                trust_env=False,
             ) as client:
                 resp = await client.post(submit_url, json=payload, headers=headers)
                 task_id = self._task_id(resp)
