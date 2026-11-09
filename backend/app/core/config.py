@@ -71,7 +71,9 @@ class Settings(BaseSettings):
         default=15, ge=3, le=60, description="访问协作方 Agent Card / RPC 的超时（秒）"
     )
     llm_model: str = ""
-    llm_timeout_seconds: int = 60
+    # 慢推理模型（如 agnes-3.0-flash）单次生成常达 40–60s+，60s 会偶发超时；
+    # 默认放到 120s，可用 LLM_TIMEOUT_SECONDS 覆盖。
+    llm_timeout_seconds: int = 120
     llm_max_tokens: int = 2048
 
     # 对话内方案合成（v3.14）：输出上限必须显式给，否则供应商默认 max_tokens 会把
