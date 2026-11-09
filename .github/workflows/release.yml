@@ -260,7 +260,9 @@ jobs:
               ("darwin-aarch64", ("aarch64.app.tar.gz",)),
               ("darwin-x86_64", ("x86_64.app.tar.gz", "x64.app.tar.gz")),
               ("windows-x86_64", ("x64-setup.exe",)),
-              ("linux-x86_64", ("amd64.AppImage.tar.gz",)),
+              # Tauri v2 的 Linux 更新包就是 AppImage 本体（配 .AppImage.sig）；
+              # 老版本 tauri-action 才会额外产 .AppImage.tar.gz，两者都兼容
+              ("linux-x86_64", ("amd64.AppImage.tar.gz", "amd64.AppImage")),
           ]
           platforms = {}
           for key, suffixes in specs:
