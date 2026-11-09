@@ -28,6 +28,20 @@ export const useAuthStore = defineStore('auth', () => {
     setupChecked.value = true
     return setupInitialized.value
   }
+
+  /**
+   * 初始化向导完成后接管登录态（v3.72 修复）：/setup/initialize 返回的
+   * access_token 直接写入本机，并立刻把"已初始化"标记置真，避免路由守卫
+   * 用缓存的 false 把用户再次弹回 /setup。
+   * 该接口不下发 refresh_token，故清掉旧刷新令牌，过期后走正常登录即可。
+   */
+  function adoptSetupSession(accessToken: string) {
+    token.value = accessToken
+    localStorage.setItem(TOKEN_KEY, accessToken)
+    localStorage.removeItem(REFRESH_TOKEN_KEY)
+    setupInitialized.value = true
+    setupChecked.value = true
+  }
   const yard = ref<Yard | null>(null)
   const yards = ref<YardBrief[]>([])
   /** 当前用户角色码（yard_admin / expert / operator / viewer / platform_admin） */
@@ -197,6 +211,7 @@ export const useAuthStore = defineStore('auth', () => {
     ensureSetupStatus,
     setupInitialized,
     setupChecked,
+    adoptSetupSession,
     isYardAdmin,
     login,
     adoptLogin,

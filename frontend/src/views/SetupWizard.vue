@@ -313,6 +313,7 @@
   import { computed, onMounted, reactive, ref } from 'vue'
   import { useRouter } from 'vue-router'
   import { setupApi } from '@/api/setup'
+  import { useAuthStore } from '@/stores/auth'
   import { APP_VERSION } from '@/utils/version'
 
   /**
@@ -320,6 +321,7 @@
    * 完成后调 /setup/initialize 一次性写入超管/小院/画像/品牌/开关。
    */
   const router = useRouter()
+  const auth = useAuthStore()
 
   const STEPS = ['欢迎', '超级管理员', '小院信息', '品牌外观', '功能配置', '完成']
   const DEPLOY_MODES = [
@@ -412,6 +414,11 @@
       if (form.password !== form.password2) return void ElWarn('两次口令不一致')
     }
     if (cur.value === 3 && !form.yard_name.trim()) return void ElWarn('请填写小院名称')
+    if (cur.value === 5) {
+      // 第 5 步 →「完成」：真正调用 /setup/initialize 落库，成功才进入第 6 步
+      void submitSetup()
+      return
+    }
     if (cur.value < 6) {
       cur.value++
     } else {
@@ -419,12 +426,64 @@
     }
   }
 
+  /**
+   * 一次性写入超管/小院/画像/品牌/开关，并接管登录态。
+   * 失败则停留当前步并明确报错，绝不显示"已完成"的假状态。
+   */
+  async function submitSetup(): Promise<void> {
+    if (submitting.value) return
+    submitting.value = true
+    try {
+      const res = await setupApi.initialize({
+        username: form.username.trim(),
+        password: form.password,
+        display_name: form.display_name.trim(),
+        email: form.email.trim() || null,
+        yard_name: form.yard_name.trim(),
+        province: form.province.trim(),
+        city: form.city.trim(),
+        profile_types: [...form.profile_types],
+        yard_description: form.yard_description.trim(),
+        app_name: form.app_name.trim(),
+        primary_color: form.primary_color,
+        search_enabled: form.search_enabled,
+        agent_generate_enabled: form.agent_generate_enabled,
+        agent_generate_daily_limit: form.agent_generate_daily_limit,
+        journal_enabled: form.journal_enabled,
+        deployment: form.deployment,
+      })
+      auth.adoptSetupSession(res.access_token)
+      try {
+        await auth.fetchMe()
+      } catch {
+        /* 进入系统后路由守卫会再次拉取 /auth/me */
+      }
+      cur.value = 6
+    } catch (e) {
+      const msg =
+        (e as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error
+          ?.message || (e as Error)?.message || '初始化失败，请稍后重试'
+      showError(msg)
+    } finally {
+      submitting.value = false
+    }
+  }
+
   function ElWarn(msg: string): void {
     import('element-plus').then(({ ElMessage }) => ElMessage.warning(msg))
   }
 
+  function showError(msg: string): void {
+    import('element-plus').then(({ ElMessage }) => ElMessage.error(msg))
+  }
+
   function goLogin(): void {
-    router.push({ path: '/login', query: { username: form.username } })
+    // 提交成功后已接管登录态，直接进系统；否则退回登录页手动登录
+    if (auth.isLoggedIn()) {
+      router.replace('/')
+    } else {
+      router.push({ path: '/login', query: { username: form.username } })
+    }
   }
 
   onMounted(async () => {
