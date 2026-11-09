@@ -93,6 +93,7 @@ from app.modules.llm.supplier_models import (  # noqa: F401
 )
 from app.modules.market.models import MarketItem  # noqa: F401
 from app.modules.mcp.models import McpServer  # noqa: F401
+from app.modules.media.models import MediaAsset  # noqa: F401
 from app.modules.memory.models import AgentMemory  # noqa: F401
 from app.modules.org.models import OrgPosition, OrgProposal, OrgUnit  # noqa: F401
 from app.modules.pairing.models import PairCode, PairDevice  # noqa: F401

@@ -52,6 +52,8 @@ router = APIRouter()
 #: 读走这里的权限，写仍按 SETTINGS_PERMISSIONS
 SETTINGS_READ_PERMISSIONS: dict[str, str] = {
     "commander": "chat:use",
+    # 对话内媒体：成员需要看到自己还能生成多少张/条（设置里没有密钥字段）
+    "media": "chat:use",
 }
 
 SETTINGS_PERMISSIONS: dict[str, str] = {
@@ -74,6 +76,8 @@ SETTINGS_PERMISSIONS: dict[str, str] = {
     "asr": "settings:manage",
     # 指挥官编排（并发/预算/自动建 Agent）属于管理型设置
     "commander": "settings:manage",
+    # 对话内媒体（图片/视频开关、每人每日额度、视频时长与保留期）
+    "media": "settings:manage",
 }
 
 

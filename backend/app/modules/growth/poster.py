@@ -215,14 +215,35 @@ def _derive_title(prompt: str) -> str:
     return clean[:18]
 
 
+def _dimensions(data: bytes) -> tuple[int | None, int | None]:
+    """取图片宽高（SVG 等 Pillow 不支持的格式返回 None）。"""
+    try:
+        from io import BytesIO
+
+        from PIL import Image
+
+        with Image.open(BytesIO(data)) as image:
+            return int(image.width), int(image.height)
+    except Exception:  # noqa: BLE001 - 尺寸只用于展示，失败不影响出图
+        return None, None
+
+
 def _save_assets(assets: list[ImageAsset]) -> list[dict[str, Any]]:
     storage = poster_storage()
     saved: list[dict[str, Any]] = []
     for asset in assets:
         ext = _MIME_EXT.get(asset.mime, ".bin")
         key = storage.save(asset.data, ext)
+        width, height = _dimensions(asset.data)
         saved.append(
-            {"key": key, "url": poster_url(key), "mime": asset.mime, "bytes": len(asset.data)}
+            {
+                "key": key,
+                "url": poster_url(key),
+                "mime": asset.mime,
+                "bytes": len(asset.data),
+                "width": width,
+                "height": height,
+            }
         )
     return saved
 
@@ -246,6 +267,10 @@ async def generate_poster(
     if len(text) < 4:
         raise AppError("INVALID_REQUEST", "海报需求描述过短（至少 4 个字）。", http_status=400)
     text = text[:MAX_PROMPT_LEN]
+    #: 调用方显式给了文字 → 海报模式（AI 底图 + 系统叠字）；只给 prompt → 纯出图
+    explicit_text = bool(
+        (title or "").strip() or (subtitle or "").strip() or (footer or "").strip()
+    )
     clean_title = " ".join(str(title or "").split())[:40] or _derive_title(text)
     clean_size = normalize_size(size)
     started = time.perf_counter()
@@ -283,6 +308,27 @@ async def generate_poster(
             provider_label = getattr(provider, "provider_label", None)
             notice = f"图像供应商本次不可用（{e.message}），已用本地模板渲染，可稍后重试。"
 
+    # AI 底图 + 系统叠字：中文文字交给 Pillow，避免模型画错字（v3.73）
+    overlaid = False
+    if assets and explicit_text:
+        from app.modules.media.overlay import render_poster
+
+        processed: list[ImageAsset] = []
+        for asset in assets:
+            data, mime, ok = render_poster(
+                asset.data,
+                title=clean_title,
+                subtitle=subtitle,
+                footer=footer,
+                mime=asset.mime,
+            )
+            processed.append(ImageAsset(data=data, mime=mime))
+            overlaid = overlaid or ok
+        assets = processed
+        if not overlaid:
+            note = "未找到可用中文字体，图片未叠加文字。"
+            notice = f"{notice} {note}".strip() if notice else note
+
     if not assets:
         assets = [
             ImageAsset(
@@ -301,6 +347,7 @@ async def generate_poster(
     return {
         "ok": True,
         "fallback": fallback,
+        "overlaid": overlaid,
         "notice": notice,
         "provider": provider_label,
         "model": model,
@@ -345,6 +392,7 @@ OUTPUT_SCHEMA: dict[str, Any] = {
     "properties": {
         "ok": {"type": "boolean"},
         "fallback": {"type": "boolean", "description": "true=未用上图像模型，产物是本地模板"},
+        "overlaid": {"type": "boolean", "description": "true=标题/副标题/页脚已由服务端叠加"},
         "notice": {"type": "string"},
         "provider": {"type": ["string", "null"]},
         "model": {"type": "string"},
@@ -387,6 +435,7 @@ async def generate_image_tool_func(params: dict, ctx: Any = None) -> dict:
             footer=str(params.get("footer") or ""),
             theme=str(params.get("theme") or DEFAULT_THEME),
             negative_prompt=params.get("negative_prompt"),
+            agent_code=str(getattr(ctx, "agent_code", "") or "") or None,
         )
     finally:
         db.close()

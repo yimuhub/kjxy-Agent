@@ -230,6 +230,24 @@ export interface YardSettingsBundle {
     daily_budget_tokens: number
     window_hours: number
   }
+  /** v3.73：对话内图片/视频生成（开关、按人额度、视频时长与保留期） */
+  media?: {
+    image: {
+      enabled: boolean
+      member_access: boolean
+      daily_limit: number
+      max_per_request: number
+      default_size: '1024x1024' | '1024x1536' | '1536x1024'
+    }
+    video: {
+      enabled: boolean
+      member_access: boolean
+      daily_limit: number
+      max_seconds: number
+      admin_max_seconds: number
+      retention_days: number
+    }
+  }
   /** v3.24：工作台视图（默认模式 + 按角色默认 + 共享预设） */
   menu?: MenuConfig
   /** v3.32：额度环境与旧调用额度模式 */
@@ -306,6 +324,7 @@ export const governanceApi = {
       | 'agent_generate'
       | 'device_analysis'
       | 'farm_agent'
+      | 'media'
       | 'menu'
       | 'asr'
       | 'quota'

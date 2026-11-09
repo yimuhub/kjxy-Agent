@@ -71,6 +71,9 @@ def _startup_wiring() -> None:
                 from app.modules.farm.worker_tasks import (
                     start_inline_scheduler as start_workorder_escalate,
                 )
+                from app.modules.media.tasks import (
+                    start_inline_scheduler as start_media_poll,
+                )
                 from app.modules.memory.tasks import (
                     start_inline_scheduler as start_memory_poll,
                 )
@@ -87,6 +90,8 @@ def _startup_wiring() -> None:
                 start_eval_poll()
                 start_learning_poll()
                 start_iteration_poll()
+                # 对话内视频续查（v3.73）：5 秒一轮，桌面与 beat 同口径
+                start_media_poll()
                 # 逾期工单升级（v3.71）：Celery beat 每 6h 一次，桌面 inline 同口径补齐
                 start_workorder_escalate()
                 # 超时任务回收 + legacy 配额月清零（v3.72 / 审查 O6）：
@@ -197,7 +202,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="科技小院多智能体平台", version="3.72.0", lifespan=lifespan)
+    app = FastAPI(title="科技小院多智能体平台", version="3.73.0", lifespan=lifespan)
     app.add_middleware(RequestIDMiddleware)
     app.add_exception_handler(AppError, app_error_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)

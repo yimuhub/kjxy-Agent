@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.72.0
+  version: 3.73.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -4823,6 +4823,97 @@ paths:
           type: string
           default: ''
           title: Sig
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/media/usage:
+    get:
+      tags:
+      - v1
+      - media
+      summary: Usage
+      operationId: usage_api_v1_media_usage_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/media/assets/{asset_id}:
+    get:
+      tags:
+      - v1
+      - media
+      summary: Asset Status
+      operationId: asset_status_api_v1_media_assets__asset_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: asset_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Asset Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/media/{key}:
+    get:
+      tags:
+      - v1
+      - media
+      summary: Read Media
+      operationId: read_media_api_v1_media__key__get
+      parameters:
+      - name: key
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Key
+      - name: sig
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Sig
+      - name: download
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 0
+          title: Download
+      - name: Range
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Range
       responses:
         '200':
           description: Successful Response

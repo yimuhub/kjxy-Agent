@@ -33,6 +33,9 @@ celery_app.conf.update(
             "task": "workorders.escalate_overdue",
             "schedule": 21600.0,
         },
+        # 对话内视频（v3.73）：5 秒续查在途任务，每小时清理过期产物
+        "media-poll-videos": {"task": "media.poll_videos", "schedule": 5.0},
+        "media-expire": {"task": "media.expire", "schedule": 3600.0},
     },
 )
 
@@ -46,5 +49,6 @@ celery_app.autodiscover_tasks(
         "app.modules.agents",
         "app.modules.devices",
         "app.modules.self_improve",
+        "app.modules.media",
     ]
 )

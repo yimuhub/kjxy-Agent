@@ -38,6 +38,13 @@ class YardContext:
     #: 本轮被风险闸拦下、已建审批单的调用（{tool_code, approval_id}）。
     #: 对话链路据此在回答里给出「去批准」入口；其他入口不读它，无副作用。
     approval_requests: list[dict] = field(default_factory=list)
+    #: 服务端按小院策略预授权的工具码（v3.73：管理员在「对话内媒体」里明确
+    #: 打开成员可用视频后，媒体编排层据此放行 video.generate）。
+    #: 只能由服务端代码在核过小院设置后填写；请求参数永远不能落到这里。
+    preauthorized_tools: tuple[str, ...] = ()
+    #: 本轮实际执行者（v3.73）：图片/视频工具据此走「按助手绑定的供应商」，
+    #: 缺省空串 = 不指定，沿用既有小院级解析链。
+    agent_code: str = ""
 
 
 def get_db_session(db: Session = Depends(get_db)) -> Session:

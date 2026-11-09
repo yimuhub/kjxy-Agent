@@ -80,11 +80,17 @@ def _is_approved(
 
     请求参数里的 ``approved`` 由调用方控制，绝不作为放行依据；
     服务端标记 ``ctx.approved`` 与数据库审批单仍是唯一入口。
+
+    ``ctx.preauthorized_tools``（v3.73）是第四种入口：小院管理员在设置里明确
+    开放了「成员可用视频/图片」这类按域的长期授权，服务端媒体编排层核过设置后
+    才写入；执行后同样走 ``log_bypass`` 留痕（bypass=yard_policy）。
     """
     if getattr(ctx, "approved", False) is True:
         return True, "server_flag"
     if db is None or not tool_code or not ctx.yard_id:
         return False, ""
+    if tool_code in (getattr(ctx, "preauthorized_tools", ()) or ()):
+        return True, "yard_policy"
     from app.modules.tools.approvals import has_approved_approval, session_approved_this_call
 
     mode = getattr(ctx, "approval_mode", APPROVAL_ASK) or APPROVAL_ASK

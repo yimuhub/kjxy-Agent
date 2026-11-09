@@ -502,6 +502,39 @@ export interface ChatApprovalCard {
   items: ChatApprovalItem[]
 }
 
+/** 对话内生成媒体（v3.73）：图片/视频成品与生成中状态 */
+export interface ChatMediaAsset {
+  id: string
+  kind: 'image' | 'video'
+  status: 'awaiting_confirmation' | 'running' | 'ready' | 'failed'
+  url: string
+  mime: string
+  bytes: number
+  width?: number | null
+  height?: number | null
+  duration_seconds?: number | null
+  filename: string
+  provider?: string | null
+  model?: string | null
+  error_code?: string | null
+  error_message?: string | null
+  expires_at?: string | null
+  cached?: boolean
+  fallback?: boolean
+  overlaid?: boolean
+}
+
+export interface ChatMediaCard {
+  type: 'media'
+  kind: 'image' | 'video'
+  status: 'awaiting_confirmation' | 'running' | 'ready' | 'failed'
+  assets: ChatMediaAsset[]
+  prompt?: string
+  notice?: string
+  hint?: string
+  retention_days?: number
+}
+
 /** 结构化载荷（助手消息的 payload 字段） */
 export type ChatCard =
   | ChatCapabilityCard
@@ -511,6 +544,7 @@ export type ChatCard =
   | ChatPluginCard
   | ChatPlanCard
   | ChatApprovalCard
+  | ChatMediaCard
 
 /**
  * 通用卡片组件（ChatCard.vue）接收的形状：技能/插件/方案卡片各自单独渲染，
@@ -518,7 +552,7 @@ export type ChatCard =
  */
 export type ChatStandardCard = Exclude<
   ChatCard,
-  ChatSkillCard | ChatPluginCard | ChatPlanCard | ChatApprovalCard
+  ChatSkillCard | ChatPluginCard | ChatPlanCard | ChatApprovalCard | ChatMediaCard
 >
 
 /** 回答引用的知识/网页来源（v3.7 可信引用） */

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tech-yard-platform"
-version = "3.72.0"
+version = "3.73.0"
 description = "科技小院多智能体自生长开发平台"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -33,6 +33,8 @@ dependencies = [
     "openpyxl>=3.1.5",
     "python-pptx>=1.0.2",
     "reportlab>=5.1.0",
+    # 对话内海报叠字（v3.73）：底图之上由系统绘制中文标题，避免模型写错字
+    "pillow>=10.4,<14",
     "sherpa-onnx>=1.10",
 ]
 

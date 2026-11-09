@@ -66,6 +66,25 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "daily_limit": 10,  # 每成员每日生成次数（0 = 不限）
         "use_web": True,  # 生成前先联网取证；关闭则直接按本地知识设计
     },
+    # v3.73 对话内媒体：图片默认全员（按人限额）；视频默认只对指挥官、
+    # 绑定了视频生成技能的助手和管理员开放，成员要用由管理员显式打开。
+    "media": {
+        "image": {
+            "enabled": True,
+            "member_access": True,
+            "daily_limit": 20,
+            "max_per_request": 4,
+            "default_size": "1024x1024",
+        },
+        "video": {
+            "enabled": True,
+            "member_access": False,
+            "daily_limit": 3,
+            "max_seconds": 10,
+            "admin_max_seconds": 30,
+            "retention_days": 30,
+        },
+    },
     # v3.56 小院画像：官方技能库按此推荐（口径对齐 market.official_catalog.YARD_TYPES）
     # v3.67：扩为「小院档案」——培养单位/县域/主导产业/一院一策标签，
     # 枢纽工作台三种运营模式的分组与横向对比都靠这几个字段，缺省则回退模型列
@@ -248,6 +267,52 @@ def _mask_secrets(group: dict[str, Any]) -> dict[str, Any]:
 
 def get_all(db: Session, yard_id: str) -> dict[str, dict[str, Any]]:
     return {key: get_setting(db, yard_id, key) for key in DEFAULTS}
+
+
+MEDIA_SIZES = {"1024x1024", "1024x1536", "1536x1024"}
+
+
+def _validate_media(merged: dict[str, Any]) -> None:
+    """媒体设置：数值范围收敛，脏值直接拒绝（不做静默截断）。"""
+
+    def bad(message: str) -> AppError:
+        return AppError("MEDIA_SETTINGS_INVALID", message, http_status=400)
+
+    image = merged.get("image")
+    video = merged.get("video")
+    if not isinstance(image, dict) or not isinstance(video, dict):
+        raise bad("媒体设置必须包含 image 与 video 两个分组。")
+    if not isinstance(image.get("enabled"), bool) or not isinstance(
+        image.get("member_access"), bool
+    ):
+        raise bad("图片开关必须是布尔值。")
+    if not isinstance(video.get("enabled"), bool) or not isinstance(
+        video.get("member_access"), bool
+    ):
+        raise bad("视频开关必须是布尔值。")
+    for field, low, high, label in (
+        ("daily_limit", 0, 200, "图片每日张数"),
+        ("max_per_request", 1, 4, "单次张数"),
+    ):
+        value = image.get(field)
+        if not isinstance(value, int) or isinstance(value, bool) or not (low <= value <= high):
+            raise bad(f"{label}必须是 {low}–{high} 的整数。")
+    if str(image.get("default_size")) not in MEDIA_SIZES:
+        raise bad("默认尺寸不合法。")
+    if not isinstance(video.get("daily_limit"), int) or not (0 <= int(video["daily_limit"]) <= 50):
+        raise bad("视频每日条数必须是 0–50 的整数。")
+    for field, low, label in (
+        ("max_seconds", 1, "成员单次视频时长"),
+        ("admin_max_seconds", 1, "管理员单次视频时长"),
+        ("retention_days", 1, "视频保留天数"),
+    ):
+        value = video.get(field)
+        if not isinstance(value, int) or isinstance(value, bool) or not (low <= value <= 365):
+            raise bad(f"{label}必须是 1–365 的整数。")
+    if int(video["max_seconds"]) > int(video["admin_max_seconds"]):
+        raise bad("成员单次时长不能超过管理员上限。")
+    if int(video["admin_max_seconds"]) > 30:
+        raise bad("单次视频时长上限为 30 秒。")
 
 
 def _validate_menu(merged: dict[str, Any]) -> None:
@@ -547,6 +612,8 @@ def _validate(key: str, value: dict[str, Any], merged: dict[str, Any]) -> None:
         validate_settings(merged)
     elif key == "menu":
         _validate_menu(merged)
+    elif key == "media":
+        _validate_media(merged)
     else:
         raise AppError("INVALID_REQUEST", f"未知设置项：{key}", http_status=400)
 
@@ -570,7 +637,10 @@ def update_setting(
         # 空字符串表示“保持原密钥不变”（前端不回显明文）
         if k.endswith("_api_key") and v == "":
             continue
-        if k == "schedule":
+        if key == "media" and k in ("image", "video") and isinstance(v, dict):
+            # 媒体设置按分组深合并：前端只改一个开关时不能把同组其它字段抹掉
+            merged[k] = {**(merged.get(k) or {}), **v}
+        elif k == "schedule":
             if not isinstance(v, dict):
                 raise AppError("INVALID_REQUEST", "调度配置必须是对象。", http_status=400)
             unknown = set(v.keys()) - known_schedule_keys

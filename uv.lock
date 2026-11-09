@@ -2006,7 +2006,7 @@ wheels = [
 
 [[package]]
 name = "tech-yard-platform"
-version = "3.72.0"
+version = "3.73.0"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },
@@ -2018,6 +2018,7 @@ dependencies = [
     { name = "jsonschema" },
     { name = "openpyxl" },
     { name = "pgvector" },
+    { name = "pillow" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -2055,6 +2056,7 @@ requires-dist = [
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11,<2" },
     { name = "openpyxl", specifier = ">=3.1.5" },
     { name = "pgvector", specifier = ">=0.3,<0.4" },
+    { name = "pillow", specifier = ">=10.4,<14" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.1,<4" },
     { name = "pydantic", specifier = ">=2.7,<3" },
     { name = "pydantic-settings", specifier = ">=2.4,<3" },

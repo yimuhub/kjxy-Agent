@@ -19,6 +19,7 @@ from app.core.progress import PHASE_GENERATING, PHASE_ROUTING, STEP_DONE, STEP_F
 from app.modules.agents import supervisor
 from app.modules.audit.service import log_audit
 from app.modules.chat import attachments as attachments_service
+from app.modules.chat import media as chat_media
 from app.modules.chat import service
 from app.modules.chat.models import (
     MSG_FAILED,
@@ -532,6 +533,91 @@ def _notice_content(
     return head + "\n" + "\n".join(lines)
 
 
+async def _run_group_media_turn(
+    db: Session,
+    *,
+    ctx: YardContext,
+    session: Any,
+    session_id: str,
+    content: str,
+    intent: Any,
+    policy: str,
+    target: str | None,
+    steps: StepRecorder,
+    emit: Callable[[str, dict[str, Any]], None],
+) -> dict[str, Any]:
+    """群聊里的出图/出片：只跑一次，产物只落一条消息。"""
+    turn_id = _new_turn_id()
+    steps.emit(PHASE_ROUTING, "群聊本轮：媒体请求交给一位执行者统一生成", STEP_DONE)
+    outcome = await chat_media.run_turn(
+        db,
+        ctx=ctx,
+        session_id=session_id,
+        content=content,
+        intent=intent,
+        binding=None,
+        target_code=target,
+        on_step=lambda phase, detail, status: steps.emit(phase, detail, status),
+    )
+    msg = service.persist_assistant_message(
+        db,
+        ctx=ctx,
+        session=session,
+        content=outcome["content"],
+        routed_by=outcome["routed_by"],
+        choice=outcome["choice"],
+        reason=outcome["reason"],
+        steps=steps.steps or None,
+        status=MSG_OK,
+        citations=outcome.get("citations"),
+        token_usage=outcome.get("token_usage"),
+        payload=outcome.get("payload"),
+    )
+    db.flush()
+
+    # 视频完成后按 message_id 原地回填同一张卡片
+    media_ids = chat_media.pending_asset_ids(outcome.get("payload"))
+    if media_ids:
+        from app.modules.media import service as media_assets
+        from app.modules.media.models import MediaAsset
+
+        rows = [db.get(MediaAsset, asset_id) for asset_id in media_ids]
+        media_assets.mark_message(db, [row for row in rows if row is not None], msg.id)
+
+    steps.finish()
+    log_audit(
+        db,
+        yard_id=ctx.yard_id,
+        actor_id=ctx.user_id,
+        action="chat_group_turn",
+        resource_type="chat_session",
+        resource_id=session_id,
+        result="success",
+        request_id=ctx.request_id,
+        metadata={
+            "turn_id": turn_id,
+            "policy": policy,
+            "member_count": 1,
+            "media": True,
+            "answered": 1,
+        },
+    )
+    db.commit()
+
+    out = service.message_out(msg)
+    emit("message", out)
+    return {
+        "turn_id": turn_id,
+        "policy": policy,
+        "member_count": 1,
+        "messages": [out],
+        "answered_names": [str((outcome.get("choice") or {}).get("name") or "指挥官")],
+        "not_answered": [],
+        "notice": None,
+        "steps": steps.steps,
+    }
+
+
 async def run_group_turn(
     db: Session,
     *,
@@ -569,6 +655,23 @@ async def run_group_turn(
     )
     context = attachments_service.build_attachment_context(attachments)
     question = f"{content}\n\n{context}" if context else content
+
+    # 对话内媒体（v3.73）：群聊只由一位执行者产出一次，避免每个成员各生成一份
+    # （N 份账单 + N 张重复卡片）。点名了成员就优先由它执行，否则交给指挥官。
+    media_intent = chat_media.detect(content)
+    if media_intent is not None:
+        return await _run_group_media_turn(
+            db,
+            ctx=ctx,
+            session=session,
+            session_id=session_id,
+            content=content,
+            intent=media_intent,
+            policy=policy,
+            target=target,
+            steps=steps,
+            emit=emit,
+        )
 
     blurbs: dict[str, str] = {
         str(c["id"]): str(c.get("blurb") or "")

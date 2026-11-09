@@ -123,6 +123,20 @@ test('海报图片：只放行 http(s) 与同源签名地址，其余降级为�
   }
 })
 
+test('对话内媒体：签名路径放行，缺签名或越界仍然拒绝', () => {
+  const sig = 'c'.repeat(32)
+  const media = `/api/v1/media/ab/0123456789abcdef.png?sig=${sig}`
+  assert.equal(presentation.safeImageUrl(media), media)
+  for (const value of [
+    '/api/v1/media/ab/0123456789abcdef.png',
+    `/api/v1/media/../secret.png?sig=${sig}`,
+    `/api/v1/other/ab/x.png?sig=${sig}`,
+    `/api/v1/media/ab/x.png?sig=${'d'.repeat(31)}`,
+  ]) {
+    assert.equal(presentation.safeImageUrl(value), undefined, String(value))
+  }
+})
+
 test('实际 Markdown 组件渲染海报图片，非法地址不生成 img', async () => {
   const html = await render(SafeMarkdown, {
     content: `![中秋海报](/api/v1/growth/posters/ab/x.svg?sig=${'b'.repeat(32)})\n\n![危险](javascript:alert(1))`,

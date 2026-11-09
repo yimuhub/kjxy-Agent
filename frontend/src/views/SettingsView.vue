@@ -85,6 +85,15 @@
       </el-tab-pane>
 
       <el-tab-pane
+        v-if="canManageSettings"
+        lazy
+        label="对话内媒体"
+        name="media"
+      >
+        <SettingsMedia />
+      </el-tab-pane>
+
+      <el-tab-pane
         lazy
         label="桌面伙伴"
         name="desktop_pet"
@@ -574,6 +583,7 @@ import SettingsSkillLab from '@/components/settings/SettingsSkillLab.vue'
   import SettingsAgentGenerate from '@/components/settings/SettingsAgentGenerate.vue'
   import SettingsYardProfile from '@/components/settings/SettingsYardProfile.vue'
 import SettingsCommander from '@/components/settings/SettingsCommander.vue'
+import SettingsMedia from '@/components/settings/SettingsMedia.vue'
 import SettingsDesktopPet from '@/components/settings/SettingsDesktopPet.vue'
 import SettingsCluster from '@/components/settings/SettingsCluster.vue'
 import SettingsSystemLogs from '@/components/settings/SettingsSystemLogs.vue'
@@ -601,6 +611,8 @@ const isOwner = computed(
 const isPlatformAdmin = computed(() => auth.roles.includes('platform_admin'))
 /** 品牌与门户：平台级权限，超管直通或经 platform_grants 逐人授予（v3.67） */
 const canManageBranding = computed(() => auth.hasPermission('branding:manage'))
+/** 对话内媒体：图片/视频开关与按人额度属于管理型设置，与后端 SETTINGS_PERMISSIONS 对齐 */
+const canManageSettings = computed(() => auth.hasPermission('settings:manage'))
 
 /** 与下方 el-tab-pane 的 name 一一对应；默认落第一个面板，避免落到不存在的 tab 只剩标签 */
 const TAB_NAMES = [
@@ -611,6 +623,7 @@ const TAB_NAMES = [
   'yard_profile',
   'network',
   'commander',
+  'media',
   'desktop_pet',
   'cluster',
   'system_logs',
@@ -638,6 +651,7 @@ const availableTabs = computed<TabName[]>(() => {
     : TAB_NAMES.filter(name => name !== 'grants' && name !== 'system_logs')
   // 品牌与门户是平台级权限，没有就整块不出现（也不能通过 ?tab=branding 直达）
   if (!canManageBranding.value) allowed = allowed.filter(name => name !== 'branding')
+  if (!canManageSettings.value) allowed = allowed.filter(name => name !== 'media')
   if (!isPlatformAdmin.value) allowed = allowed.filter(name => name !== 'cluster')
   return allowed
 })

@@ -99,13 +99,16 @@ async def generate_video_tool_func(params: dict, ctx: Any = None) -> dict[str, A
         )
 
     provider, _level = resolved
+    # 0 是合法值（提交后立刻返回 task_id，由后台轮询续查），不能被 `or` 吞成默认值
+    raw_wait = params.get("wait_seconds")
+    wait_seconds = DEFAULT_WAIT_SECONDS if raw_wait is None else int(raw_wait)
     batch = await provider.generate(
         VideoRequest(
             prompt=prompt[:2000],
             duration_seconds=int(params.get("duration_seconds") or 5),
             size=str(params.get("size") or "1280x720"),
         ),
-        wait_seconds=int(params.get("wait_seconds") or DEFAULT_WAIT_SECONDS),
+        wait_seconds=max(0, min(200, wait_seconds)),
     )
     url = batch.assets[0].url if batch.assets else ""
     return {

@@ -309,6 +309,43 @@ class OpenAIVideoProvider:
             message="视频已生成。",
         )
 
+    async def query_task(self, task_id: str, *, wait_seconds: int = 0) -> VideoBatch:
+        """按 task_id 续查进度（对话异步出片用）：不重新提交，不产生二次计费。"""
+        started = time.perf_counter()
+        deadline = time.monotonic() + max(0, wait_seconds)
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.timeout, transport=self.transport, trust_env=False
+            ) as client:
+                while True:
+                    detail = None
+                    for submit_path in ("/videos", "/video/generations"):
+                        detail = await self._poll(client, submit_path, task_id)
+                        if detail is not None:
+                            break
+                    if detail is not None:
+                        status = _status_of(detail)
+                        found = _video_url_of(detail)
+                        if found and (not status or status in _DONE_STATUSES):
+                            return self._done(started, found, task_id)
+                        if status in _FAILED_STATUSES:
+                            message = upstream_excerpt_text(detail)
+                            raise video_error(
+                                f"视频任务失败：{message or status}。", category="provider_4xx"
+                            )
+                    if time.monotonic() >= deadline:
+                        break
+                    await asyncio.sleep(self.poll_interval)
+                return self._accepted(started, task_id)
+        except httpx.TimeoutException as e:
+            raise video_error(
+                f"视频服务超时（{self.timeout} 秒），请稍后重试。", category="timeout"
+            ) from e
+        except httpx.HTTPError as e:
+            raise video_error(
+                "无法连接视频服务，请检查网络与服务地址。", category="connection"
+            ) from e
+
     def _accepted(self, started: float, task_id: str) -> VideoBatch:
         return VideoBatch(
             assets=(),
@@ -424,6 +461,54 @@ class DashScopeVideoProvider:
                             f"视频任务失败：{upstream_excerpt_text(detail) or status}。",
                             category="provider_4xx",
                         )
+                return VideoBatch(
+                    assets=(),
+                    provider_label=self.provider_label,
+                    model=self.model,
+                    latency_ms=int((time.perf_counter() - started) * 1000),
+                    task_id=task_id,
+                    accepted=True,
+                    message="上游已受理，视频仍在生成（未在等待窗口内完成）。",
+                )
+        except httpx.TimeoutException as e:
+            raise video_error(
+                f"视频服务超时（{self.timeout} 秒），请稍后重试。", category="timeout"
+            ) from e
+        except httpx.HTTPError as e:
+            raise video_error(
+                "无法连接视频服务，请检查网络与服务地址。", category="connection"
+            ) from e
+
+    async def query_task(self, task_id: str, *, wait_seconds: int = 0) -> VideoBatch:
+        """按 task_id 续查进度（对话异步出片用）。"""
+        started = time.perf_counter()
+        deadline = time.monotonic() + max(0, wait_seconds)
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.timeout, transport=self.transport, trust_env=False
+            ) as client:
+                while True:
+                    detail = await self._poll(client, task_id)
+                    if detail is not None:
+                        status = _status_of(detail)
+                        url = _video_url_of(detail)
+                        if status in _DONE_STATUSES and url:
+                            return VideoBatch(
+                                assets=(VideoAsset(url=url),),
+                                provider_label=self.provider_label,
+                                model=self.model,
+                                latency_ms=int((time.perf_counter() - started) * 1000),
+                                task_id=task_id,
+                                message="视频已生成。",
+                            )
+                        if status in _FAILED_STATUSES:
+                            raise video_error(
+                                f"视频任务失败：{upstream_excerpt_text(detail) or status}。",
+                                category="provider_4xx",
+                            )
+                    if time.monotonic() >= deadline:
+                        break
+                    await asyncio.sleep(self.poll_interval)
                 return VideoBatch(
                     assets=(),
                     provider_label=self.provider_label,

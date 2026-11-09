@@ -231,6 +231,10 @@
                 去批准
               </button>
             </div>
+            <MediaCard
+              v-else-if="row.m.role === 'assistant' && row.m.payload?.type === 'media'"
+              :card="row.m.payload as ChatMediaCard"
+            />
             <ChatCard
               v-else-if="row.m.role === 'assistant' && row.m.payload"
               :card="row.m.payload as ChatStandardCard"
@@ -913,6 +917,7 @@
   import CommanderClarifyForm from '@/components/chat/CommanderClarifyForm.vue'
   import CommanderPlanCard from '@/components/chat/CommanderPlanCard.vue'
   import CommanderRunCard from '@/components/chat/CommanderRunCard.vue'
+  import MediaCard from '@/components/chat/MediaCard.vue'
   import PluginCard from '@/components/chat/PluginCard.vue'
   import PlanCard from '@/components/chat/PlanCard.vue'
   import SafeMarkdown from '@/components/teams/SafeMarkdown.vue'
@@ -933,6 +938,7 @@
     ChatAttachment,
     ChatDocumentCard,
     ChatGroupPolicy,
+    ChatMediaCard,
     ChatMessage,
     ChatPlanCard,
     ChatPluginCard,

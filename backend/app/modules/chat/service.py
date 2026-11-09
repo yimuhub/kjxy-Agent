@@ -30,6 +30,7 @@ from app.modules.audit.service import log_audit
 from app.modules.chat import attachments as attachments_service
 from app.modules.chat import capability as capability_service
 from app.modules.chat import intent as intent_service
+from app.modules.chat import media as media_service_chat
 from app.modules.chat.models import (
     APPROVAL_ASK,
     APPROVAL_ESCALATION_ROLES,
@@ -1322,6 +1323,22 @@ async def execute_turn(
     """执行一轮对话，返回 {content, routed_by, choice, reason, payload, token_usage}。"""
     # 会话级锁定优先于一切自动分流：与某个助手/班组单独对话时，整轮只由它回答。
     binding = session_binding(session)
+
+    # 对话内媒体（v3.73）：规则命中的出图/出片走确定性编排，不依赖模型自觉调工具。
+    # 放在锁定执行之前——锁定会话里说「做张海报」也应当出海报，执行者仍优先取锁定对象。
+    media_intent = media_service_chat.detect(content)
+    if media_intent is not None:
+        return await media_service_chat.run_turn(
+            db,
+            ctx=ctx,
+            session_id=session_id,
+            content=content,
+            intent=media_intent,
+            binding=binding,
+            target_code=target_code,
+            on_step=on_step,
+        )
+
     if binding is not None:
         return await _run_bound_turn(
             db,
@@ -2049,6 +2066,17 @@ async def run_and_persist(
         citations=outcome.get("citations"),
         token_usage=outcome.get("token_usage"),
     )
+
+    # 媒体卡片：把资产绑定到本条消息，视频完成时后台才能原地回填同一张卡片
+    media_ids = media_service_chat.pending_asset_ids(payload)
+    if media_ids:
+        from app.modules.media import service as media_assets
+        from app.modules.media.models import MediaAsset
+
+        rows = [db.get(MediaAsset, asset_id) for asset_id in media_ids]
+        media_assets.mark_message(db, [row for row in rows if row is not None], assistant_msg.id)
+        db.commit()
+
     return {
         "assistant_message": assistant_msg,
         "content": outcome["content"],

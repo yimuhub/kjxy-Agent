@@ -36,6 +36,7 @@ from app.modules.llm.router import router as llm_router
 from app.modules.local_runtime.router import router as local_runtime_router
 from app.modules.market.router import router as market_router
 from app.modules.mcp.router import router as mcp_router
+from app.modules.media.router import router as media_router
 from app.modules.memory.router import router as memory_router
 from app.modules.org.router import router as org_router
 from app.modules.pairing.router import router as pairing_router
@@ -82,6 +83,7 @@ router.include_router(agriculture_router)
 router.include_router(farm_router)  # /farm（农业台账：地块/周期/农事记录/报表）
 router.include_router(farm_agent_router)  # /farm/automation（Agent 自动执行 v3.28）
 router.include_router(growth_router)  # /growth/posters（海报出图与签名取图）
+router.include_router(media_router)  # /media（对话内媒体签名取流、Range、额度）
 router.include_router(quick_actions_router)  # /quick-actions（一句话业务：预览/确认 v3.22）
 router.include_router(share_router)  # /shares（跨院只读分享：创建/列表/撤销）
 router.include_router(share_public_router)  # /public/shares/{token}（匿名只读快照）
