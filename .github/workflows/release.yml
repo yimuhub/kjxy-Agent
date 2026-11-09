@@ -109,14 +109,18 @@ jobs:
             target: aarch64-apple-darwin
             # updater 升级包来自 app bundle（.app.tar.gz + .sig），dmg 供手动首装
             bundles: app,dmg
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            # Intel Mac 原生包：sidecar 需同架构 PyInstaller 产物，故用 Intel runner 而非交叉编译
+            bundles: app,dmg
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            # 固定 WebView2 runtime 10554（Win7+ 通用，NSIS 包内含 runtime）
+            # offlineInstaller：NSIS 内嵌 WebView2 离线安装器（+127MB），装包全程不需要联网
             bundles: nsis
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
-            # deb 安装方式；AppImage 免安装——两者都出（rpmbuild 不可用故不出 rpm）
-            bundles: deb
+            # deb 装到系统；AppImage 免安装双击即用，且是 Linux 自动升级所用格式
+            bundles: deb,appimage
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     env:
@@ -181,9 +185,10 @@ jobs:
         run: |
           npm ci
           npx tauri icon icons-src/app-icon.png
-      # 签名 + 打包 + 建 Release + 上传产物（安装包、.sig、各平台更新清单并合并 latest.json）：
-      # tauri-action 用 GITHUB_TOKEN 走 GitHub API 上传（等效 softprops/action-gh-release/gh CLI），
-      # 且跨平台 latest.json 合并是 updater 自动升级的关键，手动 gh 极易漏。
+      # 签名 + 打包 + 建 Release + 上传产物（安装包、.sig）。
+      # latest.json 不在这一步生成：productName 是中文，GitHub 上传资产会剥掉非 ASCII 字符，
+      # tauri-action 按 productName 匹配不到 .sig 就静默跳过（日志：Signature not found for the updater JSON）。
+      # 交由下方 updater-json 作业按真实资产名单点重建，顺带避免三个并行作业互相覆盖。
       - name: Tauri build + sign + upload to GitHub Release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -197,6 +202,95 @@ jobs:
           # 与推送的标签同名：Release 即更新通道，latest.json 放该 Release 供 updater 拉取
           tagName: ${{ github.ref_name }}
           releaseName: 科技小院 ${{ github.ref_name }}
-          releaseBody: 自动构建：macOS(aarch64) / Windows(NSIS) / Linux(deb)，含自动升级更新包与签名。
+          releaseBody: 自动构建：macOS(aarch64/x86_64 dmg) / Windows(NSIS，内嵌 WebView2 离线安装器) / Linux(deb + AppImage)，含自动升级更新包与签名。
           releaseDraft: false
           prerelease: false
+          includeUpdaterJson: false
+
+  # 三平台作业全部完成后再生成更新清单，避免并行上传 latest.json 互相覆盖。
+  # 签名内容取自对应 .sig 资产原文，URL 指向本 Release 的更新包。
+  updater-json:
+    needs: release
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - name: Compose latest.json from release artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, subprocess, urllib.request
+
+          tag, repo = os.environ["TAG"], os.environ["REPO"]
+          release = json.loads(
+              subprocess.run(
+                  ["gh", "api", f"repos/{repo}/releases/tags/{tag}"],
+                  check=True, capture_output=True, text=True,
+              ).stdout
+          )
+          assets = release["assets"]
+
+          def find(suffixes):
+              for asset in assets:
+                  name = asset["name"]
+                  if name.endswith(".sig"):
+                      continue
+                  if name.endswith(suffixes):
+                      return asset
+              return None
+
+          def sig_text(bundle):
+              for asset in assets:
+                  if asset["name"] == f"{bundle['name']}.sig":
+                      request = urllib.request.Request(
+                          asset["url"],
+                          headers={
+                              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                              "Accept": "application/octet-stream",
+                          },
+                      )
+                      with urllib.request.urlopen(request) as response:
+                          return response.read().decode()
+              return None
+
+          specs = [
+              ("darwin-aarch64", ("aarch64.app.tar.gz",)),
+              ("darwin-x86_64", ("x86_64.app.tar.gz", "x64.app.tar.gz")),
+              ("windows-x86_64", ("x64-setup.exe",)),
+              ("linux-x86_64", ("amd64.AppImage.tar.gz",)),
+          ]
+          platforms = {}
+          for key, suffixes in specs:
+              bundle = find(suffixes)
+              if bundle is None:
+                  print(f"skip {key}: update bundle not found")
+                  continue
+              signature = sig_text(bundle)
+              if not signature:
+                  print(f"skip {key}: signature not found")
+                  continue
+              platforms[key] = {
+                  "signature": signature,
+                  "url": bundle["browser_download_url"],
+              }
+
+          if not platforms:
+              raise SystemExit("no updatable platform found, refusing to write latest.json")
+
+          doc = {
+              "version": tag.lstrip("v"),
+              "notes": f"科技小院 {tag}",
+              "pub_date": subprocess.run(
+                  ["date", "-u", "+%Y-%m-%dT%H:%M:%SZ"],
+                  check=True, capture_output=True, text=True,
+              ).stdout.strip(),
+              "platforms": platforms,
+          }
+          with open("latest.json", "w", encoding="utf-8") as handle:
+              json.dump(doc, handle, ensure_ascii=False, indent=2)
+          print(json.dumps(platforms, ensure_ascii=False, indent=2))
+          PY
+          gh release upload "$TAG" latest.json --clobber --repo "$REPO"

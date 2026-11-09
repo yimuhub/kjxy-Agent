@@ -2,6 +2,19 @@
 
 本项目遵循《工程开发规范 V3.0》；版本号遵循语义化版本。
 
+## [3.73.3] - 2026-11-09
+
+三平台客户端补齐为「双击即用」的全量包，并修复应用内自动升级清单缺失。
+
+- Windows：`webviewInstallMode` 由 `downloadBootstrapper` 改为 `offlineInstaller`
+  （安装包内嵌 WebView2 离线安装器，体积 +约 127MB，装机全程不需要联网）
+- Linux：`--bundles deb,appimage`，补上免安装、双击即用的 AppImage（同时也是 Linux 自动升级所用格式）
+- macOS：新增 `macos-15-intel` 原生作业产出 Intel Mac 的 dmg 与更新包，与已有的 Apple Silicon 包并列
+- 自动升级：`latest.json` 过去从未生成（productName 为中文，GitHub 上传时会剥离非 ASCII 字符，
+  tauri-action 按名字找不到 `.sig`，日志 `Signature not found for the updater JSON. Skipping upload...`）。
+  改为三个平台作业全部完成后再由独立作业按真实资产名重建清单并上传，避免并行覆盖
+- 安装包命名仍保留中文（GitHub 侧会剥离为 `_3.73.3_aarch64.dmg` 这类形式），下载不受影响
+
 ## [3.73.2] - 2026-11-09
 
 发布门禁修复（续）：叠字测试按环境中文字体能力断言。
