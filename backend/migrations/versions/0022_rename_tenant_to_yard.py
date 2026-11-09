@@ -176,16 +176,44 @@ def _apply_values(*, to_new: bool) -> None:
             )
 
 
+def _pg_column_type(table: str, column: str) -> str:
+    """取 PG 目录里的列类型：JSON 列不能直接 LIKE/replace，需转 text 再转回。"""
+    bind = op.get_bind()
+    if bind.dialect.name != "postgresql":
+        return ""
+    return (
+        bind.execute(
+            sa.text(
+                "SELECT format_type(a.atttypid, a.atttypmod) FROM pg_attribute a "
+                "WHERE a.attrelid = to_regclass(:table) AND a.attname = :column "
+                "AND a.attnum > 0 AND NOT a.attisdropped"
+            ).bindparams(table=table, column=column)
+        ).scalar()
+        or ""
+    )
+
+
 def _apply_payloads(*, to_new: bool) -> None:
     for old_table, items in PAYLOADS.items():
         table = _physical(old_table)
         for column, pairs in items:
             for old_piece, new_piece in pairs:
                 src, dst = (old_piece, new_piece) if to_new else (new_piece, old_piece)
+                if _dialect() == "postgresql":
+                    col_type = _pg_column_type(table, column)
+                    text_col = f'CAST("{column}" AS text)'
+                    if col_type:
+                        expr = f"CAST(replace({text_col}, :src, :dst) AS {col_type})"
+                        where = f"{text_col} LIKE :like"
+                    else:  # 目录查不到列类型时按 text 处理，避免整条 SQL 失效
+                        expr = f"replace({text_col}, :src, :dst)"
+                        where = f"{text_col} LIKE :like"
+                else:
+                    expr = f'replace("{column}", :src, :dst)'
+                    where = f'"{column}" LIKE :like'
                 op.execute(
                     sa.text(
-                        f'UPDATE "{table}" SET "{column}" = '
-                        f'replace("{column}", :src, :dst) WHERE "{column}" LIKE :like'
+                        f'UPDATE "{table}" SET "{column}" = {expr} WHERE {where}'
                     ).bindparams(src=src, dst=dst, like=f"%{src}%")
                 )
 

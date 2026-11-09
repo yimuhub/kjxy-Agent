@@ -2,6 +2,18 @@
 
 本项目遵循《工程开发规范 V3.0》；版本号遵循语义化版本。
 
+## [3.73.1] - 2026-11-09
+
+发布门禁修复：迁移链在 PostgreSQL 上无法执行，导致三平台客户端构建被前置门禁拦下。
+
+- 0022 「tenant→yard 改名」对 JSON 列（如 `yard_agents.knowledge_scopes`）
+  直接使用 `LIKE`/`replace`，SQLite 下是 TEXT 所以一直没暴露；PostgreSQL 报
+  `operator does not exist: json ~~ character varying`
+- 改为方言感知：PG 下先 `CAST(col AS text)` 再替换，并按目录里的真实列类型转回
+  （json/jsonb/字符类型），SQLite 分支保持原样
+- 已用嵌入式 PostgreSQL 完整跑通发布门禁同款序列：`upgrade head` →
+  `downgrade -1` → `upgrade head`，并在 PG 上跑通后端全量测试 2539 条
+
 ## [3.73.0] - 2026-11-09
 
 对话内直接生成图片与视频：一句话出成品，成品卡片可预览、可下载（网页与桌面端一致）。
