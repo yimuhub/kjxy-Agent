@@ -14,8 +14,8 @@ AGENT_DEFINITIONS: list[dict] = [
     {
         "code": "pest_alert",
         "name": "虫情预警",
-        "version": "1.0.0",
-        "description": "根据田间监测数据生成虫害预警",
+        "version": "1.1.0",
+        "description": "结合本院告警、设备读数与知识库，AI 生成虫情风险预警与防治建议",
         "input_schema_ref": "",
         "output_schema_ref": "",
         "allowed_tools": ["knowledge.search"],

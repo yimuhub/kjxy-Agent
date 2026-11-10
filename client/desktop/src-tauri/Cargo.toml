@@ -1,6 +1,6 @@
 [package]
 name = "techyard-desktop"
-version = "3.75.0"
+version = "3.76.0"
 description = "科技小院桌面壳：本地引擎 sidecar + splash + 级联退出（Tauri 2）"
 edition = "2021"
 rust-version = "1.77"
@@ -23,8 +23,8 @@ tauri-plugin-opener = "2"
 tauri-plugin-global-shortcut = "2"
 # 自动升级：GitHub Releases 通道（latest.json + minisign 验签），见 README「升级链路」
 tauri-plugin-updater = "2"
-# blocking 模式在独立线程轮询 health，不引入 tokio 到主线程心智负担
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+# blocking 模式在独立线程轮询 health；json 供 engine_initialized 解析 /setup/status
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dirs = "6"
