@@ -41,5 +41,5 @@
     "type-check": "vue-tsc --noEmit"
   },
   "type": "module",
-  "version": "3.73.3"
+  "version": "3.73.4"
 }

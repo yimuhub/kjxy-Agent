@@ -2,6 +2,20 @@
 
 本项目遵循《工程开发规范 V3.0》；版本号遵循语义化版本。
 
+## [3.73.4] - 2026-11-10
+
+修复 macOS 安装包被系统判定「已损坏，无法打开」。
+
+- 根因：CI 打包只留下链接器级临时签名，`.app` 从未整体签名（没有 `_CodeSignature`，
+  签名标识退化成 `techyard_desktop-…`）。本地脚本 `scripts/desktop/build_macos.sh`
+  会自己 `codesign`，所以本机出的包正常，CI 出的包一放进 Downloads 打上隔离属性就被 Gatekeeper 判损坏
+- `bundle.macOS.signingIdentity` 设为 `-`：由 Tauri 打包阶段对整包做 ad-hoc 签名，
+  绑定 Info.plist 与资源封条，内嵌引擎二进制一并签名（实测带隔离属性也能正常启动，健康接口返回 ok）
+- 发布流程加门禁：Release 先建草稿，由 macOS runner 真挂载 dmg 跑
+  `codesign --verify --deep --strict` 并校验签名标识，通过后才生成 latest.json 并转为公开
+- 仍属未公证（无 Apple Developer ID）：首次打开会提示「无法验证开发者」，
+  需右键 →「打开」一次；要彻底双击直达需后续接入 Developer ID 签名与公证
+
 ## [3.73.3] - 2026-11-09
 
 三平台客户端补齐为「双击即用」的全量包，并修复应用内自动升级清单缺失。

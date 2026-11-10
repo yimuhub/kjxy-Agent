@@ -203,17 +203,43 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: 科技小院 ${{ github.ref_name }}
           releaseBody: 自动构建：macOS(aarch64/x86_64 dmg) / Windows(NSIS，内嵌 WebView2 离线安装器) / Linux(deb + AppImage)，含自动升级更新包与签名。
-          releaseDraft: false
+          releaseDraft: true
           prerelease: false
           includeUpdaterJson: false
 
-  # 三平台作业全部完成后再生成更新清单，避免并行上传 latest.json 互相覆盖。
-  # 签名内容取自对应 .sig 资产原文，URL 指向本 Release 的更新包。
-  updater-json:
+  # 发布门禁：草稿里的 macOS 包签名必须有效，才生成 latest.json 并转为公开。
+  # v3.73.3 事故：tauri-action 产出的 .app 只有链接器临时签名（没有 _CodeSignature），
+  # 用户端 Gatekeeper 直接报「已损坏」。这里在 macOS runner 上真挂载 dmg 验一遍。
+  publish:
     needs: release
-    runs-on: ubuntu-22.04
-    timeout-minutes: 10
+    runs-on: macos-latest
+    timeout-minutes: 15
     steps:
+      - name: Download macOS dmg from draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh release download "$TAG" --repo "$REPO" --pattern '*.dmg' --dir dist
+          ls -lh dist
+      - name: Verify macOS bundle signature inside dmg
+        run: |
+          set -euo pipefail
+          for DMG in dist/*.dmg; do
+            echo "== $DMG"
+            MNT=$(hdiutil attach -nobrowse -readonly "$DMG" | awk -F'\t' '/\/Volumes\//{print $NF; exit}')
+            [ -n "$MNT" ] || { echo "挂载失败：$DMG"; exit 1; }
+            APP=$(ls -d "$MNT"/*.app | head -1)
+            if [ -z "$APP" ]; then hdiutil detach "$MNT" -quiet; echo "未找到 .app"; exit 1; fi
+            codesign --verify --deep --strict --verbose=2 "$APP"
+            codesign -dv "$APP" 2>&1 | tee /tmp/codesign.txt
+            grep -q "Signature=adhoc" /tmp/codesign.txt || { hdiutil detach "$MNT" -quiet; echo "缺少 ad-hoc 签名"; exit 1; }
+            grep -q "Identifier=cn.techyard.desktop" /tmp/codesign.txt || { hdiutil detach "$MNT" -quiet; echo "Bundle Identifier 未绑定"; exit 1; }
+            hdiutil detach "$MNT" -quiet
+          done
       - name: Compose latest.json from release artifacts
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -296,3 +322,9 @@ jobs:
           print(json.dumps(platforms, ensure_ascii=False, indent=2))
           PY
           gh release upload "$TAG" latest.json --clobber --repo "$REPO"
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: gh release edit "$TAG" --repo "$REPO" --draft=false --prerelease=false
