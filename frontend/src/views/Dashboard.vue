@@ -59,11 +59,11 @@
           :aria-label="`${card.label} ${card.value}，点击查看`"
           @click="go(card.to)"
         >
-          <span class="stat-label">{{ card.label }}</span>
           <span
-            class="stat-value"
+            class="stat-label"
             :class="{ warn: card.warn }"
-          >{{ card.value }}</span>
+          >{{ card.label }}</span>
+          <span class="stat-value">{{ card.value }}</span>
           <span class="stat-desc">{{ card.desc }}</span>
         </button>
       </el-col>
@@ -674,30 +674,45 @@
     gap: 4px;
     padding: 14px 16px;
     text-align: left;
-    border-radius: 12px;
+    border-radius: var(--ds-radius-card);
     border: 1px solid var(--ds-border);
-    background: var(--ds-glass);
+    /* v3.75：统计卡与全站卡片同配方（实色浮起），不再用半透明玻璃 */
+    background-color: var(--ds-bg-1);
+    background-image: var(--ds-card-sheen);
+    box-shadow: var(--ds-shadow-card);
     color: var(--ds-text-1);
     cursor: pointer;
     transition:
       border-color 0.2s,
+      box-shadow 0.2s,
       transform 0.2s;
   }
   .stat-card:hover {
     border-color: var(--ds-border-strong);
+    box-shadow: var(--ds-shadow-card-hover);
     transform: translateY(-1px);
   }
   .stat-label {
     font-size: 12px;
     color: var(--ds-text-3);
   }
+  /* v3.75 色彩纪律：大数字回归中性主文本，语义警示收敛为标签前小圆点 */
+  .stat-label.warn::before {
+    content: '';
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    margin-right: 6px;
+    border-radius: var(--ds-radius-pill);
+    background: var(--ds-warning);
+    vertical-align: 1px;
+  }
   .stat-value {
     font-size: 26px;
     font-weight: 650;
     line-height: 1.2;
-  }
-  .stat-value.warn {
-    color: var(--el-color-warning);
+    color: var(--ds-text-1);
+    font-variant-numeric: tabular-nums;
   }
   .stat-desc {
     font-size: 12px;

@@ -360,7 +360,7 @@
     border-radius: 999px;
     font-size: 11px;
     background: rgba(16, 185, 129, 0.16);
-    color: #34d399;
+    color: var(--ds-success);
     border: 1px solid rgba(16, 185, 129, 0.35);
     pointer-events: auto;
   }

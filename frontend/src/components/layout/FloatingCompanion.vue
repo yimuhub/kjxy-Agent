@@ -583,8 +583,8 @@
     padding: 7px 11px;
     border: 1px solid var(--ds-border);
     border-radius: 10px;
-    background: var(--ds-bg-1, #161b26);
-    color: var(--ds-text-2, #cfd8e6);
+    background: var(--ds-bg-1);
+    color: var(--ds-text-2);
     font-size: 12.5px;
     line-height: 1.5;
     box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
@@ -604,7 +604,7 @@
     border-right: 1px solid var(--ds-border);
     border-bottom: 1px solid var(--ds-border);
     border-radius: 0 0 3px 0;
-    background: var(--ds-bg-1, #161b26);
+    background: var(--ds-bg-1);
     transform: rotate(45deg);
   }
 
@@ -660,8 +660,8 @@
     padding: 1px 7px;
     border: 1px solid var(--ds-border);
     border-radius: 999px;
-    background: var(--ds-bg-1, rgba(10, 14, 22, 0.62));
-    color: var(--ds-text-2, #b9c6da);
+    background: var(--ds-bg-1);
+    color: var(--ds-text-2);
     font-size: 10.5px;
     letter-spacing: 0.02em;
   }
@@ -678,7 +678,7 @@
     overflow: hidden;
     border: 1px solid var(--ds-border);
     border-radius: 14px;
-    background: var(--ds-bg-1, #121722);
+    background: var(--ds-bg-1);
     box-shadow: 0 18px 44px rgba(0, 0, 0, 0.36);
   }
 
@@ -689,7 +689,7 @@
     gap: 8px;
     padding: 8px 10px;
     border-bottom: 1px solid var(--ds-border);
-    background: var(--ds-field, #171d29);
+    background: var(--ds-field);
     cursor: grab;
     touch-action: none;
   }
@@ -706,7 +706,7 @@
 
   .panel-id strong {
     font-size: 13px;
-    color: var(--ds-text-1, #e8eefb);
+    color: var(--ds-text-1);
     flex-shrink: 0;
   }
 
@@ -714,13 +714,13 @@
     padding: 1px 6px;
     border: 1px solid var(--ds-border);
     border-radius: 999px;
-    color: var(--ds-accent, #4c9aff);
+    color: var(--ds-accent);
     font-size: 10.5px;
     flex-shrink: 0;
   }
 
   .panel-id small {
-    color: var(--ds-text-3, #8b98ad);
+    color: var(--ds-text-3);
     font-size: 11px;
     white-space: nowrap;
     overflow: hidden;
@@ -740,14 +740,14 @@
     border: 1px solid var(--ds-border);
     border-radius: 7px;
     background: transparent;
-    color: var(--ds-text-2, #cfd8e6);
+    color: var(--ds-text-2);
     font-size: 11.5px;
     cursor: pointer;
   }
 
   .panel-tools button:hover {
-    border-color: var(--ds-accent, #4c9aff);
-    color: var(--ds-accent, #4c9aff);
+    border-color: var(--ds-accent);
+    color: var(--ds-accent);
   }
 
   .panel-body {
@@ -764,7 +764,7 @@
     overflow: auto;
     padding: 10px 12px;
     border-bottom: 1px solid var(--ds-border);
-    background: var(--ds-field, #171d29);
+    background: var(--ds-field);
   }
 
   .panel-body > * {

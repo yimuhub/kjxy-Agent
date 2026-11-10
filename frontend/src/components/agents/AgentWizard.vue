@@ -703,7 +703,7 @@
     font-size: 11px;
   }
   .stage-list li.done .stage-dot {
-    background: var(--ds-success, #3f9d68);
+    background: var(--ds-success);
     border-color: transparent;
     color: #fff;
   }

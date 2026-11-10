@@ -1763,7 +1763,7 @@
     color: var(--ds-success);
   }
   .stat-val.token {
-    color: #34d399;
+    color: var(--ds-success);
   }
 
   .toolbar-card {
@@ -1863,7 +1863,7 @@
     font-variant-numeric: tabular-nums;
   }
   .token-num {
-    color: #34d399;
+    color: var(--ds-success);
     font-weight: 600;
   }
   .token-calls {

@@ -348,7 +348,7 @@
   }
 
   .kv em.low {
-    color: var(--ds-success, #3f9d68);
+    color: var(--ds-success);
   }
 
   .kv em.high {

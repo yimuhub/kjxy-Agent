@@ -462,7 +462,7 @@
   .note {
     margin-left: 8px;
     font-size: 12px;
-    color: var(--ds-text-3, #8b94a7);
+    color: var(--ds-text-3);
   }
   .model-row {
     padding: 8px 0;
@@ -488,7 +488,7 @@
     margin-left: 0;
   }
   .state-note.error {
-    color: var(--ds-danger, #f56c6c);
+    color: var(--ds-danger);
   }
   .test-row {
     display: flex;
@@ -503,6 +503,6 @@
     display: none;
   }
   .link {
-    color: var(--ds-accent, #34d399);
+    color: var(--ds-accent);
   }
 </style>

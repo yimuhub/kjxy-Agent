@@ -32,22 +32,22 @@
     flex-direction: column;
     gap: 2px;
     padding: 12px 14px;
-    border: 1px solid var(--ds-border, #e5e7eb);
+    border: 1px solid var(--ds-border);
     border-radius: var(--ds-radius-md, 10px);
-    background: var(--ds-bg-1, #fafafa);
+    background: var(--ds-bg-1);
   }
   .stat-value {
     font-size: 22px;
     font-weight: 500;
     line-height: 1.2;
-    color: var(--ds-text-1, #1f2937);
+    color: var(--ds-text-1);
   }
   .stat-label {
     font-size: 12px;
-    color: var(--ds-text-3, #6b7280);
+    color: var(--ds-text-3);
   }
   .stat-hint {
     font-size: 11.5px;
-    color: var(--ds-text-3, #9ca3af);
+    color: var(--ds-text-3);
   }
 </style>

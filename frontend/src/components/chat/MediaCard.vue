@@ -347,7 +347,7 @@
     display: block;
     width: 100%;
     border-radius: 8px;
-    background: var(--ds-bg-2, #f5f6f7);
+    background: var(--ds-bg-2);
     overflow: hidden;
   }
   .media-card.image .grid.n1 .visual {

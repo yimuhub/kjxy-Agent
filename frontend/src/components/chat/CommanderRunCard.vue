@@ -489,7 +489,7 @@
     margin: 4px 0 0;
     font-size: 11.5px;
     line-height: 1.5;
-    color: var(--ds-warning, #b88230);
+    color: var(--ds-warning);
     word-break: break-word;
   }
   .excerpt {

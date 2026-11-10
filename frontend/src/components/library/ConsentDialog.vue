@@ -184,7 +184,7 @@
     padding: 10px 12px;
     border-radius: 10px;
     border: 1px solid var(--ds-border);
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--ds-glass);
     font-size: 13px;
     color: var(--ds-text-2);
   }
@@ -221,7 +221,7 @@
     padding: 12px;
     border: 1px solid var(--ds-border);
     border-radius: 12px;
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--ds-glass);
   }
   .permission-main {
     flex: 1;

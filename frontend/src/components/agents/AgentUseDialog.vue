@@ -288,7 +288,7 @@
     padding: 1px 8px;
     border-radius: 999px;
     font-size: 11.5px;
-    color: #34d399;
+    color: var(--ds-success);
     background: rgba(16, 185, 129, 0.14);
     border: 1px solid rgba(16, 185, 129, 0.3);
   }

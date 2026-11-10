@@ -70,21 +70,21 @@
     gap: 2px;
     min-width: 120px;
     padding: 10px 12px;
-    border: 1px solid var(--ds-border, #e5e7eb);
+    border: 1px solid var(--ds-border);
     border-radius: var(--ds-radius-md, 10px);
-    background: var(--ds-bg-1, #fafafa);
+    background: var(--ds-bg-1);
   }
   .type-name {
     font-size: 13px;
     font-weight: 500;
-    color: var(--ds-text-1, #1f2937);
+    color: var(--ds-text-1);
   }
   .type-count {
     font-size: 18px;
-    color: var(--ds-text-1, #1f2937);
+    color: var(--ds-text-1);
   }
   .type-meta {
     font-size: 11.5px;
-    color: var(--ds-text-3, #9ca3af);
+    color: var(--ds-text-3);
   }
 </style>

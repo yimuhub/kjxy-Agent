@@ -109,3 +109,39 @@ Enter 发送 Shift+Enter 换行、发送钮渐变圆钮；发送中变停止样�
   - target=agent/team：直跑指定对象；routed_by='manual'
   - 执行失败：assistant_message.content = 中文错误说明，routed_by='error'（会话不死，可继续问）
 - 全部登录可用（成员级），跨小院/跨用户会话一律 404
+
+## 11. v3.75「浮层」高级感重造（2026-11-11）
+
+对标 Linear / Stripe / Vercel，核心公式：**高级感 = 分层浮起 + 色彩纪律 + 有品牌的光**。
+
+### 11.1 分层浮起（elevation）
+
+- 卡片配方统一改为「实色亮一档 + 顶部 1px 内高光 + 双层阴影」，弃用半透明玻璃卡片：
+  - 暗色：`bg-0 #0A0D13` → 卡片 `#131826`（+顶部 sheen 渐变）→ 弹层 `#1B2130`；侧栏 `#070A0F` 最深
+  - 亮色：页面 `#F3F5F9` → 卡片纯白 + `--ds-shadow-card`（近影 + 远影）→ 侧栏纯白反转对比
+- 新配方 token：`--ds-card-sheen` / `--ds-shadow-card` / `--ds-shadow-card-hover` /
+  `--ds-btn-primary-shadow` / `--ds-accent-ring` / `--ds-sidebar-bg|border` / `--ds-topbar-bg|border` /
+  `--ds-nav-active-bg|text` / `--ds-mask`
+- 弹层（dialog/message/notification/message-box/popper）改随主题实色 `--ds-bg-2` + 大阴影，不再写死深色 rgba
+
+### 11.2 色彩纪律（去仪表盘廉价感）
+
+- **大数字回归中性** `--ds-text-1`；语义色只出现在小元素（徽章/图标/进度/圆点）。
+  Dashboard 统计卡的警示 = 标签前 6px 警示圆点，不再整块橙黄
+- 徽章统一 8~14% 语义色底配方（EP 桥接 light-N 已按新语义色重算）
+- 亮色语义色加深：warning `#D97706 → #B45309`（去土色）、info 同步收紧；accent `#4F46E5`（indigo-600）
+- 主色微调：暗色 accent `#6366F1 → #6E73F3`（同相微亮），品牌渐变（主按钮/激活条/logo）保持不变
+
+### 11.3 有品牌的光（atmosphere）
+
+- 暗色光斑加强：右上靛紫 16% + 左下青 9% + 顶部横向光带 9%
+- 亮色专属氛围：右上靛紫 8% + 左下天青 6%（此前亮色沿用暗色参数导致灰蒙蒙）
+
+### 11.4 全站清理纪律
+
+- `var(--ds-*/--el-*)` 的死重颜色兜底一律剥离（token 全局定义，浅色兜底是暗色隐患），
+  68 处已清（括号平衡感知脚本）
+- 硬编码状态色（#34d399/#4caf78 等）收敛回 `--ds-success/--ds-warning/--ds-danger`
+- 豁免清单：桌宠造型（`--pet-*` 硬契约 + CommanderFigure/PetView）、图表画布取色
+  （echarts/progress 的 `color` 属性）、生成文档预览底 `#0b0e14`（内容契约）、
+  品牌色选择器数据（SetupWizard COLOR_OPTIONS）、logo 预览双底色（内容模拟）

@@ -258,7 +258,7 @@
   .panel {
     border: 1px solid var(--ds-border);
     border-radius: 12px;
-    background: var(--ds-bg-1, #121722);
+    background: var(--ds-bg-1);
   }
 
   .panel-head {
@@ -333,11 +333,11 @@
 
   .skin-card:hover {
     transform: translateY(-1px);
-    border-color: var(--ds-accent, #4c9aff);
+    border-color: var(--ds-accent);
   }
 
   .skin-card.active {
-    border-color: var(--ds-accent, #4c9aff);
+    border-color: var(--ds-accent);
     box-shadow: 0 0 0 2px rgba(76, 154, 255, 0.18);
   }
 

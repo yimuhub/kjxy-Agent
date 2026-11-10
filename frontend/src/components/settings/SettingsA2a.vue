@@ -788,7 +788,7 @@
 .error-text {
   margin-left: 8px;
   font-size: 12px;
-  color: var(--ds-danger, #c45656);
+  color: var(--ds-danger);
 }
 .form-hint {
   margin-top: 4px;
@@ -797,9 +797,9 @@
 .token-box {
   margin-top: 12px;
   padding: 12px;
-  border: 1px dashed var(--ds-border, #dcdfe6);
+  border: 1px dashed var(--ds-border);
   border-radius: 8px;
-  background: var(--ds-bg-2, #f7f8fa);
+  background: var(--ds-bg-2);
 }
 .result-pre {
   margin: 0;

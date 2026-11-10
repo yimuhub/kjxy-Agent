@@ -109,9 +109,9 @@
     align-items: center;
     gap: 20px;
     padding: 16px 18px;
-    border: 1px solid var(--ds-border, #e5e7eb);
+    border: 1px solid var(--ds-border);
     border-radius: var(--ds-radius-md, 10px);
-    background: var(--ds-bg-1, #fafafa);
+    background: var(--ds-bg-1);
   }
   .hero-main {
     display: flex;
@@ -122,21 +122,21 @@
     font-size: 30px;
     font-weight: 500;
     line-height: 1.1;
-    color: var(--ds-text-1, #1f2937);
+    color: var(--ds-text-1);
   }
   .hero-label {
     font-size: 12px;
-    color: var(--ds-text-3, #6b7280);
+    color: var(--ds-text-3);
   }
   .hero-note {
     margin: 0;
     font-size: 12.5px;
     line-height: 1.6;
-    color: var(--ds-text-2, #4b5563);
+    color: var(--ds-text-2);
   }
   .rate-text {
     margin-left: 8px;
     font-size: 12px;
-    color: var(--ds-text-3, #6b7280);
+    color: var(--ds-text-3);
   }
 </style>

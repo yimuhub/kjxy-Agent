@@ -96,15 +96,15 @@
   .share-page {
     min-height: 100vh;
     padding: 32px 16px 48px;
-    background: var(--el-bg-color-page, #0b1020);
+    background: var(--el-bg-color-page);
   }
   .share-card {
     max-width: 820px;
     margin: 0 auto;
     padding: 32px 28px;
     border-radius: 14px;
-    background: var(--el-bg-color, #151a2b);
-    border: 1px solid var(--el-border-color, #2a3147);
+    background: var(--el-bg-color);
+    border: 1px solid var(--el-border-color);
     box-shadow: 0 18px 50px rgb(0 0 0 / 28%);
   }
   .state {
@@ -140,7 +140,7 @@
     gap: 12px;
     margin-top: 28px;
     padding-top: 16px;
-    border-top: 1px dashed var(--el-border-color, #2a3147);
+    border-top: 1px dashed var(--el-border-color);
     color: var(--el-text-color-secondary);
     font-size: 12px;
   }

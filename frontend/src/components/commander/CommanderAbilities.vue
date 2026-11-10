@@ -524,14 +524,14 @@
   .abilities-head h4 {
     margin: 0;
     font-size: 13px;
-    color: var(--ds-text-1, #e8eefb);
+    color: var(--ds-text-1);
   }
 
   .abilities-note {
     margin: 0;
     font-size: 11.5px;
     line-height: 1.6;
-    color: var(--ds-text-3, #8b98ad);
+    color: var(--ds-text-3);
   }
 
   .model-row {
@@ -555,20 +555,20 @@
 
   .identity-chip {
     padding: 2px 9px;
-    border: 1px solid var(--ds-border, #2a3446);
+    border: 1px solid var(--ds-border);
     border-radius: var(--ds-radius-pill, 999px);
     font-size: 11.5px;
-    color: var(--ds-text-2, #cfd8e6);
+    color: var(--ds-text-2);
   }
 
   .identity-chip--skill {
-    border-color: var(--ds-accent-2, #2f6fb8);
-    color: var(--ds-accent-text, #7fc0ff);
+    border-color: var(--ds-accent-2);
+    color: var(--ds-accent-text);
   }
 
   .identity-chip--tool {
-    border-color: var(--ds-success, #2f9e6b);
-    color: var(--ds-success, #2f9e6b);
+    border-color: var(--ds-success);
+    color: var(--ds-success);
   }
 
   .picker-block {
@@ -579,7 +579,7 @@
 
   .picker-label {
     font-size: 12px;
-    color: var(--ds-text-2, #cfd8e6);
+    color: var(--ds-text-2);
   }
 
   .tool-toolbar {
@@ -595,7 +595,7 @@
 
   .tool-count {
     font-size: 11.5px;
-    color: var(--ds-text-3, #8b98ad);
+    color: var(--ds-text-3);
   }
 
   .tool-list {
@@ -603,9 +603,9 @@
     max-height: 236px;
     overflow-y: auto;
     padding: 10px 12px;
-    border: 1px solid var(--ds-border, #2a3446);
+    border: 1px solid var(--ds-border);
     border-radius: var(--ds-radius-control, 8px);
-    background: var(--ds-field, #171d29);
+    background: var(--ds-field);
   }
 
   .tool-list :deep(.el-checkbox-group) {
@@ -631,13 +631,13 @@
   .tool-summary {
     display: block;
     font-size: 11.5px;
-    color: var(--ds-text-3, #8b98ad);
+    color: var(--ds-text-3);
   }
 
   .tool-empty {
     margin: 2px 0 0;
     font-size: 12px;
-    color: var(--ds-text-3, #8b98ad);
+    color: var(--ds-text-3);
   }
 
   .abilities-foot {

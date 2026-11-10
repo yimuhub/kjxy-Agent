@@ -430,7 +430,7 @@ onMounted(() => {
   background: var(--el-color-danger);
 }
 .dot.disabled {
-  background: var(--el-color-info-light-5, #b1b3b8);
+  background: var(--el-color-info-light-5);
 }
 .option-blurb {
   margin-left: 12px;

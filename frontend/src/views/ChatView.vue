@@ -815,7 +815,7 @@
   .s-tokens {
     margin-left: auto;
     font-size: 11px;
-    color: #34d399;
+    color: var(--ds-success);
     font-variant-numeric: tabular-nums;
   }
 
@@ -1109,7 +1109,7 @@
     padding: 2px 10px;
     border-radius: 999px;
     font-size: 12px;
-    color: #34d399;
+    color: var(--ds-success);
     background: rgba(16, 185, 129, 0.14);
     border: 1px solid rgba(16, 185, 129, 0.32);
     font-variant-numeric: tabular-nums;

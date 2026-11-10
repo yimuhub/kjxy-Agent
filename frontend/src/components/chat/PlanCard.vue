@@ -99,7 +99,7 @@
   }
 
   .plan-card.is-incomplete {
-    border-color: var(--ds-warning, #e6a23c);
+    border-color: var(--ds-warning);
   }
 
   .head {

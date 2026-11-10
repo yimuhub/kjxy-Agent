@@ -475,7 +475,7 @@
               <span
                 v-if="m.token_usage && m.token_usage.total_tokens > 0"
                 class="mc-dur"
-                style="color: #34d399"
+                style="color: var(--ds-success)"
               >{{ m.token_usage.total_tokens }} tokens（入 {{ m.token_usage.input_tokens }} / 出 {{ m.token_usage.output_tokens }}）</span>
               <span class="mc-dur">{{ memberDuration(m) }}</span>
               <span class="mc-flex" />

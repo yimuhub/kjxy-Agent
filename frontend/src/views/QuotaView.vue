@@ -1041,14 +1041,14 @@
     font-variant-numeric: tabular-nums;
   }
   .ov-val.token {
-    color: #34d399;
+    color: var(--ds-success);
   }
   .ov-sub {
     font-size: 11.5px;
     color: var(--ds-text-3);
   }
   .token-num {
-    color: #34d399;
+    color: var(--ds-success);
     font-weight: 600;
     font-variant-numeric: tabular-nums;
   }

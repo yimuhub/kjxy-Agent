@@ -729,7 +729,7 @@
   .diy-node-box {
     border: 1px solid var(--ds-border);
     border-radius: var(--ds-radius-control);
-    background: rgba(255, 255, 255, 0.015);
+    background: var(--ds-glass);
     padding: 8px 10px;
   }
   .diy-node-row,
@@ -819,7 +819,7 @@
     padding: 8px 10px;
     border: 1px solid var(--ds-border);
     border-radius: var(--ds-radius-control);
-    background: rgba(255, 255, 255, 0.02);
+    background: var(--ds-glass);
   }
   .pool-info {
     display: flex;

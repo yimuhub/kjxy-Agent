@@ -1,0 +1,764 @@
+<!doctype html>
+<html lang="zh-CN" class="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>科技小院 · UI「高级感」方案预览（v3.75 提案）</title>
+<style>
+/* ============================================================
+   静态提案预览：新方案（浮层） vs 现状（对照），亮/暗双主题。
+   与真实代码无关，仅供拍板；确认后按此 token 重造 design-system.css。
+   ============================================================ */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* ---------- 预览页自身的“工作台桌面”配色（固定，不随主题变） ---------- */
+body {
+  background: #0C0E13;
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
+  color: #C9CFDD;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------- 顶部控制条（固定暗色 chrome） ---------- */
+.ctrl {
+  position: sticky; top: 0; z-index: 50;
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding: 12px 28px;
+  background: rgba(12, 14, 19, .88);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid rgba(255, 255, 255, .08);
+}
+.ctrl h1 { font-size: 15px; font-weight: 600; color: #EEF1F8; letter-spacing: .01em; }
+.ctrl .ver {
+  font-size: 11px; padding: 3px 9px; border-radius: 999px;
+  background: rgba(99, 102, 241, .16); color: #A7AAFB;
+  border: 1px solid rgba(110, 115, 243, .3); font-weight: 500;
+}
+.seg {
+  display: flex; background: rgba(255, 255, 255, .06);
+  border: 1px solid rgba(255, 255, 255, .1); border-radius: 10px; padding: 3px; gap: 2px;
+}
+.seg button {
+  appearance: none; border: 0; background: transparent; color: #9AA2B5;
+  font-size: 12.5px; font-weight: 500; padding: 5px 14px; border-radius: 8px; cursor: pointer;
+  font-family: inherit; transition: all .15s ease;
+}
+.seg button.on { background: #3A3F55; color: #FFF; box-shadow: 0 1px 3px rgba(0,0,0,.4); }
+.seg button:not(.on):hover { color: #E3E7F0; }
+label.cmp-toggle {
+  display: flex; align-items: center; gap: 8px; cursor: pointer;
+  font-size: 12.5px; color: #9AA2B5; user-select: none;
+}
+label.cmp-toggle input { accent-color: #6366F1; width: 15px; height: 15px; cursor: pointer; }
+.ctrl .note { margin-left: auto; font-size: 12px; color: #6F7890; }
+
+/* ---------- 舞台与画框 ---------- */
+#stage { display: grid; grid-template-columns: 1fr; gap: 24px; padding: 26px 28px 48px; }
+#stage.compare { grid-template-columns: repeat(2, minmax(700px, 1fr)); }
+.frame {
+  position: relative; border-radius: 18px; overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, .1);
+  box-shadow: 0 24px 80px -24px rgba(0, 0, 0, .6);
+}
+.frame-bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 16px;
+  background: #10131A; border-bottom: 1px solid rgba(255, 255, 255, .08);
+}
+.frame-tag {
+  font-size: 11.5px; font-weight: 600; letter-spacing: .05em;
+  padding: 4px 12px; border-radius: 999px;
+  background: rgba(99, 102, 241, .18); color: #B5B7FC;
+  border: 1px solid rgba(110, 115, 243, .35);
+}
+.frame.legacy .frame-tag { background: rgba(255, 255, 255, .07); color: #8A8FA0; border-color: rgba(255, 255, 255, .12); }
+.frame-bar .fhint { font-size: 11px; color: #6F7890; margin-left: auto; }
+/* 窄幅（对比模式）下减负：隐藏 Token 胶囊与次要动作 */
+#stage.compare .chip { display: none; }
+#stage.compare .page-actions .btn:nth-child(n+4) { display: none; }
+#stage.compare .crumb span.sep, #stage.compare .crumb .mid { display: none; }
+
+/* ============================================================
+   应用 mock：全部颜色走 --* 变量，new/legacy 只换变量值
+   ============================================================ */
+
+/* ---------- 新方案 · 暗色「玄夜」 ---------- */
+html.dark {
+  --page-bg: #0A0D13;
+  --atmo:
+    radial-gradient(56vmax 42vmax at 82% -14%, rgba(99, 102, 241, .16), transparent 62%),
+    radial-gradient(48vmax 40vmax at -10% 108%, rgba(34, 211, 238, .09), transparent 60%),
+    radial-gradient(64vmax 34vmax at 50% -20%, rgba(99, 102, 241, .09), transparent 72%);
+  --sidebar-bg: #070A0F;
+  --sidebar-border: rgba(255, 255, 255, .06);
+  --topbar-bg: rgba(10, 13, 19, .72);
+  --topbar-border: rgba(255, 255, 255, .06);
+  --card-bg: #131826;
+  --card-bg-hover: #171D2D;
+  --card-border: rgba(255, 255, 255, .075);
+  --card-border-hover: rgba(255, 255, 255, .16);
+  --card-sheen: linear-gradient(180deg, rgba(255, 255, 255, .055), rgba(255, 255, 255, 0) 76px);
+  --card-shadow: 0 1px 2px rgba(2, 4, 8, .5), 0 16px 40px -18px rgba(2, 4, 8, .55);
+  --card-shadow-hover: 0 1px 2px rgba(2, 4, 8, .5), 0 20px 48px -18px rgba(2, 4, 8, .65);
+  --text-1: #ECEFF6; --text-2: #9AA2B5; --text-3: #6F7890;
+  --accent: #6E73F3; --accent-text: #A0A4FA; --accent-2: #22D3EE;
+  --grad-brand: linear-gradient(135deg, #6366F1 0%, #22D3EE 100%);
+  --grad-brand-hover: linear-gradient(135deg, #7B7EF6 0%, #3FD9F2 100%);
+  --btn-primary-shadow: 0 4px 16px rgba(99, 102, 241, .35);
+  --glass: rgba(255, 255, 255, .06); --glass-strong: rgba(255, 255, 255, .10);
+  --field-bg: rgba(255, 255, 255, .05); --field-border: rgba(255, 255, 255, .11);
+  --field-border-hover: rgba(255, 255, 255, .2); --field-focus: rgba(110, 115, 243, .28);
+  --row-border: rgba(255, 255, 255, .06);
+  --pop-bg: #1B2130; --pop-shadow: 0 20px 60px -12px rgba(0, 0, 0, .65), 0 0 0 1px rgba(255, 255, 255, .07);
+  --focus-ring: 0 0 0 3px rgba(110, 115, 243, .25);
+  --stat-num: var(--text-1);
+  --nav-active-bg: rgba(110, 115, 243, .14); --nav-active-text: #B5B7FC;
+  --danger: #F87171; --success: #34D399; --warning: #FBBF24;
+  --bg-success: rgba(52, 211, 153, .13); --tx-success: #56E0AC;
+  --bg-warning: rgba(251, 191, 36, .14); --tx-warning: #FBC65B;
+  --bg-danger: rgba(248, 113, 113, .14); --tx-danger: #FA8A8A;
+  --bg-accentb: rgba(110, 115, 243, .16); --tx-accentb: #A7AAFB;
+  --bg-info: rgba(154, 162, 181, .14); --tx-info: #AAB1C2;
+  --danger-bg-ghost: rgba(248, 113, 113, .12); --danger-tx-ghost: #FA8A8A;
+  --track: rgba(255, 255, 255, .09);
+}
+
+/* ---------- 新方案 · 亮色「素白」 ---------- */
+html.light {
+  --page-bg: #F3F5F9;
+  --atmo:
+    radial-gradient(52vmax 40vmax at 84% -14%, rgba(79, 70, 229, .08), transparent 62%),
+    radial-gradient(44vmax 38vmax at -12% 110%, rgba(6, 182, 212, .06), transparent 60%);
+  --sidebar-bg: #FFFFFF;
+  --sidebar-border: rgba(15, 23, 42, .08);
+  --topbar-bg: rgba(255, 255, 255, .78);
+  --topbar-border: rgba(15, 23, 42, .07);
+  --card-bg: #FFFFFF;
+  --card-bg-hover: #FFFFFF;
+  --card-border: rgba(15, 23, 42, .08);
+  --card-border-hover: rgba(15, 23, 42, .14);
+  --card-sheen: none;
+  --card-shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 6px 24px -10px rgba(16, 24, 40, .08);
+  --card-shadow-hover: 0 2px 4px rgba(16, 24, 40, .06), 0 16px 40px -12px rgba(16, 24, 40, .14);
+  --text-1: #16202E; --text-2: #4C566B; --text-3: #7D879D;
+  --accent: #4F46E5; --accent-text: #4338CA; --accent-2: #0891B2;
+  --grad-brand: linear-gradient(135deg, #5A5FE8 0%, #0EA5CF 100%);
+  --grad-brand-hover: linear-gradient(135deg, #4F52D9 0%, #0C93B9 100%);
+  --btn-primary-shadow: 0 4px 14px rgba(79, 70, 229, .28);
+  --glass: rgba(15, 23, 42, .05); --glass-strong: rgba(15, 23, 42, .08);
+  --field-bg: #FFFFFF; --field-border: rgba(15, 23, 42, .14);
+  --field-border-hover: rgba(15, 23, 42, .26); --field-focus: rgba(79, 70, 229, .25);
+  --row-border: rgba(15, 23, 42, .07);
+  --pop-bg: #FFFFFF; --pop-shadow: 0 24px 64px -12px rgba(16, 24, 40, .22), 0 0 0 1px rgba(15, 23, 42, .06);
+  --focus-ring: 0 0 0 3px rgba(79, 70, 229, .22);
+  --stat-num: var(--text-1);
+  --nav-active-bg: rgba(79, 70, 229, .08); --nav-active-text: #4338CA;
+  --danger: #DC2626; --success: #0E9F6E; --warning: #B45309;
+  --bg-success: rgba(14, 159, 110, .10); --tx-success: #0B7F58;
+  --bg-warning: rgba(180, 83, 9, .10); --tx-warning: #B45309;
+  --bg-danger: rgba(220, 38, 38, .09); --tx-danger: #C22121;
+  --bg-accentb: rgba(79, 70, 229, .09); --tx-accentb: #4338CA;
+  --bg-info: rgba(71, 85, 105, .08); --tx-info: #47536B;
+  --danger-bg-ghost: rgba(220, 38, 38, .08); --danger-tx-ghost: #C22121;
+  --track: rgba(15, 23, 42, .10);
+}
+
+/* ---------- 现状（legacy）变量覆写：忠实还原当前线上配方 ---------- */
+html.dark .legacy {
+  --page-bg: #0B0E14;
+  --atmo:
+    radial-gradient(40vmax 40vmax at 88% -8%, rgba(99, 102, 241, .08), transparent 62%),
+    radial-gradient(40vmax 40vmax at -8% 108%, rgba(34, 211, 238, .05), transparent 62%);
+  --sidebar-bg: transparent;
+  --sidebar-border: rgba(255, 255, 255, .05);
+  --topbar-bg: transparent;
+  --topbar-border: rgba(255, 255, 255, .07);
+  --card-bg: rgba(255, 255, 255, .045);
+  --card-bg-hover: rgba(255, 255, 255, .07);
+  --card-border: rgba(255, 255, 255, .09);
+  --card-border-hover: rgba(255, 255, 255, .16);
+  --card-sheen: none;
+  --card-shadow: none;
+  --card-shadow-hover: none;
+  --text-1: #E8EAF2; --text-2: #A3AABF; --text-3: #7C8498;
+  --accent: #6366F1; --accent-text: #8B8EF7;
+  --grad-brand: linear-gradient(135deg, #6366F1 0%, #22D3EE 100%);
+  --grad-brand-hover: linear-gradient(135deg, #7A7DF5 0%, #4FDDF7 100%);
+  --btn-primary-shadow: none;
+  --glass: rgba(255, 255, 255, .045); --glass-strong: rgba(255, 255, 255, .07);
+  --field-bg: rgba(255, 255, 255, .035); --field-border: rgba(255, 255, 255, .09);
+  --field-border-hover: rgba(255, 255, 255, .16); --field-focus: rgba(99, 102, 241, .18);
+  --row-border: rgba(255, 255, 255, .07);
+  --pop-bg: #171C2A; --pop-shadow: 0 8px 32px rgba(0, 0, 0, .35);
+  --focus-ring: 0 0 0 3px rgba(99, 102, 241, .18);
+  --stat-num: #FBBF24;
+  --nav-active-bg: rgba(255, 255, 255, .07); --nav-active-text: var(--text-1);
+  --bg-success: rgba(52, 211, 153, .14); --tx-success: #34D399;
+  --bg-warning: rgba(251, 191, 36, .14); --tx-warning: #FBBF24;
+  --bg-danger: rgba(248, 113, 113, .14); --tx-danger: #F87171;
+  --bg-accentb: rgba(99, 102, 241, .16); --tx-accentb: #8B8EF7;
+  --bg-info: rgba(163, 170, 191, .14); --tx-info: #A3AABF;
+  --danger-bg-ghost: rgba(248, 113, 113, .12); --danger-tx-ghost: #F87171;
+  --track: rgba(255, 255, 255, .09);
+}
+html.light .legacy {
+  --page-bg: #F5F7FB;
+  --atmo:
+    radial-gradient(40vmax 40vmax at 88% -8%, rgba(99, 102, 241, .08), transparent 62%),
+    radial-gradient(40vmax 40vmax at -8% 108%, rgba(34, 211, 238, .05), transparent 62%);
+  --sidebar-bg: transparent;
+  --sidebar-border: rgba(15, 23, 42, .06);
+  --topbar-bg: transparent;
+  --topbar-border: rgba(15, 23, 42, .06);
+  --card-bg: rgba(15, 23, 42, .04);
+  --card-bg-hover: rgba(15, 23, 42, .07);
+  --card-border: rgba(15, 23, 42, .12);
+  --card-border-hover: rgba(15, 23, 42, .2);
+  --card-sheen: none;
+  --card-shadow: none;
+  --card-shadow-hover: none;
+  --text-1: #1B2333; --text-2: #47536B; --text-3: #8A94A8;
+  --accent: #5A5FE8; --accent-text: #4F46E5;
+  --grad-brand: linear-gradient(135deg, #6366F1 0%, #22D3EE 100%);
+  --grad-brand-hover: linear-gradient(135deg, #4F52C1 0%, #0E7490 100%);
+  --btn-primary-shadow: none;
+  --glass: rgba(15, 23, 42, .04); --glass-strong: rgba(15, 23, 42, .07);
+  --field-bg: #FFFFFF; --field-border: rgba(15, 23, 42, .12);
+  --field-border-hover: rgba(15, 23, 42, .2); --field-focus: rgba(90, 95, 232, .18);
+  --row-border: rgba(15, 23, 42, .08);
+  --pop-bg: #FFFFFF; --pop-shadow: 0 8px 32px rgba(15, 23, 42, .1);
+  --focus-ring: 0 0 0 3px rgba(90, 95, 232, .18);
+  --stat-num: #D97706;
+  --nav-active-bg: rgba(15, 23, 42, .07); --nav-active-text: var(--text-1);
+  --bg-success: rgba(14, 159, 110, .10); --tx-success: #0E9F6E;
+  --bg-warning: rgba(217, 119, 6, .10); --tx-warning: #D97706;
+  --bg-danger: rgba(220, 38, 38, .09); --tx-danger: #DC2626;
+  --bg-accentb: rgba(90, 95, 232, .09); --tx-accentb: #4F46E5;
+  --bg-info: rgba(71, 85, 105, .08); --tx-info: #6B7A94;
+  --danger-bg-ghost: rgba(220, 38, 38, .08); --danger-tx-ghost: #DC2626;
+  --track: rgba(15, 23, 42, .10);
+}
+
+/* ---------- 应用骨架 ---------- */
+.app {
+  position: relative;
+  min-height: 100vh;
+  background: var(--page-bg);
+  color: var(--text-1);
+  display: grid;
+  grid-template-columns: 224px minmax(0, 1fr);
+  font-size: 14px;
+}
+.app::before {
+  content: ''; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background: var(--atmo);
+}
+.app > * { position: relative; z-index: 1; }
+
+/* ---------- 侧栏 ---------- */
+.side {
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--sidebar-border);
+  padding: 14px 12px 16px;
+  display: flex; flex-direction: column; gap: 4px;
+  position: sticky; top: 0; height: 100vh; overflow: hidden;
+}
+.brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 14px; }
+.brand .mark {
+  width: 30px; height: 30px; border-radius: 9px; flex: none;
+  background: var(--grad-brand); color: #fff;
+  display: grid; place-items: center; font-size: 14px; font-weight: 700;
+  box-shadow: var(--btn-primary-shadow);
+}
+.brand .name { font-size: 14.5px; font-weight: 650; color: var(--text-1); letter-spacing: .01em; }
+.brand .vtag {
+  margin-left: auto; font-size: 10.5px; color: var(--text-3);
+  border: 1px solid var(--field-border); border-radius: 999px; padding: 2px 7px;
+  font-variant-numeric: tabular-nums;
+}
+.nav-group { margin-top: 10px; }
+.nav-group > .glabel {
+  font-size: 10.5px; font-weight: 600; letter-spacing: .1em;
+  color: var(--text-3); padding: 0 10px 6px;
+}
+.nav-item {
+  display: flex; align-items: center; gap: 9px;
+  height: 34px; padding: 0 10px; border-radius: 9px;
+  color: var(--text-2); font-size: 13px; position: relative;
+  transition: background .15s ease, color .15s ease;
+}
+.nav-item:hover { background: var(--glass-strong); color: var(--text-1); }
+.nav-item.active {
+  background: var(--nav-active-bg); color: var(--nav-active-text); font-weight: 550;
+}
+.nav-item.active::before {
+  content: ''; position: absolute; left: 0; top: 7px; bottom: 7px; width: 2.5px;
+  border-radius: 999px; background: var(--grad-brand);
+}
+.nav-item svg { width: 15px; height: 15px; flex: none; opacity: .85; }
+.side .spacer { flex: 1; }
+.side .sync {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+  border-top: 1px solid var(--row-border); color: var(--text-3); font-size: 11.5px;
+}
+.side .sync .pill { margin-left: auto; }
+
+/* ---------- 顶栏 ---------- */
+.main { display: flex; flex-direction: column; min-width: 0; }
+.topbar {
+  position: sticky; top: 0; z-index: 4;
+  height: 52px; flex: none;
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 24px;
+  background: var(--topbar-bg);
+  backdrop-filter: blur(14px) saturate(1.2); -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  border-bottom: 1px solid var(--topbar-border);
+}
+.crumb { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--text-3); white-space: nowrap; overflow: hidden; min-width: 0; }
+.crumb b { color: var(--text-1); font-weight: 550; }
+.crumb .sep { opacity: .5; }
+.topbar .grow { flex: 1; }
+.chip {
+  display: flex; align-items: center; gap: 7px;
+  height: 30px; padding: 0 12px; border-radius: 999px;
+  font-size: 12px; color: var(--text-2);
+  background: var(--glass); border: 1px solid var(--row-border);
+  font-variant-numeric: tabular-nums;
+}
+.chip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); box-shadow: 0 0 6px var(--success); }
+.userchip {
+  display: flex; align-items: center; gap: 8px;
+  height: 32px; padding: 0 10px 0 4px; border-radius: 999px;
+  background: var(--glass); border: 1px solid var(--row-border);
+  font-size: 12.5px; color: var(--text-1);
+}
+.avatar {
+  width: 24px; height: 24px; border-radius: 50%;
+  background: var(--grad-brand); color: #fff;
+  display: grid; place-items: center; font-size: 11px; font-weight: 600;
+}
+.rolebadge {
+  font-size: 10.5px; font-weight: 500; padding: 2px 8px; border-radius: 999px;
+  background: var(--bg-accentb); color: var(--tx-accentb);
+}
+
+/* ---------- 内容区 ---------- */
+.content { padding: 24px 24px 40px; max-width: 1180px; width: 100%; margin: 0 auto; min-width: 0; }
+.page-head { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 20px; }
+.page-head h2 { font-size: 21px; font-weight: 650; letter-spacing: -.015em; color: var(--text-1); }
+.page-head .sub { margin-top: 5px; font-size: 13px; color: var(--text-3); }
+.page-actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+/* ---------- 卡片配方（核心差异区） ---------- */
+.card {
+  position: relative;
+  background: var(--card-bg);
+  background-image: var(--card-sheen);
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  box-shadow: var(--card-shadow);
+  transition: background-color .18s ease, border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+}
+.card:hover { border-color: var(--card-border-hover); background-color: var(--card-bg-hover); box-shadow: var(--card-shadow-hover); transform: translateY(-1px); }
+.card .card-h {
+  display: flex; align-items: center; gap: 10px;
+  padding: 15px 18px 13px;
+}
+.card .card-h h3 { font-size: 14.5px; font-weight: 600; color: var(--text-1); letter-spacing: .01em; }
+.card .card-h .hint { margin-left: auto; font-size: 12px; color: var(--text-3); }
+.card .card-b { padding: 4px 18px 16px; }
+
+/* 统计卡 */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(205px, 1fr)); gap: 14px; margin-bottom: 14px; }
+.stat { padding: 16px 18px 14px; }
+.stat .lb { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--text-3); }
+.stat .lb svg { width: 14px; height: 14px; }
+.stat .num {
+  margin-top: 8px; font-size: 30px; font-weight: 680; letter-spacing: -.02em;
+  color: var(--stat-num); font-variant-numeric: tabular-nums; line-height: 1.1;
+}
+.stat .foot { margin-top: 7px; display: flex; align-items: center; gap: 8px; min-height: 20px; }
+.stat .foot .muted { font-size: 12px; color: var(--text-3); }
+
+/* 徽章 */
+.badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 21px; padding: 0 9px; border-radius: 999px;
+  font-size: 11.5px; font-weight: 550; white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.badge.success { background: var(--bg-success); color: var(--tx-success); }
+.badge.warning { background: var(--bg-warning); color: var(--tx-warning); }
+.badge.danger  { background: var(--bg-danger);  color: var(--tx-danger); }
+.badge.accent  { background: var(--bg-accentb); color: var(--tx-accentb); }
+.badge.info    { background: var(--bg-info);    color: var(--tx-info); }
+.badge.plain   { background: var(--glass); color: var(--text-2); }
+
+/* 两列卡排 */
+.row2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin-bottom: 14px; }
+
+/* 键值行 */
+.kv { display: flex; align-items: center; gap: 12px; padding: 10.5px 0; border-bottom: 1px solid var(--row-border); font-size: 13px; }
+.kv:last-child { border-bottom: 0; }
+.kv .k { color: var(--text-2); }
+.kv .v { margin-left: auto; color: var(--text-1); font-weight: 600; font-variant-numeric: tabular-nums; }
+.kv .v small { font-weight: 400; color: var(--text-3); font-size: 12px; }
+
+/* 进度条 */
+.prog-row { display: grid; grid-template-columns: 76px 1fr 84px; align-items: center; gap: 12px; padding: 9px 0; font-size: 13px; }
+.prog-row .k { color: var(--text-2); }
+.prog-row .v { text-align: right; color: var(--text-3); font-variant-numeric: tabular-nums; font-size: 12.5px; }
+.track { height: 6px; border-radius: 999px; background: var(--track); overflow: hidden; }
+.fill { height: 100%; border-radius: 999px; }
+.fill.brand { background: var(--grad-brand); }
+.fill.success { background: var(--success); }
+.fill.warning { background: var(--warning); }
+.fill.danger { background: var(--danger); }
+
+/* 列表（设备洞察） */
+.list-head { display: flex; align-items: center; padding: 0 0 4px; }
+.list-row { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-top: 1px solid var(--row-border); font-size: 13px; }
+.list-row:first-of-type { border-top: 0; }
+.list-row .id { font-weight: 600; color: var(--text-1); font-variant-numeric: tabular-nums; }
+.list-row .desc { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.list-row .cnt { margin-left: auto; color: var(--text-3); font-size: 12.5px; white-space: nowrap; }
+.linkbtn { color: var(--accent-text); font-size: 12.5px; font-weight: 550; cursor: pointer; white-space: nowrap; }
+.linkbtn:hover { text-decoration: underline; }
+
+/* ---------- 按钮 ---------- */
+.btn {
+  appearance: none; border: 1px solid transparent; cursor: pointer;
+  height: 32px; padding: 0 15px; border-radius: 10px;
+  font-size: 13px; font-weight: 500; font-family: inherit;
+  display: inline-flex; align-items: center; gap: 7px;
+  transition: all .16s ease;
+}
+.btn.primary {
+  background-image: var(--grad-brand); background-color: var(--accent);
+  color: #fff; box-shadow: var(--btn-primary-shadow);
+}
+.btn.primary:hover { background-image: var(--grad-brand-hover); }
+.btn.primary:active { filter: brightness(.94); }
+.btn.secondary {
+  background: var(--glass); border-color: var(--row-border); color: var(--text-1);
+}
+html.light .btn.secondary { background: var(--card-bg); border-color: var(--field-border); box-shadow: 0 1px 2px rgba(16,24,40,.05); }
+.btn.secondary:hover { background: var(--glass-strong); border-color: var(--card-border-hover); }
+.btn.dangerghost { background: var(--danger-bg-ghost); color: var(--danger-tx-ghost); }
+.btn.dangerghost:hover { filter: brightness(1.08); }
+.btn.text { background: transparent; color: var(--accent-text); padding: 0 8px; }
+.btn.text:hover { text-decoration: underline; }
+.btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.btn.small { height: 27px; padding: 0 11px; font-size: 12px; border-radius: 8px; }
+
+/* ---------- 表单控件 ---------- */
+.input {
+  height: 32px; width: 100%;
+  background: var(--field-bg);
+  border: 1px solid var(--field-border);
+  border-radius: 10px;
+  padding: 0 12px;
+  color: var(--text-1); font-size: 13px; font-family: inherit;
+  transition: all .16s ease;
+}
+.input::placeholder { color: var(--text-3); }
+.input:hover { border-color: var(--field-border-hover); }
+.input:focus { outline: none; border-color: var(--accent); box-shadow: var(--focus-ring); }
+.select {
+  height: 32px; display: flex; align-items: center; gap: 8px;
+  background: var(--field-bg); border: 1px solid var(--field-border);
+  border-radius: 10px; padding: 0 12px; font-size: 13px; color: var(--text-2);
+}
+.select .arr { margin-left: auto; color: var(--text-3); font-size: 10px; }
+.switch { width: 36px; height: 20px; border-radius: 999px; background: var(--track); position: relative; transition: background .18s; flex: none; }
+.switch::after {
+  content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
+  border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: left .18s;
+}
+.switch.on { background: var(--accent); }
+.switch.on::after { left: 18px; }
+
+/* ---------- 样品间 ---------- */
+.gallery-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0 28px; }
+.gal-sec { padding: 12px 0 14px; border-top: 1px solid var(--row-border); }
+.gal-sec:first-child { border-top: 0; }
+.gal-sec .gt { font-size: 11px; font-weight: 600; letter-spacing: .09em; color: var(--text-3); margin-bottom: 11px; }
+.gal-sec .fl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.gal-sec .stack { display: flex; flex-direction: column; gap: 9px; }
+.formline { display: grid; grid-template-columns: 1fr 1fr auto; gap: 9px; align-items: center; }
+
+/* mini 对话框 */
+.mini-dialog {
+  border-radius: 12px; background: var(--pop-bg);
+  box-shadow: var(--pop-shadow);
+  padding: 14px 16px 13px; max-width: 250px;
+}
+.mini-dialog .dt { font-size: 13.5px; font-weight: 600; color: var(--text-1); }
+.mini-dialog .db { font-size: 12.5px; color: var(--text-2); margin: 7px 0 12px; line-height: 1.5; }
+.mini-dialog .df { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* mini 表格 */
+.mtable { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.mtable th { text-align: left; font-weight: 600; color: var(--text-3); font-size: 11.5px; letter-spacing: .05em; padding: 6px 8px; border-bottom: 1px solid var(--row-border); }
+.mtable td { padding: 8px; border-bottom: 1px solid var(--row-border); color: var(--text-2); font-variant-numeric: tabular-nums; }
+.mtable tr:last-child td { border-bottom: 0; }
+.mtable td.id { color: var(--text-1); font-weight: 550; }
+
+/* 页脚说明 */
+.proposal-foot {
+  max-width: 1180px; margin: 0 auto; padding: 6px 28px 60px;
+  font-size: 12.5px; color: #6F7890; line-height: 1.9;
+}
+.proposal-foot b { color: #B9C0D0; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div class="ctrl">
+  <h1>科技小院 · UI「高级感」方案预览</h1>
+  <span class="ver">v3.75 提案</span>
+  <div class="seg" id="seg">
+    <button data-t="dark" class="on">暗色「玄夜」</button>
+    <button data-t="light">亮色「素白」</button>
+  </div>
+  <label class="cmp-toggle"><input type="checkbox" id="cmp">新旧对比</label>
+  <span class="note">静态提案 · 与真实代码无关 · 双击即看</span>
+</div>
+
+<div id="stage">
+  <!-- 新方案 -->
+  <div class="frame new">
+    <div class="frame-bar"><span class="frame-tag">新方案（提案）</span><span class="fhint">分层浮起 · 语义色收敛 · 品牌氛围</span></div>
+
+    <div class="app" id="app-src">
+      <aside class="side">
+        <div class="brand">
+          <div class="mark">科</div>
+          <div class="name">科技小院</div>
+          <div class="vtag">v3.75</div>
+        </div>
+        <div class="nav-group">
+          <div class="glabel">工作台</div>
+          <div class="nav-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>概览</div>
+          <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h16M6 16v4M12 10v10M18 4v16"/></svg>工作日志</div>
+          <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a8 8 0 1 1-4-6.9L21 4l-1 4.2A8 8 0 0 1 21 12z"/></svg>智能对话</div>
+        </div>
+        <div class="nav-group">
+          <div class="glabel">能力协作</div>
+          <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>能力中心</div>
+          <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2 4 14h6l-1 8 9-12h-6z"/></svg>自我升级</div>
+        </div>
+        <div class="nav-group">
+          <div class="glabel">知识数据</div>
+          <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5a2 2 0 0 1 2-2h12v18H6a2 2 0 0 0-2 2z"/></svg>知识库</div>
+          <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 20h20zM12 9v5M12 17.5v.5"/></svg>告警与工单</div>
+          <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></svg>任务中心</div>
+        </div>
+        <div class="nav-group">
+          <div class="glabel">管理与统计</div>
+          <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 20h18M7 16v-5M12 16V8M17 16v-8"/></svg>用量额度</div>
+          <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6 8-6s8 2 8 6"/></svg>小院管理</div>
+        </div>
+        <div class="spacer"></div>
+        <div class="sync">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M8 7l4-4 4 4M4 21h16"/></svg>
+          本地拖拽同步
+          <span class="badge accent pill">工作台视图</span>
+        </div>
+      </aside>
+
+      <div class="main">
+        <div class="topbar">
+          <div class="crumb"><span class="mid">演示科技小院 <span class="sep">/</span> 工作台</span> <span class="sep">/</span> <b>概览</b></div>
+          <div class="grow"></div>
+          <div class="chip"><span class="dot"></span>Token 今日 40.0k · 累计 1.8M</div>
+          <div class="userchip"><span class="avatar">演</span>演示小院负责人 <span class="rolebadge">平台管理员</span></div>
+        </div>
+
+        <div class="content">
+          <div class="page-head">
+            <div>
+              <h2>今日工作台</h2>
+              <div class="sub">夜里好，演示小院负责人。32 张工单待处理（18 张已逾期），20 条诊断待复核，103 块地今天还没记录。</div>
+            </div>
+            <div class="page-actions">
+              <button class="btn primary">记一笔农事</button>
+              <button class="btn secondary">拍照诊断</button>
+              <button class="btn secondary">上报告警</button>
+              <button class="btn secondary">开始对话</button>
+              <button class="btn secondary">生成本周报表</button>
+            </div>
+          </div>
+
+          <div class="stats">
+            <div class="card stat">
+              <div class="lb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></svg>待处理工单</div>
+              <div class="num">32</div>
+              <div class="foot"><span class="badge danger">18 张已逾期</span></div>
+            </div>
+            <div class="card stat">
+              <div class="lb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.5 3-5.5 6.5-5.5s6.5 2 6.5 5.5"/></svg>待专家复核</div>
+              <div class="num">20</div>
+              <div class="foot"><span class="muted">复核后用药建议才可执行</span></div>
+            </div>
+            <div class="card stat">
+              <div class="lb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h16M6 16v4M12 10v10M18 4v16"/></svg>今日农事记录</div>
+              <div class="num">0</div>
+              <div class="foot"><span class="muted">103 块地未记录</span></div>
+            </div>
+            <div class="card stat">
+              <div class="lb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 20h20zM12 9v5M12 17.5v.5"/></svg>未处理告警</div>
+              <div class="num">28</div>
+              <div class="foot"><span class="muted">严重告警会自动转工单</span></div>
+            </div>
+          </div>
+
+          <div class="row2">
+            <div class="card">
+              <div class="card-h"><h3>田间运行</h3></div>
+              <div class="card-b">
+                <div class="kv"><span class="k">地块</span><span class="v">103 <small>块</small></span></div>
+                <div class="kv"><span class="k">今日记录</span><span class="v">0 <small>条 · 涉及 0 块</small></span></div>
+                <div class="kv"><span class="k">今日未记录</span><span class="v">103 <small>块</small></span></div>
+                <div class="kv" style="display:block">
+                  <div style="display:flex;align-items:center"><span class="k">工单闭环率</span><span class="v">0%</span></div>
+                  <div class="track" style="margin-top:8px"><div class="fill danger" style="width:4%"></div></div>
+                </div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-h"><h3>用量与配额</h3></div>
+              <div class="card-b">
+                <div class="prog-row"><span class="k">模型调用</span><div class="track"><div class="fill brand" style="width:72%"></div></div><span class="v">1222 / 1700</span></div>
+                <div class="prog-row"><span class="k">知识文档</span><div class="track"><div class="fill success" style="width:12%"></div></div><span class="v">9 / 80</span></div>
+                <div class="prog-row"><span class="k">后台任务</span><div class="track"><div class="fill warning" style="width:9%"></div></div><span class="v">9 / 1000</span></div>
+                <div style="font-size:12px;color:var(--text-3);padding-top:8px">统计周期 2026-11，配额用尽前会提醒管理员。</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card" style="margin-bottom:14px">
+            <div class="card-h"><h3>设备洞察</h3><span class="hint">只显示需要人处理的数据发现</span></div>
+            <div class="card-b">
+              <div class="list-row"><span class="badge warning">预警</span><span class="id">E2E墒情站081248</span><span class="desc">土壤水分下降 8.0 个百分点且无有效降雨</span><span class="cnt">6 条</span><span class="linkbtn">查看</span></div>
+              <div class="list-row"><span class="badge warning">预警</span><span class="id">E2E分站站954218</span><span class="desc">土壤水分下降 8.0 个百分点且无有效降雨</span><span class="cnt">5 条</span><span class="linkbtn">查看</span></div>
+              <div class="list-row"><span class="badge warning">预警</span><span class="id">E2E分站站893281</span><span class="desc">土壤水分下降 8.0 个百分点且无有效降雨</span><span class="cnt">5 条</span><span class="linkbtn">查看</span></div>
+              <div class="list-row"><span class="badge warning">预警</span><span class="id">E2E墒情站726708</span><span class="desc">土壤水分下降 5.0 个百分点且无有效降雨</span><span class="cnt">5 条</span><span class="linkbtn">查看</span></div>
+              <div class="list-row"><span class="badge warning">预警</span><span class="id">E2E分站站650437</span><span class="desc">土壤水分下降 5.0 个百分点且无有效降雨</span><span class="cnt">5 条</span><span class="linkbtn">查看</span></div>
+            </div>
+          </div>
+
+          <!-- 设计语言样品间 -->
+          <div class="card">
+            <div class="card-h"><h3>设计语言样品间</h3><span class="hint">全站组件按此配方统一</span></div>
+            <div class="card-b gallery-grid">
+              <div class="gal-sec">
+                <div class="gt">按钮</div>
+                <div class="fl">
+                  <button class="btn primary">记一笔农事</button>
+                  <button class="btn secondary">导出台账</button>
+                  <button class="btn dangerghost">删除</button>
+                  <button class="btn text">查看详情</button>
+                </div>
+                <div class="fl" style="margin-top:9px">
+                  <button class="btn secondary small">小号按钮</button>
+                  <button class="btn primary small">主操作</button>
+                </div>
+              </div>
+              <div class="gal-sec">
+                <div class="gt">标签与徽章</div>
+                <div class="fl">
+                  <span class="badge success">运行中</span>
+                  <span class="badge warning">待复核</span>
+                  <span class="badge danger">已逾期</span>
+                  <span class="badge accent">进行中</span>
+                  <span class="badge info">草稿</span>
+                </div>
+                <div class="fl" style="margin-top:9px">
+                  <span class="badge plain">只读字段</span>
+                  <span class="badge success">● 采集正常</span>
+                </div>
+              </div>
+              <div class="gal-sec">
+                <div class="gt">表单控件</div>
+                <div class="formline">
+                  <input class="input" placeholder="请输入地块名称">
+                  <div class="select">全部作物 <span class="arr">▼</span></div>
+                  <div style="display:flex;gap:8px;align-items:center">
+                    <div class="switch on"></div>
+                    <div class="switch"></div>
+                  </div>
+                </div>
+                <div class="fl" style="margin-top:10px;color:var(--text-3);font-size:12px">聚焦 = 主色描边 + 3px 主色光圈（全站唯一焦点语言）</div>
+              </div>
+              <div class="gal-sec">
+                <div class="gt">弹层（对话框）</div>
+                <div class="mini-dialog">
+                  <div class="dt">删除这条工单？</div>
+                  <div class="db">删除后不可恢复，关联的诊断记录会保留。</div>
+                  <div class="df"><button class="btn secondary small">取消</button><button class="btn dangerghost small">删除</button></div>
+                </div>
+              </div>
+              <div class="gal-sec">
+                <div class="gt">数据表</div>
+                <table class="mtable">
+                  <tr><th>工单</th><th>状态</th><th>更新时间</th></tr>
+                  <tr><td class="id">WO-2026-1108-032</td><td><span class="badge danger">已逾期</span></td><td>11-08 14:22</td></tr>
+                  <tr><td class="id">WO-2026-1108-031</td><td><span class="badge accent">进行中</span></td><td>11-08 11:40</td></tr>
+                  <tr><td class="id">WO-2026-1107-118</td><td><span class="badge success">已闭环</span></td><td>11-07 18:03</td></tr>
+                </table>
+              </div>
+              <div class="gal-sec">
+                <div class="gt">进度与刻度</div>
+                <div class="prog-row"><span class="k">品牌主</span><div class="track"><div class="fill brand" style="width:68%"></div></div><span class="v">68%</span></div>
+                <div class="prog-row"><span class="k">成功</span><div class="track"><div class="fill success" style="width:45%"></div></div><span class="v">45%</span></div>
+                <div class="prog-row"><span class="k">警示</span><div class="track"><div class="fill warning" style="width:30%"></div></div><span class="v">30%</span></div>
+                <div class="prog-row"><span class="k">危险</span><div class="track"><div class="fill danger" style="width:12%"></div></div><span class="v">12%</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 现状对照（JS 克隆同一份 DOM，仅换变量为旧值） -->
+  <div class="frame legacy" id="legacy">
+    <div class="frame-bar"><span class="frame-tag">现状（对照）</span><span class="fhint">当前线上 v3.74 的观感</span></div>
+    <div id="app-legacy-slot"></div>
+  </div>
+</div>
+
+<div class="proposal-foot">
+  <b>方案要点</b>（确认后按此重造 design-system.css，版本 v3.75.0）：
+  ① 分层——暗色卡片改「实色亮一档 + 顶部 1px 内高光 + 深阴影」浮出背景，亮色卡片改「纯白 + 双层柔和阴影」；
+  侧栏与主区拉开层级（暗色更深、亮色纯白）。② 色彩纪律——大数字回归中性主文本，语义色只出现在小徽章（8% 色底配方），
+  全站渐变仍只允许主按钮 / 激活条 / logo。③ 氛围——暗色顶部靛紫光带加强，亮色配专属品牌氛围，告别灰蒙蒙。
+  ④ 弹层实色 + 大阴影。⑤ 约 20 个组件的硬编码色收敛回 token（桌宠造型与图表画布豁免）。
+</div>
+
+<script>
+  // 克隆同一份 DOM 到「现状」画框（去掉重复 id），只通过 .legacy 作用域换变量
+  (function () {
+    var src = document.getElementById('app-src');
+    var clone = src.cloneNode(true);
+    clone.removeAttribute('id');
+    clone.querySelectorAll('[id]').forEach(function (n) { n.removeAttribute('id'); });
+    document.getElementById('app-legacy-slot').appendChild(clone);
+
+    var root = document.documentElement;
+    var seg = document.querySelectorAll('#seg button');
+    seg.forEach(function (b) {
+      b.addEventListener('click', function () {
+        root.classList.toggle('dark', b.dataset.t === 'dark');
+        root.classList.toggle('light', b.dataset.t === 'light');
+        seg.forEach(function (x) { x.classList.toggle('on', x === b); });
+      });
+    });
+    document.getElementById('cmp').addEventListener('change', function (e) {
+      document.getElementById('stage').classList.toggle('compare', e.target.checked);
+    });
+  })();
+</script>
+</body>
+</html>

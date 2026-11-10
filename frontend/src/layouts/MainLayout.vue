@@ -763,10 +763,9 @@ const mqlMobile = window.matchMedia('(max-width: 768px)')
   .aside {
     display: flex;
     flex-direction: column;
-    background: rgba(255, 255, 255, 0.025);
-    backdrop-filter: blur(18px) saturate(1.2);
-    -webkit-backdrop-filter: blur(18px) saturate(1.2);
-    border-right: 1px solid var(--ds-border);
+    /* v3.75 外壳分层：侧栏与主区反差（暗色更深、亮色纯白） */
+    background: var(--ds-sidebar-bg);
+    border-right: 1px solid var(--ds-sidebar-border);
     transition: width 0.2s, transform 0.2s;
     overflow: hidden;
   }
@@ -775,7 +774,7 @@ const mqlMobile = window.matchMedia('(max-width: 768px)')
     inset: 0 auto 0 0;
     z-index: 1001;
     height: 100%;
-    background: rgba(17, 21, 31, 0.98);
+    background: var(--ds-sidebar-bg);
     transform: translateX(-100%);
     box-shadow: var(--ds-shadow);
   }
@@ -894,8 +893,10 @@ const mqlMobile = window.matchMedia('(max-width: 768px)')
     color: var(--ds-text-1);
   }
   .nav-item.is-active {
-    background: var(--ds-glass-strong);
-    color: var(--ds-text-1);
+    /* v3.75：激活项 = 主色 8-14% 底 + 主色文字（比纯玻璃更「被选中」） */
+    background: var(--ds-nav-active-bg);
+    color: var(--ds-nav-active-text);
+    font-weight: 550;
   }
   .nav-item.is-active::before {
     content: '';
@@ -908,7 +909,7 @@ const mqlMobile = window.matchMedia('(max-width: 768px)')
     background: var(--ds-grad-brand);
   }
   .nav-item.is-active .el-icon {
-    color: var(--ds-accent);
+    color: var(--ds-nav-active-text);
   }
   .nav-item-row {
     display: flex;
@@ -963,8 +964,7 @@ const mqlMobile = window.matchMedia('(max-width: 768px)')
     align-items: center;
     justify-content: space-between;
     padding: 8px 10px;
-    border-top: 1px solid var(--ds-border);
-    background: rgba(255, 255, 255, 0.015);
+    border-top: 1px solid var(--ds-sidebar-border);
   }
   .diy-foot-btn {
     font-size: 12px;
@@ -980,10 +980,11 @@ const mqlMobile = window.matchMedia('(max-width: 768px)')
     align-items: center;
     gap: 12px;
     padding: 0 16px;
-    background: rgba(255, 255, 255, 0.02);
-    backdrop-filter: blur(18px) saturate(1.2);
-    -webkit-backdrop-filter: blur(18px) saturate(1.2);
-    border-bottom: 1px solid var(--ds-border);
+    /* v3.75：顶栏随主题的玻璃底（暗色深、亮色白），滚动内容从下面透出 */
+    background: var(--ds-topbar-bg);
+    backdrop-filter: blur(14px) saturate(1.2);
+    -webkit-backdrop-filter: blur(14px) saturate(1.2);
+    border-bottom: 1px solid var(--ds-topbar-border);
   }
   .collapse-btn {
     color: var(--ds-text-2);
@@ -1058,7 +1059,8 @@ const mqlMobile = window.matchMedia('(max-width: 768px)')
     outline-offset: 2px;
   }
   .user-avatar {
-    background: var(--ds-accent);
+    background-color: var(--ds-accent);
+    background-image: var(--ds-grad-brand);
     color: #fff;
     font-size: 13px;
     font-weight: 600;

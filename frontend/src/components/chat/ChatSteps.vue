@@ -117,8 +117,8 @@
   }
 
   .step.done .mark {
-    color: var(--ds-success, #3f9d68);
-    border-color: color-mix(in srgb, var(--ds-success, #3f9d68) 55%, transparent);
+    color: var(--ds-success);
+    border-color: color-mix(in srgb, var(--ds-success) 55%, transparent);
   }
 
   .step.failed .mark {

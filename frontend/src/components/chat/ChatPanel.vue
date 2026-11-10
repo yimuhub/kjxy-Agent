@@ -2181,7 +2181,7 @@
     gap: 5px;
   }
   .msg-citations a {
-    color: var(--ds-accent-2, #7dd3fc);
+    color: var(--ds-accent-2);
     text-decoration: underline;
     text-underline-offset: 2px;
   }
@@ -2189,7 +2189,7 @@
     margin-right: 6px;
     padding: 0 4px;
     border-radius: 3px;
-    background: var(--ds-glass, rgba(255, 255, 255, 0.06));
+    background: var(--ds-glass);
     color: var(--ds-text-2);
     font-variant-numeric: tabular-nums;
   }
@@ -2221,7 +2221,7 @@
     color: var(--ds-text-3);
   }
   .tok-main {
-    color: #34d399;
+    color: var(--ds-success);
     font-weight: 600;
   }
   .tok-detail {
@@ -2963,7 +2963,7 @@
       opacity 0.15s;
   }
   .send-btn:hover:not(:disabled) {
-    background: #ffffff;
+    background: color-mix(in srgb, var(--ds-text-1) 88%, var(--ds-accent));
   }
   .send-btn:disabled {
     background: var(--ds-glass-strong);
@@ -3026,7 +3026,7 @@
     margin: 0 0 12px;
     padding: 8px 10px;
     border-radius: var(--ds-radius-sm, 6px);
-    background: var(--ds-glass, rgba(255, 255, 255, 0.05));
+    background: var(--ds-glass);
     color: var(--ds-text-2);
     font-size: 13px;
     line-height: 1.6;

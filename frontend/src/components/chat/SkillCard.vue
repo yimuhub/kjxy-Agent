@@ -348,7 +348,7 @@
     border: 1px solid var(--ds-border);
   }
   .match-meta em.low {
-    color: var(--ds-success, #3f9d68);
+    color: var(--ds-success);
   }
   .match-meta em.high {
     color: var(--ds-danger);

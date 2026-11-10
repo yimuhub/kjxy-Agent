@@ -412,7 +412,7 @@
   .source-diagnostics {
     margin-top: 16px;
     padding-top: 12px;
-    border-top: 1px solid var(--ds-border, #ebeef5);
+    border-top: 1px solid var(--ds-border);
   }
   .diag-title {
     font-size: 13px;

@@ -361,7 +361,7 @@
   .cluster-panel {
     border: 1px solid var(--ds-border);
     border-radius: 12px;
-    background: var(--ds-bg-1, #121722);
+    background: var(--ds-bg-1);
   }
 
   .panel-head {
@@ -404,17 +404,17 @@
 
   .chip.online {
     border-color: rgba(76, 175, 120, 0.4);
-    color: #4caf78;
+    color: var(--ds-success);
   }
 
   .chip.degraded {
     border-color: rgba(230, 162, 60, 0.4);
-    color: #e0a030;
+    color: var(--ds-warning);
   }
 
   .chip.offline {
     border-color: rgba(230, 90, 90, 0.4);
-    color: #e05a5a;
+    color: var(--ds-danger);
   }
 
   .chip.never {
