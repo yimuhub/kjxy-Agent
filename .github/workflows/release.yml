@@ -251,12 +251,16 @@ jobs:
           import json, os, subprocess, urllib.request
 
           tag, repo = os.environ["TAG"], os.environ["REPO"]
-          release = json.loads(
+          # 草稿 Release 用 releases/tags/{tag} 会 404，必须走列表接口再按 tag 过滤
+          releases = json.loads(
               subprocess.run(
-                  ["gh", "api", f"repos/{repo}/releases/tags/{tag}"],
+                  ["gh", "api", f"repos/{repo}/releases?per_page=30"],
                   check=True, capture_output=True, text=True,
               ).stdout
           )
+          release = next((item for item in releases if item["tag_name"] == tag), None)
+          if release is None:
+              raise SystemExit(f"release {tag} not found")
           assets = release["assets"]
 
           def find(suffixes):
@@ -302,7 +306,8 @@ jobs:
                   continue
               platforms[key] = {
                   "signature": signature,
-                  "url": bundle["browser_download_url"],
+                  # 固定按标签拼地址：草稿的 browser_download_url 是 untagged-<id>，发布后会失效
+                  "url": f"https://github.com/{repo}/releases/download/{tag}/{bundle['name']}",
               }
 
           if not platforms:
