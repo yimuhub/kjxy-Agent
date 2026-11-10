@@ -17,6 +17,7 @@
 
 ## 桌面本地引擎要点（client/desktop）
 
+- 本地打包与验收：见 [desktop-local-build.md](desktop-local-build.md)（含签名、冒烟、常见问题）
 - 引擎= `backend/standalone.py`（PyInstaller 单文件），SQLite + inline 任务 + 本地文件存储，
   数据全在系统标准数据目录（macOS `~/Library/Application Support/科技小院`，
   Windows `%LOCALAPPDATA%`，Linux `$XDG_DATA_HOME`）；只监听 `127.0.0.1:18700-18710`。
