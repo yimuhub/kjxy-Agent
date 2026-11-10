@@ -29,13 +29,55 @@ use tauri_plugin_updater::UpdaterExt;
 
 /// 引擎探测/绑定端口段（AO 同款端口顺延，避开常用 8xxx 冲突面）
 const PORT_RANGE: std::ops::RangeInclusive<u16> = 18700..=18710;
-/// splash 轮询健康上限（秒）：PyInstaller 首启解压 + 迁移 + seed，慢机器要留足
-const HEALTH_TIMEOUT_SECS: u64 = 90;
+/// splash 展示的启动步骤总数（与 desktop-splash.js 的步骤列表一一对应）
+const STARTUP_TOTAL_STEPS: u8 = 6;
+/// 健康等待上限（秒）。首启可能被 Gatekeeper/安全软件扫描拖到 2–3 分钟，
+/// 进度可见时不再按 90 秒草率判失败；引擎迟到就绪仍会自动打开主界面。
+const HEALTH_TIMEOUT_SECS: u64 = 600;
+/// 超过该秒数仍未就绪：在启动页提示「仍在启动」，避免用户误以为卡死
+const SLOW_START_HINT_SECS: u64 = 120;
 /// 桌面伙伴可选皮肤；Rust 侧只放行白名单，避免把任意字符串拼进窗口地址
 const PET_SKINS: &[&str] = &[
     "sprout", "sunny", "taro", "mochi", "orbit", "ember", "panda", "farmer",
 ];
 const DEFAULT_PET_SKIN: &str = "farmer";
+
+/// 启动页进度：由 sidecar 输出与健康探针共同推进，前端只负责渲染
+struct StartupProgress {
+    started: std::time::Instant,
+    stage: u8,
+    percent: u8,
+    detail: String,
+    failed: Option<String>,
+    ready: bool,
+}
+
+impl StartupProgress {
+    fn new(detail: &str) -> Self {
+        Self {
+            started: std::time::Instant::now(),
+            stage: 0,
+            percent: 4,
+            detail: detail.to_string(),
+            failed: None,
+            ready: false,
+        }
+    }
+}
+
+/// 发给启动页的快照（Instant 不可序列化，时间折算成已用秒数）
+#[derive(Clone, serde::Serialize)]
+struct StartupStatus {
+    stage: u8,
+    total: u8,
+    percent: u8,
+    detail: String,
+    failed: Option<String>,
+    ready: bool,
+    elapsed_secs: u64,
+    data_dir: String,
+    log_path: String,
+}
 
 struct EngineState {
     child: Mutex<Option<CommandChild>>,
@@ -44,6 +86,61 @@ struct EngineState {
     main_url: Mutex<Option<String>>,
     /// 最近一次选择的桌宠皮肤；快捷键切换显示时沿用
     pet_skin: Mutex<String>,
+    /// 启动页进度（splash 轮询）
+    startup: Mutex<StartupProgress>,
+    /// sidecar 是否已退出：读完管道即视为进程结束，用于失败快速告警
+    sidecar_exited: Mutex<bool>,
+}
+
+/// 推进启动进度：只前进不后退，失败/就绪后不再改（避免晚到的日志盖掉终态）
+fn advance_startup(app: &tauri::AppHandle, stage: u8, percent: u8, detail: impl Into<String>) {
+    let state = app.state::<EngineState>();
+    let mut progress = state.startup.lock().unwrap();
+    if progress.failed.is_some() || progress.ready || stage < progress.stage {
+        return;
+    }
+    progress.stage = stage;
+    progress.percent = progress.percent.max(percent);
+    progress.detail = detail.into();
+}
+
+/// 慢启动提示：只改文案不动进度，避免百分比撒谎
+fn note_slow_startup(app: &tauri::AppHandle) {
+    let state = app.state::<EngineState>();
+    let mut progress = state.startup.lock().unwrap();
+    if progress.failed.is_some() || progress.ready || progress.stage >= STARTUP_TOTAL_STEPS - 1 {
+        return;
+    }
+    progress.detail =
+        "首次启动可能正在被系统安全扫描（Gatekeeper），2–3 分钟属正常，请继续等待…".to_string();
+}
+
+fn fail_startup(app: &tauri::AppHandle, error: impl Into<String>) {
+    let state = app.state::<EngineState>();
+    let mut progress = state.startup.lock().unwrap();
+    if progress.ready {
+        return;
+    }
+    progress.failed = Some(error.into());
+}
+
+fn mark_startup_ready(app: &tauri::AppHandle) {
+    let state = app.state::<EngineState>();
+    let mut progress = state.startup.lock().unwrap();
+    progress.ready = true;
+    progress.stage = STARTUP_TOTAL_STEPS - 1;
+    progress.percent = 100;
+    progress.detail = "已就绪，正在进入主界面…".to_string();
+}
+
+/// 取日志末尾若干行，失败时直接展示在启动页/对话框里（不必让用户自己找）
+fn tail_log(path: &Path, max_lines: usize) -> String {
+    let Ok(raw) = fs::read(path) else {
+        return String::new();
+    };
+    let text = String::from_utf8_lossy(&raw);
+    let lines: Vec<&str> = text.lines().rev().take(max_lines).collect();
+    lines.into_iter().rev().collect::<Vec<_>>().join("\n")
 }
 
 /// 结束引擎进程树：PyInstaller onefile 会派生一个子进程，只杀父进程会留下监听端口。
@@ -293,7 +390,44 @@ fn engine_healthy(port: u16, instance: &str) -> bool {
         .unwrap_or(false)
 }
 
-const SPLASH_HTML: &str = r#"data:text/html;charset=utf-8,<html><head><meta name='viewport' content='width=device-width,initial-scale=1'><style>body{margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:%23101418;color:%23e6edf3;font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif}div{text-align:center;max-width:520px;padding:24px}h1{font-size:20px;font-weight:600}p{color:%239aa7b4;line-height:1.7;font-size:14px}code{background:%231c2430;padding:2px 8px;border-radius:6px;font-size:12px}.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:%234c9aff;margin-right:6px;animation:p 1.2s infinite}@keyframes p{0%25,100%25{opacity:.3}50%25{opacity:1}}</style></head><body><div><h1><span class='dot'></span>正在准备本地引擎…</h1><p>首次启动需要 10–60 秒（初始化数据库与演示空间）。<br>完成后会自动进入登录页。<br>登录账号与初始口令见文件：<code>LOGIN_FILE</code></p></div></body></html>"#;
+/// 未公证的 ad-hoc 包：首启时 Gatekeeper 会单独评估 sidecar 可执行文件。
+/// 主程序已被用户放行，这里顺手去掉子进程的隔离标记，避免被静默拦截。
+#[cfg(target_os = "macos")]
+fn strip_quarantine(path: &Path) {
+    let _ = std::process::Command::new("xattr")
+        .args(["-dr", "com.apple.quarantine"])
+        .arg(path)
+        .status();
+}
+
+#[cfg(not(target_os = "macos"))]
+fn strip_quarantine(_path: &Path) {}
+
+/// 把 sidecar 的一行输出映射成启动页步骤（只认 standalone/alembic/uvicorn 的稳定标记）
+fn track_startup_line(app: &tauri::AppHandle, line: &str, migrations: &mut u32) {
+    if line.contains("[standalone] data_dir=") {
+        advance_startup(app, 1, 12, "数据目录与登录凭据已就绪，正在启动本地引擎…");
+    } else if line.contains("Running upgrade") {
+        *migrations += 1;
+        let percent = 18 + (*migrations).min(27) as u8;
+        advance_startup(
+            app,
+            2,
+            percent,
+            format!("执行数据库迁移（第 {migrations} 个版本）…"),
+        );
+    } else if line.contains("[standalone] 演示账号已写入") {
+        advance_startup(app, 3, 50, "已生成演示空间与登录账号…");
+    } else if line.contains("[standalone] 已安装内置语音模型") {
+        advance_startup(app, 3, 58, "内置语音模型已就绪");
+    } else if line.contains("[standalone] 前端已挂载") {
+        advance_startup(app, 4, 66, "前端界面已挂载，正在启动本地服务…");
+    } else if line.contains("Uvicorn running on") {
+        advance_startup(app, 4, 78, "本地服务已监听，正在等待健康检查…");
+    } else if line.contains("Application startup complete") {
+        advance_startup(app, 5, 86, "本地服务已启动，正在等待健康检查…");
+    }
+}
 
 fn spawn_sidecar(
     app: &tauri::AppHandle,
@@ -318,6 +452,13 @@ fn spawn_sidecar(
         .shell()
         .sidecar("techyard-sidecar")
         .map_err(|e| format!("找不到 sidecar：{e}"))?;
+    // externalBin 落在 Contents/MacOS/techyard-sidecar；去掉隔离标记后再拉进程
+    #[cfg(target_os = "macos")]
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            strip_quarantine(&parent.join("techyard-sidecar"));
+        }
+    }
     // 语音模型目录固定在数据目录下：与安装位置解耦，升级/重装客户端不必重下模型
     let asr_dir = dir.join("models").join("asr");
     let _ = fs::create_dir_all(&asr_dir);
@@ -343,6 +484,7 @@ fn spawn_sidecar(
     if fs::metadata(&log_path).map(|m| m.len() > 10 * 1024 * 1024).unwrap_or(false) {
         let _ = fs::rename(&log_path, dir.join("logs").join("engine.log.1"));
     }
+    let progress_app = app.clone();
     thread::spawn(move || {
         use std::io::Write;
         let mut log = fs::OpenOptions::new()
@@ -350,16 +492,32 @@ fn spawn_sidecar(
             .append(true)
             .open(&log_path)
             .ok();
+        let mut pending = String::new();
+        let mut migrations = 0u32;
         while let Some(event) = rx.blocking_recv() {
-            if let tauri_plugin_shell::process::CommandEvent::Stdout(bytes)
-            | tauri_plugin_shell::process::CommandEvent::Stderr(bytes) = event
-            {
-                if let Some(file) = log.as_mut() {
-                    let _ = writeln!(file, "{}", String::from_utf8_lossy(&bytes));
-                    let _ = file.flush();
-                }
+            let bytes = match event {
+                tauri_plugin_shell::process::CommandEvent::Stdout(bytes)
+                | tauri_plugin_shell::process::CommandEvent::Stderr(bytes) => bytes,
+                _ => continue,
+            };
+            let text = String::from_utf8_lossy(&bytes).to_string();
+            if let Some(file) = log.as_mut() {
+                let _ = writeln!(file, "{text}");
+                let _ = file.flush();
+            }
+            // 管道按块到达，跨块的行要拼起来再匹配，否则阶段会漏判
+            pending.push_str(&text);
+            while let Some(pos) = pending.find('\n') {
+                let line: String = pending.drain(..=pos).collect();
+                track_startup_line(&progress_app, line.trim_end(), &mut migrations);
             }
         }
+        // 读端关闭 = 子进程已结束（崩溃/被安全软件拦截都会走到这里）
+        *progress_app
+            .state::<EngineState>()
+            .sidecar_exited
+            .lock()
+            .unwrap() = true;
     });
     *state.child.lock().unwrap() = Some(child);
     *state.port.lock().unwrap() = Some(port);
@@ -511,10 +669,42 @@ fn report_fatal(app: &tauri::AppHandle, msg: String) {
     });
 }
 
+/// 启动页必须是随包资源（tauri://localhost），不能用 data: URL：
+/// macOS WKWebView 不允许顶层 data: 导航，窗口会一直空白。
+fn build_splash(app: &tauri::AppHandle) -> Result<tauri::WebviewWindow, String> {
+    WebviewWindowBuilder::new(
+        app,
+        "splash",
+        WebviewUrl::App(std::path::PathBuf::from("desktop-splash.html")),
+    )
+    .title("科技小院")
+    .inner_size(640.0, 620.0)
+    .resizable(false)
+    .decorations(false)
+    .center()
+    .build()
+    .map_err(|e| format!("打开启动页失败：{e}"))
+}
+
+/// 失败时同时更新启动页并弹原生对话框：对话框兜底，启动页保留日志入口
+fn show_startup_failure(app: &tauri::AppHandle, msg: String) {
+    use tauri_plugin_dialog::DialogExt;
+    eprintln!("[startup] {msg}");
+    fail_startup(app, msg.clone());
+    app.dialog()
+        .message(msg)
+        .title("启动失败")
+        .show(|_| {});
+}
+
 /// 拉起或接管本地引擎；成功返回后窗口已指向引擎页面。失败返回人类可读原因。
 fn start_local(app: &tauri::AppHandle, state: &EngineState, dir: &PathBuf) -> Result<(), String> {
     let bootstrap = ensure_bootstrap_token(dir)?;
     let instance = ensure_instance_token(dir)?;
+    {
+        let mut progress = state.startup.lock().unwrap();
+        *progress = StartupProgress::new("准备数据目录与登录凭据…");
+    }
     // 1) 先探已有引擎（AO 同款复用，避免重复拉起/关窗再开报错）。
     //    仅接管回显归属令牌一致的那一个：端口段里可能是别的本地服务。
     for p in PORT_RANGE.clone() {
@@ -522,41 +712,35 @@ fn start_local(app: &tauri::AppHandle, state: &EngineState, dir: &PathBuf) -> Re
             let target = engine_url(p, &bootstrap);
             *state.port.lock().unwrap() = Some(p);
             *state.main_url.lock().unwrap() = Some(target.clone());
+            mark_startup_ready(app);
             return open_main_window(app, &target);
         }
     }
-    // 2) 找空闲端口并拉 sidecar
+    // 2) 先开启动页，再拉 sidecar：窗口立刻可见，真实阶段随日志推进
     let port = PORT_RANGE
         .clone()
         .find(|p| port_free(*p))
         .ok_or(format!("端口段 {PORT_RANGE:?} 全被占用"))?;
-    spawn_sidecar(app, state, dir, port, &instance)?;
+    let splash = build_splash(app)?;
+    advance_startup(app, 1, 8, "正在解压并启动本地引擎（首次启动较慢）…");
+    if let Err(e) = spawn_sidecar(app, state, dir, port, &instance) {
+        let _ = splash.close();
+        return Err(e);
+    }
 
-    // 3) splash → 轮询就绪 → 导航到引擎页（后台线程，不阻塞事件循环）
-    let splash = WebviewWindowBuilder::new(
-        app,
-        "splash",
-        WebviewUrl::External(
-            SPLASH_HTML
-                .replace("LOGIN_FILE", &dir.join("desktop-login.txt").display().to_string())
-                .parse()
-                .map_err(|_| "splash data URL 非法".to_string())?,
-        ),
-    )
-    .title("科技小院")
-    .inner_size(560.0, 360.0)
-    .resizable(false)
-    .decorations(false)
-    .build()
-    .map_err(|e| e.to_string())?;
+    // 3) 轮询健康 → 打开主窗；超时/引擎退出都带日志尾部，明确告诉用户下一步
     let handle = app.clone();
-    let win = splash.clone();
+    let win = splash;
     let dir = dir.clone(); // 线程需要 owned 副本（原引用不满足 'static）
     thread::spawn(move || {
-        let deadline = std::time::Instant::now() + Duration::from_secs(HEALTH_TIMEOUT_SECS);
+        let started = std::time::Instant::now();
+        let deadline = started + Duration::from_secs(HEALTH_TIMEOUT_SECS);
+        let mut slow_hinted = false;
+        let log_path = dir.join("logs").join("engine.log");
         while std::time::Instant::now() < deadline {
             if engine_healthy(port, &instance) {
                 let target = engine_url(port, &bootstrap);
+                advance_startup(&handle, 5, 96, "健康检查通过，正在打开主界面…");
                 {
                     let state = handle.state::<EngineState>();
                     *state.main_url.lock().unwrap() = Some(target.clone());
@@ -564,23 +748,56 @@ fn start_local(app: &tauri::AppHandle, state: &EngineState, dir: &PathBuf) -> Re
                 // 引擎就绪后开正式主窗（带标题栏/红绿灯/可缩放），再关掉无边框过渡页。
                 // 不能把过渡页直接导航成主界面，否则会一直是无边框小窗。
                 if let Err(e) = open_main_window(&handle, &target) {
-                    use tauri_plugin_dialog::DialogExt;
-                    let msg = format!("打开主界面失败：{e}");
-                    handle.dialog().message(msg).title("启动失败").show(|_| {});
+                    show_startup_failure(&handle, format!("本地引擎已就绪，但打开主界面失败：{e}"));
                     return;
                 }
+                mark_startup_ready(&handle);
+                thread::sleep(Duration::from_millis(700));
                 let _ = win.close();
                 return;
             }
-            thread::sleep(Duration::from_millis(800));
+            // 进程已退出（崩溃或被安全软件拦截）：不再干等到超时
+            let exited = *handle
+                .state::<EngineState>()
+                .sidecar_exited
+                .lock()
+                .unwrap();
+            if exited {
+                let mut tail = tail_log(&log_path, 15);
+                if tail.trim().is_empty() {
+                    tail = "（日志为空：引擎可能在启动前就被系统安全策略拦截了）".to_string();
+                }
+                show_startup_failure(
+                    &handle,
+                    format!(
+                        "本地引擎进程已退出，未能启动。\n\n最近日志：\n{tail}\n\n日志文件：{}\n数据目录：{}\n\n处理建议：\n1. 若你是直接从磁盘映像（DMG）里打开，请先把「科技小院」拖到「应用程序」再打开；\n2. 完全退出后重新打开；\n3. 仍失败请把上面的日志发给支持。",
+                        log_path.display(),
+                        dir.display()
+                    ),
+                );
+                return;
+            }
+            let elapsed = started.elapsed().as_secs();
+            if !slow_hinted && elapsed >= SLOW_START_HINT_SECS {
+                slow_hinted = true;
+                note_slow_startup(&handle);
+            }
+            thread::sleep(Duration::from_millis(700));
         }
-        // 4) 超时：原生对话框给出下一步（失败即教学），绝不静默白屏
-        use tauri_plugin_dialog::DialogExt;
-        let msg = format!(
-            "本地引擎 {HEALTH_TIMEOUT_SECS} 秒内未就绪。\n常见原因：安全软件拦截 sidecar、端口段被占、安装包损坏。\n可尝试：完全退出后重开；仍失败请删除数据目录后重试（会重置本地数据）：\n{}",
-            dir.display()
+        // 4) 超时：绝不静默白屏，给出日志尾部与下一步
+        let mut tail = tail_log(&log_path, 15);
+        if tail.trim().is_empty() {
+            tail = "（日志为空：引擎可能在启动前就被系统安全策略拦截了）".to_string();
+        }
+        show_startup_failure(
+            &handle,
+            format!(
+                "本地引擎约 {} 分钟内未就绪。\n\n最近日志：\n{tail}\n\n日志文件：{}\n数据目录：{}\n\n常见原因：系统安全策略拦截本地引擎、端口段被占用、安装包未完整解压。\n处理建议：\n1. 若你是直接从磁盘映像（DMG）里打开，请先把「科技小院」拖到「应用程序」再打开；\n2. 完全退出后重新打开；\n3. 仍失败请把上面的日志发给支持。",
+                HEALTH_TIMEOUT_SECS / 60,
+                log_path.display(),
+                dir.display()
+            ),
         );
-        handle.dialog().message(msg).title("启动失败").show(|_| {});
     });
     Ok(())
 }
@@ -589,6 +806,49 @@ fn start_local(app: &tauri::AppHandle, state: &EngineState, dir: &PathBuf) -> Re
 #[tauri::command]
 fn get_app_version(app: tauri::AppHandle) -> String {
     app.package_info().version.to_string()
+}
+
+/// 启动页轮询：返回真实阶段（sidecar 日志 + 健康探针推进），不靠前端猜时间
+#[tauri::command]
+fn startup_status(app: tauri::AppHandle) -> Result<StartupStatus, String> {
+    let dir = data_dir(&app)?;
+    let state = app.state::<EngineState>();
+    let progress = state.startup.lock().unwrap();
+    Ok(StartupStatus {
+        stage: progress.stage,
+        total: STARTUP_TOTAL_STEPS,
+        percent: progress.percent,
+        detail: progress.detail.clone(),
+        failed: progress.failed.clone(),
+        ready: progress.ready,
+        elapsed_secs: progress.started.elapsed().as_secs(),
+        data_dir: dir.display().to_string(),
+        log_path: dir.join("logs").join("engine.log").display().to_string(),
+    })
+}
+
+/// 启动页「查看启动日志」：日志不存在时先落一个空文件，确保打开的是位置而不是报错
+#[tauri::command]
+fn open_startup_log(app: tauri::AppHandle) -> Result<String, String> {
+    use tauri_plugin_opener::OpenerExt;
+    let dir = data_dir(&app)?;
+    let path = dir.join("logs").join("engine.log");
+    if !path.exists() {
+        if let Some(parent) = path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        let _ = fs::write(&path, b"");
+    }
+    app.opener()
+        .open_path(path.display().to_string(), None::<&str>)
+        .map_err(|e| format!("打开启动日志失败：{e}"))?;
+    Ok(path.display().to_string())
+}
+
+/// 启动页「退出」：用户不想再等时主动结束，级联退出会带走 sidecar
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+    app.exit(0);
 }
 
 /// 设置页：手动检查更新。返回 null=已是最新；对象=新版信息（同时触发事件+提示条通知）。
@@ -824,12 +1084,17 @@ pub fn run() {
             port: Mutex::new(None),
             main_url: Mutex::new(None),
             pet_skin: Mutex::new(DEFAULT_PET_SKIN.to_string()),
+            startup: Mutex::new(StartupProgress::new("正在准备启动…")),
+            sidecar_exited: Mutex::new(false),
         })
         .manage(UpdateState {
             pending: Mutex::new(None),
         })
         .invoke_handler(tauri::generate_handler![
             get_app_version,
+            startup_status,
+            open_startup_log,
+            quit_app,
             check_for_updates,
             download_and_install,
             save_export,

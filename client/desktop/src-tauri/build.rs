@@ -3,7 +3,13 @@ fn main() {
     // 自定义命令必须声明 app ACL manifest，capabilities 里才可能放行。
     tauri_build::try_build(
         tauri_build::Attributes::new().app_manifest(
-            tauri_build::AppManifest::new().commands(&["save_export", "open_mic_settings"]),
+            tauri_build::AppManifest::new().commands(&[
+                "save_export",
+                "open_mic_settings",
+                "startup_status",
+                "open_startup_log",
+                "quit_app",
+            ]),
         ),
     )
     .expect("tauri-build 失败");

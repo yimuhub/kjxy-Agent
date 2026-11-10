@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>科技小院</title>
+    <style>
+      :root {
+        --bg: #0f1319;
+        --card: #161c25;
+        --line: #24303d;
+        --text: #e6edf3;
+        --muted: #8b98a8;
+        --accent: #4c9aff;
+        --ok: #3ddc97;
+        --bad: #ff6b6b;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei",
+          "Segoe UI", sans-serif;
+        -webkit-font-smoothing: antialiased;
+        user-select: none;
+        overflow: hidden;
+      }
+      body {
+        display: flex;
+        align-items: stretch;
+      }
+      .card {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        padding: 22px 26px 18px;
+      }
+      header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .logo {
+        width: 40px;
+        height: 40px;
+        border-radius: 12px;
+        background: linear-gradient(135deg, #2f7c4f, #3ddc97);
+        color: #082414;
+        font-size: 13px;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        letter-spacing: 1px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 17px;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+      }
+      .sub {
+        margin: 3px 0 0;
+        font-size: 12.5px;
+        color: var(--muted);
+      }
+      .clock {
+        font-size: 12px;
+        color: var(--muted);
+        padding-top: 4px;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+      .bar {
+        position: relative;
+        height: 6px;
+        margin: 16px 0 14px;
+        border-radius: 999px;
+        background: #1d2732;
+        overflow: hidden;
+      }
+      .bar > i {
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 4%;
+        border-radius: 999px;
+        background: linear-gradient(90deg, #2f7c4f, var(--accent));
+        transition: width 0.45s ease;
+      }
+      .bar > i::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+        animation: sweep 1.4s linear infinite;
+      }
+      @keyframes sweep {
+        from {
+          transform: translateX(-100%);
+        }
+        to {
+          transform: translateX(100%);
+        }
+      }
+      ol {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 2px;
+      }
+      li {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 5px 8px;
+        border-radius: 8px;
+        color: #6f7d8d;
+      }
+      li .ico {
+        flex: 0 0 18px;
+        height: 18px;
+        margin-top: 1px;
+        border-radius: 50%;
+        border: 1.5px solid #35424f;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 10px;
+        line-height: 1;
+      }
+      li b {
+        font-size: 13px;
+        font-weight: 500;
+      }
+      li small {
+        display: block;
+        margin-top: 2px;
+        font-size: 11.5px;
+        color: #596776;
+      }
+      li.active {
+        background: #17212c;
+        color: var(--text);
+      }
+      li.active .ico {
+        border-color: var(--accent);
+        border-right-color: transparent;
+        animation: spin 0.9s linear infinite;
+      }
+      li.done {
+        color: #9fb0c0;
+      }
+      li.done .ico {
+        border-color: #245c43;
+        background: #163224;
+        color: var(--ok);
+      }
+      li.failed {
+        background: #2a1a1c;
+        color: #ffd7d7;
+      }
+      li.failed .ico {
+        border-color: #7a3034;
+        background: #3a1d20;
+        color: var(--bad);
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      .detail {
+        flex: 0 0 auto;
+        margin: 12px 2px 0;
+        font-size: 12px;
+        line-height: 1.65;
+        color: var(--muted);
+        white-space: pre-wrap;
+        word-break: break-word;
+        min-height: 20px;
+      }
+      .detail.error {
+        color: #ffb4b4;
+        background: #24171a;
+        border: 1px solid #4a2429;
+        border-radius: 8px;
+        padding: 8px 10px;
+        max-height: 108px;
+        overflow: auto;
+        user-select: text;
+      }
+      .tip {
+        margin-top: 10px;
+        padding-top: 10px;
+        border-top: 1px solid var(--line);
+        font-size: 11.5px;
+        line-height: 1.6;
+        color: #64717f;
+      }
+      footer {
+        margin-top: auto;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding-top: 12px;
+      }
+      .note {
+        font-size: 11.5px;
+        color: #5d6a78;
+      }
+      .actions {
+        display: flex;
+        gap: 8px;
+      }
+      button {
+        font: inherit;
+        font-size: 12.5px;
+        padding: 7px 14px;
+        border-radius: 8px;
+        border: 1px solid #2c3a49;
+        background: #1b2530;
+        color: #cfdae6;
+        cursor: pointer;
+        transition: background 0.15s ease, border-color 0.15s ease;
+      }
+      button:hover {
+        background: #22303e;
+        border-color: #3a4d61;
+      }
+      button.primary {
+        background: #234f7d;
+        border-color: #2f6ba8;
+        color: #eaf3ff;
+      }
+      button.primary:hover {
+        background: #2a5d92;
+      }
+      button:disabled {
+        opacity: 0.55;
+        cursor: default;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <header>
+        <div class="brand">
+          <div class="logo">小院</div>
+          <div>
+            <h1>科技小院</h1>
+            <p class="sub" id="headline" aria-live="polite">正在启动本地引擎…</p>
+          </div>
+        </div>
+        <div class="clock">已用 <span id="elapsed">0</span> 秒</div>
+      </header>
+
+      <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="4">
+        <i id="bar"></i>
+      </div>
+
+      <ol id="steps">
+        <li data-step="0">
+          <span class="ico"></span>
+          <div><b>准备数据目录与登录凭据</b><small>生成本机安全密钥与引导令牌</small></div>
+        </li>
+        <li data-step="1">
+          <span class="ico"></span>
+          <div><b>解压并启动本地引擎</b><small>首次启动需解压约 70MB 运行环境</small></div>
+        </li>
+        <li data-step="2">
+          <span class="ico"></span>
+          <div><b>初始化本地数据库</b><small>执行数据库迁移，首次启动约 80 个版本</small></div>
+        </li>
+        <li data-step="3">
+          <span class="ico"></span>
+          <div><b>生成演示空间与语音模型</b><small>写入演示账号，安装内置语音模型</small></div>
+        </li>
+        <li data-step="4">
+          <span class="ico"></span>
+          <div><b>启动本地服务</b><small>只监听 127.0.0.1，数据不离开本机</small></div>
+        </li>
+        <li data-step="5">
+          <span class="ico"></span>
+          <div><b>打开主界面</b><small>健康检查通过后自动进入</small></div>
+        </li>
+      </ol>
+
+      <p class="detail" id="detail">第一次启动会安装运行环境并初始化数据，通常需要 20–120 秒；之后启动通常只要几秒。</p>
+
+      <p class="tip">
+        启动过程中窗口会显示当前步骤并持续计时。若某一步停留超过 2 分钟，多为安全软件正在扫描本地引擎；
+        可点「查看启动日志」确认，或退出后重新打开。
+      </p>
+
+      <footer>
+        <span class="note" id="note">请勿强制关闭，正在准备本机数据。</span>
+        <div class="actions">
+          <button id="open-log" type="button">查看启动日志</button>
+          <button id="quit" type="button" class="primary">退出</button>
+        </div>
+      </footer>
+    </main>
+    <script src="./desktop-splash.js"></script>
+  </body>
+</html>

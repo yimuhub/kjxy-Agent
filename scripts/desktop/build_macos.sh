@@ -46,6 +46,14 @@ else
   echo "== 跳过前端构建（复用现有 dist-web / frontend-dist）=="
 fi
 
+# 启动页随 Tauri 内置资源发布；不属于站点页面，单独拷入 dist-web（SKIP_FRONTEND 时也要有）
+mkdir -p "$DESKTOP/dist-web"
+cp -R "$DESKTOP/splash/." "$DESKTOP/dist-web/"
+test -f "$DESKTOP/dist-web/desktop-splash.html" || {
+  echo "缺少启动页：$DESKTOP/dist-web/desktop-splash.html" >&2
+  exit 1
+}
+
 # 2) 本地引擎 sidecar
 if [[ "${SKIP_SIDECAR:-0}" != "1" ]]; then
   echo "== [2/5] 构建本地引擎 sidecar（PyInstaller）=="

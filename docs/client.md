@@ -21,7 +21,9 @@
 - 引擎= `backend/standalone.py`（PyInstaller 单文件），SQLite + inline 任务 + 本地文件存储，
   数据全在系统标准数据目录（macOS `~/Library/Application Support/科技小院`，
   Windows `%LOCALAPPDATA%`，Linux `$XDG_DATA_HOME`）；只监听 `127.0.0.1:18700-18710`。
-- 首启自动：迁移 → seed 演示空间 → 生成随机管理员口令写 `desktop-login.txt`（splash 指路）。
+- 首启自动：迁移 → seed 演示空间 → 复制内置语音模型 → 写随机管理员口令 `desktop-login.txt`；
+  启动页按真实阶段显示进度（解压引擎 / 迁移 / 服务就绪），超过 2 分钟提示可能被 Gatekeeper 扫描，
+  最多等待 10 分钟；sidecar 异常退出会直接展示日志尾部，可随时「查看启动日志」或「退出」。
 - JWT 密钥每桌面实例独立生成（`secret.key`），与服务器部署完全隔离。
 - 关窗级联杀 sidecar；再开复用健康引擎不重拉；启动失败给原生对话框+原因+下一步（失败即教学）。
 - `client.json` 可切 `{"mode":"remote","url":"https://试点"}`——桌面也能连服务器（数据回云端）。

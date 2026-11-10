@@ -156,6 +156,8 @@ jobs:
           cd frontend && npm ci && npm run build
           mkdir -p ../client/desktop/dist-web
           cp -r dist/* ../client/desktop/dist-web/
+          # 启动页随 Tauri 内置资源发布（data: URL 在 WKWebView 顶层导航会白屏）
+          cp -R ../client/desktop/splash/. ../client/desktop/dist-web/
           # 引擎托管的前端资源（bundle.resources: frontend-dist/**/*，build.rs 校验非空 glob）
           mkdir -p ../client/desktop/src-tauri/frontend-dist
           cp -r dist/* ../client/desktop/src-tauri/frontend-dist/

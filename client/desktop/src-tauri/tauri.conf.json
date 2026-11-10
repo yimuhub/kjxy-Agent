@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "科技小院",
-  "version": "3.73.4",
+  "version": "3.73.5",
   "identifier": "cn.techyard.desktop",
   "build": {
     "frontendDist": "../dist-web"

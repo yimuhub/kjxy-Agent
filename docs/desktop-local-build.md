@@ -61,7 +61,8 @@ bash scripts/desktop/build_macos.sh
 
 脚本按顺序做五件事：
 
-1. **构建前端**：`npm run build`，把 `dist/` 同步到 `dist-web` 与 `frontend-dist`。
+1. **构建前端**：`npm run build`，把 `dist/` 同步到 `dist-web` 与 `frontend-dist`；
+   随后把 `client/desktop/splash/`（启动页）拷进 `dist-web`——它是 Tauri 内置资源，不属于站点页面。
 2. **构建本地引擎**：`backend/scripts/build_sidecar.sh` 用 PyInstaller 打单文件引擎，
    再按本机架构复制成 `binaries/techyard-sidecar-aarch64-apple-darwin`（Intel 机为 `x86_64-apple-darwin`）。
 3. **下载内置语音模型**：校验哈希，已存在且校验通过则跳过。
@@ -210,6 +211,9 @@ npx tauri build --target x86_64-unknown-linux-gnu --bundles deb,appimage
 | 「已损坏，无法打开」 | 应用包没有整体签名，只有二进制临时签名 | 用本脚本重打；或对已装应用临时绕行：`xattr -dr com.apple.quarantine "/Applications/科技小院.app"` |
 | 「无法验证开发者」 | ad-hoc 签名、未公证 | 右键 →「打开」一次，或「系统设置 → 隐私与安全性 → 仍要打开」 |
 | 安装后白屏 | `frontend-dist` 没同步或为空 | 重跑第 1 步并确认 `src-tauri/frontend-dist/index.html` 存在 |
+| 启动页一直白（无步骤） | 旧版启动页是顶层 `data:` URL，WKWebView 不放行；或 `dist-web` 缺启动页 | v3.73.5 起为随包 `desktop-splash.html`；确认 `dist-web/desktop-splash.html` 与 `.js` 存在（脚本会自动拷入） |
+| 启动页停在「解压引擎」或超过 2 分钟 | 首启被 Gatekeeper/安全软件扫描，慢机器 2–3 分钟属正常 | v3.73.5 起最多等 10 分钟并持续显示阶段；可点「查看启动日志」确认，不要直接强杀 |
+| 启动页提示「引擎进程已退出」 | sidecar 崩溃或被安全策略拦截 | 启动页已展示日志尾部；按提示重开，仍失败把日志发给支持 |
 | 启动即退 | 引擎起不来 | 看 `~/Library/Application Support/科技小院/logs/engine.log` 尾部 |
 | 提示端口被占用 | 已有实例在跑（冒烟要求 18700-18710 全空） | `lsof -nP -iTCP:18700-18710 -sTCP:LISTEN` 后退出旧实例 |
 | sidecar 架构不符（Intel 机打 arm64 包等） | 复用了别的架构的 `binaries/` | `lipo -archs <sidecar>` 与 `uname -m` 对照后重跑第 2 步 |
@@ -224,7 +228,7 @@ npx tauri build --target x86_64-unknown-linux-gnu --bundles deb,appimage
 | 数据目录（macOS） | `~/Library/Application Support/科技小院` |
 | 引擎日志 | `<数据目录>/logs/engine.log` |
 | 引擎监听 | 仅 `127.0.0.1:18700-18710`（自动挑空闲端口） |
-| 首次登录 | 数据目录下 `desktop-login.txt`（splash 也会指路） |
+| 首次登录 | 数据目录下 `desktop-login.txt`（仅首启生成，0600） |
 | JWT 密钥 | 数据目录下 `secret.key`，每实例独立，勿外传 |
 
 打包后直接双击会复用真实数据目录；想模拟「全新用户首启」而不动现有数据，用独立目录启动：
