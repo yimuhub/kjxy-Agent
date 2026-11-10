@@ -23,6 +23,17 @@ docker compose down
 
 > `docker compose down -v` 会删除数据库卷，务必先备份（`make nuke` 有二次确认）。
 
+## 首次初始化
+
+- 不预置任何管理员账号。空库首次打开 Web 端会强制进入 `/setup` 向导，
+  一次性创建超级管理员、首个小院、产业画像、内置技能、品牌与模型接入。
+- 初始化完成后写入 `setup_state` 单行记录并自动登录；再次访问向导直接跳登录页。
+- 判断「已初始化」= `setup_state` 有行 **或** 库中已有用户。迁移 `0082_setup_state`
+  会为存量库补一行 `wizard_version='legacy'`，因此升级不会被误判为新装。
+- `GET /api/v1/setup/status` 返回 `initialized`；桌面壳据此决定直连主界面还是进向导。
+- 想重跑向导：停服、备份后清空业务数据（或换新库）再启动；`setup_state` 与 `users` 任一非空即视为已完成。
+
+
 ## 健康检查
 
 - API：`GET /health/live`（存活）、`GET /health/ready`（数据库+Redis+schema 就绪）、

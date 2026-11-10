@@ -238,7 +238,8 @@ npx tauri build --target x86_64-unknown-linux-gnu --bundles deb,appimage
 | 数据目录（macOS） | `~/Library/Application Support/科技小院` |
 | 引擎日志 | `<数据目录>/logs/engine.log` |
 | 引擎监听 | 仅 `127.0.0.1:18700-18710`（自动挑空闲端口） |
-| 首次登录 | 数据目录下 `desktop-login.txt`（仅首启生成，0600） |
+| 首次登录 | 无预置账号：全新安装直接进初始化向导，自行创建超级管理员 |
+| 初始化状态 | `setup_state` 表（迁移会为存量库补 `legacy` 行）；有该行或库中已有用户即视为已初始化 |
 | JWT 密钥 | 数据目录下 `secret.key`，每实例独立，勿外传 |
 
 打包后直接双击会复用真实数据目录；想模拟「全新用户首启」而不动现有数据，用独立目录启动：

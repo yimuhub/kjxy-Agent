@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.73.6
+  version: 3.74.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -14236,13 +14236,27 @@ paths:
           content:
             application/json:
               schema: {}
+  /api/v1/setup/skills:
+    get:
+      tags:
+      - v1
+      - setup
+      summary: Setup Skills
+      description: 向导第 4 步的技能清单（纯数据，不含任何密钥）。
+      operationId: setup_skills_api_v1_setup_skills_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
   /api/v1/setup/initialize:
     post:
       tags:
       - v1
       - setup
       summary: Initialize
-      description: 一次性初始化：超管 + 首个小院 + 画像/品牌/开关，返回自动登录 token。
+      description: 一次性初始化：超管 + 首个小院 + 技能 + 模型/品牌/开关，返回自动登录 token。
       operationId: initialize_api_v1_setup_initialize_post
       requestBody:
         content:
@@ -16626,6 +16640,12 @@ components:
             maxLength: 255
           - type: 'null'
           title: Email
+        phone:
+          anyOf:
+          - type: string
+            maxLength: 20
+          - type: 'null'
+          title: Phone
         yard_name:
           type: string
           maxLength: 128
@@ -16641,6 +16661,11 @@ components:
           maxLength: 64
           title: City
           default: ''
+        county:
+          type: string
+          maxLength: 64
+          title: County
+          default: ''
         profile_types:
           items:
             type: string
@@ -16652,6 +16677,16 @@ components:
           maxLength: 64
           title: Yard Description
           default: ''
+        skill_codes:
+          items:
+            type: string
+          type: array
+          maxItems: 200
+          title: Skill Codes
+        llm_provider:
+          anyOf:
+          - $ref: '#/components/schemas/LlmProviderIn'
+          - type: 'null'
         app_name:
           type: string
           maxLength: 40
@@ -16676,10 +16711,6 @@ components:
           minimum: 0.0
           title: Agent Generate Daily Limit
           default: 10
-        journal_enabled:
-          type: boolean
-          title: Journal Enabled
-          default: true
         deployment:
           type: string
           pattern: ^(desktop|server|cloud)$
@@ -16828,6 +16859,41 @@ components:
       - question
       title: KnowledgeAskRequest
       description: 对话内知识问答（v3.13）：单轮、严格引用，回答落库可回放。
+    LlmProviderIn:
+      properties:
+        provider_type:
+          type: string
+          maxLength: 40
+          title: Provider Type
+          default: openai_compatible
+        name:
+          type: string
+          maxLength: 40
+          title: Name
+          default: 云端模型
+        base_url:
+          type: string
+          maxLength: 500
+          minLength: 1
+          title: Base Url
+        api_key:
+          type: string
+          maxLength: 2000
+          minLength: 1
+          title: Api Key
+        model_id:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Model Id
+      additionalProperties: false
+      type: object
+      required:
+      - base_url
+      - api_key
+      - model_id
+      title: LlmProviderIn
+      description: 向导第 4 步填写的云端供应商；api_key 加密落库，绝不回显。
     LoginRequest:
       properties:
         username:

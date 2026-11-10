@@ -358,6 +358,33 @@ fn engine_url(port: u16, token: &str) -> String {
     format!("http://127.0.0.1:{port}/#desktop_token={token}")
 }
 
+/// 引擎是否已完成首次安装（/setup/status 的 data.initialized）。
+/// 未初始化时绝不能带 desktop_token：`desktop-bootstrap` 会 503，前端只能回落登录页。
+fn engine_initialized(port: u16) -> bool {
+    let url = format!("http://127.0.0.1:{port}/api/v1/setup/status");
+    reqwest::blocking::Client::builder()
+        .timeout(Duration::from_millis(1500))
+        .build()
+        .ok()
+        .and_then(|c| c.get(url).send().ok())
+        .and_then(|r| r.json::<serde_json::Value>().ok())
+        .and_then(|v| {
+            v.get("data")
+                .and_then(|d| d.get("initialized"))
+                .and_then(|b| b.as_bool())
+        })
+        .unwrap_or(true)
+}
+
+/// 主窗地址：已初始化走静默登录；全新安装直接打开创建向导。
+fn main_window_url(port: u16, token: &str) -> String {
+    if engine_initialized(port) {
+        engine_url(port, token)
+    } else {
+        format!("http://127.0.0.1:{port}/#setup_required=1")
+    }
+}
+
 fn normalize_pet_skin(raw: Option<&str>) -> String {
     match raw.map(str::trim) {
         Some(skin) if PET_SKINS.contains(&skin) => skin.to_string(),
@@ -416,8 +443,10 @@ fn track_startup_line(app: &tauri::AppHandle, line: &str, migrations: &mut u32) 
             percent,
             format!("执行数据库迁移（第 {migrations} 个版本）…"),
         );
-    } else if line.contains("[standalone] 演示账号已写入") {
-        advance_startup(app, 3, 50, "已生成演示空间与登录账号…");
+    } else if line.contains("[standalone] 初始化状态=未初始化") {
+        advance_startup(app, 3, 48, "检测到全新安装，稍后进入创建向导…");
+    } else if line.contains("[standalone] 初始化状态=已初始化") {
+        advance_startup(app, 3, 48, "检测到已有小院数据，稍后直接登录…");
     } else if line.contains("[standalone] 已安装内置语音模型") {
         advance_startup(app, 3, 58, "内置语音模型已就绪");
     } else if line.contains("[standalone] 前端已挂载") {
@@ -709,7 +738,7 @@ fn start_local(app: &tauri::AppHandle, state: &EngineState, dir: &PathBuf) -> Re
     //    仅接管回显归属令牌一致的那一个：端口段里可能是别的本地服务。
     for p in PORT_RANGE.clone() {
         if !port_free(p) && engine_healthy(p, &instance) {
-            let target = engine_url(p, &bootstrap);
+            let target = main_window_url(p, &bootstrap);
             *state.port.lock().unwrap() = Some(p);
             *state.main_url.lock().unwrap() = Some(target.clone());
             mark_startup_ready(app);
@@ -739,8 +768,22 @@ fn start_local(app: &tauri::AppHandle, state: &EngineState, dir: &PathBuf) -> Re
         let log_path = dir.join("logs").join("engine.log");
         while std::time::Instant::now() < deadline {
             if engine_healthy(port, &instance) {
-                let target = engine_url(port, &bootstrap);
-                advance_startup(&handle, 5, 96, "健康检查通过，正在打开主界面…");
+                let initialized = engine_initialized(port);
+                let target = if initialized {
+                    engine_url(port, &bootstrap)
+                } else {
+                    format!("http://127.0.0.1:{port}/#setup_required=1")
+                };
+                advance_startup(
+                    &handle,
+                    5,
+                    96,
+                    if initialized {
+                        "健康检查通过，正在打开主界面…"
+                    } else {
+                        "全新安装，正在打开创建向导…"
+                    },
+                );
                 {
                     let state = handle.state::<EngineState>();
                     *state.main_url.lock().unwrap() = Some(target.clone());

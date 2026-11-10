@@ -5,8 +5,8 @@
   1. 解析/创建跨平台数据目录（TECHYARD_DATA_DIR 优先，其次按 OS 默认值）
   2. 写入 standalone 环境变量契约（见 _apply_env_contract）
   3. alembic upgrade head（迁移后 schema 与服务器部署完全一致）
-  4. users 表为空时 seed 演示小院，生成随机管理员口令写 <data>/desktop-login.txt，
-     并只在 stdout 打印一次（Rust 壳负责在 splash 里指路这个文件）
+  4. 报告初始化状态：全新安装不写入任何账号，由前端 /setup 向导创建管理员；
+     已有数据的设备按已初始化处理，直接静默登录
   5. 挂载前端静态文件（FRONTEND_DIST 存在时，SPA history 回退到 index.html）
   6. uvicorn 绑定 127.0.0.1:PORT —— 只监听回环，绝不外露端口
 
@@ -30,7 +30,6 @@ from __future__ import annotations
 import argparse
 import base64
 import contextlib
-import itertools
 import os
 import secrets
 import shutil
@@ -41,10 +40,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:  # 仅类型检查期：运行时 app.* 一律延迟导入（见各函数内 import）
     from fastapi import FastAPI
     from starlette.types import Scope
-
-# 演示账号用户名（与 app/db/seed.py 的 SEED_USERS 保持一致；seed.py 非本文件
-# 私有 API，这里只取用户名集合用于"空库判定后自行生成口令"）
-SEED_USERNAMES = ("admin", "yard_admin", "expert", "operator")
 
 
 # ---------------------------------------------------------------------------
@@ -69,7 +64,7 @@ def resolve_data_dir() -> Path:
     """确定数据目录：TECHYARD_DATA_DIR > OS 默认。绝不落在仓库源码树内。
 
     【agent-orchestrator 式防御，务必保留】曾出现过壳程序把"仓库检出目录
-    （内含 node_modules/）"当数据/工作目录，导致迁移、seed、日志全部写进
+    （内含 node_modules/）"当数据/工作目录，导致迁移、日志全部写进
     依赖树，打包体被污染且用户数据被 `npm ci` 一把清掉。因此只要路径里
     出现名为 node_modules 的组件，一律拒绝启动，而不是默默把数据写进去。
     """
@@ -108,7 +103,9 @@ def _apply_env_contract(data_dir: Path, port: int) -> None:
     os.environ["FILE_STORAGE"] = "local"
     os.environ["TASKS_INLINE_MODE"] = "true"
     os.environ["WORKER_SYNC_FALLBACK"] = "true"
-    os.environ["SEED_ALLOW_PRODUCTION"] = "YES"
+    # 桌面版不预置账号：管理员由 /setup 向导创建，只认 user.platform_admin 标志，
+    # 不再接受「用户名命中名单即超管」的旁路。
+    os.environ["PLATFORM_ADMIN_USERNAMES"] = ""
     os.environ["USE_PGVECTOR"] = "false"
     os.environ["TECHYARD_DATA_DIR"] = str(data_dir)
     os.environ["TECHYARD_PORT"] = str(port)
@@ -138,7 +135,7 @@ def _apply_env_contract(data_dir: Path, port: int) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 迁移 + 首启 seed
+# 迁移 + 初始化状态
 # ---------------------------------------------------------------------------
 
 
@@ -168,55 +165,15 @@ def run_migrations() -> None:
         sys.path[:] = original
 
 
-def _users_table_count() -> int:
-    from app.db.session import engine
-    from sqlalchemy import text
+def report_setup_state() -> bool:
+    """报告是否已完成初始化，并留给启动页做分流（不写任何账号）。"""
+    from app.db.session import SessionLocal
+    from app.modules.setup.service import is_initialized
 
-    with engine.connect() as conn:
-        return int(conn.execute(text("SELECT COUNT(*) FROM users")).scalar_one())
-
-
-def seed_if_empty(data_dir: Path) -> None:
-    """空库首启：seed 演示小院 + 随机管理员口令 → desktop-login.txt。
-
-    口令生成方式：先自行生成全部随机口令，再把 app.db.seed._random_password
-    打桩为按调用次序查表返回——这样明文完全由本函数掌控，可写入
-    desktop-login.txt；seed 自带的 stdout 打印用 redirect_stdout 吞掉，
-    保证明文"只打印一次"。（依赖 seed 的 SEED_USERS 顺序与 SEED_USERNAMES 一致）
-    """
-    if _users_table_count() > 0:
-        return
-
-    import io
-
-    import app.db.seed as seed_mod
-
-    passwords = {name: secrets.token_urlsafe(12) for name in SEED_USERNAMES}
-    order = list(SEED_USERNAMES)
-    calls = itertools.count()
-
-    def _stubbed_random_password() -> str:
-        i = min(next(calls), len(order) - 1)
-        return passwords[order[i]]
-
-    seed_mod._random_password = _stubbed_random_password  # type: ignore[method-assign]
-    buf = io.StringIO()
-    with contextlib.redirect_stdout(buf):
-        seed_mod.seed(random_passwords=True)
-
-    login_file = data_dir / "desktop-login.txt"
-    lines = [
-        "# 科技小院桌面版 · 演示账号（仅打印/写入这一次，文件权限 600）",
-        "# 这些账号仅监听 127.0.0.1，数据全部在本目录 app.db 中。",
-        "# 删除 app.db 并重启应用即可恢复到全新演示状态。",
-    ]
-    lines += [f"{name} {passwords[name]}" for name in SEED_USERNAMES]
-    login_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    with contextlib.suppress(OSError):
-        login_file.chmod(0o600)
-    # 不把口令打到 stdout：桌面壳会把 sidecar 输出落盘到 engine.log，
-    # 打印等于把明文永久留在磁盘上。用户从 desktop-login.txt（0600）读取。
-    print(f"[standalone] 演示账号已写入 {login_file}")
+    with SessionLocal() as db:
+        initialized = is_initialized(db)
+    print(f"[standalone] 初始化状态={'已初始化' if initialized else '未初始化'}")
+    return initialized
 
 
 # ---------------------------------------------------------------------------
@@ -365,7 +322,7 @@ def main() -> None:
     print(f"[standalone] data_dir={data_dir} port={port}")
 
     run_migrations()
-    seed_if_empty(data_dir)
+    report_setup_state()
     install_bundled_asr()
 
     # 此处 import 才创建 Settings：上面必须已把所有环境变量就位

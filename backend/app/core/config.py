@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     app_env: str = Field(default="development", description="development|production|test")
+    #: 生产环境默认只允许本机调用 /setup/initialize；远程首次部署显式置 true
+    setup_allow_remote: bool = Field(default=False)
     app_name: str = Field(default="tech-yard-platform")
     app_secret_key: str = Field(default="replace-with-long-random-secret-min-32-chars")
 
