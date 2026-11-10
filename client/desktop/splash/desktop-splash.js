@@ -50,10 +50,10 @@
       headline.textContent = "启动没有完成";
       detail.textContent = status.failed;
       detail.className = "detail error";
-      note.textContent = "可查看启动日志定位原因；退出后重开通常可恢复。";
+      note.textContent = "可在 Finder 中查看启动日志定位原因；退出后重开通常可恢复。";
       if (!failedOnce) {
         failedOnce = true;
-        logBtn.textContent = "查看启动日志";
+        logBtn.textContent = "在 Finder 中显示日志";
       }
     } else if (ready) {
       headline.textContent = "启动完成，正在进入主界面…";
@@ -93,11 +93,11 @@
     logBtn.disabled = true;
     invoke("open_startup_log")
       .then(function () {
-        logBtn.textContent = "已打开日志";
+        logBtn.textContent = "已在 Finder 中显示";
       })
       .catch(function (err) {
-        logBtn.textContent = "查看启动日志";
-        detail.textContent = "打开日志失败：" + String((err && err.message) || err);
+        logBtn.textContent = "在 Finder 中显示日志";
+        detail.textContent = "定位日志失败：" + String((err && err.message) || err);
         detail.className = "detail error";
       })
       .then(function () {

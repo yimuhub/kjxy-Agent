@@ -2,6 +2,23 @@
 
 本项目遵循《工程开发规范 V3.0》；版本号遵循语义化版本。
 
+## [3.73.6] - 2026-11-10
+
+修复 macOS 客户端引擎一启动就退出（`Failed to load Python shared library … different Team IDs`）。
+
+- 根因：Tauri 打包阶段给 sidecar 加了 hardened runtime，而 PyInstaller 解压出的
+  `Python.framework` 与扩展都是 ad-hoc 签名。hardened runtime 的 library validation
+  拒绝加载“不同 Team ID/无 Team ID”的库，引擎在解压后立即退出；本地脚本因二次
+  `codesign --deep` 丢掉了 runtime，反而掩盖了 CI 才有的问题
+- `Entitlements.plist` 增加 `com.apple.security.cs.disable-library-validation` 与
+  `com.apple.security.cs.allow-unsigned-executable-memory`；Tauri 会把同一份权限写给
+  主程序与 sidecar，实测 CI 包仅重签 sidecar 即恢复，冷启动 7 秒引擎就绪
+- 本地 `build_macos.sh` 不再二次重签，改为校验 Tauri 的 ad-hoc 签名，并断言 sidecar
+  带 `disable-library-validation`；Release 发布门禁同样校验该权限，防止回归
+- 启动页日志按钮改为「在 Finder 中显示日志」：原先直接用默认程序打开 `.log`，
+  在未关联程序/关联到文档编辑器的 Mac 上会弹出「选择文稿/应用程序」面板
+- 失败提示补充：若仍看到 `different Team IDs`，说明安装包来自旧版，重新下载安装即可
+
 ## [3.73.5] - 2026-11-10
 
 修复 macOS 首次启动长时间白屏、90 秒后被误判启动失败。

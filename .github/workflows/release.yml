@@ -240,6 +240,10 @@ jobs:
             codesign -dv "$APP" 2>&1 | tee /tmp/codesign.txt
             grep -q "Signature=adhoc" /tmp/codesign.txt || { hdiutil detach "$MNT" -quiet; echo "缺少 ad-hoc 签名"; exit 1; }
             grep -q "Identifier=cn.techyard.desktop" /tmp/codesign.txt || { hdiutil detach "$MNT" -quiet; echo "Bundle Identifier 未绑定"; exit 1; }
+            # v3.73.5 事故：hardened runtime 的 library validation 拒绝加载 PyInstaller 解压出的
+            # ad-hoc Python 运行库（engine.log: different Team IDs）。sidecar 必须带该豁免。
+            codesign -d --entitlements :- "$APP/Contents/MacOS/techyard-sidecar" 2>/dev/null \
+              | grep -q "disable-library-validation" || { hdiutil detach "$MNT" -quiet; echo "sidecar 缺少 disable-library-validation"; exit 1; }
             hdiutil detach "$MNT" -quiet
           done
       - name: Compose latest.json from release artifacts

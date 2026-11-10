@@ -4,5 +4,12 @@
 <dict>
   <key>com.apple.security.device.audio-input</key>
   <true/>
+  <!-- PyInstaller onefile 解压出的 Python 运行库/扩展均为 ad-hoc 签名，
+       hardened runtime 默认的 library validation 会拒绝加载（日志：
+       "different Team IDs"）。这两项只放宽本地引擎自身加载随包库的校验。 -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
 </dict>
 </plist>

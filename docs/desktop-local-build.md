@@ -66,9 +66,12 @@ bash scripts/desktop/build_macos.sh
 2. **构建本地引擎**：`backend/scripts/build_sidecar.sh` 用 PyInstaller 打单文件引擎，
    再按本机架构复制成 `binaries/techyard-sidecar-aarch64-apple-darwin`（Intel 机为 `x86_64-apple-darwin`）。
 3. **下载内置语音模型**：校验哈希，已存在且校验通过则跳过。
-4. **构建 .app**：`npx tauri build --bundles app`（此时不封装 dmg，方便签名后重封）。
-5. **签名 + 封装 DMG**：`codesign --force --deep --sign -`（带 `Entitlements.plist`，麦克风权限靠它）
-   → 校验签名 → `hdiutil create` 出 UDZO dmg → 写 `.sha256`。
+4. **构建 .app**：`npx tauri build --bundles app`。`signingIdentity: "-"` 会在这一步
+   给主程序与 sidecar 一起做 ad-hoc 签名，并写入 `Entitlements.plist`（麦克风权限、
+   `disable-library-validation` 等）。
+5. **校验 + 封装 DMG**：不再二次 `codesign --deep`（否则会丢掉 hardened runtime 与权限，
+   掩盖 CI 才有的 library validation 问题）；校验整包签名与 sidecar 权限后
+   `hdiutil create` 出 UDZO dmg → 写 `.sha256`。
 
 产物：
 
@@ -108,6 +111,13 @@ CI 出的包在别人机器上报损坏。
    任何 `tauri build` 都会在打包阶段对整包做 ad-hoc 签名并绑定 Info.plist。
 2. 发布流水线把 Release 先建为草稿，在 macOS runner 上真挂载 dmg 跑
    `codesign --verify --deep --strict`，通过后才生成 `latest.json` 并公开。
+
+`Entitlements.plist` 同时承担两件事：麦克风权限，以及 `disable-library-validation`
+（必要时加 `allow-unsigned-executable-memory`）。后者是因为 PyInstaller onefile 解压出的
+Python 运行库/扩展是 ad-hoc 签名，而 Tauri 的 hardened runtime 默认只允许加载同 Team ID 的库；
+缺这项权限时引擎会立即退出，日志为
+`Failed to load Python shared library … different Team IDs`。发布门禁会对 sidecar 的
+entitlements 做断言，防止再次漏签。
 
 打包后自查：
 
@@ -212,8 +222,8 @@ npx tauri build --target x86_64-unknown-linux-gnu --bundles deb,appimage
 | 「无法验证开发者」 | ad-hoc 签名、未公证 | 右键 →「打开」一次，或「系统设置 → 隐私与安全性 → 仍要打开」 |
 | 安装后白屏 | `frontend-dist` 没同步或为空 | 重跑第 1 步并确认 `src-tauri/frontend-dist/index.html` 存在 |
 | 启动页一直白（无步骤） | 旧版启动页是顶层 `data:` URL，WKWebView 不放行；或 `dist-web` 缺启动页 | v3.73.5 起为随包 `desktop-splash.html`；确认 `dist-web/desktop-splash.html` 与 `.js` 存在（脚本会自动拷入） |
-| 启动页停在「解压引擎」或超过 2 分钟 | 首启被 Gatekeeper/安全软件扫描，慢机器 2–3 分钟属正常 | v3.73.5 起最多等 10 分钟并持续显示阶段；可点「查看启动日志」确认，不要直接强杀 |
-| 启动页提示「引擎进程已退出」 | sidecar 崩溃或被安全策略拦截 | 启动页已展示日志尾部；按提示重开，仍失败把日志发给支持 |
+| 启动页停在「解压引擎」或超过 2 分钟 | 首启被 Gatekeeper/安全软件扫描，慢机器 2–3 分钟属正常 | v3.73.5 起最多等 10 分钟并持续显示阶段；可点「在 Finder 中显示日志」确认，不要直接强杀 |
+| 启动页提示「引擎进程已退出」，日志含 `different Team IDs` | sidecar 在 hardened runtime 下加载 ad-hoc Python 运行库被 library validation 拒绝 | v3.73.6 起 `Entitlements.plist` 带 `disable-library-validation`；确认 sidecar 权限后重打，详情见第 4 节 |
 | 启动即退 | 引擎起不来 | 看 `~/Library/Application Support/科技小院/logs/engine.log` 尾部 |
 | 提示端口被占用 | 已有实例在跑（冒烟要求 18700-18710 全空） | `lsof -nP -iTCP:18700-18710 -sTCP:LISTEN` 后退出旧实例 |
 | sidecar 架构不符（Intel 机打 arm64 包等） | 复用了别的架构的 `binaries/` | `lipo -archs <sidecar>` 与 `uname -m` 对照后重跑第 2 步 |

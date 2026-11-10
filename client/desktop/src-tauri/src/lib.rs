@@ -827,7 +827,8 @@ fn startup_status(app: tauri::AppHandle) -> Result<StartupStatus, String> {
     })
 }
 
-/// 启动页「查看启动日志」：日志不存在时先落一个空文件，确保打开的是位置而不是报错
+/// 启动页「在 Finder 中显示日志」：定位文件而不是直接用默认程序打开。
+/// 直接 open .log 在未关联程序/关联到文档编辑器的 Mac 上会弹出「选择文稿/应用程序」面板。
 #[tauri::command]
 fn open_startup_log(app: tauri::AppHandle) -> Result<String, String> {
     use tauri_plugin_opener::OpenerExt;
@@ -840,8 +841,8 @@ fn open_startup_log(app: tauri::AppHandle) -> Result<String, String> {
         let _ = fs::write(&path, b"");
     }
     app.opener()
-        .open_path(path.display().to_string(), None::<&str>)
-        .map_err(|e| format!("打开启动日志失败：{e}"))?;
+        .reveal_item_in_dir(&path)
+        .map_err(|e| format!("定位启动日志失败：{e}"))?;
     Ok(path.display().to_string())
 }
 

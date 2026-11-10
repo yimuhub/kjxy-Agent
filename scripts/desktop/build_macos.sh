@@ -94,11 +94,19 @@ if [[ ! -d "$APP" ]]; then
   exit 1
 fi
 
-# 本机无证书：ad-hoc 签名，保证内部一致性；分发到别的 Mac 仍会被 Gatekeeper 询问
-# 必须带 entitlements（麦克风），否则 Tauri 打包阶段写入的权限会在重签时丢失
-echo "== ad-hoc 签名 =="
-codesign --force --deep --sign - --entitlements "$TAURI/Entitlements.plist" "$APP"
+# Tauri 打包阶段已按 tauri.conf 的 signingIdentity "-" 完成整包 ad-hoc 签名，
+# 并给主程序与 sidecar 写入同一份 Entitlements.plist（含 hardened runtime）。
+# 不要再 codesign --deep 重签：会丢掉 runtime/entitlements，还会掩盖 CI 与本地差异。
+echo "== 校验 ad-hoc 签名与 sidecar 权限 =="
 codesign --verify --deep --strict --verbose=2 "$APP"
+SIDECAR_ENT="$(codesign -d --entitlements :- "$APP/Contents/MacOS/techyard-sidecar" 2>/dev/null)"
+case "$SIDECAR_ENT" in
+  *disable-library-validation*) ;;
+  *)
+    echo "sidecar 缺少 com.apple.security.cs.disable-library-validation，硬运行时下会拒绝加载 Python 运行库" >&2
+    exit 1
+    ;;
+esac
 
 # 5) 封装 DMG（拖入 Applications）
 echo "== [5/5] 封装 DMG =="
