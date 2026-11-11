@@ -11,7 +11,9 @@
      的行；再补 ``market_items`` 中 item_type=plugin 且 status=installed、且完全没落
      PluginManifest 行的孤项（可选集必须等于可用集，待审/停用项不进候选）。
 2. ``validate_bound_skills``：POST/PATCH /agents/declarative 写入 bound_skills 的
-   安全收口——逐项校验必须属于上述可绑定集合，未知 code 一律 422。
+   安全收口——先把历史裸编码归一化为规范前缀编码（``normalize_bound_skills``，
+   与读取侧 ``_resolve_bound_skills_prompt`` 的兼容口径对齐），再逐项校验必须属于
+   上述可绑定集合，未知 code 一律 422；返回可落库的规范编码列表。
    只在写入时校验；读取/展示历史数据（含旧 code 脏数据）不走校验、不报错。
 
 绑定编码契约（与前端对齐，勿改）：``skill:<uuid>`` / ``plugin:<plugin_id>``。
@@ -314,24 +316,101 @@ def collect_bindable_codes(db: Session, yard_id: str) -> set[str]:
 
 
 # ---------------------------------------------------------------------------
+# 写入归一化：历史裸编码 → 规范前缀编码（读写契约对齐，根治「编辑后无法保存」）
+# ---------------------------------------------------------------------------
+
+
+def _legacy_code_map(db: Session, yard_id: str) -> dict[str, str]:
+    """裸编码（无前缀的 skill_code / plugin_id）→ 规范绑定编码的映射。
+
+    读取侧 ``_resolve_bound_skills_prompt`` 一直兼容裸编码（按 skill_code / plugin_id
+    匹配），但写入侧只认 ``skill:<id>`` / ``plugin:<id>``，导致历史数据一编辑就 422。
+    这里按与 ``_skill_entries`` / ``_plugin_entries`` 完全一致的优先级（本小院优先、
+    同级取最新）把裸编码解析成规范编码，保证归一化后的值一定落在可绑定集合内。
+    解析不到的裸编码原样保留，交由校验报 422、前端「已失效」区供用户移除。
+    """
+    from app.modules.evolution.models import Skill
+    from app.modules.plugins.models import PluginManifest
+
+    mapping: dict[str, str] = {}
+    skills = (
+        db.query(Skill)
+        .filter(
+            Skill.status == "published",
+            or_(Skill.yard_id == yard_id, Skill.yard_id.is_(None)),
+        )
+        .all()
+    )
+    yard_rows = sorted((r for r in skills if r.yard_id == yard_id), key=_recency, reverse=True)
+    platform_rows = sorted((r for r in skills if r.yard_id is None), key=_recency, reverse=True)
+    for row in yard_rows + platform_rows:
+        code = str(row.skill_code or "").strip()
+        if code and code not in mapping:
+            mapping[code] = f"{SKILL_CODE_PREFIX}{row.id}"
+
+    plugins = (
+        db.query(PluginManifest)
+        .filter(
+            PluginManifest.status == "enabled",
+            or_(PluginManifest.yard_id == yard_id, PluginManifest.yard_id.is_(None)),
+        )
+        .all()
+    )
+    for plugin_row in plugins:
+        plugin_id = str(plugin_row.plugin_id or "").strip()
+        if plugin_id and plugin_id not in mapping:
+            mapping[plugin_id] = f"{PLUGIN_CODE_PREFIX}{plugin_id}"
+    return mapping
+
+
+def normalize_bound_skills(db: Session, yard_id: str, bound_skills: Any) -> list[str]:
+    """把提交的 bound_skills 归一化为规范编码并去重（保序）。
+
+    - 非列表 / 空 → ``[]``；
+    - 已带 ``skill:`` / ``plugin:`` 前缀的项原样保留；
+    - 裸编码（历史脏数据）按本院落可绑定集合解析为规范编码，解析不到则原样保留；
+    - 同一规范编码只保留一次（裸编码常与既有前缀项重复）。
+    仅在存在裸编码时才查库建映射，全前缀的常见路径零额外查询。
+    """
+    if not isinstance(bound_skills, list) or not bound_skills:
+        return []
+    cleaned = [str(c).strip() for c in bound_skills if str(c).strip()]
+    if not cleaned:
+        return []
+    has_bare = any(not c.startswith((SKILL_CODE_PREFIX, PLUGIN_CODE_PREFIX)) for c in cleaned)
+    mapping = _legacy_code_map(db, yard_id) if has_bare else {}
+    out: list[str] = []
+    seen: set[str] = set()
+    for code in cleaned:
+        canonical = (
+            code
+            if code.startswith((SKILL_CODE_PREFIX, PLUGIN_CODE_PREFIX))
+            else mapping.get(code, code)
+        )
+        if canonical not in seen:
+            seen.add(canonical)
+            out.append(canonical)
+    return out
+
+
+# ---------------------------------------------------------------------------
 # 写入校验（安全收口）：只在 POST/PATCH /agents/declarative 写入时调用
 # ---------------------------------------------------------------------------
 
 
-def validate_bound_skills(db: Session, yard_id: str, bound_skills: Any) -> None:
-    """校验请求提交的 bound_skills 每一项都在可绑定集合内。
+def validate_bound_skills(db: Session, yard_id: str, bound_skills: Any) -> list[str]:
+    """归一化并校验 bound_skills，返回可落库的规范编码列表。
 
-    - 空 / None / 非列表（历史脏数据形态）直接放行：读取展示不归本函数管，
-      写入路径 schema（pydantic list[str]）已保证类型，这里再兜底一次；
-    - 未知 code 一律 VALIDATION_ERROR 422，消息携带第一个未知 code，
-      details.unknown_codes 带全量，便于前端定位。
+    - 先 ``normalize_bound_skills``：历史裸编码 → 规范前缀编码、去重（读写契约对齐）；
+    - 再逐项校验必须属于可绑定集合，未知 code 一律 VALIDATION_ERROR 422，
+      消息携带第一个未知 code，details.unknown_codes 带全量，便于前端定位与移除；
+    - 空 / None / 非列表 → 返回 ``[]``（读取展示不归本函数管）。
+    调用方应把返回值写回 bound_skills，确保存储与读取口径一致。
     """
-    if not isinstance(bound_skills, list) or not bound_skills:
-        return
-    codes = {str(c).strip() for c in bound_skills if str(c).strip()}
-    if not codes:
-        return
-    unknown = sorted(codes - collect_bindable_codes(db, yard_id))
+    normalized = normalize_bound_skills(db, yard_id, bound_skills)
+    if not normalized:
+        return []
+    unknown = sorted(set(normalized) - collect_bindable_codes(db, yard_id))
     if unknown:
         raise AppError(
             "VALIDATION_ERROR",
@@ -339,3 +418,4 @@ def validate_bound_skills(db: Session, yard_id: str, bound_skills: Any) -> None:
             http_status=422,
             details={"unknown_codes": unknown},
         )
+    return normalized

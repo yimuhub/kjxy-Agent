@@ -261,8 +261,8 @@ def create_declarative_agent(
     而不是静默降级。
     """
     req = declarative.parse_create_request(body)
-    # 安全收口：bound_skills 只允许绑定当前可绑定集合内的技能/插件（422）
-    bindable.validate_bound_skills(db, ctx.yard_id, req.bound_skills)
+    # 安全收口：归一化历史裸编码 + 校验只允许绑定当前可绑定集合内的技能/插件（422）
+    req.bound_skills = bindable.validate_bound_skills(db, ctx.yard_id, req.bound_skills)
     try:
         agent = declarative.create_agent(
             db,
@@ -303,9 +303,9 @@ def update_declarative_agent(
     """编辑声明式 Agent：重算 risk_level，version 不变；跨小院 404。"""
     req = declarative.parse_update_request(body)
     _require_manage(db, ctx=ctx, agent_id=agent_id)
-    # 安全收口：仅在请求携带 bound_skills 时校验（未提交 = 保留历史绑定不校验）
+    # 安全收口：仅在请求携带 bound_skills 时归一化 + 校验（未提交 = 保留历史绑定不校验）
     if req.bound_skills is not None:
-        bindable.validate_bound_skills(db, ctx.yard_id, req.bound_skills)
+        req.bound_skills = bindable.validate_bound_skills(db, ctx.yard_id, req.bound_skills)
     try:
         agent = declarative.update_agent(
             db,

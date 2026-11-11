@@ -1052,13 +1052,14 @@
   })
 
   /**
-   * 失效绑定：已绑定但不在当前可选集合（已下架/无权限）。
+   * 失效绑定：已绑定但不在当前可选集合（已下架/无权限/历史裸编码）。
    * 加载中/失败时集合未知，不标记失效，避免误伤；绑定值始终保留在 bound_skills 中。
+   * 裸编码（无前缀）归到技能区块作逃生口，保存时后端会再归一化为 skill:/plugin:。
    */
   const staleSkillCodes = computed(() => {
     if (extensionsLoading.value || extensionsError.value) return []
     const known = new Set(bindableSkillOptions.value.map(o => o.code))
-    return decForm.value.bound_skills.filter(c => c.startsWith('skill:') && !known.has(c))
+    return decForm.value.bound_skills.filter(c => !c.startsWith('plugin:') && !known.has(c))
   })
   const stalePluginCodes = computed(() => {
     if (extensionsLoading.value || extensionsError.value) return []
@@ -1444,7 +1445,17 @@
         dupVisible.value = true
       } else {
         const { code, message } = extractErrorMessage(e)
-        ElMessage.error(friendlyErrorMessage(code, message || '保存失败'))
+        const unknown =
+          code === 'VALIDATION_ERROR' ? extractErrorDetails(e)?.unknown_codes : undefined
+        if (Array.isArray(unknown) && unknown.length) {
+          const names = unknown.map(c => String(c).replace(/^(skill|plugin):/, '')).join('、')
+          ElMessage.error(
+            `存在无法绑定的技能/插件（已下架或无权限）：${names}。` +
+              '请在「扩展技能 / 扩展插件」的「已失效」列表中移除后重试。',
+          )
+        } else {
+          ElMessage.error(friendlyErrorMessage(code, message || '保存失败'))
+        }
       }
     } finally {
       daSaving.value = false

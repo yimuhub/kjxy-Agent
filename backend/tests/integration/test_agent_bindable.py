@@ -486,6 +486,80 @@ def test_history_dirty_data_readable_and_editable(client, db_session, yard):
     assert fixed.json()["data"]["bound_skills"] == [f"skill:{skill.id}"]
 
 
+def test_legacy_bare_codes_normalized_on_write(client, db_session, yard):
+    """死路回归：历史裸编码（无 skill:/plugin: 前缀）编辑保存必须归一化成功，不再 422。
+
+    读取侧 ``_resolve_bound_skills_prompt`` 一直兼容裸编码，但旧写入侧只认前缀编码，
+    带裸编码的智能体一编辑保存就 422「存在不可绑定的技能或插件」，用户无法确认。
+    修复后写入侧 ``normalize_bound_skills`` 把裸编码解析为规范前缀编码并去重。
+    """
+    skill = _mk_skill(db_session, yard.id, "office_legacy")
+    _mk_plugin(db_session, "legacy_plugin")
+    db_session.commit()
+    canonical_skill = f"skill:{skill.id}"
+
+    # 历史脏数据：直接落库裸编码（模拟旧版本写入的运行期兼容形态）
+    agent = YardAgent(
+        yard_id=yard.id,
+        agent_code="legacy_bare",
+        name="裸编码助手",
+        persona_prompt="你是测试助手。",
+        task_prompt_template="请回答：{{question}}",
+        allowed_tools=["knowledge.search"],
+        knowledge_scopes=["yard"],
+        risk_level="low",
+        status="draft",
+        visibility="public",
+        created_by=ADMIN,
+        bound_skills=["office_legacy", "legacy_plugin"],
+    )
+    db_session.add(agent)
+    db_session.commit()
+
+    # 用户打开编辑直接保存（前端原样回传裸编码）→ 归一化成功，不再死路
+    patched = client.patch(
+        f"/api/v1/agents/declarative/{agent.id}",
+        json={"bound_skills": ["office_legacy", "legacy_plugin"]},
+        headers=_hdr(ADMIN, yard.id),
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["data"]["bound_skills"] == [canonical_skill, "plugin:legacy_plugin"]
+
+    # 裸编码与既有前缀编码重复 → 去重保序
+    dedup = client.patch(
+        f"/api/v1/agents/declarative/{agent.id}",
+        json={"bound_skills": ["office_legacy", canonical_skill, canonical_skill]},
+        headers=_hdr(ADMIN, yard.id),
+    )
+    assert dedup.status_code == 200, dedup.text
+    assert dedup.json()["data"]["bound_skills"] == [canonical_skill]
+
+    # 解析不到的裸编码 → 422 且 details.unknown_codes 携带全量（前端「已失效」逃生口定位）
+    bad = client.patch(
+        f"/api/v1/agents/declarative/{agent.id}",
+        json={"bound_skills": ["office_legacy", "ghost_bare_code"]},
+        headers=_hdr(ADMIN, yard.id),
+    )
+    assert bad.status_code == 422, bad.text
+    err = bad.json()["error"]
+    assert err["code"] == "VALIDATION_ERROR"
+    assert "ghost_bare_code" in err["details"]["unknown_codes"]
+
+    # 创建路径同样归一化（POST 与 PATCH 口径一致）
+    created = client.post(
+        "/api/v1/agents/declarative",
+        json={
+            **_BASE,
+            "agent_code": "legacy_create",
+            "name": "裸编码新建",
+            "bound_skills": ["office_legacy"],
+        },
+        headers=_hdr(ADMIN, yard.id),
+    )
+    assert created.status_code == 200, created.text
+    assert created.json()["data"]["bound_skills"] == [canonical_skill]
+
+
 # ---------------------------------------------------------------- 5) 跨小院隔离
 
 

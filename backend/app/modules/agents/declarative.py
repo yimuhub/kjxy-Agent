@@ -851,9 +851,14 @@ def delete_agent(
     """软删除（yard_admin 或私有创建者）。"""
     agent = get_agent(db, yard_id=yard_id, agent_id=agent_id)
     previous_status = agent.status
+    original_code = agent.agent_code
     agent.status = STATUS_DELETED
     suffix = f"（已删除·{agent.id[:8]}）"
     agent.name = f"{agent.name[: 100 - len(suffix)]}{suffix}"
+    # 释放 (yard_id, agent_code, version) 唯一槽：否则删除后用同编码重建会撞 409，
+    # 而那条已删除行在 UI 不可见也不可编辑，用户被「请编辑现有配置」死路卡住。
+    code_suffix = f"__deleted_{agent.id[:8]}"
+    agent.agent_code = f"{agent.agent_code[: 100 - len(code_suffix)]}{code_suffix}"
     agent.updated_by = actor_id
     db.flush()
     _audit(
@@ -863,7 +868,7 @@ def delete_agent(
         action="agent_deleted",
         agent=agent,
         request_id=request_id,
-        metadata={"deleted_from_status": previous_status},
+        metadata={"deleted_from_status": previous_status, "original_agent_code": original_code},
     )
     return agent
 

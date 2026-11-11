@@ -2,6 +2,37 @@
 
 本项目遵循《工程开发规范 V3.0》；版本号遵循语义化版本。
 
+## [3.78.0] - 2026-11-11
+
+死路流程深度排查与修复：拟人化操作复现并修掉 4 处「走不通」的闭环死路，补回归测试与存量数据迁移。
+
+- **智能体绑定技能无法确认（死路 #1）**：读写口径不对称——运行期 `_resolve_bound_skills_prompt`
+  一直兼容历史裸编码，写入侧 `validate_bound_skills` 却只认 `skill:<id>` / `plugin:<id>`，
+  带裸编码的智能体一编辑保存就 422「存在不可绑定的技能或插件」，用户无法确认。现在创建 /
+  更新 / 指挥官绑定三处写入统一先 `normalize_bound_skills` 归一化再校验；前端选择器即时生效、
+  无独立确认按钮，已绑定但不在候选集的项单列「已失效」区供逐项移除（逃生口），移除后即可保存。
+- **删除后同编码重建撞 409（死路 #2）**：软删除只改展示名释放名槽，却不改 `agent_code`，
+  `(yard_id, agent_code, version)` 唯一约束仍占着槽位，用户删除后再用同编码重建报
+  409 AGENT_VERSION_CONFLICT，而那行已删除在 UI 不可见也不可编辑，形成死路。现在删除时给
+  `agent_code` 追加 `__deleted_<id8>` 后缀释放槽位，并在审计 metadata 留 `original_agent_code`。
+- **会话失效后登录可达性（死路 #3）**：`isLoggedIn` 只看内存 token，失效令牌残留时受保护页
+  不回落登录框、卡空白。改为同时校验 localStorage 持久化令牌，失效即回 `/login` 可重新登录。
+- **监管页可达但 403（死路 #4）**：`/oversight` 路由缺 roles / permission meta，非平台管理员
+  能进页面却处处 403。补 `roles: ['platform_admin']` + `permission: 'yards:aggregate'`，
+  路由守卫直接拦截，不再放进死胡同。
+- **存量数据迁移**：`0083` 归一化历史裸编码 `bound_skills`（本小院优先、同级取最新，与
+  `bindable.normalize_bound_skills` 同口径；解析不到的原样保留供前端「已失效」区移除）；
+  `0084` 释放历史软删除智能体占用的 `agent_code` 唯一槽。两条均跨 SQLite / Postgres 兼容、
+  幂等、参数化，downgrade 无操作（纯数据清洗不可逆）。
+- **回归测试**：新增 `agent-bind-save`（全选大量技能保存成功 + 失效绑定可移除逃生口）、
+  `agent-create-bind`（新建全选保存）、`auth-session-recovery`（失效令牌进 `/login` 与受保护页
+  回落、干净登录对照）共 6 条 E2E；后端补 bindable 归一化与软删除释放槽位的单测 / 集成测。
+- **验证**：隔离实例（8001 / 5174）拟人化复现 4 处死路并确认修复；后端 `ruff check` /
+  `ruff format`（714 文件）/ `mypy`（466 文件）/ `pytest` 2559 全过；前端 `eslint` 0 error /
+  单测 71 / 生产构建通过；迁移 upgrade → downgrade → upgrade 可逆；OpenAPI 无漂移；
+  全量 E2E 152 条：148 通过 + 2 跳过（空库向导 / A2A 需开关），chat-plan:79 与 v313:127
+  为既有对话流式 flaky（串跑 `.msg-row.user` 计数泄漏），单独复跑均一次通过，非本次回归。
+
 ## [3.77.2] - 2026-11-11
 
 修复 Release 质量门禁的后端格式化断点。

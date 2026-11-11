@@ -114,6 +114,37 @@ def test_deleted_name_reusable(client, db_session, yard):
     assert again.json()["data"]["name"] == "待删助手"
 
 
+def test_deleted_agent_code_reusable(client, db_session, yard):
+    """死路回归：删除后用**同编码同名**重建必须成功。
+
+    旧版软删除只释放 name 槽位、不释放 (yard_id, agent_code, version) 唯一槽，
+    重建撞 409 AGENT_VERSION_CONFLICT「请编辑现有配置」，而那条已删除行 UI 不可见
+    也不可编辑，用户被卡死。修复后删除时给 agent_code 追加 __deleted_<id8> 释放槽位。
+    """
+    created = _create(client, yard)
+    client.delete(f"/api/v1/agents/declarative/{created['id']}", headers=_hdr(yard_id=yard.id))
+    again = client.post("/api/v1/agents/declarative", json=BODY, headers=_hdr(yard_id=yard.id))
+    assert again.status_code == 200, again.text
+    assert again.json()["data"]["agent_code"] == BODY["agent_code"]
+    assert again.json()["data"]["id"] != created["id"]
+
+
+def test_soft_delete_frees_code_slot_and_audits_original(client, db_session, yard):
+    """删除行编码被改名释放槽位，新建行占用原编码，审计保留 original_agent_code。"""
+    created = _create(client, yard)
+    client.delete(f"/api/v1/agents/declarative/{created['id']}", headers=_hdr(yard_id=yard.id))
+    deleted_row = db_session.query(declarative.YardAgent).filter_by(id=created["id"]).first()
+    assert deleted_row.agent_code == f"{BODY['agent_code']}__deleted_{created['id'][:8]}"
+    audit = (
+        db_session.query(AuditLog)
+        .filter(AuditLog.action == "agent_deleted", AuditLog.resource_id == created["id"])
+        .first()
+    )
+    assert audit.metadata_json["original_agent_code"] == BODY["agent_code"]
+    again = _create(client, yard)
+    assert again["agent_code"] == BODY["agent_code"]
+
+
 def test_delete_requires_yard_admin(client, db_session, yard):
     created = _create(client, yard)
     forbidden = client.delete(

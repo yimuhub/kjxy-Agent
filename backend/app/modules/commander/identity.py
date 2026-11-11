@@ -224,8 +224,8 @@ def set_bindings(
             "COMMANDER_IDENTITY_UNAVAILABLE", "未能创建指挥官身份，请稍后重试。", http_status=500
         )
     if bound_skills is not None:
-        bindable.validate_bound_skills(db, yard_id, bound_skills)
-        row.bound_skills = _dedup(str(c) for c in bound_skills if str(c).strip())
+        # 归一化历史裸编码 + 校验 + 去重，返回可落库的规范编码（与助手编辑同口径）
+        row.bound_skills = bindable.validate_bound_skills(db, yard_id, bound_skills)
     if allowed_tools is not None:
         catalog = set(available_tool_codes())
         unknown = sorted({str(c) for c in allowed_tools if str(c).strip()} - catalog)

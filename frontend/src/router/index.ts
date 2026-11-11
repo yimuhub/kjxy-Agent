@@ -110,7 +110,12 @@ const routes: RouteRecordRaw[] = [
       // 对话模式：全员可用（§10 契约：全部登录可用，成员级）
     { path: 'hubs', name: 'Hubs', component: HubView },
     { path: 'journal', name: 'Journal', component: JournalView },
-    { path: 'oversight', name: 'Oversight', component: OversightView },
+    {
+      path: 'oversight',
+      name: 'Oversight',
+      component: OversightView,
+      meta: { title: '小院监管', roles: ['platform_admin'], permission: 'yards:aggregate' },
+    },
     { path: 'chat', name: 'Chat', component: ChatView, meta: { title: '智能对话', permission: 'chat:use' } },
       { path: 'commander', name: 'Commander', component: CommanderView, meta: { title: '指挥官工作台', permission: 'chat:use' } },
       { path: 'knowledge', name: 'Knowledge', component: KnowledgeView, meta: { title: '知识库', permission: 'knowledge:read' } },

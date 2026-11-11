@@ -1,5 +1,8 @@
 <template>
-  <div class="ext-picker">
+  <div
+    ref="rootRef"
+    class="ext-picker"
+  >
     <!-- 加载失败：不整页报错，已有绑定值原样保留，可重试 -->
     <div
       v-if="error"
@@ -49,18 +52,16 @@
       </div>
 
       <div class="ext-list">
-        <!-- 已下架/无权限的历史绑定：禁用展示，标签「已失效」，避免静默丢数据 -->
-        <el-checkbox-group
+        <!-- 已下架/无权限/历史裸编码的绑定：显式列出并可逐项移除（逃生口），
+             避免「看不见的绑定」导致保存被 422 卡死又无从下手 -->
+        <div
           v-if="staleCodes.length"
           class="ext-stale-group"
-          :model-value="staleCodes"
-          disabled
         >
-          <el-checkbox
+          <div
             v-for="c in staleCodes"
             :key="c"
-            :value="c"
-            class="ext-row"
+            class="ext-row ext-stale-row"
           >
             <span class="ext-row-head">
               <span class="ext-stale-name">{{ staleLabel(c) }}</span>
@@ -72,9 +73,19 @@
               >
                 已失效
               </el-tag>
+              <el-button
+                class="ext-stale-remove"
+                size="small"
+                link
+                type="danger"
+                :aria-label="`移除失效绑定 ${staleLabel(c)}`"
+                @click="removeStale(c)"
+              >
+                移除
+              </el-button>
             </span>
-          </el-checkbox>
-        </el-checkbox-group>
+          </div>
+        </div>
 
         <!-- 折叠态：最多显示前 3 行（页面统一化）；其余收进「展开全部」弹框 -->
         <el-checkbox-group
@@ -129,6 +140,7 @@
         >
           <template #reference>
             <button
+              ref="toggleRef"
               type="button"
               class="ext-toggle"
               :aria-expanded="expanded"
@@ -137,7 +149,10 @@
               {{ expanded ? '收起全部 ▴' : `展开全部 ${props.options.length} 项 ▾` }}
             </button>
           </template>
-          <div class="ext-popover-body">
+          <div
+            ref="popoverBodyRef"
+            class="ext-popover-body"
+          >
             <el-input
               v-model="keyword"
               class="ext-search"
@@ -224,7 +239,7 @@
 </template>
 
 <script setup lang="ts">
-  import { computed, ref } from 'vue'
+  import { computed, onBeforeUnmount, ref, watch } from 'vue'
   import { useRouter } from 'vue-router'
   import type { CheckboxValueType } from 'element-plus'
 
@@ -309,17 +324,27 @@
   /** 展开态：主列表收起、由弹框承载全部；弹框宽度跟随容器（约 420px 起） */
   const expanded = ref(false)
   const popoverWidth = 440
+  const rootRef = ref<HTMLDivElement | null>(null)
+  const toggleRef = ref<HTMLButtonElement | null>(null)
+  const popoverBodyRef = ref<HTMLDivElement | null>(null)
 
-  /** 已选数量：该区块前缀下的全部绑定值（含失效项） */
-  const selectedCount = computed(
-    () => props.modelValue.filter(c => c.startsWith(kindPrefix.value)).length,
-  )
-
-  /** 可被「清空」移除的数量：仅统计当前可选集合中的勾选项，失效项不可移除 */
-  const clearableCount = computed(() => {
+  /** 本区块归属的全部 code：可选项 + 失效项（失效项现在也可逐项移除或清空） */
+  const kindCodes = computed(() => {
     const codes = new Set(props.options.map(o => o.code))
-    return props.modelValue.filter(c => codes.has(c)).length
+    for (const c of props.staleCodes) codes.add(c)
+    return codes
   })
+
+  /** 已选数量：本区块前缀下的绑定 + 归属本区块的失效裸编码（裸编码不带前缀） */
+  const selectedCount = computed(() => {
+    const stale = new Set(props.staleCodes)
+    return props.modelValue.filter(c => c.startsWith(kindPrefix.value) || stale.has(c)).length
+  })
+
+  /** 可被「清空」移除的数量：可选项 + 失效项都可移除 */
+  const clearableCount = computed(() =>
+    props.modelValue.filter(c => kindCodes.value.has(c)).length,
+  )
 
   function onChange(values: CheckboxValueType[]) {
     emit(
@@ -335,16 +360,67 @@
   }
 
   function clearKind() {
-    const removable = new Set(props.options.map(o => o.code))
     emit(
       'update:modelValue',
-      props.modelValue.filter(c => !removable.has(c)),
+      props.modelValue.filter(c => !kindCodes.value.has(c)),
+    )
+  }
+
+  /** 逃生口：逐项移除失效绑定（已下架/无权限/历史裸编码），让保存不再被 422 卡死 */
+  function removeStale(code: string) {
+    emit(
+      'update:modelValue',
+      props.modelValue.filter(c => c !== code),
     )
   }
 
   function goLibrary() {
     void router.push('/library')
   }
+
+  /** 受控弹层（:visible）不会自动响应外部点击/Escape，这里手动补齐：
+   *  - 点击弹层与切换按钮以外的区域 → 收起（pointerdown 早于 click，
+   *    保证「取消/保存」等按钮点击前弹层已收起，不会留下悬浮孤儿）；
+   *  - Escape → 先收起弹层并吞掉事件，避免连带关闭外层 el-dialog。 */
+  function isInsidePopover(target: Node): boolean {
+    const body = popoverBodyRef.value
+    if (!body) return false
+    if (body.contains(target)) return true
+    const popper = body.closest('.ext-popover')
+    return !!popper && popper.contains(target)
+  }
+
+  function onDocumentPointerDown(e: PointerEvent) {
+    if (!expanded.value) return
+    const target = e.target as Node | null
+    if (!target) return
+    // 组件自身（切换按钮、工具条全选/清空/搜索、折叠列表）内的点击不收起
+    if (rootRef.value?.contains(target)) return
+    if (isInsidePopover(target)) return
+    expanded.value = false
+  }
+
+  function onDocumentKeyDown(e: KeyboardEvent) {
+    if (!expanded.value || e.key !== 'Escape') return
+    e.stopPropagation()
+    e.preventDefault()
+    expanded.value = false
+  }
+
+  watch(expanded, open => {
+    if (open) {
+      document.addEventListener('pointerdown', onDocumentPointerDown, true)
+      document.addEventListener('keydown', onDocumentKeyDown, true)
+    } else {
+      document.removeEventListener('pointerdown', onDocumentPointerDown, true)
+      document.removeEventListener('keydown', onDocumentKeyDown, true)
+    }
+  })
+
+  onBeforeUnmount(() => {
+    document.removeEventListener('pointerdown', onDocumentPointerDown, true)
+    document.removeEventListener('keydown', onDocumentKeyDown, true)
+  })
 </script>
 
 <style scoped>
@@ -413,6 +489,20 @@
     padding-bottom: 4px;
     margin-bottom: 4px;
     border-bottom: 1px dashed var(--ds-border);
+  }
+  .ext-stale-row {
+    display: flex;
+    align-items: flex-start;
+    box-sizing: border-box;
+    width: 100%;
+    padding: 7px 6px;
+    border-radius: 6px;
+  }
+  .ext-stale-row + .ext-stale-row {
+    border-top: 1px solid var(--ds-border);
+  }
+  .ext-stale-remove {
+    margin-left: auto;
   }
   .ext-row-head {
     display: flex;

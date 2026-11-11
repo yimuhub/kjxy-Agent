@@ -56,7 +56,9 @@ export const useAuthStore = defineStore('auth', () => {
   /** /auth/me 是否已加载完成（用于区分"未知"和"确实无小院"） */
   const meLoaded = ref(false)
 
-  const isLoggedIn = () => !!token.value
+  // 以本机持久化令牌为准：401 拦截器只清 localStorage、不动这个 ref，
+  // 单看 ref 会在凭据失效后仍报「已登录」，把直接访问 /login 的用户弹离登录框、卡在空白报错页。
+  const isLoggedIn = () => !!token.value && !!localStorage.getItem(TOKEN_KEY)
 
   function persist(newToken: string, refreshToken: string) {
     token.value = newToken
