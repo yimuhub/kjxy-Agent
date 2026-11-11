@@ -88,6 +88,9 @@ jobs:
     env:
       ASR_MODEL_DIR: ${{ github.workspace }}/.asr-models
       UV_FROZEN: "1"
+      # Windows runner 控制台默认 charmap 编码，脚本打印中文/emoji 会直接
+      # UnicodeEncodeError（v3.78.1 起三次 CI 同因失败）；强制 Python IO 走 UTF-8。
+      PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -201,7 +204,14 @@ jobs:
         run: |
           cd frontend
           npm ci
-          npx playwright install --with-deps chromium
+          # --with-deps 会走 apt 装 chromium 系统依赖；runner 偶发 DNS 瞬断
+          # （日志：Temporary failure resolving archive.ubuntu.com），带重试。
+          for i in 1 2 3; do
+            if npx playwright install --with-deps chromium; then exit 0; fi
+            echo "playwright install 第 $i 次失败，15 秒后重试…"
+            sleep 15
+          done
+          echo "playwright install 连续 3 次失败"; exit 1
       - name: Playwright smoke
         run: |
           cd frontend

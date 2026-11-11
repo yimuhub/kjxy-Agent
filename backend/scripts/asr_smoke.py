@@ -14,6 +14,15 @@ import sys
 import time
 from pathlib import Path
 
+# Windows 控制台默认 charmap 编码，直接 print 中文/emoji 会 UnicodeEncodeError；
+# 统一把 IO 流切到 UTF-8（CI 与本机 Windows 通用，Python 3.7+ 支持 reconfigure）。
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        try:
+            _stream.reconfigure(encoding="utf-8")
+        except (ValueError, OSError):  # pragma: no cover - 已重定向等场景
+            pass
+
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "backend"))
 
