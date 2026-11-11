@@ -2006,7 +2006,7 @@ wheels = [
 
 [[package]]
 name = "tech-yard-platform"
-version = "3.77.0"
+version = "3.77.1"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },

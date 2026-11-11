@@ -2,6 +2,18 @@
 
 本项目遵循《工程开发规范 V3.0》；版本号遵循语义化版本。
 
+## [3.77.1] - 2026-11-11
+
+修复发布流水线迁移门禁，恢复客户端发版链路。
+
+- **迁移 0082 跨库兼容**：`platform_admin = 1` 在 Postgres 布尔列上直接报
+  `operator does not exist: boolean = integer`，导致 CI 与 Release 的
+  「Migrations clean + reversible」必失败。改为 `platform_admin IS TRUE`
+  （SQLite / Postgres 通用），本地已验证 upgrade → downgrade → upgrade 全通过。
+- **影响面**：v3.74.0 起 Release 全部卡在该步（v3.74.0 构建被跳过、
+  v3.75/v3.76 未打标签），桌面客户端因此停在 v3.73.6。本版重新触发三平台
+  构建与 Release，客户端可从 3.73.6 直接升级。
+
 ## [3.77.0] - 2026-11-11
 
 全站亮/暗对比度修复 + 版本一致性治理，并补发中断的客户端版本。

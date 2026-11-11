@@ -51,7 +51,7 @@ def upgrade() -> None:
     if not _has_table(bind, "users"):
         return
     user = bind.execute(
-        sa.text("SELECT id FROM users WHERE platform_admin = 1 ORDER BY created_at ASC LIMIT 1")
+        sa.text("SELECT id FROM users WHERE platform_admin IS TRUE ORDER BY created_at ASC LIMIT 1")
     ).fetchone()
     if user is None:
         user = bind.execute(
