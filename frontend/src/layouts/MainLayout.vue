@@ -849,10 +849,10 @@ const mqlMobile = window.matchMedia('(max-width: 768px)')
     padding: 1px 6px;
     border: 1px solid var(--ds-border);
     border-radius: var(--ds-radius-pill);
-    font-size: 10.5px;
+    font-size: 11px;
     font-variant-numeric: tabular-nums;
     letter-spacing: 0.02em;
-    color: var(--ds-text-3);
+    color: var(--ds-text-2);
     background: var(--ds-field);
     white-space: nowrap;
   }
@@ -877,7 +877,7 @@ const mqlMobile = window.matchMedia('(max-width: 768px)')
     padding: 14px 10px 6px;
     font-size: 12px;
     letter-spacing: 0.08em;
-    color: var(--ds-text-3);
+    color: var(--ds-text-2);
     user-select: none;
   }
   .menu.el-menu--collapse :deep(.el-menu-item-group__title) {

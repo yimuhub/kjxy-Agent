@@ -48,6 +48,7 @@ export function initTheme(): 'light' | 'dark' {
     if (event.key === STORAGE_KEY && event.newValue) {
       mode = readStored()
       apply()
+      window.dispatchEvent(new CustomEvent('kjxy-theme-changed', { detail: resolvedTheme() }))
     }
   })
   apply()

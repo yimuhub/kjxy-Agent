@@ -18,17 +18,17 @@
   --ds-border-strong: rgba(255, 255, 255, 0.16);
   --ds-text-1: #ECEFF6;
   --ds-text-2: #9AA2B5;
-  /* 对比度 ≥ 4.5:1（bg-0 / bg-1），满足 WCAG AA 正文要求 */
-  --ds-text-3: #6F7890;
-  --ds-accent: #6E73F3;
-  /* 强调色文字专用（链接/激活项），对比度 ≥ 5:1；#6E73F3 仅用于填充与大图标 */
+  /* 对比度 ≥ 4.5:1（bg-0/bg-1/bg-2 与玻璃层），满足 WCAG AA 小字要求 */
+  --ds-text-3: #8A93A9;
+  --ds-accent: #5B5FEF;
+  /* 强调色文字专用（链接/激活项），对比度 ≥ 7:1；实底 #5B5FEF 只用于填充与大图标 */
   --ds-accent-text: #A0A4FA;
   --ds-accent-2: #22D3EE;
   --ds-success: #34D399;
   --ds-warning: #FBBF24;
   --ds-danger: #F87171;
-  --ds-grad-brand: linear-gradient(135deg, #6366F1 0%, #22D3EE 100%);
-  --ds-grad-brand-hover: linear-gradient(135deg, #7B7EF6 0%, #3FD9F2 100%);
+  --ds-grad-brand: linear-gradient(135deg, #5B5FEF 0%, #4338CA 100%);
+  --ds-grad-brand-hover: linear-gradient(135deg, #6E72F5 0%, #5148CF 100%);
   /* v3.75 新增配方 token：卡片浮起 / 主按钮投影 / 焦点光圈 / 外壳分层 */
   --ds-card-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0) 76px);
   --ds-shadow-card: 0 1px 2px rgba(2, 4, 8, 0.5), 0 16px 40px -18px rgba(2, 4, 8, 0.55);
@@ -197,17 +197,20 @@ html.light {
   --ds-border: rgba(15, 23, 42, 0.1);
   --ds-border-strong: rgba(15, 23, 42, 0.2);
   --ds-text-1: #16202E;
-  --ds-text-2: #4C566B;
-  --ds-text-3: #7D879D;
-  /* 主色按亮底校准：indigo-600 更饱满，文字用 indigo-700 保对比 */
+  --ds-text-2: #3F4A5F;
+  /* 对比度 ≥ 4.8:1（白卡片 / #F3F5F9 页底 / #E8EAEF 浅灰块），12px 小字也满足 AA */
+  --ds-text-3: #5B667A;
+  /* 主色按亮底校准：实底 indigo-600，文字用 indigo-800 保对比 */
   --ds-accent: #4F46E5;
-  --ds-accent-text: #4338CA;
-  --ds-accent-2: #0891B2;
-  --ds-success: #0E9F6E;
-  --ds-warning: #B45309;
-  --ds-danger: #DC2626;
-  --ds-grad-brand: linear-gradient(135deg, #5A5FE8 0%, #0EA5CF 100%);
-  --ds-grad-brand-hover: linear-gradient(135deg, #4F52D9 0%, #0C93B9 100%);
+  --ds-accent-text: #3730A3;
+  /* 青色也按「当文字用」校准：白卡片 ≥7:1，浅灰块/选中行仍 ≥5:1 */
+  --ds-accent-2: #155E75;
+  /* 语义色按「当文字用也要过 AA」校准：成功/警告/危险均 ≥ 4.5:1 */
+  --ds-success: #047857;
+  --ds-warning: #92400E;
+  --ds-danger: #B91C1C;
+  --ds-grad-brand: linear-gradient(135deg, #4F46E5 0%, #3730A3 100%);
+  --ds-grad-brand-hover: linear-gradient(135deg, #4338CA 0%, #312E81 100%);
   --ds-card-sheen: none;
   --ds-shadow-card: 0 1px 2px rgba(16, 24, 40, 0.05), 0 6px 24px -10px rgba(16, 24, 40, 0.08);
   --ds-shadow-card-hover: 0 2px 4px rgba(16, 24, 40, 0.06), 0 16px 40px -12px rgba(16, 24, 40, 0.14);
@@ -446,10 +449,37 @@ a {
 .el-button--primary.is-disabled,
 .el-button--primary.is-disabled:hover {
   background-image: none;
-  background-color: rgba(99, 102, 241, 0.3);
+  background-color: var(--ds-glass);
   border-color: transparent;
   box-shadow: none;
-  color: rgba(255, 255, 255, 0.65);
+  color: var(--ds-text-2);
+}
+/* 语义色禁用态同理：亮色下 EP 默认 light-5 底 + 白字会糊成一片 */
+.el-button--success.is-disabled,
+.el-button--success.is-disabled:hover,
+.el-button--warning.is-disabled,
+.el-button--warning.is-disabled:hover,
+.el-button--danger.is-disabled,
+.el-button--danger.is-disabled:hover,
+.el-button--info.is-disabled,
+.el-button--info.is-disabled:hover {
+  background-image: none;
+  background-color: var(--ds-glass);
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--ds-text-2);
+}
+/* 主色链接/文字按钮：走「文字专用」强调色（--ds-accent-text 已按 5.4:1 校准） */
+.el-button--primary.is-link,
+.el-button--primary.is-text {
+  --el-button-text-color: var(--ds-accent-text);
+  --el-button-hover-text-color: var(--ds-accent-text);
+  color: var(--ds-accent-text);
+}
+.el-button--primary.is-link:hover,
+.el-button--primary.is-text:hover {
+  color: var(--ds-accent-text);
+  opacity: 0.86;
 }
 /* 普通（无类型）按钮走玻璃填充；带语义类型/链接/文字按钮不受影响 */
 .el-button:not([class*='el-button--']):not(.is-link):not(.is-text) {
@@ -683,6 +713,62 @@ a {
 }
 
 /* ============ 标签 tag：胶囊 + 状态色板 ============ */
+html .el-tag.el-tag--primary,
+html .el-tag.el-tag--primary.is-plain {
+  --el-tag-text-color: var(--ds-accent-text);
+  --el-tag-border-color: color-mix(in srgb, var(--ds-accent-text) 35%, transparent);
+}
+/* 暗色实心语义标签：亮底实心色 + 白字对比不足，改用可承载白字的深色端 */
+html.dark .el-tag--dark.el-tag--success {
+  --el-tag-bg-color: #047857;
+  --el-tag-border-color: #047857;
+  --el-tag-text-color: #fff;
+}
+html.dark .el-tag--dark.el-tag--danger {
+  --el-tag-bg-color: #b91c1c;
+  --el-tag-border-color: #b91c1c;
+  --el-tag-text-color: #fff;
+}
+html.dark .el-tag--dark.el-tag--warning {
+  --el-tag-bg-color: #92400e;
+  --el-tag-border-color: #92400e;
+  --el-tag-text-color: #fff;
+}
+/* 暗色实心语义按钮同理（填充色是语义色的深端，文字保持白） */
+html.dark .el-button--success {
+  --el-button-bg-color: #047857;
+  --el-button-border-color: #047857;
+  --el-button-hover-bg-color: #059669;
+  --el-button-hover-border-color: #059669;
+  --el-button-active-bg-color: #065f46;
+}
+html.dark .el-button--danger {
+  --el-button-bg-color: #b91c1c;
+  --el-button-border-color: #b91c1c;
+  --el-button-hover-bg-color: #dc2626;
+  --el-button-hover-border-color: #dc2626;
+  --el-button-active-bg-color: #991b1b;
+}
+html.dark .el-button--warning {
+  --el-button-bg-color: #92400e;
+  --el-button-border-color: #92400e;
+  --el-button-hover-bg-color: #b45309;
+  --el-button-hover-border-color: #b45309;
+  --el-button-active-bg-color: #78350f;
+}
+/* 暗色 plain 危险按钮：深红底配浅红字，而不是红底红字 */
+html.dark .el-button--danger.is-plain {
+  --el-button-text-color: #fca5a5;
+  --el-button-hover-text-color: #fecaca;
+  --el-button-bg-color: color-mix(in srgb, #b91c1c 22%, transparent);
+  --el-button-hover-bg-color: color-mix(in srgb, #b91c1c 34%, transparent);
+  --el-button-border-color: #7f1d1d;
+  --el-button-hover-border-color: #991b1b;
+}
+html.dark .el-badge__content--danger {
+  background-color: #b91c1c;
+  border-color: #b91c1c;
+}
 .el-tag {
   border-radius: var(--ds-radius-pill);
   border-color: transparent;
@@ -915,6 +1001,8 @@ a {
 .el-segmented {
   --el-segmented-bg-color: var(--ds-glass);
   --el-segmented-item-selected-bg-color: var(--ds-bg-2);
+  --el-segmented-item-selected-color: var(--ds-text-1);
+  --el-segmented-item-hover-color: var(--ds-text-1);
   color: var(--ds-text-2);
 }
 

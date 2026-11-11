@@ -19,7 +19,7 @@
     <ol class="steps">
       <li>
         <span class="num">1</span>
-        <div class="body">
+        <div class="guide-item-body">
           <strong>说一句话，交给指挥官</strong>
           <span>去智能对话，直接说你要办的事，比如「帮我把本周设备异常整理成报告」。</span>
         </div>
@@ -33,7 +33,7 @@
       </li>
       <li>
         <span class="num">2</span>
-        <div class="body">
+        <div class="guide-item-body">
           <strong>看计划卡与产物</strong>
           <span>指挥官会拆任务、派助手；做完的文件会回到对话里，也能在工作台回看。</span>
         </div>
@@ -46,7 +46,7 @@
       </li>
       <li>
         <span class="num">3</span>
-        <div class="body">
+        <div class="guide-item-body">
           <strong>认识你的小伙伴</strong>
           <span>右下角的农民小人会播报天气、工单和任务结果；点他随时呼出工作台，拖他换位置。</span>
         </div>
@@ -163,7 +163,7 @@
     margin-top: 2px;
   }
 
-  .body {
+  .guide-item-body {
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -171,11 +171,11 @@
     min-width: 0;
   }
 
-  .body strong {
+  .guide-item-body strong {
     font-size: 13px;
   }
 
-  .body span {
+  .guide-item-body span {
     color: var(--ds-text-3);
     font-size: 12px;
     line-height: 1.5;

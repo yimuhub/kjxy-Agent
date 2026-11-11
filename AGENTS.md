@@ -77,8 +77,10 @@
 提交前必须通过：
 
 ```bash
+python scripts/check_versions.py
 python scripts/check_ui_standards.py
 make check
 ```
 
+`check_versions.py` 要求 9 处版本面与 `pyproject.toml` 一致，规则见根目录 `VERSIONING.md`；
 `check_ui_standards.py` 检查：不得出现 `el-drawer`、所有 `el-dialog` 必须 `append-to-body`、所有多列表格必须 `v-col-resize`。

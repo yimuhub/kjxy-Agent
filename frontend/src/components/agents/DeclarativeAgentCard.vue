@@ -324,7 +324,7 @@
     gap: 5px;
     padding: 3px 8px;
     border-radius: 999px;
-    background: rgba(15, 23, 42, 0.72);
+    background: var(--ds-bg-1);
     border: 1px solid var(--ds-border-strong);
     font-size: 11.5px;
     color: var(--ds-text-2);
@@ -351,17 +351,17 @@
     border-radius: 999px;
     font-size: 11px;
     font-family: var(--ds-font-mono);
-    background: rgba(15, 23, 42, 0.65);
-    color: var(--ds-text-3);
+    background: var(--ds-bg-1);
+    color: var(--ds-text-2);
     border: 1px solid var(--ds-border);
   }
   .da-token-pill {
     padding: 1px 8px;
     border-radius: 999px;
     font-size: 11px;
-    background: rgba(16, 185, 129, 0.16);
+    background: color-mix(in srgb, var(--ds-success) 14%, var(--ds-bg-1));
     color: var(--ds-success);
-    border: 1px solid rgba(16, 185, 129, 0.35);
+    border: 1px solid color-mix(in srgb, var(--ds-success) 38%, transparent);
     pointer-events: auto;
   }
   .da-cover-img {

@@ -808,7 +808,7 @@
 
   .s-time {
     font-size: 12px;
-    color: var(--ds-text-3);
+    color: var(--ds-text-2);
     font-variant-numeric: tabular-nums;
   }
 

@@ -2593,7 +2593,7 @@
     border: none;
     border-radius: 6px;
     background: transparent;
-    color: var(--ds-text-3);
+    color: var(--ds-text-2);
     font-size: 12px;
     line-height: 1;
     cursor: pointer;

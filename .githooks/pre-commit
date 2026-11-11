@@ -1,0 +1,12 @@
+#!/bin/sh
+# 提交前门禁：9 处版本面必须一致（见根目录 VERSIONING.md）。
+set -e
+root=$(git rev-parse --show-toplevel)
+cd "$root"
+if [ -x .venv/bin/python ]; then
+  .venv/bin/python scripts/check_versions.py
+elif command -v uv >/dev/null 2>&1; then
+  uv run python scripts/check_versions.py
+else
+  python3 scripts/check_versions.py
+fi
