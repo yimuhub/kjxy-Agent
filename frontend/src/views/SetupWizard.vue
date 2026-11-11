@@ -1311,6 +1311,8 @@ async function submit(): Promise<void> {
       county: form.county.trim(),
       profile_types: [...form.profileTypes],
       yard_description: form.description.trim(),
+      school: form.school.trim(),
+      industry: form.industry.trim(),
       skill_codes: [...selectedSkills.value],
       llm_provider: buildProvider(),
       app_name: form.appName.trim(),

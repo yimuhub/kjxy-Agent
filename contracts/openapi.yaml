@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.78.0
+  version: 3.78.1
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -16676,6 +16676,16 @@ components:
           type: string
           maxLength: 64
           title: Yard Description
+          default: ''
+        school:
+          type: string
+          maxLength: 40
+          title: School
+          default: ''
+        industry:
+          type: string
+          maxLength: 30
+          title: Industry
           default: ''
         skill_codes:
           items:

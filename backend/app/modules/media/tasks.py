@@ -83,7 +83,12 @@ def start_inline_scheduler() -> bool:
         log.info("media inline video poller started (every %ss)", INLINE_POLL_SECONDS)
         deadline = time.monotonic() + INLINE_POLL_SECONDS
         while not _stop_event.wait(timeout=max(0.5, deadline - time.monotonic())):
-            run_inline_poll_once()
+            # 单轮失败只记日志，绝不退出循环：轮询线程死了，生成中的视频卡片
+            # 就永远停在「生成中」，且没有任何报错可循（v3.78 修复）。
+            try:
+                run_inline_poll_once()
+            except Exception as e:  # noqa: BLE001 - 瞬时 DB/IO 错误下一轮自愈
+                log.warning("media inline poll round failed: %s", e)
             deadline = time.monotonic() + INLINE_POLL_SECONDS
 
     def _expire_loop() -> None:

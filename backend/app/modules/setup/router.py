@@ -49,6 +49,8 @@ class InitializeRequest(BaseModel):
     county: str = Field(default="", max_length=64)
     profile_types: list[str] = Field(default_factory=list, max_length=10)
     yard_description: str = Field(default="", max_length=64)
+    school: str = Field(default="", max_length=40)
+    industry: str = Field(default="", max_length=30)
     skill_codes: list[str] = Field(default_factory=list, max_length=200)
     llm_provider: LlmProviderIn | None = None
     app_name: str = Field(default="", max_length=40)
@@ -107,6 +109,8 @@ def initialize(
         county=payload.county,
         profile_types=payload.profile_types,
         yard_description=payload.yard_description,
+        school=payload.school,
+        industry=payload.industry,
         skill_codes=payload.skill_codes,
         llm_provider=payload.llm_provider.model_dump() if payload.llm_provider else None,
         app_name=payload.app_name,

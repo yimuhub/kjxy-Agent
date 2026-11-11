@@ -38,9 +38,10 @@ def _make_context(db_session) -> AgentContext:
 
 @pytest.fixture()
 def fake_llm(monkeypatch):
-    """可用模型：直接返回合法 JSON。"""
+    """可用模型：协程函数桩，与真实 ``complete_with_logging`` 的调用契约一致
+    （v3.78 修复前曾用同步桩，掩盖了 service 漏加 await 的缺陷）。"""
 
-    def _fake(db, req):
+    async def _fake(db, req):
         class _R:
             content = LLM_JSON
 

@@ -20,7 +20,7 @@ from typing import Any
 from urllib.parse import urljoin
 
 import httpx
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.core.deps import YardContext
@@ -105,24 +105,22 @@ def video_authorized(ctx: YardContext, cfg: dict[str, Any], *, executor_is_comma
 
 def _used_today(db: Session, yard_id: str, user_id: str, kind: str) -> tuple[int, int]:
     start, end = day_bounds(business_today())
-    rows = db.scalars(
-        select(MediaAsset).where(
+    # 提交上游之前就失败的（未产生供应商调用）不占额度；SQL 端聚合，
+    # 不把当日所有资产行拉回 Python 再数（v3.78 性能清理）。
+    counts_before_submit = db.execute(
+        select(
+            func.count(MediaAsset.id),
+            func.coalesce(func.sum(func.coalesce(MediaAsset.duration_seconds, 0)), 0),
+        ).where(
             MediaAsset.yard_id == yard_id,
             MediaAsset.created_by == user_id,
             MediaAsset.kind == kind,
             MediaAsset.created_at >= start,
             MediaAsset.created_at < end,
+            ~((MediaAsset.status == STATUS_FAILED) & MediaAsset.upstream_task_id.is_(None)),
         )
-    ).all()
-    count = 0
-    seconds = 0
-    for row in rows:
-        # 提交上游之前就失败的（未产生供应商调用）不占额度
-        if row.status == STATUS_FAILED and not row.upstream_task_id:
-            continue
-        count += 1
-        seconds += int(row.duration_seconds or 0)
-    return count, seconds
+    ).one()
+    return int(counts_before_submit[0]), int(counts_before_submit[1])
 
 
 def quota_snapshot(db: Session, ctx: YardContext, kind: str, cfg: dict[str, Any]) -> dict[str, Any]:
@@ -237,13 +235,22 @@ def asset_view(asset: MediaAsset) -> dict[str, Any]:
     }
 
 
-def _card_status(assets: list[MediaAsset]) -> str:
-    statuses = {asset.status for asset in assets}
-    if STATUS_RUNNING in statuses:
+def merge_statuses(statuses) -> str:
+    """多资产卡片聚合口径：有在途算在途，否则有成品算成品，其余一律失败。
+
+    ``card_payload``（落库时）与 ``sync_message_payload``（回填时）共用，
+    避免两处各自维护同一套规则。
+    """
+    items = set(statuses)
+    if STATUS_RUNNING in items:
         return STATUS_RUNNING
-    if STATUS_READY in statuses:
+    if STATUS_READY in items:
         return STATUS_READY
     return STATUS_FAILED
+
+
+def _card_status(assets: list[MediaAsset]) -> str:
+    return merge_statuses(asset.status for asset in assets)
 
 
 def card_payload(
@@ -296,12 +303,7 @@ def sync_message_payload(db: Session, asset: MediaAsset) -> None:
     latest_notice = str((asset.meta_json or {}).get("notice") or "")
     if latest_notice:
         payload["notice"] = latest_notice
-    statuses = {str(item.get("status") or "") for item in items}
-    payload["status"] = (
-        STATUS_RUNNING
-        if STATUS_RUNNING in statuses
-        else (STATUS_READY if STATUS_READY in statuses else STATUS_FAILED)
-    )
+    payload["status"] = merge_statuses(str(item.get("status") or "") for item in items)
     message.payload_json = payload
 
 

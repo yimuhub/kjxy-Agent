@@ -116,9 +116,7 @@ def upgrade() -> None:
         plugins = [
             {"plugin_id": r[0], "yard_id": r[1]}
             for r in bind.execute(
-                sa.text(
-                    "SELECT plugin_id, yard_id FROM plugin_manifests WHERE status = 'enabled'"
-                )
+                sa.text("SELECT plugin_id, yard_id FROM plugin_manifests WHERE status = 'enabled'")
             ).fetchall()
         ]
 
@@ -136,9 +134,7 @@ def upgrade() -> None:
             or "json"
         )
 
-    agents = bind.execute(
-        sa.text("SELECT id, yard_id, bound_skills FROM yard_agents")
-    ).fetchall()
+    agents = bind.execute(sa.text("SELECT id, yard_id, bound_skills FROM yard_agents")).fetchall()
     map_cache: dict = {}
     for agent_id, yard_id, raw in agents:
         bound = _as_list(raw)
@@ -160,7 +156,7 @@ def upgrade() -> None:
         else:
             expr = ":val"
         bind.execute(
-            sa.text(f'UPDATE yard_agents SET bound_skills = {expr} WHERE id = :id').bindparams(
+            sa.text(f"UPDATE yard_agents SET bound_skills = {expr} WHERE id = :id").bindparams(
                 val=payload, id=agent_id
             )
         )

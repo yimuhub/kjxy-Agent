@@ -220,6 +220,8 @@ def initialize(
     county: str = "",
     profile_types: list[str] | None = None,
     yard_description: str = "",
+    school: str = "",
+    industry: str = "",
     # 第 4 步：能力与模型
     skill_codes: list[str] | None = None,
     llm_provider: dict[str, Any] | None = None,
@@ -284,6 +286,8 @@ def initialize(
     add_membership(db, yard_id=yard.id, user_id=user.id, role="yard_owner")
 
     # ③ 小院画像（官方技能包推荐）+ 简介（写 scene_type 备用字段）
+    # 培养单位/主导产业落 yard_profile 的 unit/industry（v3.78 修复：此前向导
+    # 只在前端收集、从不持久化，属于「填了但没保存」的死字段）
     types = [t for t in (profile_types or []) if t] or ["general"]
     if "general" not in types:
         types.append("general")
@@ -291,7 +295,13 @@ def initialize(
         db,
         yard_id=yard.id,
         key="yard_profile",
-        value={"types": types, "deployment": deployment, "county": county},
+        value={
+            "types": types,
+            "deployment": deployment,
+            "county": county,
+            "unit": school.strip()[:40],
+            "industry": industry.strip()[:30],
+        },
         actor_id=user.id,
         request_id=request_id,
     )

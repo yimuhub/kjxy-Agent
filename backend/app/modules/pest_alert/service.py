@@ -233,7 +233,7 @@ def _build_user_prompt(
     return "\n".join(parts)
 
 
-def _llm_structured(
+async def _llm_structured(
     db: Session,
     yard_id: str,
     request_id: str,
@@ -241,7 +241,12 @@ def _llm_structured(
     evidence: list[dict],
     sources: list[dict],
 ) -> dict[str, Any]:
-    """真 LLM 结构化生成；模型不可用抛异常，解析失败重试 3 次后抛错。"""
+    """真 LLM 结构化生成；模型不可用抛异常，解析失败重试 3 次后抛错。
+
+    ``complete_with_logging`` 是协程函数，必须 ``await``（v3.78 修复：此前漏加
+    await，拿到的是 coroutine 对象，``.content`` 恒为 None，真 LLM 路径在实机上
+    必然降级为规则摘要——同步测试桩掩盖了这一点）。
+    """
     if complete_with_logging is None:
         raise AppError("LLM_UNAVAILABLE", "模型服务未接入。")
     from app.modules.llm.schemas import ChatMessage, LLMMetadata, LLMRequest
@@ -264,7 +269,7 @@ def _llm_structured(
             ],
             metadata=LLMMetadata(yard_id=yard_id, request_id=request_id, purpose="pest_alert"),
         )
-        result = complete_with_logging(db, req)
+        result = await complete_with_logging(db, req)
         text = (
             getattr(result, "content", None)
             or getattr(result, "text", None)
@@ -337,7 +342,7 @@ async def run_pest_alert(
 
     warnings: list[str] = []
     try:
-        obj = _llm_structured(db, yard_id, request_id, parsed, evidence, sources)
+        obj = await _llm_structured(db, yard_id, request_id, parsed, evidence, sources)
         level = obj.get("level", "none")
         summary = str(obj.get("summary") or "")
         risks = [str(x) for x in (obj.get("risks") or [])]

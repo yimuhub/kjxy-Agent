@@ -38,6 +38,10 @@ export interface SetupInitializePayload {
   county?: string
   profile_types: string[]
   yard_description?: string
+  /** 培养单位（落 yard_profile.unit，v3.78 起真正持久化） */
+  school?: string
+  /** 主导产业（落 yard_profile.industry，v3.78 起真正持久化） */
+  industry?: string
   skill_codes?: string[]
   llm_provider?: SetupLlmProvider | null
   app_name?: string

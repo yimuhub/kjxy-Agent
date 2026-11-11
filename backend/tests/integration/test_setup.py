@@ -49,6 +49,9 @@ PAYLOAD = {
     "city": "苏州市",
     "county": "张家港市",
     "profile_types": ["rice", "general"],
+    "yard_description": "稻麦轮作示范",
+    "school": "南京农业大学",
+    "industry": "优质稻米",
     "skill_codes": [],
     "app_name": "稻香小院",
     "primary_color": "#6366F1",
@@ -116,6 +119,9 @@ def test_initialize_full_flow(api_client, session_factory):
         assert "rice" in profile["types"] and "general" in profile["types"]
         assert profile["deployment"] == "desktop"
         assert profile["county"] == "张家港市"
+        # v3.78：向导「培养单位/主导产业」必须真正持久化（此前是前端死字段）
+        assert profile["unit"] == "南京农业大学"
+        assert profile["industry"] == "优质稻米"
     finally:
         db.close()
 

@@ -2,6 +2,36 @@
 
 本项目遵循《工程开发规范 V3.0》；版本号遵循语义化版本。
 
+## [3.78.1] - 2026-11-11
+
+近 3 天改动（v3.73→v3.78，200 文件）全量审计的修复批次：逐提交核对需求完整性、回归面、链路冲突、性能与巨石代码，发现 3 处功能性错误与 3 处清理项，全部修复并验证。
+
+- **虫情预警「真 LLM」实机失效（P0）**：`pest_alert/service.py` 同步调用 async 的
+  `complete_with_logging` 且漏加 `await`，实机上拿到的是 coroutine，`.content` 恒为
+  None → 3 次纠错重试必然全失败 → 永远降级为规则摘要——「真 LLM 结构化」从未在
+  生产生效，而测试桩是同步函数恰好掩盖了这一点。`_llm_structured` 改为 async 并
+  `await`；测试桩同步改 async，让回归可被拦截。全库排查该函数 19 处调用点，无同类遗漏。
+- **对话内视频轮询线程异常护栏（P1）**：`media/tasks.py` 的 inline 轮询循环此前无
+  try/except，一次瞬时 DB 错误即静默杀死线程，此后生成中的视频卡片永远停在
+  「生成中」且无任何日志。单轮失败改为记日志、下一轮自愈。
+- **向导死字段持久化（P1）**：安装向导第 3 步的「培养单位/主导产业」此前只在前端
+  收集、从不提交后端（确认页却当真展示）。现落入 `yard_profile.unit/industry`：
+  后端 `InitializeRequest`/`initialize` 接收并写入，前端提交，OpenAPI 契约重生成
+  无漂移，`test_initialize_full_flow` 补持久化断言。
+- **额度统计改 SQL 聚合**：`media/service._used_today` 从「拉回当日全部资产行再
+  Python 计数」改为 `count/sum` 聚合；口径不变（提交上游前失败的调用不占额度）。
+- **媒体卡片状态推导去重**：`card_payload` 与 `sync_message_payload` 各自维护同一套
+  「在途>成品>失败」聚合规则，抽出共享 `merge_statuses`，消除双处逻辑漂移风险。
+- **迁移 0083/0084 文件尾换行**：与 v3.77.2 炸发布门禁同类的格式断点（当前门禁
+  范围 `app tests` 不含 migrations，未实际炸线），按格式纪律补齐。
+- **验证**：后端 `ruff check`/`ruff format`（714 文件）/`mypy`（466 文件）/
+  `pytest` 2559 全过；迁移 0081→0084 upgrade → downgrade → upgrade 可逆实测；
+  前端 eslint 0 error + vue-tsc + 单测 + 生产构建通过；全量 E2E 152 条：
+  146 通过 + 3 flaky（重试即过）+ 2 条环境性跳过（空库向导需隔离实例、A2A 需显式
+  开关）+ v339 计划卡编辑 1 条串跑超时（真实模型出方案卡的既有流式 flaky，单独
+  复跑 3/3 一次通过，非本次回归）；联网回归 `net_full_check` 11/11；
+  OpenAPI 契约无漂移；`check_versions.py` 版本面一致。
+
 ## [3.78.0] - 2026-11-11
 
 死路流程深度排查与修复：拟人化操作复现并修掉 4 处「走不通」的闭环死路，补回归测试与存量数据迁移。
