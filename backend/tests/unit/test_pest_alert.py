@@ -63,9 +63,7 @@ def test_input_schema_validation():
 def test_service_rule_fallback_without_llm(db_session, monkeypatch):
     """模型不可用 → 诚实降级为规则摘要（非 AI 生成），绝不假装智能预警。"""
     monkeypatch.setattr(pest_service, "complete_with_logging", None)
-    result = asyncio.run(
-        run_pest_alert(db_session, "yard-test", "user-test", {"query": "稻飞虱"})
-    )
+    result = asyncio.run(run_pest_alert(db_session, "yard-test", "user-test", {"query": "稻飞虱"}))
     assert isinstance(result, dict)
     assert result["level"] in ("none", "watch", "warning", "critical")
     assert "非 AI 生成" in result["answer"]
@@ -86,9 +84,7 @@ def test_service_with_real_llm_and_alerts(db_session, fake_llm):
     )
     db_session.commit()
     result = asyncio.run(
-        run_pest_alert(
-            db_session, "yard-test", "user-test", {"query": "稻飞虱", "crop": "水稻"}
-        )
+        run_pest_alert(db_session, "yard-test", "user-test", {"query": "稻飞虱", "crop": "水稻"})
     )
     assert result["level"] == "watch"
     assert "稻飞虱" in result["summary"]

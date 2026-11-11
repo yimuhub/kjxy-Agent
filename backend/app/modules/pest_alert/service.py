@@ -88,9 +88,7 @@ def _collect_yard_evidence(db: Session, yard_id: str) -> list[dict]:
         from app.modules.devices.models import Device
         from app.modules.devices.service import latest_summary
 
-        devices = list(
-            db.scalars(select(Device).where(Device.yard_id == yard_id).limit(20))
-        )
+        devices = list(db.scalars(select(Device).where(Device.yard_id == yard_id).limit(20)))
         for d in devices:
             for row in latest_summary(db, d):
                 evidence.append(

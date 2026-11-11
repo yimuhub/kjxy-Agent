@@ -2,6 +2,16 @@
 
 本项目遵循《工程开发规范 V3.0》；版本号遵循语义化版本。
 
+## [3.77.2] - 2026-11-11
+
+修复 Release 质量门禁的后端格式化断点。
+
+- `ruff format --check` 在 v3.76 新增的 `app/modules/pest_alert/service.py`
+  与 `tests/unit/test_pest_alert.py` 上失败，Release 的「Lint / type / tests」
+  因此中断。已格式化这两个文件（仅排版，无逻辑变更）。
+- 本地复跑后端完整门禁：`ruff check` 通过、`ruff format --check` 714 文件全通过、
+  `mypy` 466 文件无问题、`pytest` 2556 全过。
+
 ## [3.77.1] - 2026-11-11
 
 修复发布流水线迁移门禁，恢复客户端发版链路。
