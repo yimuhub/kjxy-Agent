@@ -78,7 +78,8 @@ class AgentMemory(Base, TimestampMixin):
     visibility: Mapped[str] = mapped_column(
         String(16), nullable=False, default=VISIBILITY_PRIVATE, index=True
     )
-    embedding: Mapped[list | None] = mapped_column(EmbeddingType(), nullable=True)
+    #: 向量列；与知识库共用 ``EmbeddingType``，读回已收敛为 ``list[float]``。
+    embedding: Mapped[list[float] | None] = mapped_column(EmbeddingType(), nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[str] = mapped_column(

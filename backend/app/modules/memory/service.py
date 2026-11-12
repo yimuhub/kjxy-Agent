@@ -20,7 +20,6 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import YardContext
 from app.core.logging import get_logger
-from app.db.base import is_empty_vector
 from app.modules.commander.models import CommanderRun, CommanderSubtask
 from app.modules.knowledge.chunking import estimate_token_count
 from app.modules.knowledge.embedding import get_embedding_provider
@@ -257,10 +256,12 @@ def _rank_hits(
     scored: list[tuple[float, AgentMemory]] = []
     for row in rows:
         content = row.content or ""
-        # 注意：pgvector 读回是 numpy.ndarray，不能用 `row.embedding` 做真值判断
+        # 注意：pgvector 读回是 numpy.ndarray，不能用 `row.embedding` 做真值判断。
+        # `EmbeddingType` 已把读回收敛为 list[float]，此处只判 None/空即可安全用真值。
+        embedding = row.embedding
         vector = (
-            _cosine(query_vec, row.embedding)
-            if query_vec is not None and not is_empty_vector(row.embedding)
+            _cosine(query_vec, embedding)
+            if query_vec is not None and embedding is not None and embedding
             else 0.0
         )
         keyword = _keyword_score(query, f"{row.title} {content}") if query else 0.0

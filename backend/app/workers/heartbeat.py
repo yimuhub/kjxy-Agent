@@ -143,7 +143,10 @@ def worker_heartbeat_status() -> dict[str, object]:
             "usable": False,
         }
     try:
-        ts = int(payload["ts"])  # type: ignore[arg-type]
+        raw_ts = payload["ts"]
+        if not isinstance(raw_ts, int | float | str):
+            raise TypeError("heartbeat ts 不是数值")
+        ts = int(raw_ts)
     except (TypeError, ValueError):
         return {
             "worker": "unknown",

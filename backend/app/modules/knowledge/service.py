@@ -18,7 +18,6 @@ from app.core.config import settings
 from app.core.deps import YardContext
 from app.core.errors import AppError
 from app.core.logging import get_logger
-from app.db.base import is_empty_vector
 from app.modules.audit.service import log_audit
 from app.modules.knowledge.chunking import estimate_token_count, prune_chunk_for_query
 from app.modules.knowledge.embedding import get_embedding_provider
@@ -419,7 +418,9 @@ _SEARCH_CACHE_TTL = 60.0
 _SEARCH_CACHE_MAX_CHUNKS = 1200
 _search_cache: dict[str, tuple[float, list["_CachedChunk"]]] = {}
 _search_cache_lock = threading.Lock()
-_query_embed_cache: dict[tuple[str, str, int, str], tuple[float, ...]] = {}
+#: 查询向量缓存：key = (嵌入提供方, 配置模型, 实际模型, 维度, 查询文本)
+#: （实际模型来自供应商链，可能与配置模型不同，故需单列一项参与 key）
+_query_embed_cache: dict[tuple[str, str, str, int, str], tuple[float, ...]] = {}
 
 
 @dataclass(frozen=True)
@@ -495,7 +496,7 @@ def _load_scan_index(db: Session, yard_id: str) -> list[_CachedChunk] | None:
     index: list[_CachedChunk] = []
     for row in rows:
         vector = row.embedding
-        if is_empty_vector(vector):
+        if vector is None or not vector:
             continue
         doc = row.document
         index.append(
@@ -647,7 +648,7 @@ def search(
     scored: list[tuple[float, float, float, KnowledgeChunk | _CachedChunk]] = []
     for chunk in candidates:
         vec = chunk.embedding
-        if is_empty_vector(vec):
+        if vec is None or not vec:
             continue
         vector_score = _cosine(query_vec, list(vec))
         keyword_score = 0.0

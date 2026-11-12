@@ -97,7 +97,8 @@ class KnowledgeChunk(Base, TimestampMixin):
     trust_level: Mapped[str] = mapped_column(String(32), nullable=False, default="yard_material")
     visibility: Mapped[str] = mapped_column(String(32), nullable=False, default="yard")
     metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    embedding: Mapped[list | None] = mapped_column(EmbeddingType(), nullable=True)
+    #: 向量列；``EmbeddingType`` 读回已收敛为 ``list[float]``（跨方言统一）。
+    embedding: Mapped[list[float] | None] = mapped_column(EmbeddingType(), nullable=True)
 
     document: Mapped["KnowledgeDocument"] = relationship(
         "KnowledgeDocument", back_populates="chunks"

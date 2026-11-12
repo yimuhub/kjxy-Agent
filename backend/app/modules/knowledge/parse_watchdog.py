@@ -58,8 +58,10 @@ from __future__ import annotations
 
 import threading
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
 from sqlalchemy import select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -234,7 +236,8 @@ def sweep_once(db: Session) -> dict[str, int]:
             .values(status="queued", error_message="解析进程中断，已由看门狗重新排队。")
         )
         db.commit()
-        if result.rowcount:
+        # UPDATE 语句返回的是 CursorResult（带 rowcount）；泛型 Result 上没有该属性。
+        if cast(CursorResult, result).rowcount:
             stats["zombie_reset"] += 1
             log.warning("看门狗回收僵尸文档 document_id=%s", document_id)
 
