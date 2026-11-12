@@ -17,15 +17,28 @@ export function taskStatusMeta(status: string) {
   return TASK_STATUS_META[status] ?? { label: status, type: 'info' as const }
 }
 
-/** 文档解析状态 -> tag */
+/**
+ * 文档解析状态 -> tag
+ *
+ * 后端 KnowledgeDocument.status 的真实取值是
+ * `uploaded | queued | processing | ready | failed`（见 backend/app/modules/knowledge/models.py）。
+ * 早期这里只映射了 pending/parsing/succeeded，导致**中文界面里直接漏出英文**
+ * `queued` / `ready`（审查 D-11）——对研发是缺两个 key，对用户是「这软件没做完」。
+ * 这里按后端口径补齐，并保留旧 key 兼容历史数据。
+ */
 export const DOC_STATUS_META: Record<
   string,
   { label: string; type: 'info' | 'warning' | 'success' | 'danger' }
 > = {
+  uploaded: { label: '待解析', type: 'info' },
+  queued: { label: '排队中', type: 'info' },
+  processing: { label: '解析中', type: 'warning' },
+  ready: { label: '解析成功', type: 'success' },
+  failed: { label: '解析失败', type: 'danger' },
+  // 历史/兼容口径
   pending: { label: '待解析', type: 'info' },
   parsing: { label: '解析中', type: 'warning' },
   succeeded: { label: '解析成功', type: 'success' },
-  failed: { label: '解析失败', type: 'danger' },
 }
 
 export function docStatusMeta(status: string) {

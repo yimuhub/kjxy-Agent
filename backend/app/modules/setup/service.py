@@ -149,25 +149,60 @@ def _ensure_contact_free(db: Session, *, email: str | None, phone: str | None) -
 # ---------------------------------------------------------------------------
 
 
+def _skill_keywords(item: dict[str, Any]) -> list[str]:
+    """从技能条目里抽取检索关键词（标签 + 分类 + 分组）。
+
+    标签散落在 ``metadata_json.tags`` 与 ``definition_json.tags`` 两处
+    （不同内置技能的落库位置不一致），这里做一次合并去重。
+    """
+    keywords: list[str] = []
+    for holder in (item.get("metadata_json"), item.get("definition_json")):
+        if not isinstance(holder, dict):
+            continue
+        for key in ("tags", "category", "skill_group"):
+            value = holder.get(key)
+            if isinstance(value, str):
+                value = [value]
+            if not isinstance(value, list):
+                continue
+            for tag in value:
+                text = str(tag).strip()
+                if text and text not in keywords:
+                    keywords.append(text)
+    return keywords
+
+
 def builtin_skill_catalog() -> list[dict[str, Any]]:
-    """向导可勾选的内置技能清单（纯数据，不查库）。"""
+    """向导可勾选的内置技能清单（纯数据，不查库）。
+
+    v3.79（审查 D-13）：在原来 code/name/description/pack 之外补上
+    ``group``（分类筛选）、``keywords``（检索）、``scenes``（适用画像），
+    让向导能按用户第 3 步选的产业画像做「分场景推荐」，而不是把 35 个
+    技能一次性全选甩给小白。
+    """
     from app.modules.growth.skills import builtin_items as growth_items
     from app.modules.market.agri_skills import builtin_items as agri_items
     from app.modules.market.office_skills import builtin_items as office_items
+    from app.modules.setup import skill_catalog
 
     catalog: list[dict[str, Any]] = []
-    for pack, items in (
-        ("农技", agri_items()),
-        ("增长与服务", growth_items()),
-        ("办公", office_items()),
+    for pack, group, items in (
+        ("农技", "agri", agri_items()),
+        ("增长与服务", "growth", growth_items()),
+        ("通用办公", "office", office_items()),
     ):
         for item in items:
+            code = str(item["code"])
+            meta = skill_catalog.meta_for(code)
             catalog.append(
                 {
-                    "code": str(item["code"]),
+                    "code": code,
                     "name": str(item["name"]),
                     "description": str(item.get("description") or ""),
                     "pack": pack,
+                    "group": group,
+                    "keywords": _skill_keywords(item),
+                    "scenes": [str(s) for s in (meta.get("scenes") or ())],
                 }
             )
     return catalog
@@ -181,15 +216,23 @@ def _seed_skills(
     request_id: str,
     skill_codes: list[str] | None,
 ) -> int:
-    """按勾选铺设内置技能；未勾选（或全为空）时铺设全部。"""
+    """按勾选铺设内置技能。
+
+    v3.79（审查 D-13 连带修复）：区分「**没传**」与「**传了但为空**」——
+    - ``None``：老客户端 / 脚本未传该字段 → 保持旧行为，铺设全部；
+    - ``[]``：用户在新向导里明确把技能全取消勾选 → **一个都不铺**。
+
+    旧实现把两者都当成「全选」，导致用户明明取消了 PPT 技能，建院后
+    35 个技能照样全部落库——正是 D-13 想消灭的「全选 = 一片不认识的名字」。
+    """
     from app.modules.growth.skills import builtin_items as growth_items
     from app.modules.market.agri_skills import builtin_items as agri_items
     from app.modules.market.builtin_seed import ensure_skills
     from app.modules.market.office_skills import builtin_items as office_items
 
     items: list[dict[str, Any]] = [*agri_items(), *growth_items(), *office_items()]
-    selected = {str(code) for code in (skill_codes or []) if str(code).strip()}
-    if selected:
+    if skill_codes is not None:
+        selected = {str(code).strip() for code in skill_codes if str(code).strip()}
         items = [item for item in items if str(item["code"]) in selected]
     if not items:
         return 0
@@ -200,6 +243,27 @@ def _seed_skills(
         actor_id=actor_id,
         request_id=request_id,
         source_label="setup_wizard",
+    )
+
+
+def _seed_default_agents(
+    db: Session,
+    *,
+    yard_id: str,
+    actor_id: str,
+    request_id: str,
+) -> int:
+    """为新小院播种平台撰写的默认助手（已发布）。
+
+    与内置技能同口径：向导里一次性铺好，装完即可提问。
+    """
+    from app.modules.setup.default_agents import seed_default_agents
+
+    return seed_default_agents(
+        db,
+        yard_id=yard_id,
+        actor_id=actor_id,
+        request_id=request_id,
     )
 
 
@@ -317,6 +381,16 @@ def initialize(
         skill_codes=skill_codes,
     )
 
+    # ④' 默认助手（平台撰写、平台管理员直发）。
+    # 没有它，新装的小院连第一次提问都发不出去——对话路由会报
+    # 「本小院还没有可用的已发布助手或班组」（审查 D-01/D-14 的小白断点）。
+    agent_count = _seed_default_agents(
+        db,
+        yard_id=yard.id,
+        actor_id=user.id,
+        request_id=request_id,
+    )
+
     # ⑤ 模型接入（可选；Key 加密保存，明文不落盘）
     model_configured = False
     if llm_provider and (llm_provider.get("api_key") or "").strip():
@@ -371,14 +445,28 @@ def initialize(
         roles=["platform_admin", "yard_owner"],
         token_version=int(user.token_version or 0),
     )
+    # 首启一并下发刷新令牌：此前只给 access_token，管理员在 30 分钟后被静默
+    # 踢回登录页，而口令刚在向导第 6 步让用户「妥善保存」过——首启体验断点
+    # （审查 D-16）。这里复用登录同一套刷新会话签发逻辑。
+    from app.modules.auth.service import issue_refresh_session
+
+    refresh_token = issue_refresh_session(
+        db,
+        user_id=user.id,
+        yard_id=yard.id,
+        token_version=int(user.token_version or 0),
+    )
+    db.commit()
     return {
         "user_id": user.id,
         "yard_id": yard.id,
         "yard_name": yard.name,
         "username": user.username,
         "skill_count": skill_count,
+        "agent_count": agent_count,
         "model_configured": model_configured,
         "access_token": token,
+        "refresh_token": refresh_token,
     }
 
 

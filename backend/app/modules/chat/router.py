@@ -401,6 +401,9 @@ async def send_message(
         attachment_ids=payload.attachment_ids,
         target_code=payload.target_code,
         execution_mode=payload.execution_mode,
+        # 指挥官澄清续跑：同步路径此前丢弃该参数，导致"我补充一下…"这句话
+        # 开不了新一轮指挥官任务（流式路径传了，同步路径没传）。
+        clarify_run_id=payload.clarify_run_id,
     )
     return ok(data, request)
 

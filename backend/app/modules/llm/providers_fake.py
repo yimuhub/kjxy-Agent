@@ -50,7 +50,7 @@ def _plan_mock_content(messages: list) -> str | None:
     章节标题直接从提示词里取，避免在 Mock 里复制一份章节表；正文固定且足够长，
     满足「章节写实」判定，让 CI 能覆盖分章渲染、取证统计与导出流程。
     """
-    system = "\n".join(m.content for m in messages if m.role == "system")
+    system = "\n".join(m.text for m in messages if m.role == "system")
     if PLAN_SYSTEM_MARKER not in system:
         return None
     headings = [line[3:].strip() for line in system.splitlines() if line.startswith("## ")]
@@ -103,7 +103,7 @@ class FakeProvider:
                 )
             )
         content = item.get("content")
-        input_text = "\n".join(f"{m.role}:{m.content}" for m in request.messages)
+        input_text = "\n".join(f"{m.role}:{m.text}" for m in request.messages)
         output_text = content or json.dumps(
             [t.model_dump() for t in tool_calls], ensure_ascii=False, default=str
         )
@@ -127,7 +127,7 @@ class FakeProvider:
             content = plan
         else:
             question = next(
-                (m.content for m in reversed(request.messages) if m.role == "user"),
+                (m.text for m in reversed(request.messages) if m.role == "user"),
                 "",
             )
             summary = " ".join(str(question).split())[:48]
@@ -136,7 +136,7 @@ class FakeProvider:
                 f"您的问题摘要：「{summary}」。\n"
                 "如需真实回答，请将 LLM_PROVIDER 切换为 openai_compatible 并配置密钥。"
             )
-        input_text = "\n".join(f"{m.role}:{m.content}" for m in request.messages)
+        input_text = "\n".join(f"{m.role}:{m.text}" for m in request.messages)
         return LLMResponse(
             content=content,
             input_tokens=estimate_tokens(input_text),

@@ -15,7 +15,7 @@ import math
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, literal_column, select
 from sqlalchemy.orm import Session
 
 from app.modules.agents.models import CREATED_FROM_COMMANDER, YardAgent
@@ -145,9 +145,15 @@ def cost_stats(db: Session, yard_id: str, days: int = 30) -> dict[str, Any]:
     """按用途/模型聚合 LLM 调用成本，并给出指挥官运行级 token 总览。"""
     window_days = max(1, min(int(days), 365))
     cutoff = datetime.now(UTC) - timedelta(days=window_days)
+    # 关键：GROUP BY 里的常量必须用 literal_column 内联成 SQL 字面量。
+    # 用普通字符串参数时 SQLAlchemy 会渲染成绑定参数
+    # （GROUP BY coalesce(purpose, :coalesce_2)），SQLite 接受、PostgreSQL 直接
+    # 报 "column must appear in the GROUP BY clause" → 指挥官总览在生产库 500。
+    # select 与 group_by 复用同一个表达式，保证两边结构完全一致。
+    purpose_expr = func.coalesce(LLMCall.purpose, literal_column("'platform'"))
     rows = db.execute(
         select(
-            func.coalesce(LLMCall.purpose, "platform").label("purpose"),
+            purpose_expr.label("purpose"),
             LLMCall.model.label("model"),
             func.count().label("calls"),
             func.coalesce(func.sum(LLMCall.input_tokens), 0).label("input_tokens"),
@@ -155,7 +161,7 @@ def cost_stats(db: Session, yard_id: str, days: int = 30) -> dict[str, Any]:
             func.coalesce(func.sum(LLMCall.estimated_cost), 0.0).label("cost"),
         )
         .where(LLMCall.yard_id == yard_id, LLMCall.created_at >= cutoff)
-        .group_by(func.coalesce(LLMCall.purpose, "platform"), LLMCall.model)
+        .group_by(purpose_expr, LLMCall.model)
         .order_by(func.coalesce(func.sum(LLMCall.input_tokens), 0).desc())
     ).all()
 

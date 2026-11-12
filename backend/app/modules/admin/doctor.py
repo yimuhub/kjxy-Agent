@@ -116,7 +116,29 @@ def _check_worker() -> dict[str, str]:
     status = worker_heartbeat_status()
     worker = str(status.get("worker"))
     if worker == "alive":
-        return _check("worker_heartbeat", "ok", f"心跳新鲜（{status.get('age_seconds')} 秒前）")
+        if status.get("usable"):
+            return _check("worker_heartbeat", "ok", f"心跳新鲜（{status.get('age_seconds')} 秒前）")
+        # 心跳有，但这个 worker 消费不了本 API 的消息：多见于 worker 与 API
+        # 连了不同的数据库——消息会被取走后直接丢弃，文档永远停在 queued。
+        reason = str(status.get("reason") or "unknown")
+        if reason == "worker_on_other_database":
+            # worker 的库指纹在心跳载荷里；API 侧指纹由本进程现场计算
+            # （worker_heartbeat_status 的返回不含 api_db，直接取会显示 None）。
+            from app.workers.heartbeat import current_db_fingerprint
+
+            api_db = current_db_fingerprint()
+            return _check(
+                "worker_heartbeat",
+                "warn",
+                f"worker 连的数据库与 API 不一致（worker={status.get('db')} vs api={api_db}）",
+                "把 worker 与 API 指向同一个库；否则队列消息会被取走后丢弃，知识库文档永久卡在 queued。",  # noqa: E501
+            )
+        return _check(
+            "worker_heartbeat",
+            "warn",
+            f"心跳来源不是 worker 进程（role={status.get('role')}, reason={reason}）",
+            "确认 Celery worker 进程在跑并能访问同一 Redis 与同一个数据库。",
+        )
     if worker == "stale":
         return _check(
             "worker_heartbeat",

@@ -14,12 +14,31 @@ class ChatMessage(BaseModel):
     - ``tool_call_id``：role=tool 的工具结果回填消息所指向的调用 id；
     - ``tool_calls``：assistant 消息携带的结构化工具调用列表（OpenAI 帧形，
       原样透传给兼容 provider）。
+
+    多模态扩展：``content`` 还允许是 OpenAI 的内容片段数组
+    （``[{"type":"text","text":...},{"type":"image_url","image_url":{...}}]``），
+    供图片理解链路使用；``text`` 属性负责把它摊平成纯文本用于摘要与分词估算。
     """
 
     role: str
-    content: str | None = None
+    content: str | list[dict[str, Any]] | None = None
     tool_call_id: str | None = None
     tool_calls: list[dict[str, Any]] | None = None
+
+    @property
+    def text(self) -> str:
+        """把 content 摊平成纯文本；多模态片段数组只取其中的 text 段。"""
+        if isinstance(self.content, str):
+            return self.content
+        if isinstance(self.content, list):
+            parts: list[str] = []
+            for part in self.content:
+                if isinstance(part, dict):
+                    value = part.get("text")
+                    if isinstance(value, str):
+                        parts.append(value)
+            return "\n".join(parts)
+        return ""
 
 
 class ToolCall(BaseModel):
@@ -65,6 +84,9 @@ class LLMRequest(BaseModel):
     # OpenAI function-calling 工具定义（{"type":"function","function":{...}} 列表）；
     # None/空 = 不启用工具。不支持工具的 provider 必须忽略此字段（零回归）。
     tools: list[dict[str, Any]] | None = None
+    # 本次调用的临时参数覆盖（如 top_p/response_format/stop）。
+    # 与模型行 default_params 合并，优先级高于 default_params，低于平台核心字段。
+    extra_params: dict[str, Any] = Field(default_factory=dict)
     metadata: LLMMetadata = Field(default_factory=LLMMetadata)
 
 

@@ -5,6 +5,7 @@
 """
 
 import time
+from typing import Any
 
 import httpx
 
@@ -17,6 +18,21 @@ log = get_logger(__name__)
 
 # 简单成本单价（美元/千 token），按 input+output 合计估算
 PRICE_PER_1K_USD = 0.002
+
+#: default_params 里禁止下发的键：这些由平台/请求侧掌控，
+#: 允许模型行覆盖会导致消息被替换、流式响应解析崩溃等不可预期行为。
+_BLOCKED_DEFAULT_PARAMS = frozenset({"model", "messages", "tools", "tool_choice", "stream"})
+
+
+def sanitize_default_params(params: Any) -> dict[str, Any]:
+    """过滤模型行 ``default_params``：只保留可安全下发的键值。"""
+    if not isinstance(params, dict):
+        return {}
+    return {
+        str(key): value
+        for key, value in params.items()
+        if str(key) not in _BLOCKED_DEFAULT_PARAMS and value is not None
+    }
 
 
 def _llm_error(category: str, message: str) -> AppError:
@@ -73,6 +89,10 @@ class OpenAICompatibleProvider:
     #: 供应商单价（元/千 token）；未填则回落到 PRICE_PER_1K_USD 估算
     price_in_per_1k: float | None = None
     price_out_per_1k: float | None = None
+    #: 模型行 ``supplier_models.default_params``：该模型的默认请求参数
+    #: （如 temperature/top_p/response_format）。此前该字段入库后无人消费，
+    #: 属于"配置写进去不生效"的死配置；现由本类在构造 payload 时合并。
+    default_params: dict[str, Any] | None = None
 
     def __init__(
         self,
@@ -99,7 +119,14 @@ class OpenAICompatibleProvider:
 
         check_egress_url(f"{self.base_url}/chat/completions", context="llm_chat", allow_local=True)
         model = request.model or self.model
+        # 默认参数合并顺序（后者覆盖前者）：
+        #   1) 模型行 default_params（管理员在「模型中心」配的该模型默认参数）
+        #   2) 请求级 extra_params（调用方本次调用的临时覆盖）
+        #   3) 平台核心字段（model/messages/max_tokens/temperature/tools）—— 永不被覆盖
+        merged_defaults = sanitize_default_params(self.default_params)
+        merged_defaults.update(sanitize_default_params(request.extra_params))
         payload: dict = {
+            **merged_defaults,
             "model": model,
             "messages": [_message_payload(m) for m in request.messages],
         }

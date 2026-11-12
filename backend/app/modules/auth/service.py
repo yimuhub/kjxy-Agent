@@ -60,7 +60,7 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-def _issue_refresh_session(
+def issue_refresh_session(
     db: Session, *, user_id: str, yard_id: str | None, token_version: int
 ) -> str:
     """签发带 jti 的刷新令牌并登记会话；顺手清理已过期行（其 JWT 也已失效）。"""
@@ -275,7 +275,7 @@ def login(
     roles = _platform_admin_roles(db, user, roles, request_id=request_id)
 
     user.last_login_at = _utcnow()
-    refresh_token = _issue_refresh_session(
+    refresh_token = issue_refresh_session(
         db, user_id=user.id, yard_id=chosen_yard_id, token_version=user.token_version
     )
     log_audit(
@@ -324,7 +324,7 @@ def issue_login_response(
         raise AppError("YARD_FORBIDDEN", "您不属于该小院。", http_status=403)
     roles = _platform_admin_roles(db, user, list(chosen.roles), request_id=request_id)
     user.last_login_at = _utcnow()
-    refresh_token = _issue_refresh_session(
+    refresh_token = issue_refresh_session(
         db, user_id=user.id, yard_id=chosen.yard_id, token_version=user.token_version
     )
     log_audit(
@@ -424,7 +424,7 @@ def refresh(db: Session, refresh_token: str, *, request_id: str) -> RefreshRespo
 
     if session is not None:
         session.revoked_at = _utcnow()
-    new_refresh_token = _issue_refresh_session(
+    new_refresh_token = issue_refresh_session(
         db, user_id=user.id, yard_id=yard_id, token_version=user.token_version
     )
     log_audit(
@@ -624,7 +624,7 @@ def change_password(
         else:
             yard_id = None
     roles = _platform_admin_roles(db, user, roles, request_id=request_id)
-    refresh_token = _issue_refresh_session(
+    refresh_token = issue_refresh_session(
         db, user_id=user.id, yard_id=yard_id, token_version=user.token_version
     )
 

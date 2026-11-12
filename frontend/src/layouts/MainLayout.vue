@@ -995,10 +995,15 @@ const mqlMobile = window.matchMedia('(max-width: 768px)')
   }
   .crumb {
     min-width: 0;
-    flex: none;
+    /* 面包屑必须可收缩：原先 flex:none 让它按内容宽度占位，
+       把右侧 Token 胶囊与账号菜单挤出屏幕 → 移动端整页横向滚动（审查 D-08） */
+    flex: 0 1 auto;
+    overflow: hidden;
+    white-space: nowrap;
   }
   .spacer {
-    flex: 1;
+    flex: 1 1 0;
+    min-width: 0;
   }
 
   .token-pill {
@@ -1085,6 +1090,10 @@ const mqlMobile = window.matchMedia('(max-width: 768px)')
     background: transparent;
     padding: 0;
     outline: none;
+    /* 关键：flex 子项默认 min-width:auto，宽表（el-table / el-tabs）会把
+       主区撑到内容宽度，整页出现横向滚动（审查 D-08）。置 0 后主区按视口
+       收缩，宽内容改为在容器内横向滚动。 */
+    min-width: 0;
   }
   .content {
     max-width: 1440px;
@@ -1092,6 +1101,18 @@ const mqlMobile = window.matchMedia('(max-width: 768px)')
     padding: 24px;
     min-height: 100%;
     box-sizing: border-box;
+    min-width: 0;
+  }
+  /* 窄屏：宽表在自身容器内横向滚动，而不是把页面撑宽 */
+  :deep(.el-table__inner-wrapper),
+  :deep(.el-table__body-wrapper) {
+    overflow-x: auto;
+  }
+  :deep(.el-tabs__nav-wrap) {
+    overflow-x: auto;
+  }
+  :deep(.el-tabs__nav) {
+    float: none;
   }
   .no-yard {
     display: flex;
@@ -1116,6 +1137,18 @@ const mqlMobile = window.matchMedia('(max-width: 768px)')
     .crumb {
       overflow: hidden;
       white-space: nowrap;
+    }
+  }
+
+  /* 超窄屏（≤480px）：顶栏只保留「菜单 / 面包屑 / 主题 / 账号」，
+     Token 胶囊改到「用量看板」查看，保证 375px 下不出现横向滚动。 */
+  @media (max-width: 480px) {
+    .header {
+      gap: 8px;
+      padding: 0 10px;
+    }
+    .token-pill {
+      display: none;
     }
   }
 

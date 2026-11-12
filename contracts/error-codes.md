@@ -343,6 +343,15 @@
 | `BILLING_CODE_USED` | 409 | 兑换码已被使用（重复兑换拒绝） |
 | `BILLING_CODE_DISABLED` | 409 | 兑换码已作废 |
 | `BILLING_CODE_EXPIRED` | 409 | 兑换码超过有效期（顺带落库为 expired） |
-| `BILLING_VOUCHER_REQUIRED` | 400 | 加油包线下下单必须附转账凭证说明 |
+| `BILLING_VOUCHER_REQUIRED` | 400 | 加油包线下下单必须附转账凭证说明；回单提交为空同理 |
+| `BILLING_VOUCHER_DUPLICATE` | 409 | 该回单号已用于其他订单（防一单多用） |
 | `BILLING_ORDER_NOT_FOUND` | 404 | 订单不存在或不属于本小院 |
 | `BILLING_ORDER_CLOSED` | 409 | 订单已处理（确认/取消仅限待确认订单；幂等闸） |
+| `BILLING_PAYMENT_UNSUPPORTED` | 400 | 对公转账渠道没有异步回调（应提交回单核验） |
+| `BILLING_PAYMENT_SIGNATURE` | 400 | 支付回调验签失败或载荷无法解析（公开端点的唯一凭据） |
+| `BILLING_PAYMENT_AMOUNT` | 400 | 回调金额与订单金额不一致或无效，拒绝入账 |
+| `BILLING_PAYMENT_DUPLICATE` | 409 | 该渠道流水号已在其他订单核销 |
+| `BILLING_PAYMENT_NOT_CONFIGURED` | 400/503 | 支付渠道商户参数未配齐（下单/验签前置校验） |
+| `BILLING_PAYMENT_UNKNOWN` | 404 | 未知支付渠道回调路径 |
+| `BILLING_PAYMENT_PROVIDER_MISMATCH` | 400 | 请求的支付渠道与部署配置不一致（v3.80 二次深审收紧） |
+| `BILLING_PLAN_PRICE_INVALID` | 400/409 | 套餐价格 ≤0：改价与下单都拒绝（免费发放走兑换码；v3.80 二次深审） |

@@ -41,6 +41,21 @@ INPUT_SCHEMA: dict[str, Any] = {
             "default": "1280x720",
             "description": "分辨率，如 1280x720",
         },
+        "image_url": {
+            "type": "string",
+            "description": (
+                "参考图地址（可选）。给了参考图即为图生视频，平台会自动带上 "
+                "mode=image_to_video；不给则是文生视频。"
+            ),
+        },
+        "mode": {
+            "type": "string",
+            "enum": ["text_to_video", "image_to_video"],
+            "description": (
+                "生成模式。不填时按是否提供参考图自动判定：给了参考图=图生视频，"
+                "否则=文生视频（不下发该字段，避免兼容网关因未知字段报错）。"
+            ),
+        },
         "wait_seconds": {
             "type": "integer",
             "minimum": 0,
@@ -78,7 +93,7 @@ async def generate_video_tool_func(params: dict, ctx: Any = None) -> dict[str, A
         raise AppError("INVALID_REQUEST", "视频描述过短（至少 4 个字）。", http_status=400)
 
     from app.db.session import SessionLocal
-    from app.modules.llm.video import VideoRequest, resolve_video_provider
+    from app.modules.llm.video import VideoRequest, normalize_video_mode, resolve_video_provider
 
     db = SessionLocal()
     try:
@@ -102,11 +117,17 @@ async def generate_video_tool_func(params: dict, ctx: Any = None) -> dict[str, A
     # 0 是合法值（提交后立刻返回 task_id，由后台轮询续查），不能被 `or` 吞成默认值
     raw_wait = params.get("wait_seconds")
     wait_seconds = DEFAULT_WAIT_SECONDS if raw_wait is None else int(raw_wait)
+    image_url = str(params.get("image_url") or "").strip()
+    if image_url and not image_url.startswith(("http://", "https://")):
+        raise AppError("INVALID_REQUEST", "参考图地址必须是 http/https 链接。", http_status=400)
+    mode = normalize_video_mode(params.get("mode"), has_image=bool(image_url))
     batch = await provider.generate(
         VideoRequest(
             prompt=prompt[:2000],
             duration_seconds=int(params.get("duration_seconds") or 5),
             size=str(params.get("size") or "1280x720"),
+            image_url=image_url or None,
+            mode=mode,
         ),
         wait_seconds=max(0, min(200, wait_seconds)),
     )

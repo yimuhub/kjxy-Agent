@@ -166,16 +166,44 @@ def test_cancel_during_execution_keeps_result_and_emits_event(
         handlers.TASK_HANDLERS.pop("test.cancel_midway", None)
 
 
-def test_worker_marks_alive_when_claiming_task(api_client, auth_headers, monkeypatch):
-    """worker 领取任务时刷新心跳（app.workers.heartbeat.mark_worker_alive）。"""
-    calls: list[int] = []
+def test_inline_executor_marks_inline_heartbeat_only(api_client, auth_headers, monkeypatch):
+    """API 进程里的内联执行器只刷新**内联心跳键**，不得污染 worker 心跳键。
+
+    审查 D-03 场景 C：内联兜底执行器跑在 API 进程里，不是 worker。
+    若它写进 worker 心跳键，知识库看门狗会误判"有活 worker"，
+    把兜底阈值从 180s 拉到 600s，文档实打实多等十分钟。
+    """
+    inline_calls: list[int] = []
+    worker_calls: list[int] = []
     import app.workers.heartbeat as heartbeat_mod
 
-    monkeypatch.setattr(heartbeat_mod, "mark_worker_alive", lambda: calls.append(1))
+    monkeypatch.setattr(heartbeat_mod, "mark_inline_alive", lambda: inline_calls.append(1))
+    monkeypatch.setattr(heartbeat_mod, "mark_worker_alive", lambda: worker_calls.append(1))
 
     created = _create(api_client, auth_headers, idem_key="sem-heartbeat").json()["data"]
+    worker_tasks.run_task_inline(created["id"])
+    assert inline_calls  # 至少刷新了一次
+    assert not worker_calls  # 内联执行器绝不能写 worker 心跳键
+    assert _detail(api_client, auth_headers, created["id"])["status"] == "succeeded"
+
+
+def test_celery_entry_marks_worker_heartbeat(api_client, auth_headers, monkeypatch):
+    """Celery 入口跑在真 worker 进程里，必须写 **worker** 心跳键。
+
+    与上一个用例互为对照：内联路径写内联键、Celery 入口写 worker 键，
+    看门狗据此判断"队列里的消息有没有人会消费"。
+    """
+    inline_calls: list[int] = []
+    worker_calls: list[int] = []
+    import app.workers.heartbeat as heartbeat_mod
+
+    monkeypatch.setattr(heartbeat_mod, "mark_inline_alive", lambda: inline_calls.append(1))
+    monkeypatch.setattr(heartbeat_mod, "mark_worker_alive", lambda: worker_calls.append(1))
+
+    created = _create(api_client, auth_headers, idem_key="sem-heartbeat-worker").json()["data"]
     worker_tasks.execute_task(created["id"])
-    assert calls  # 至少刷新了一次
+    assert worker_calls  # Celery 入口必须刷新 worker 心跳
+    assert not inline_calls
     assert _detail(api_client, auth_headers, created["id"])["status"] == "succeeded"
 
 

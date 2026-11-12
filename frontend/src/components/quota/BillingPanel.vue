@@ -8,9 +8,78 @@
       :closable="false"
       class="billing-note"
     >
-      支付网关接入前的自助闭环：平台管理员线下收款后发「兑换码」，在这里兑换即时到账；
-      也可以选套餐下「对公转账订单」，平台管理员确认到账后同样自动写入额度。定价为示例价，签约以商务报价为准。
+      下单后可直接在本页自助完成支付：扫码支付即时到账；对公转账提交回单后，由平台核对回单真伪，核对通过即自动写入额度。
     </el-alert>
+
+    <!-- 当前用量与升级引导（v3.80 审查 D-19/D-20/D-21） -->
+    <div
+      v-if="usage"
+      class="usage-box"
+      data-billing-usage
+    >
+      <div class="usage-head">
+        <strong>当前额度水位</strong>
+        <span
+          v-if="usage.needs_attention"
+          class="usage-warn"
+        >已用 {{ usage.max_usage_percent }}%，建议尽快升级</span>
+        <span
+          v-else
+          class="muted"
+        >已用 {{ usage.max_usage_percent }}%</span>
+      </div>
+      <ul class="usage-metrics">
+        <li
+          v-for="m in usage.metrics"
+          :key="m.metric"
+        >
+          <span class="usage-label">{{ m.metric_label }}</span>
+          <span class="usage-value">
+            <template v-if="m.unlimited">
+              不限量（已用 {{ formatAmount(m.used) }}）
+            </template>
+            <template v-else>
+              {{ formatAmount(m.used) }} / {{ formatAmount(m.limit ?? 0) }} {{ m.unit }}
+            </template>
+          </span>
+          <el-progress
+            v-if="!m.unlimited"
+            :percentage="Math.min(100, m.usage_percent)"
+            :status="m.usage_percent >= 90 ? 'exception' : m.usage_percent >= 70 ? 'warning' : 'success'"
+            :stroke-width="6"
+            :show-text="false"
+          />
+        </li>
+      </ul>
+      <p
+        v-if="usage.anchor.based_on_calls > 0 && usage.anchor.calls_remaining > 0"
+        class="usage-anchor"
+      >
+        按近 {{ usage.window_days }} 天平均每次 {{ formatAmount(usage.anchor.tokens_per_call) }} Token 估算，
+        剩余额度约还能问 <strong>{{ usage.anchor.calls_remaining.toLocaleString() }}</strong> 次。
+      </p>
+      <div
+        v-if="recommendation?.recommended_name"
+        class="usage-recommend"
+      >
+        <el-tag
+          type="warning"
+          size="small"
+          effect="light"
+        >
+          升级建议
+        </el-tag>
+        <span class="usage-recommend-text">{{ recommendation.reason }}</span>
+        <el-button
+          size="small"
+          type="primary"
+          link
+          @click="jumpToPlan(recommendation.recommended_code)"
+        >
+          查看 {{ recommendation.recommended_name }}
+        </el-button>
+      </div>
+    </div>
 
     <!-- 套餐目录 -->
     <div class="plan-grid">
@@ -19,6 +88,7 @@
         :key="plan.code"
         class="plan-card"
         :class="{ booster: plan.kind === 'booster' }"
+        :data-plan="plan.code"
       >
         <div class="plan-head">
           <strong>{{ plan.name }}</strong>
@@ -27,7 +97,38 @@
         <p class="plan-tagline">
           {{ plan.tagline }}
         </p>
-        <ul class="plan-items">
+        <!-- 额度明细：卖什么一目了然（审查 D-18/D-21） -->
+        <ul
+          v-if="(plan.entitlement?.length ?? 0) > 0"
+          class="plan-quota"
+        >
+          <li
+            v-for="(e, i) in plan.entitlement"
+            :key="i"
+          >
+            <span class="plan-quota-label">{{ e.metric_label }}</span>
+            <span class="plan-quota-value">{{ formatAmount(e.total) }} {{ e.unit }}</span>
+            <span
+              v-if="!plan.one_off && e.base > 0"
+              class="plan-quota-base"
+            >（含环境基础 {{ formatAmount(e.base) }}）</span>
+          </li>
+        </ul>
+        <ul
+          v-if="(plan.highlights?.length ?? 0) > 0"
+          class="plan-items"
+        >
+          <li
+            v-for="(h, i) in plan.highlights"
+            :key="`h${i}`"
+          >
+            {{ h }}
+          </li>
+        </ul>
+        <ul
+          v-else-if="(plan.items?.length ?? 0) > 0"
+          class="plan-items"
+        >
           <li
             v-for="(item, i) in plan.items"
             :key="i"
@@ -39,6 +140,14 @@
           <el-button
             size="small"
             type="primary"
+            :loading="buyingPlan === plan.code"
+            :disabled="!canManage"
+            @click="buyNow(plan)"
+          >
+            立即开通
+          </el-button>
+          <el-button
+            size="small"
             :disabled="!canManage"
             @click="openRedeemWith(plan)"
           >
@@ -49,7 +158,7 @@
             :disabled="!canManage"
             @click="openOrderWith(plan)"
           >
-            对公下单
+            下单
           </el-button>
         </div>
       </div>
@@ -111,9 +220,19 @@
         </el-table-column>
         <el-table-column
           label=""
-          width="90"
+          width="150"
         >
           <template #default="{ row }">
+            <el-button
+              v-if="row.status === 'pending'"
+              size="small"
+              type="primary"
+              link
+              :loading="payingOrder === row.id"
+              @click="openPay(row as BillingOrder)"
+            >
+              去支付
+            </el-button>
             <el-button
               v-if="row.status === 'pending'"
               size="small"
@@ -245,11 +364,22 @@
             </template>
           </el-table-column>
           <el-table-column
-            prop="voucher_note"
-            label="凭证说明"
-            min-width="180"
+            label="凭证 / 回单"
+            min-width="200"
             show-overflow-tooltip
-          />
+          >
+            <template #default="{ row }">
+              <span>{{ row.voucher_note || '-' }}</span>
+              <el-tag
+                v-if="row.voucher_status"
+                size="small"
+                :type="row.voucher_status === 'manual' ? 'danger' : 'warning'"
+                style="margin-left: 6px"
+              >
+                {{ row.voucher_status === 'manual' ? '金额不符' : '回单待核验' }}
+              </el-tag>
+            </template>
+          </el-table-column>
           <el-table-column
             label=""
             width="110"
@@ -297,12 +427,12 @@
     <el-dialog
       v-model="orderOpen"
       append-to-body
-      :title="`对公转账下单 · ${activePlan?.name ?? ''}`"
+      :title="`下单 · ${activePlan?.name ?? ''}`"
       width="460px"
     >
       <p class="muted">
-        应付金额：¥{{ activePlan ? formatPrice(activePlan.price_yuan) : '-' }}。转账后填写回单号/银行流水，
-        平台管理员确认到账后额度自动写入。
+        应付金额：¥{{ activePlan ? formatPrice(activePlan.price_yuan) : '-' }}。
+        下单后可在订单列表点「去支付」完成付款；加油包请附转账凭证说明。
       </p>
       <el-input
         v-model="orderNote"
@@ -322,6 +452,157 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <!-- 支付对话框：扫码支付 / 对公转账回单 -->
+    <el-dialog
+      v-model="payOpen"
+      append-to-body
+      :title="`支付 · ${intent?.plan_name ?? ''}`"
+      width="460px"
+      destroy-on-close
+    >
+      <template v-if="intent">
+        <div class="pay-summary">
+          <span class="pay-amount">¥{{ formatPrice(intent.amount_yuan) }}</span>
+          <span class="muted">订单号 {{ intent.order_code }}</span>
+        </div>
+
+        <template v-if="intent.mode === 'qr'">
+          <div
+            v-if="qrDataUrl"
+            class="pay-qr"
+          >
+            <img
+              :src="qrDataUrl"
+              alt="支付二维码"
+            >
+          </div>
+          <ol class="pay-steps">
+            <li
+              v-for="(line, i) in intent.instructions"
+              :key="i"
+            >
+              {{ line }}
+            </li>
+          </ol>
+          <el-button
+            type="primary"
+            class="pay-primary"
+            :loading="busy"
+            @click="confirmSandboxPay"
+          >
+            我已完成支付
+          </el-button>
+        </template>
+
+        <template v-else>
+          <ol class="pay-steps">
+            <li
+              v-for="(line, i) in intent.instructions"
+              :key="i"
+            >
+              {{ line }}
+            </li>
+          </ol>
+          <el-form
+            label-position="top"
+            class="pay-form"
+          >
+            <el-form-item label="银行回单号">
+              <el-input
+                v-model="voucherNo"
+                placeholder="如 BANK-20261112-0001"
+                maxlength="64"
+              />
+            </el-form-item>
+            <el-form-item label="实际转账金额（元）">
+              <el-input-number
+                v-model="voucherAmount"
+                :min="0"
+                :precision="2"
+                :step="1"
+                style="width: 100%"
+              />
+            </el-form-item>
+          </el-form>
+          <el-alert
+            type="info"
+            :closable="false"
+            class="pay-hint"
+          >
+            回单提交后由平台核对真伪，核对通过后额度自动到账；请按实际转账金额填写（默认已填订单金额），金额不一致会标注并转人工核对。
+          </el-alert>
+          <el-button
+            type="primary"
+            class="pay-primary"
+            :loading="busy"
+            :disabled="!voucherNo.trim()"
+            @click="doSubmitVoucher"
+          >
+            提交回单
+          </el-button>
+        </template>
+      </template>
+      <template #footer>
+        <el-button @click="payOpen = false">稍后再付</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 到账权益反馈（付费后立刻告诉用户"你得到了什么"） -->
+    <el-dialog
+      v-model="settledOpen"
+      append-to-body
+      title="支付成功，额度已到账"
+      width="480px"
+    >
+      <p class="muted">
+        「{{ settledPlan?.name ?? '' }}」的额度已写入本小院，立即生效。
+      </p>
+      <!-- 新增额度 + 当前剩余 + 建议动作（审查 D-19：付费后的价值感知闭环） -->
+      <ul
+        v-if="settledPlan"
+        class="settled-items"
+      >
+        <li
+          v-for="(e, i) in settledPlan.entitlement ?? []"
+          :key="i"
+        >
+          {{ e.metric_label }}：共 {{ formatAmount(e.total, e.metric) }} {{ e.unit }}
+          <span
+            v-if="settledUsageMetric(e.metric)"
+            class="muted"
+          >（当前剩余 {{ formatAmount(settledUsageMetric(e.metric)!, e.metric) }} {{ e.unit }}）</span>
+        </li>
+      </ul>
+      <p
+        v-if="settledUsage?.anchor?.calls_remaining"
+        class="settled-anchor"
+      >
+        按近 {{ settledUsage.window_days }} 天平均单次消耗估算，新额度约还能问
+        <strong>{{ settledUsage.anchor.calls_remaining.toLocaleString() }}</strong> 次。
+      </p>
+      <p
+        v-if="recommendation?.recommended_name && recommendation.recommended_code !== settledPlan?.code"
+        class="settled-next"
+      >
+        当前消耗下 <strong>{{ recommendation.recommended_name }}</strong> 更从容，
+        <el-button
+          type="primary"
+          link
+          @click="settledOpen = false; jumpToPlan(recommendation.recommended_code)"
+        >
+          看看 {{ recommendation.recommended_name }}
+        </el-button>
+      </p>
+      <template #footer>
+        <el-button
+          type="primary"
+          @click="settledOpen = false"
+        >
+          知道了
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -333,11 +614,15 @@
    */
   import { computed, onMounted, ref } from 'vue'
   import { ElMessage } from 'element-plus'
+  import QRCode from 'qrcode'
   import {
     billingApi,
     type BillingCode,
     type BillingOrder,
     type BillingPlan,
+    type BillingRecommendation,
+    type BillingUsage,
+    type PaymentIntent,
   } from '@/api/modules'
   import { isNoResponseError } from '@/api/client'
   import { useAuthStore } from '@/stores/auth'
@@ -350,6 +635,11 @@
   const orders = ref<BillingOrder[]>([])
   const allOrders = ref<BillingOrder[]>([])
   const codes = ref<BillingCode[]>([])
+  // --- 用量口径与升级引导（v3.80 审查 D-19/D-20/D-21）---
+  const usage = ref<BillingUsage | null>(null)
+  const recommendation = ref<BillingRecommendation | null>(null)
+  // 到账瞬间的用量快照（刷新后用来展示"当前剩余"）
+  const settledUsage = ref<BillingUsage | null>(null)
 
   const activePlan = ref<BillingPlan | null>(null)
   const redeemOpen = ref(false)
@@ -358,11 +648,40 @@
   const orderNote = ref('')
   const busy = ref(false)
 
+  // --- 自助付费闭环（v3.79）---
+  const payOpen = ref(false)
+  const intent = ref<PaymentIntent | null>(null)
+  const qrDataUrl = ref('')
+  const voucherNo = ref('')
+  const voucherAmount = ref<number | null>(null)
+  const payingOrder = ref('')
+  const buyingPlan = ref('')
+  const settledOpen = ref(false)
+  const settledPlan = ref<BillingPlan | null>(null)
+
   const codePlan = ref('pro')
   const codeCount = ref(10)
 
   function formatPrice(value: number): string {
     return Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 0 })
+  }
+
+  /** 额度数字：Token 用千分位，算力金额保留两位小数 */
+  function formatAmount(value: number, metric?: string): string {
+    const num = Number(value) || 0
+    if (metric === 'cost') {
+      return num.toLocaleString('zh-CN', { maximumFractionDigits: 2 })
+    }
+    return num.toLocaleString('zh-CN', { maximumFractionDigits: 0 })
+  }
+
+  /** 滚到推荐档位的套餐卡（升级引导落地） */
+  function jumpToPlan(code: string | null | undefined): void {
+    if (!code) return
+    const el = document.querySelector(`[data-plan="${code}"]`)
+    if (el instanceof HTMLElement) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
   }
 
   function planName(code: string): string {
@@ -422,6 +741,17 @@
     } catch {
       /* 读不到就静默：面板不强依赖 */
     }
+    // 用量与升级引导独立加载：失败不影响套餐展示
+    try {
+      usage.value = await billingApi.usage()
+    } catch {
+      usage.value = null
+    }
+    try {
+      recommendation.value = await billingApi.recommendation()
+    } catch {
+      recommendation.value = null
+    }
   }
 
   async function doRedeem(): Promise<void> {
@@ -431,6 +761,108 @@
       const order = await billingApi.redeem(redeemCode.value.trim().toUpperCase())
       ElMessage.success(`兑换成功，「${planName(order.plan_code)}」额度已到账`)
       redeemOpen.value = false
+      await refresh()
+      showSettled(order.plan_code)
+    } catch {
+      /* 错误 toast 由拦截器统一提示 */
+    } finally {
+      busy.value = false
+    }
+  }
+
+  // --- 自助付费闭环（v3.79）-----------------------------------------------
+
+  function showSettled(planCode: string): void {
+    settledPlan.value = plans.value.find(p => p.code === planCode) ?? null
+    // 快照到账后的用量口径：权益卡上展示"当前剩余"用
+    settledUsage.value = usage.value
+    settledOpen.value = true
+  }
+
+  /** 到账后展示的"当前剩余"：按指标取用量口径里的 remaining */
+  function settledUsageMetric(metric: string): number | null {
+    const found = settledUsage.value?.metrics.find(m => m.metric === metric)
+    if (!found || found.remaining === null) return null
+    return found.remaining
+  }
+
+  /** 打开支付对话框：生成支付意图并按渠道渲染（扫码 / 转账）。 */
+  async function openPay(order: BillingOrder): Promise<void> {
+    payingOrder.value = order.id
+    try {
+      const next = await billingApi.createPayment(order.id)
+      intent.value = next
+      qrDataUrl.value = ''
+      voucherNo.value = ''
+      voucherAmount.value = order.price_yuan
+      payOpen.value = true
+      if (next.mode === 'qr' && next.qr_payload) {
+        qrDataUrl.value = await QRCode.toDataURL(next.qr_payload, { margin: 1, width: 200 })
+      }
+    } catch {
+      /* 错误 toast 由拦截器统一提示 */
+    } finally {
+      payingOrder.value = ''
+    }
+  }
+
+  /** 「立即开通」：下单 → 直接进入支付，一步到底。 */
+  async function buyNow(plan: BillingPlan): Promise<void> {
+    // 加油包必须附凭证说明（后端口径），走下单弹窗而不是直接支付
+    if (plan.kind === 'booster') {
+      openOrderWith(plan)
+      return
+    }
+    buyingPlan.value = plan.code
+    try {
+      const order = await billingApi.createOrder(plan.code)
+      await refresh()
+      await openPay(order)
+    } catch {
+      /* 错误 toast 由拦截器统一提示 */
+    } finally {
+      buyingPlan.value = ''
+    }
+  }
+
+  /** 沙箱收银台「我已完成支付」：走真实的公开回调端点，验证的是同一条链路。 */
+  async function confirmSandboxPay(): Promise<void> {
+    if (!intent.value) return
+    busy.value = true
+    try {
+      const { payload, notify_url } = await billingApi.sandboxPrepare(intent.value.order_id)
+      await billingApi.sandboxNotify(notify_url, payload)
+      ElMessage.success('支付成功，额度已到账')
+      payOpen.value = false
+      await refresh()
+      showSettled(intent.value.plan_code)
+    } catch {
+      /* 错误 toast 由拦截器统一提示 */
+    } finally {
+      busy.value = false
+    }
+  }
+
+  /**
+   * 对公转账回单提交：登记回单 + 金额预检。
+   * 到账由平台核验回单真伪后「确认到账」（2026-11-13 二次深审修正：
+   * 用户自报金额匹配即自动到账是可被伪造回单利用的荣誉制，已移除）。
+   */
+  async function doSubmitVoucher(): Promise<void> {
+    if (!intent.value || !voucherNo.value.trim()) return
+    busy.value = true
+    try {
+      const result = await billingApi.submitVoucher(
+        intent.value.order_id,
+        voucherNo.value.trim(),
+        voucherAmount.value ?? undefined,
+      )
+      if (result.amount_matched) {
+        ElMessage.success(result.message ?? '回单已提交，平台核对通过后额度自动到账')
+      } else {
+        ElMessage.warning(result.message ?? '回单金额与订单不一致，已标注转平台人工核对')
+      }
+      payOpen.value = false
       await refresh()
     } catch {
       /* 错误 toast 由拦截器统一提示 */
@@ -449,7 +881,7 @@
     busy.value = true
     try {
       await billingApi.createOrder(plan.code, orderNote.value.trim() || undefined)
-      ElMessage.success('订单已提交，等待平台管理员确认到账')
+      ElMessage.success('订单已提交，请在订单列表点「去支付」完成付款')
       orderOpen.value = false
       await refresh()
     } catch (err) {
@@ -581,6 +1013,119 @@
     font-size: 12.5px;
   }
 
+  /* --- 用量水位与升级引导（v3.80 审查 D-19/D-20/D-21）--- */
+  .usage-box {
+    border: 1px solid var(--ds-border, #e4e7ed);
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: var(--ds-bg-soft, #fafafa);
+  }
+
+  .usage-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    font-size: 13px;
+  }
+
+  .usage-warn {
+    color: var(--el-color-warning, #e6a23c);
+    font-size: 12.5px;
+  }
+
+  .usage-metrics {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .usage-metrics li {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .usage-label {
+    font-size: 12px;
+    color: var(--ds-text-2);
+  }
+
+  .usage-value {
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .usage-anchor {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--ds-text-2);
+  }
+
+  .usage-recommend {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 12.5px;
+  }
+
+  .usage-recommend-text {
+    flex: 1 1 240px;
+    color: var(--ds-text-2);
+  }
+
+  /* 套餐卡里的额度明细：卖什么一目了然 */
+  .plan-quota {
+    margin: 0 0 6px;
+    padding: 8px 10px;
+    list-style: none;
+    border-radius: 8px;
+    background: var(--ds-bg-soft, #f5f7fa);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .plan-quota li {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    flex-wrap: wrap;
+    font-size: 12.5px;
+  }
+
+  .plan-quota-label {
+    color: var(--ds-text-2);
+  }
+
+  .plan-quota-value {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .plan-quota-base {
+    color: var(--ds-text-3, #909399);
+    font-size: 11.5px;
+  }
+
+  .settled-anchor {
+    margin: 6px 0 0;
+    font-size: 12.5px;
+    color: var(--ds-text-2);
+  }
+
+  .settled-next {
+    margin: 6px 0 0;
+    font-size: 12.5px;
+  }
+
   .plan-actions {
     margin-top: auto;
     display: flex;
@@ -609,5 +1154,63 @@
     align-items: center;
     gap: 10px;
     margin-bottom: 10px;
+  }
+
+  /* --- 支付对话框 --- */
+  .pay-summary {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+
+  .pay-amount {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--ds-accent);
+  }
+
+  .pay-qr {
+    display: flex;
+    justify-content: center;
+    padding: 6px 0 12px;
+  }
+
+  .pay-qr img {
+    width: 200px;
+    height: 200px;
+    border-radius: 10px;
+    border: 1px solid var(--ds-border);
+    background: #fff;
+  }
+
+  .pay-steps {
+    margin: 0 0 14px;
+    padding-left: 20px;
+    color: var(--ds-text-2);
+    font-size: 13px;
+    line-height: 1.7;
+  }
+
+  .pay-form {
+    margin-top: 4px;
+  }
+
+  .pay-hint {
+    margin-bottom: 12px;
+    border-radius: 10px;
+  }
+
+  .pay-primary {
+    width: 100%;
+  }
+
+  .settled-items {
+    margin: 0;
+    padding-left: 20px;
+    color: var(--ds-text-2);
+    font-size: 13px;
+    line-height: 1.8;
   }
 </style>

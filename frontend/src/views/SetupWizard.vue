@@ -79,7 +79,7 @@
                 <span>密钥与令牌</span><b>secret.key · supplier.key · engine.instance.token</b>
               </div>
               <div class="kv">
-                <span>监听地址</span><b>{{ form.deployment === 'desktop' ? '127.0.0.1:18700' : '127.0.0.1:18700（本机安装器）' }}</b>
+                <span>监听地址</span><b>{{ localAddress }}</b>
               </div>
               <div class="kv">
                 <span>内置语音模型</span><b>随包安装（约 78 MB）</b>
@@ -488,6 +488,45 @@
                   清空
                 </button>
               </div>
+              <p
+                v-if="skillProfileLabels.length"
+                class="skill-hint"
+              >
+                已按你的产业画像（{{ skillProfileLabels.join('、') }}）预选 {{ skillRecommendedCount }} 个；其余技能随时可在技能库添加。
+              </p>
+              <div class="skill-tools">
+                <input
+                  v-model.trim="skillQuery"
+                  class="ctl skill-search"
+                  type="search"
+                  placeholder="搜索技能，如「病虫害」「灌溉」「PPT」"
+                >
+                <div class="chips">
+                  <button
+                    type="button"
+                    :class="['chip', 'btn-chip', { on: skillGroupFilter === 'all' }]"
+                    @click="skillGroupFilter = 'all'"
+                  >
+                    全部 {{ catalog.length }}
+                  </button>
+                  <button
+                    type="button"
+                    :class="['chip', 'btn-chip', { on: skillGroupFilter === 'recommended' }]"
+                    @click="skillGroupFilter = 'recommended'"
+                  >
+                    推荐 {{ skillRecommendedCount }}
+                  </button>
+                  <button
+                    v-for="g in skillGroups"
+                    :key="g.key"
+                    type="button"
+                    :class="['chip', 'btn-chip', { on: skillGroupFilter === g.key }]"
+                    @click="skillGroupFilter = g.key"
+                  >
+                    {{ g.label }} {{ g.total }}
+                  </button>
+                </div>
+              </div>
               <div
                 v-if="skillsLoading"
                 class="skill-loading"
@@ -498,24 +537,41 @@
                 v-else
                 class="skill-list"
               >
-                <label
-                  v-for="s in catalog"
-                  :key="s.code"
-                  :class="['skill-row', { on: selectedSkills.has(s.code) }]"
+                <template
+                  v-for="group in visibleSkillGroups"
+                  :key="group.key"
                 >
-                  <input
-                    type="checkbox"
-                    :checked="selectedSkills.has(s.code)"
-                    @change="toggleSkill(s.code)"
+                  <p
+                    v-if="group.label"
+                    class="skill-group"
                   >
-                  <span class="skill-txt"><b>{{ s.name }}</b><small>{{ s.description }}</small></span>
-                  <em class="pack">{{ s.pack }}</em>
-                </label>
+                    {{ group.label }} · {{ group.items.length }}
+                  </p>
+                  <label
+                    v-for="s in group.items"
+                    :key="s.code"
+                    :class="['skill-row', { on: selectedSkills.has(s.code) }]"
+                  >
+                    <input
+                      type="checkbox"
+                      :checked="selectedSkills.has(s.code)"
+                      @change="toggleSkill(s.code)"
+                    >
+                    <span class="skill-txt"><b>{{ s.name }}</b><small>{{ s.description }}</small></span>
+                    <span class="skill-tags">
+                      <em
+                        v-if="s.recommended"
+                        class="pack rec"
+                      >推荐</em>
+                      <em class="pack">{{ s.pack }}</em>
+                    </span>
+                  </label>
+                </template>
                 <p
-                  v-if="!catalog.length"
+                  v-if="!visibleSkillGroups.length"
                   class="skill-loading"
                 >
-                  没有可用技能，可先创建小院，稍后在技能库添加。
+                  没有匹配的技能，换个关键词或分类看看。
                 </p>
               </div>
             </div>
@@ -873,16 +929,26 @@
                 <i>内置技能</i><b>{{ done?.skill_count ?? selectedSkills.size }} 个已发布</b>
               </div>
               <div class="rr">
+                <i>默认助手</i><b>{{ done?.agent_count ?? 0 }} 个已发布，可直接提问</b>
+              </div>
+              <div class="rr">
                 <i>模型接入</i><b>{{ done?.model_configured ? '已写入并设为生效' : '稍后配置' }}</b>
               </div>
               <div class="rr">
-                <i>本地地址</i><b>http://127.0.0.1:18700</b>
+                <i>本地地址</i><b>{{ localUrl }}</b>
               </div>
               <div class="rr">
                 <i>审计</i><b>system_initialized 已记录</b>
               </div>
             </div>
             <div class="next-cards">
+              <button
+                type="button"
+                class="next-card accent"
+                @click="askFirstQuestion"
+              >
+                <b>去问一句</b><small>{{ sampleQuestion }}</small>
+              </button>
               <button
                 type="button"
                 class="next-card"
@@ -935,10 +1001,19 @@
             v-else
             id="setup-enter"
             type="button"
-            class="btn primary"
+            class="btn ghost"
             @click="enterWorkspace()"
           >
             进入工作台
+          </button>
+          <button
+            v-else
+            id="setup-ask"
+            type="button"
+            class="btn primary"
+            @click="askFirstQuestion"
+          >
+            去问一句
           </button>
         </footer>
       </section>
@@ -959,7 +1034,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { setupApi, type SetupInitializeResult, type SetupSkillItem, type SetupLlmProvider } from '@/api/setup'
+import { setupApi, type SetupInitializeResult, type SetupSkillGroup, type SetupSkillItem, type SetupLlmProvider } from '@/api/setup'
 import { useAuthStore } from '@/stores/auth'
 import { PROVINCES, PROVINCE_NAMES } from '@/utils/regions'
 import { APP_VERSION } from '@/utils/version'
@@ -1010,6 +1085,10 @@ const PROVIDERS = [
   { key: 'zhipu', label: '智谱 GLM', providerType: 'openai_compatible', url: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-plus' },
   { key: 'kimi', label: 'Kimi (Moonshot)', providerType: 'moonshot', url: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-8k' },
   { key: 'openai', label: 'OpenAI 兼容', providerType: 'openai', url: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
+  // 自定义：任何 OpenAI 兼容端点（含企业内网代理、聚合网关）。
+  // 此前下拉里只有 5 家known厂商，Agnes / OneAPI / vLLM / Ollama 这类
+  // 常见部署根本选不到，用户只能改配置文件绕过向导（审查 D-10）。
+  { key: 'custom', label: '自定义（OpenAI 兼容）', providerType: 'openai_compatible', url: '', model: '' },
 ]
 
 const WEAK_USERS = ['admin', 'root', 'system', 'administrator', 'platform_admin', 'test', 'guest', 'user', 'yard_admin']
@@ -1020,6 +1099,13 @@ const submitting = ref(false)
 const skillsLoading = ref(false)
 const catalog = ref<SetupSkillItem[]>([])
 const selectedSkills = ref<Set<string>>(new Set())
+const skillGroups = ref<SetupSkillGroup[]>([])
+const skillProfileLabels = ref<string[]>([])
+const skillRecommendedCount = ref(0)
+const skillQuery = ref('')
+const skillGroupFilter = ref<string>('all')
+/** 用户手动改过勾选后，不再用「推荐预选」覆盖他的选择 */
+const skillsTouched = ref(false)
 const done = ref<SetupInitializeResult | null>(null)
 const savedPwdAck = ref(false)
 const showPwd = ref(false)
@@ -1062,6 +1148,24 @@ const form = reactive({
 const provinceNames = PROVINCE_NAMES
 const cities = computed(() => (form.province ? PROVINCES[form.province] ?? [] : []))
 const locText = computed(() => [form.province, form.city, form.county].filter(Boolean).join(' · '))
+
+/**
+ * 本机实际访问地址。
+ *
+ * 桌面壳会在 18700-18710 里挑一个空闲端口（client/desktop/src-tauri/src/lib.rs
+ * 的 PORT_RANGE），此前向导把 `127.0.0.1:18700` 写死在 3 处，换端口就显示错
+ * 地址（审查 D-09）。这里改成读当前页面来源——桌面形态下界面正是由引擎自己
+ * 提供的，window.location 就是真值。
+ */
+const localAddress = computed(() => {
+  if (typeof window === 'undefined') return '127.0.0.1:18700'
+  const { hostname, port } = window.location
+  return port ? `${hostname}:${port}` : hostname
+})
+const localUrl = computed(() => {
+  if (typeof window === 'undefined') return 'http://127.0.0.1:18700'
+  return window.location.origin
+})
 const deployHint = computed(() => {
   if (form.deployment === 'desktop') return '单机桌面版固定只监听 127.0.0.1，不对外开放端口。'
   if (form.deployment === 'server') return '本安装器仍只准备本机数据；局域网多用户请在院内服务器上按部署文档另行安装。'
@@ -1094,7 +1198,7 @@ const summary = computed(() => {
       ? `本地模型 · ${form.ollamaModel || '未填'}`
       : `${PROVIDERS.find(p => p.key === form.cloudProvider)?.label ?? ''} · ${form.cloudModel || '未填模型'}`
   return [
-    { title: '安装形态', step: 1, rows: [['形态', deploy], ['监听地址', '127.0.0.1:18700']] },
+    { title: '安装形态', step: 1, rows: [['形态', deploy], ['监听地址', localAddress.value]] },
     { title: '管理员', step: 2, rows: [['登录账号', form.username || '未填写'], ['显示名', form.displayName || '未填写'], ['口令', '••••••••'], ['邮箱 / 手机', [form.email, form.phone].filter(Boolean).join(' · ') || '未填写']] },
     { title: '小院', step: 3, rows: [['名称', form.yardName || '未填写'], ['所在地', locText.value || '未填写'], ['产业画像', form.profileTypes.map(profileLabel).join('、') || '未选择'], ['培养单位', form.school || '未填写']] },
     { title: '能力与模型', step: 4, rows: [['内置技能', `${selectedSkills.value.size} 个`], ['联网搜索', form.searchEnabled ? '开' : '关'], ['智能体生成', `${form.agentGenerate ? '开' : '关'} · 每日 ${form.dailyLimit} 次`], ['模型接入', model]] },
@@ -1209,6 +1313,8 @@ function next(): void {
   }
   if (!validateStep(cur.value)) return
   cur.value = Math.min(7, cur.value + 1)
+  // 进入第 4 步时按当前产业画像刷新推荐预选（用户在第 3 步可能改过画像）
+  if (cur.value === 4) void loadSkills()
 }
 
 function prev(): void {
@@ -1227,15 +1333,87 @@ function toggleProfile(key: string): void {
   validateField('profiles')
 }
 
+/** 关键词 + 分类过滤后的技能（本地过滤，35 条目录无需服务端检索） */
+const filteredSkills = computed<SetupSkillItem[]>(() => {
+  const filter = skillGroupFilter.value
+  let items = catalog.value
+  if (filter === 'recommended') items = items.filter(s => s.recommended)
+  else if (filter !== 'all') items = items.filter(s => s.group === filter)
+  const q = skillQuery.value.trim().toLowerCase()
+  if (!q) return items
+  return items.filter(
+    s =>
+      s.name.toLowerCase().includes(q) ||
+      s.description.toLowerCase().includes(q) ||
+      s.pack.toLowerCase().includes(q) ||
+      s.keywords.some(k => k.toLowerCase().includes(q))
+  )
+})
+
+/** 按分类分组的可见技能（分类视图带分组标题，「推荐」视图不重复分组） */
+const visibleSkillGroups = computed<{ key: string; label: string; items: SetupSkillItem[] }[]>(() => {
+  if (skillGroupFilter.value === 'recommended') {
+    return [{ key: 'recommended', label: '', items: filteredSkills.value }]
+  }
+  const order = skillGroups.value.map(g => g.key)
+  const buckets = new Map<string, SetupSkillItem[]>()
+  for (const item of filteredSkills.value) {
+    const list = buckets.get(item.group) ?? []
+    list.push(item)
+    buckets.set(item.group, list)
+  }
+  return order
+    .filter(key => (buckets.get(key) ?? []).length)
+    .map(key => ({
+      key,
+      label: skillGroups.value.find(g => g.key === key)?.label ?? key,
+      items: buckets.get(key) ?? []
+    }))
+})
+
 function toggleSkill(code: string): void {
   const nextSet = new Set(selectedSkills.value)
   if (nextSet.has(code)) nextSet.delete(code)
   else nextSet.add(code)
   selectedSkills.value = nextSet
+  skillsTouched.value = true
 }
 
 function selectAllSkills(all: boolean): void {
-  selectedSkills.value = all ? new Set(catalog.value.map(s => s.code)) : new Set()
+  // 全选/清空只作用于**当前可见**的技能（搜索或分类过滤后），
+  // 否则用户筛到「农技」再点全选，会把看不见的 PPT 技能也一并勾上。
+  const visible = visibleSkillGroups.value.flatMap(g => g.items)
+  const nextSet = new Set(selectedSkills.value)
+  if (all) visible.forEach(s => nextSet.add(s.code))
+  else visible.forEach(s => nextSet.delete(s.code))
+  selectedSkills.value = nextSet
+  skillsTouched.value = true
+}
+
+/**
+ * 读取内置技能清单，并按第 3 步勾选的产业画像给出「推荐预选」。
+ * 审查 D-13：旧实现一次性返回 35 个技能并默认全选，县级农技小院看到的是
+ * 一片「PPT 模板与母版套用」这类不认识的名字。
+ */
+async function loadSkills(): Promise<void> {
+  skillsLoading.value = true
+  try {
+    const res = await setupApi.skills(form.profileTypes)
+    catalog.value = res.items
+    skillGroups.value = res.groups
+    skillProfileLabels.value = res.profile_labels
+    skillRecommendedCount.value = res.recommended_count
+    if (!skillsTouched.value) {
+      selectedSkills.value = new Set(res.recommended_codes)
+    }
+  } catch {
+    catalog.value = []
+    skillGroups.value = []
+    skillProfileLabels.value = []
+    skillRecommendedCount.value = 0
+  } finally {
+    skillsLoading.value = false
+  }
 }
 
 function generatePassword(): void {
@@ -1324,7 +1502,7 @@ async function submit(): Promise<void> {
     })
     createPercent.value = 100
     createStage.value = '写入完成，正在登录…'
-    auth.adoptSetupSession(result.access_token)
+    auth.adoptSetupSession(result.access_token, result.refresh_token)
     try {
       await auth.fetchMe()
     } catch {
@@ -1371,6 +1549,33 @@ function enterWorkspace(path = '/'): void {
   void router.replace(path)
 }
 
+/**
+ * 首问示例问题（审查 D-14）。
+ *
+ * 装完系统的第一分钟没有闭环：第 7 步只给了「进工作台 / 邀请成员 / 接入模型」
+ * 三个出口，**没有一个是「提个问题试试」**。小白装完的第一件事应该是
+ * 成功提一次问，所以这里按产业画像给一句可直接发送的示例问题，
+ * 跳到 /chat?q=... 后由对话页预填草稿。
+ */
+const SAMPLE_QUESTIONS: Record<string, string> = {
+  rice: '当前水稻田块的灌溉墒情怎么样？该不该补水？',
+  aquaculture: '今天的塘口水质和投喂要注意什么？',
+  fruit: '葡萄疏果期要注意什么？',
+  vegetable: '这茬蔬菜的病虫害怎么预防？',
+  tea: '当前茶园的采摘与施肥怎么安排？',
+  livestock: '今天猪舍的温湿度和饲喂该怎么调整？',
+  smart_agri: '本周小院最该先做的一件事是什么？',
+  general: '帮我梳理一下本周小院的工作要点。',
+}
+
+const sampleQuestion = computed(
+  () => SAMPLE_QUESTIONS[form.profileTypes[0]] ?? SAMPLE_QUESTIONS.general,
+)
+
+function askFirstQuestion(): void {
+  void router.replace({ path: '/chat', query: { q: sampleQuestion.value } })
+}
+
 onMounted(async () => {
   try {
     const st = await setupApi.status()
@@ -1383,9 +1588,7 @@ onMounted(async () => {
   }
   skillsLoading.value = true
   try {
-    const res = await setupApi.skills()
-    catalog.value = res.items
-    selectedSkills.value = new Set(res.items.map(s => s.code))
+    await loadSkills()
   } catch {
     catalog.value = []
   } finally {
@@ -1544,12 +1747,19 @@ select.ctl { appearance: none; }
 .yard-card p { font-size: 11.5px; color: var(--ds-text-2); line-height: 1.6; margin-top: 8px; }
 
 .skill-list { max-height: 240px; overflow: auto; padding: 6px 8px; }
+.skill-hint { margin: 0; padding: 10px 15px; font-size: 11.5px; color: var(--ds-text-3); line-height: 1.55; border-bottom: 1px solid var(--ds-border); }
+.skill-tools { display: flex; flex-direction: column; gap: 10px; padding: 12px 15px; border-bottom: 1px solid var(--ds-border); }
+.skill-tools .chips { margin-top: 0; }
+.skill-search { width: 100%; height: 34px; }
+.skill-group { margin: 10px 4px 4px; font-size: 10.5px; letter-spacing: .04em; color: var(--ds-text-3); text-transform: none; }
 .skill-row { display: grid; grid-template-columns: 16px 1fr auto; gap: 10px; align-items: start; padding: 8px; border-radius: 8px; cursor: pointer; }
 .skill-row:hover { background: rgba(255, 255, 255, .05); }
 .skill-row input { margin-top: 3px; accent-color: var(--ds-accent); }
 .skill-txt b { display: block; font-size: 12.5px; font-weight: 500; }
 .skill-txt small { display: block; font-size: 11px; color: var(--ds-text-3); margin-top: 1px; line-height: 1.45; }
+.skill-tags { display: inline-flex; align-items: center; gap: 6px; }
 .skill-row .pack { font-style: normal; font-size: 10px; color: var(--ds-text-3); border: 1px solid var(--ds-border); border-radius: 999px; padding: 1px 7px; }
+.skill-row .pack.rec { color: var(--ds-accent); border-color: color-mix(in srgb, var(--ds-accent) 45%, var(--ds-border)); }
 .skill-row.on { background: color-mix(in srgb, var(--ds-accent) 12%, transparent); }
 .skill-loading { padding: 16px; font-size: 12px; color: var(--ds-text-3); }
 
@@ -1616,11 +1826,14 @@ select.ctl { appearance: none; }
 .receipt .rr { display: flex; gap: 10px; font-size: 11.5px; padding: 3px 0; color: var(--ds-text-2); }
 .receipt .rr i { font-style: normal; color: var(--ds-text-3); min-width: 56px; }
 .receipt .rr b { font-weight: 500; color: var(--ds-text-1); font-family: var(--mono, monospace); font-size: 11px; overflow-wrap: anywhere; }
-.next-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.next-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
 .next-card { text-align: left; border: 1px solid var(--ds-border); border-radius: 12px; padding: 13px; background: rgba(255, 255, 255, .035); display: flex; flex-direction: column; gap: 5px; }
 .next-card:hover { border-color: color-mix(in srgb, var(--ds-accent) 45%, transparent); background: color-mix(in srgb, var(--ds-accent) 12%, transparent); }
 .next-card b { font-size: 12.5px; }
 .next-card small { font-size: 11px; color: var(--ds-text-3); line-height: 1.5; }
+/* 首问闭环（审查 D-14）：第一张卡是「去问一句」，视觉上要比其余出口更突出 */
+.next-card.accent { border-color: color-mix(in srgb, var(--ds-accent) 55%, transparent); background: color-mix(in srgb, var(--ds-accent) 14%, transparent); }
+.next-card.accent b { color: var(--ds-accent); font-weight: 600; }
 
 .actionbar { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; padding: 13px 24px 14px; border-top: 1px solid var(--ds-border); }
 .btn { height: 38px; padding: 0 17px; border-radius: 10px; font-size: 13px; font-weight: 550; border: 1px solid var(--ds-border); background: rgba(255, 255, 255, .045); color: var(--ds-text-1); }

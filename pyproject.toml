@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tech-yard-platform"
-version = "3.78.1"
+version = "3.80.0"
 description = "科技小院多智能体自生长开发平台"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -50,6 +50,9 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+  "postgres: 需要真实 PostgreSQL + pgvector 的用例（CI: postgres-integration job；非 PG 环境自动 skip）",
+]
 
 [tool.ruff]
 target-version = "py312"

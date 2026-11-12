@@ -51,7 +51,7 @@ def _ctx(user_id: str, roles: list[str] | None = None) -> YardContext:
 
 def test_private_memory_only_visible_to_owner(db, monkeypatch):
     # 用二维确定性向量替换真实 embedding，测试只验证边界与排序逻辑
-    monkeypatch.setattr(memory_service, "_embed", lambda _text: [1.0, 0.0])
+    monkeypatch.setattr(memory_service, "_embed", lambda _text, *_: [1.0, 0.0])
     memory_service.write_memory(
         db,
         yard_id="yard-memory",
@@ -72,7 +72,7 @@ def test_private_memory_only_visible_to_owner(db, monkeypatch):
 
 
 def test_yard_summary_visible_to_members(db, monkeypatch):
-    monkeypatch.setattr(memory_service, "_embed", lambda _text: [1.0, 0.0])
+    monkeypatch.setattr(memory_service, "_embed", lambda _text, *_: [1.0, 0.0])
     memory_service.write_memory(
         db,
         yard_id="yard-memory",
@@ -91,7 +91,7 @@ def test_yard_summary_visible_to_members(db, monkeypatch):
 
 
 def test_keyword_fallback_when_embedding_unavailable(db, monkeypatch):
-    monkeypatch.setattr(memory_service, "_embed", lambda _text: None)
+    monkeypatch.setattr(memory_service, "_embed", lambda _text, *_: None)
     memory_service.write_memory(
         db,
         yard_id="yard-memory",
@@ -110,7 +110,7 @@ def test_keyword_fallback_when_embedding_unavailable(db, monkeypatch):
 
 
 def test_run_episode_is_idempotent(db, monkeypatch):
-    monkeypatch.setattr(memory_service, "_embed", lambda _text: [1.0, 0.0])
+    monkeypatch.setattr(memory_service, "_embed", lambda _text, *_: [1.0, 0.0])
     run = CommanderRun(
         yard_id="yard-memory",
         session_id="s1",
@@ -167,7 +167,7 @@ def run_subtasks(db, run_id: str):
 
 
 def test_daily_summary_is_idempotent(db, monkeypatch):
-    monkeypatch.setattr(memory_service, "_embed", lambda _text: [1.0, 0.0])
+    monkeypatch.setattr(memory_service, "_embed", lambda _text, *_: [1.0, 0.0])
     day = datetime(2026, 11, 1, 10, 0, tzinfo=UTC)
     run = CommanderRun(
         yard_id="yard-memory",
@@ -237,7 +237,7 @@ def test_format_for_prompt_marks_untrusted_boundary():
 
 
 def test_delete_private_memory_requires_owner_or_manager(db, monkeypatch):
-    monkeypatch.setattr(memory_service, "_embed", lambda _text: [1.0, 0.0])
+    monkeypatch.setattr(memory_service, "_embed", lambda _text, *_: [1.0, 0.0])
     row = memory_service.write_memory(
         db,
         yard_id="yard-memory",
@@ -257,3 +257,42 @@ def test_delete_private_memory_requires_owner_or_manager(db, monkeypatch):
     memory_service.delete_memory(db, _ctx("u2", roles=["yard_owner"]), row.id)
     db.commit()
     assert row.status == "deleted"
+
+
+class _SyncOnlyEmbedding:
+    """只有同步 embed、没有 embed_async 的提供方（MockEmbeddingProvider 同款）。
+
+    回归锚点：`_embed_async` 曾把下标写在 await 之前
+    （`await asyncio.to_thread(...)[0]`），coroutine 不可下标 → TypeError 被
+    except 吞成 None，异步检索在本类提供方下静默退化为纯关键词。
+    """
+
+    model = "sync-only-embed"
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        # 与查询/正文零词面重叠的强向量：只有向量路径真的生效才会命中
+        return [[1.0, 0.0] for _ in texts]
+
+
+async def test_retrieve_async_thread_pool_fallback_returns_vectors(db, monkeypatch):
+    """无 embed_async 的提供方走 to_thread 回退时，向量必须真实参与检索。"""
+    monkeypatch.setattr(
+        memory_service, "get_embedding_provider", lambda *_a, **_k: _SyncOnlyEmbedding()
+    )
+    memory_service.write_memory(
+        db,
+        yard_id="yard-memory",
+        scope_type=SCOPE_YARD,
+        scope_key="",
+        kind="fact",
+        title="灌溉要点",
+        content="紫罗兰色滤镜偏好备忘",  # 与查询零词面重叠
+        visibility=VISIBILITY_YARD,
+        created_by="u1",
+    )
+    db.commit()
+
+    hits = await memory_service.retrieve_async(db, _ctx("u1"), "PPT 模板")
+
+    assert hits, "异步检索必须拿到向量结果（回归：此前恒为空并静默退化）"
+    assert hits[0].score > 0

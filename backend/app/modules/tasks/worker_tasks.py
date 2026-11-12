@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
 from app.workers.celery_app import celery_app
+from app.workers.heartbeat import ROLE_INLINE_API, ROLE_WORKER
 
 log = get_logger(__name__)
 
@@ -121,14 +122,25 @@ def _await_review_task(db: Session, task_id: str, approval_id: str | None) -> No
 
 @celery_app.task(name="tasks.execute", bind=True)
 def execute_task(self, task_id: str) -> None:
-    """Celery 入口：委托给 run_task_inline。"""
-    run_task_inline(task_id)
+    """Celery 入口：委托给 run_task_inline。
+
+    跑在**真实 Celery worker 进程**里，因此心跳按 worker 角色写。
+    """
+    run_task_inline(task_id, role=ROLE_WORKER)
 
 
-def run_task_inline(task_id: str) -> None:
+def run_task_inline(task_id: str, *, role: str = ROLE_INLINE_API) -> None:
     """执行单个任务：queued → running → succeeded/failed，全程写事件。
 
     与 Celery 解耦的纯函数；纯本机模式（无 Redis）下由 API 进程的后台线程直接调用。
+
+    ``role`` 决定心跳写哪个键：
+
+    - ``ROLE_WORKER``——由 Celery worker 进程执行（``execute_task``），写 worker 心跳键；
+    - ``ROLE_INLINE_API``——由 **API 进程**的后台线程执行（同步兜底路径），
+      写独立的内联心跳键。它不是 worker，写进 worker 心跳键会造成
+      "有活 worker"的假阳性，让知识库看门狗把兜底阈值从 180s 拉到 600s，
+      文档实打实多等十分钟（审查 D-03 场景 C）。
     """
     from app.core.errors import AppError
     from app.modules.tasks import handlers  # noqa: F401 - 触发各模块处理器注册
@@ -136,12 +148,15 @@ def run_task_inline(task_id: str) -> None:
     from app.modules.tasks.handlers import TASK_HANDLERS
     from app.modules.tasks.models import Task
     from app.modules.tasks.service import TaskService
-    from app.workers.heartbeat import mark_worker_alive
+    from app.workers.heartbeat import mark_inline_alive, mark_worker_alive
 
     db = _get_session_factory()()
     try:
-        # worker 领取任务即刷新心跳（规范 §18.4；内部吞异常，不影响任务执行）
-        mark_worker_alive()
+        # 执行任务即刷新心跳（规范 §18.4；内部吞异常，不影响任务执行）。
+        if role == ROLE_WORKER:
+            mark_worker_alive()
+        else:
+            mark_inline_alive()
 
         task = db.get(Task, task_id)
         if task is None:

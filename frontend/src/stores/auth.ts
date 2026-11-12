@@ -33,12 +33,19 @@ export const useAuthStore = defineStore('auth', () => {
    * 初始化向导完成后接管登录态（v3.72 修复）：/setup/initialize 返回的
    * access_token 直接写入本机，并立刻把"已初始化"标记置真，避免路由守卫
    * 用缓存的 false 把用户再次弹回 /setup。
-   * 该接口不下发 refresh_token，故清掉旧刷新令牌，过期后走正常登录即可。
+   * v3.79：后端同时下发 refresh_token（审查 D-16），这里一并落盘，
+   * access token 过期后自动续期，管理员不必在 30 分钟后被踢回登录页
+   * （那个口令刚在向导第 6 步让用户「妥善保存」过）。旧后端不返回时
+   * 仍按原逻辑清掉旧刷新令牌。
    */
-  function adoptSetupSession(accessToken: string) {
+  function adoptSetupSession(accessToken: string, refreshToken?: string) {
     token.value = accessToken
     localStorage.setItem(TOKEN_KEY, accessToken)
-    localStorage.removeItem(REFRESH_TOKEN_KEY)
+    if (refreshToken) {
+      localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken)
+    } else {
+      localStorage.removeItem(REFRESH_TOKEN_KEY)
+    }
     setupInitialized.value = true
     setupChecked.value = true
   }

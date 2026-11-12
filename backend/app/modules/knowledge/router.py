@@ -109,7 +109,7 @@ def reparse_document(
     db=Depends(get_db_session),
     ctx: YardContext = Depends(get_yard_context),
 ):
-    """重新解析失败的文档（权限 knowledge:write，仅 status=failed 可调）。"""
+    """重新解析文档（权限 knowledge:write；failed/queued/processing 可调，ready 拒绝）。"""
     data = service.reparse_document(
         db, ctx, document_id, request_id=getattr(request.state, "request_id", "")
     )

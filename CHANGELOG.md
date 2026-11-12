@@ -2,6 +2,136 @@
 
 本项目遵循《工程开发规范 V3.0》；版本号遵循语义化版本。
 
+## [3.80.0] - 2026-11-13
+
+五维审查（资深开发工程师 / 资深产品经理 / 重度用户 / 小白用户 / 资深运营经理）报告的
+**全面修复批次**：22 个缺陷 D-01 ~ D-22 全部修复并通过端到端验证；
+修复过程中由回归验证二次抓出 D-03 的第二层根因（worker 心跳缺少身份）并一并修掉。
+改动规模 54 文件修改（+3646 / −272）+ 15 文件新增。
+
+**P0**
+
+- **D-01 PostgreSQL 下知识库 / 记忆检索 500**：pgvector 列读回是 `numpy.ndarray`，
+  `if not vec:` 触发 numpy 的真值歧义 ValueError；SQLite 读回普通 list 故测试全绿，
+  **生产库从未被测过**。新增 `db/base.py::is_empty_vector()` 统一判空，
+  `knowledge/service.py`、`memory/service.py` 全部改用。
+- **D-02 macOS / Windows 上 Celery 全部后台任务静默失败**：Celery 5.x 的
+  `fast_trace_task` 依赖模块级 `trace._localized`；fork 子进程继承父进程内存天然有值，
+  **spawn 子进程重新 import celery 则是空的** → 每个任务抛
+  `ValueError: not enough values to unpack` → 全线静默失败。属上游缺陷
+  （Celery 自己在 `prefork.py` 里写的是旧版入口 `trace._tasks`），只能在应用侧兜：
+  新增 `_populate_trace_localized()` + `@worker_process_init` 钩子在 spawn 子进程
+  初始化时补齐，`use_fast_trace_task` 改为按运行时状态计算。
+- **D-03 知识解析永久卡 `queued`**：`knowledge/service.py::_dispatch_parse` 是全后端
+  唯一 `.delay()` 点，而 knowledge 是**唯一没有 `tasks_inline_mode` 分支**的异步模块——
+  桌面端不启 worker，`.delay()` 投递成功、消息永远躺着。补 inline 分支；
+  并新增 `parse_watchdog.py` 看门狗覆盖「broker 可达但无 worker 消费」的残留场景
+  （按文档状态判定而非按投递成功判定；兜底走**本机解析**而非重新投递；
+  `claim_document` 用条件 UPDATE 做 **CAS 幂等抢占**；`processing` 停超 900s 判僵尸自动重排队；
+  新增只读探针 `GET /health/knowledge`）。
+- **D-17 自助付费闭环断在「人工」上（商业阻断）**：新增 `billing/payment.py`
+  （Provider 协议 + 沙箱 / 微信 / 支付宝 / 对公回单）、**HMAC-SHA256 回调验签**、
+  **幂等结算**（CAS + `granted_at IS NULL` + `payment_trade_no` 唯一索引三重保证）、
+  对公回单**自助提交**（金额预检 + 平台核验后确认到账；见下方「二次深审修正」）。
+
+**P1**
+
+- **D-05 / D-22 指挥官总览在生产库 500**：`func.coalesce(purpose, "platform")` 的
+  第二个参数渲染成**绑定参数** → PG 报 `column must appear in the GROUP BY clause`。
+  改用 `literal_column("'platform'")`，且 **select 与 group_by 必须复用同一表达式对象**
+  （否则渲染成两个不同绑定参数，问题依旧）。
+- **D-06 视频生成与 Agnes 不兼容 + `default_params` 无人消费**：补 `mode`（图生视频下发
+  `image_to_video`，纯文生视频**不下发**以免兼容网关 400）、打通 `size` 与
+  `default_params`（`style`/`seed`）真实下发。
+- **D-08 移动端完全不可用**：4 个页面 375px 横向溢出（chat 576 / home 550 /
+  knowledge 576 / model-center 676）→ 响应式布局改造后**全部 375 = clientWidth，零溢出**。
+- **D-11 / D-15 中文界面漏出英文 `queued` / `ready`**：`utils/status.ts` 按后端真实取值
+  （`uploaded|queued|processing|ready|failed`）补齐，保留旧 key 兼容历史数据。
+- **D-13 向导 35 个技能全是 PPT 类**：新增 `setup/skill_catalog.py`——`SKILL_META` 目录 +
+  `recommend_codes()` 按产业画像推荐 + `build_payload()`；推荐上限 24；
+  **PPT 专项永不自动预选**。实测全量 35 → 按「应时鲜果」预选 17，PPT 专项预选 0。
+- **D-18 套餐硬编码、无运营可配置性**：套餐入库（迁移 0086），
+  新增运营面板 `PlanAdminPanel.vue`（改价 / 卖点 / 上下架），改价立即生效。
+- **D-19 付费后无价值感知闭环**：新增 `billing/usage.py` 的 `usage_summary()` 与
+  `recommendation()`——额度水位（已用/总量/百分比）+ 按近 30 天实际消耗给出的升级触发器。
+
+**P2**
+
+- **D-04** 卡 `queued` 的文档无法重解析（死路）→ 放开重解析入口。
+- **D-07** mock embedding 相似度 0.09~0.14 < 阈值 0.25 → 默认安装知识库近乎不可用：
+  新增 `retrieval_min_score_mock`（0.10），**用户显式设置 `RETRIEVAL_MIN_SCORE` 时一律尊重用户值**。
+- **D-09 / D-10** 向导去掉硬编码 `127.0.0.1:18700`；供应商下拉补「自定义」。
+- **D-12** 前后端契约自动校验：`api/modules.ts` 类型化 API 层 + OpenAPI 契约重生成无漂移。
+- **D-14 / D-16** 向导后「马上试一下」闭环；`/setup/initialize` 一并下发 `refresh_token`，
+  前端落盘并在过期时自动续期。
+- **D-20 / D-21** 提额申请补量化引导；用量口径与定价口径统一，套餐 `entitlement`
+  显式声明 Token 用量 / 调用次数 / 金额三元。
+
+**回归中二次发现的新根因（D-03 第二层）**
+
+看门狗赖以判断「有没有活 worker」的心跳信号**本身缺少身份**，导致 API 进程自己冒充
+worker（`run_task_inline()` 在 API 进程内调用了 `mark_worker_alive()`），
+且 worker 连错数据库时与健康 worker 无法区分 → 兜底阈值被从 180s **错误拉长到 600s**，
+文档实打实多等十分钟。修复：`workers/heartbeat.py` 重写为身份化心跳
+`{"ts","role":"celery_worker|inline_api","db":"<库指纹>"}`（库指纹 = sha256，不含口令，
+**只比数据库身份不比驱动串**）；内联执行器改写独立键；`run_task_inline(task_id, role=…)`
+按调用方区分；看门狗只认 `role=celery_worker` **且** 库指纹与本进程一致。
+现场实证：worker 库 `5d4a8ed57867` ≠ API 库 `f04d7e43e140` →
+`reason=worker_on_other_database`、`usable=false` → 文档 **48s 闭环**（修复前 600s+ / 永久卡死）。
+
+**工程与 CI**
+
+- **新增 `postgres-integration` CI job**（pgvector/pg17 → 专用库 `techyard_test` →
+  alembic upgrade → 扩展校验 → 跑真实链路 → downgrade/upgrade → 复跑）。
+  此前 CI 的**全部**单测都跑在 SQLite 内存库上，这正是三个 P0 只在生产库复现的根因。
+- `tests/conftest.py` 严格隔离：**只连专用测试库**（`TEST_DATABASE_URL` 优先，
+  或库名以 `_test` 结尾），绝不 truncate 开发者主库。
+- 新增 `GET /health/knowledge` 只读探针；体检新增「worker 与 API 连的库不一致」告警。
+
+**验证**：主端到端回归 **21 ✅ / 0 ⚠️ / 0 ❌**（真实 PostgreSQL + pgvector + 真实
+Agnes AI 多模态模型 + 真实 Chromium 375px）；补充回归 **14 ✅ / 0 ⚠️ / 0 ❌**；
+后端全量单测 **2650 passed / 0 skipped / 0 failed**（428.39s，接真实 PG 测试库）；
+`ruff check` / `ruff format --check`（726 文件）全过；`vue-tsc --noEmit` exit=0；
+`scripts/check_ui_standards.py` 通过；OpenAPI 契约重生成幂等、无漂移；
+`scripts/check_versions.py` 版本一致 3.80.0（9 处）。
+详细证据见 `review-artifacts/科技小院平台-v3.80-修复后回归验证报告.md`，
+改动全量说明见仓库根目录 `v3.80改动说明.md`。
+
+**二次深审修正（2026-11-13，提交前全量复审）**
+
+首轮修复完成后的代码级复审又发现 2 个 P1、5 个 P2、3 个 P3，全部在本版内修掉：
+
+- **P1 异步记忆检索回退路径必然抛错**：`memory/service.py::_embed_async` 把下标
+  写在 `await` 之前（`await asyncio.to_thread(...)[0]`），coroutine 不可下标 →
+  TypeError 被 except 吞成 None——无 `embed_async` 的提供方（Mock/自定义）在
+  指挥官等异步链路里向量信号恒为空、静默退化为纯关键词。已修并补
+  `retrieve_async` 回归用例（零词面重叠强向量，只认向量路径会命中）。
+- **P1 回单"自动核销"是荣誉制（安全）**：`submit_voucher` 此前「用户自报金额
+  匹配即自动到账」，伪造任意回单号即可零成本拿任意套餐。现改为：提交只登记
+  回单号（防重号）+ 金额预检（提示），订单保持 pending，由平台核验回单真伪后
+  「确认到账」入账；运营订单表新增回单状态标注；前后端文案全部改为如实表述。
+- **P2 解析代数计数器**：看门狗僵尸回收/人工重解析把 `processing` 重置回
+  `queued` 时，上一个执行者可能还活着——旧实现收尾无条件写切块会与新一代
+  解析并发交错。新增 `knowledge_documents.parse_attempt`（迁移 0087），
+  claim 时自增，收尾与失败标记带 `WHERE parse_attempt = 抢到的代数`，
+  被超越者静默让位（不写切块不写轨迹，避免双计费）。
+- **P2 支付渠道一致性校验**：`create_payment_intent` 拒绝与部署配置不一致的
+  渠道（manual 部署传 sandbox 不再创建意图、不污染 `order.payment_provider`）。
+- **P2 看门狗 `_started` 虚报**：inline/禁用路径不再把探针标成 running
+  （存活信号假阳性正是 D-03 第二层教训的重演）。
+- **P2 体检 api_db 键名**：worker_on_other_database 告警此前取不存在的
+  `api_db` 键显示 None，改为现场计算 API 侧库指纹。
+- **P2 用量聚合下沉 SQL**：`billing/usage.py` 的 30 天用量从全量拉行内存累加
+  改为单行聚合（重度小院十万级调用不再拖慢付费页）。
+- **P2/P3 支付面收口**：0 元套餐从源头拦截（改价与下单双闸，免费发放走兑换码）；
+  `payment_trade_no` 唯一索引补齐 ORM 声明（create_all 新装库与迁移路径同权）；
+  `list_providers().available` 语义修正为"本部署真的可用"；新增
+  回单/回调/渠道/0 元 5 条集成测试与 error-codes 新码。
+
+> 顺带更正：首轮深审曾把「生产禁沙箱只是 doctor 复核」列为遗留项——复核确认
+> `lifespan` → `enforce_runtime_safety()` 已在生产启动时强制（阻断项直接拒绝
+> 启动），无需改动。
+
 ## [3.78.1] - 2026-11-11
 
 近 3 天改动（v3.73→v3.78，200 文件）全量审计的修复批次：逐提交核对需求完整性、回归面、链路冲突、性能与巨石代码，发现 3 处功能性错误与 3 处清理项，全部修复并验证。

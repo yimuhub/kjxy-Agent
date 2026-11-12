@@ -100,6 +100,16 @@ def _startup_wiring() -> None:
         except Exception as e:
             log.warning("inline schedulers start failed: %s", e)
 
+        # 知识库解析看门狗（审查 D-03 残留场景）：broker 可达但无 worker 消费时，
+        # 文档会永久卡在 queued 且无任何报错。看门狗按文档状态判定并本机兜底解析。
+        # 桌面单机模式（TASKS_INLINE_MODE）不启动：解析从不进队列，不存在此场景。
+        try:
+            from app.modules.knowledge.parse_watchdog import start_parse_watchdog
+
+            start_parse_watchdog()
+        except Exception as e:
+            log.warning("knowledge parse watchdog start failed: %s", e)
+
         db = SessionLocal()
         try:
             seed_builtin_tools(db)
@@ -202,7 +212,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="科技小院多智能体平台", version="3.78.1", lifespan=lifespan)
+    app = FastAPI(title="科技小院多智能体平台", version="3.80.0", lifespan=lifespan)
     app.add_middleware(RequestIDMiddleware)
     app.add_exception_handler(AppError, app_error_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)
@@ -239,6 +249,16 @@ def create_app() -> FastAPI:
         from app.workers.heartbeat import worker_heartbeat_status
 
         return worker_heartbeat_status()
+
+    @app.get("/health/knowledge", tags=["health"])
+    def knowledge_health():
+        """知识库解析看门狗状态（运维排查：文档为何卡在 queued）。
+
+        只读探针，不改变任何状态。
+        """
+        from app.modules.knowledge.parse_watchdog import watchdog_status
+
+        return watchdog_status()
 
     @app.get("/metrics", include_in_schema=False)
     def metrics_endpoint():

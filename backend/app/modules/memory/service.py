@@ -8,6 +8,7 @@ P0 只做「能用的记忆闭环」，不追求全量向量化：
 
 from __future__ import annotations
 
+import asyncio
 import math
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -19,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import YardContext
 from app.core.logging import get_logger
+from app.db.base import is_empty_vector
 from app.modules.commander.models import CommanderRun, CommanderSubtask
 from app.modules.knowledge.chunking import estimate_token_count
 from app.modules.knowledge.embedding import get_embedding_provider
@@ -138,12 +140,41 @@ def _recency_score(created_at: datetime | None, now: datetime | None = None) -> 
     return math.exp(-days / 45.0)
 
 
-def _embed(text: str) -> list[float] | None:
+def _embed(text: str, db: Session | None = None, yard_id: str | None = None) -> list[float] | None:
     text = (text or "").strip()
     if not text:
         return None
     try:
-        return list(get_embedding_provider().embed([text])[0])
+        provider = get_embedding_provider(db, yard_id)
+        return list(provider.embed([text])[0])
+    except Exception as exc:  # noqa: BLE001 - 向量不可用时记忆仍要可用
+        log.warning("memory embedding unavailable: %s", exc)
+        return None
+
+
+async def _embed_async(
+    text: str,
+    db: Session | None = None,
+    yard_id: str | None = None,
+) -> list[float] | None:
+    """异步上下文的向量计算：HTTP 调用不阻塞事件循环（审查 h）。
+
+    指挥官链路是 async 的，此前在这里跑同步 httpx.post，一次向量请求就把
+    整个 Worker 的并发堵住。这里优先用提供方的异步实现；没有则丢线程池。
+    """
+    text = (text or "").strip()
+    if not text:
+        return None
+    try:
+        provider = get_embedding_provider(db, yard_id)
+        embed_async = getattr(provider, "embed_async", None)
+        if callable(embed_async):
+            return list((await embed_async([text]))[0])
+        # await 与下标的先后不能颠倒：[0] 必须作用在 await 的结果（向量列表）上。
+        # 此前写成 `await asyncio.to_thread(...)[0]`，下标落在 coroutine 对象上
+        # 直接 TypeError 且被 except 吞成 None——异步记忆检索在无 embed_async
+        # 的提供方（Mock/自定义）下静默退化为纯关键词。
+        return list((await asyncio.to_thread(provider.embed, [text]))[0])
     except Exception as exc:  # noqa: BLE001 - 向量不可用时记忆仍要可用
         log.warning("memory embedding unavailable: %s", exc)
         return None
@@ -195,34 +226,43 @@ def _base_query(db: Session, ctx: YardContext, *, agent_code: str | None = None)
     )
 
 
-def retrieve(
+def _candidate_rows(
     db: Session,
     ctx: YardContext,
-    query: str,
     *,
-    top_k: int = 5,
-    token_budget: int = 800,
-    agent_code: str | None = None,
-    kinds: list[str] | None = None,
-    mark_used: bool = True,
-) -> list[MemoryHit]:
-    """检索当前用户可读的记忆；向量失败时退回关键词排序，不抛错。"""
-    query = (query or "").strip()
-    top_k = max(1, min(int(top_k or 5), 10))
-    token_budget = max(120, min(int(token_budget or 800), 4000))
+    agent_code: str | None,
+    kinds: list[str] | None,
+) -> list[AgentMemory]:
+    """取候选记忆行（纯 DB 读，无 I/O 等待）。"""
     rows = _base_query(db, ctx, agent_code=agent_code).limit(SCAN_LIMIT).all()
     if kinds:
         wanted = {str(k) for k in kinds if str(k)}
         rows = [row for row in rows if row.kind in wanted]
-    if not rows:
-        return []
+    return rows
 
-    query_vec = _embed(query) if query else None
+
+def _rank_hits(
+    db: Session,
+    ctx: YardContext,  # noqa: ARG001 - 保持与 retrieve 的签名一致，便于扩展
+    *,
+    query: str,
+    rows: list[AgentMemory],
+    query_vec: list[float] | None,
+    top_k: int,
+    token_budget: int,
+    mark_used: bool,
+) -> list[MemoryHit]:
+    """按向量+关键词+时效+重要度打分排序并截断（纯计算，无 I/O）。"""
     now = _utcnow()
     scored: list[tuple[float, AgentMemory]] = []
     for row in rows:
         content = row.content or ""
-        vector = _cosine(query_vec, row.embedding) if query_vec and row.embedding else 0.0
+        # 注意：pgvector 读回是 numpy.ndarray，不能用 `row.embedding` 做真值判断
+        vector = (
+            _cosine(query_vec, row.embedding)
+            if query_vec is not None and not is_empty_vector(row.embedding)
+            else 0.0
+        )
         keyword = _keyword_score(query, f"{row.title} {content}") if query else 0.0
         if query_vec is None and query:
             # 没有向量时关键词是主信号，避免全部同分
@@ -271,6 +311,68 @@ def retrieve(
     return hits
 
 
+def retrieve(
+    db: Session,
+    ctx: YardContext,
+    query: str,
+    *,
+    top_k: int = 5,
+    token_budget: int = 800,
+    agent_code: str | None = None,
+    kinds: list[str] | None = None,
+    mark_used: bool = True,
+) -> list[MemoryHit]:
+    """检索当前用户可读的记忆；向量失败时退回关键词排序，不抛错。"""
+    query = (query or "").strip()
+    top_k = max(1, min(int(top_k or 5), 10))
+    token_budget = max(120, min(int(token_budget or 4000), 4000))
+    rows = _candidate_rows(db, ctx, agent_code=agent_code, kinds=kinds)
+    if not rows:
+        return []
+    query_vec = _embed(query, db, ctx.yard_id) if query else None
+    return _rank_hits(
+        db,
+        ctx,
+        query=query,
+        rows=rows,
+        query_vec=query_vec,
+        top_k=top_k,
+        token_budget=token_budget,
+        mark_used=mark_used,
+    )
+
+
+async def retrieve_async(
+    db: Session,
+    ctx: YardContext,
+    query: str,
+    *,
+    top_k: int = 5,
+    token_budget: int = 800,
+    agent_code: str | None = None,
+    kinds: list[str] | None = None,
+    mark_used: bool = True,
+) -> list[MemoryHit]:
+    """异步版检索：向量计算不阻塞事件循环（指挥官等 async 链路使用）。"""
+    query = (query or "").strip()
+    top_k = max(1, min(int(top_k or 5), 10))
+    token_budget = max(120, min(int(token_budget or 4000), 4000))
+    rows = _candidate_rows(db, ctx, agent_code=agent_code, kinds=kinds)
+    if not rows:
+        return []
+    query_vec = await _embed_async(query, db, ctx.yard_id) if query else None
+    return _rank_hits(
+        db,
+        ctx,
+        query=query,
+        rows=rows,
+        query_vec=query_vec,
+        top_k=top_k,
+        token_budget=token_budget,
+        mark_used=mark_used,
+    )
+
+
 def format_for_prompt(hits: list[MemoryHit], *, max_chars: int = DEFAULT_PROMPT_CHARS) -> str:
     """把命中记忆包成不可信数据块；没有命中返回空串。"""
     if not hits:
@@ -315,6 +417,26 @@ def retrieve_for_commander(
     return format_for_prompt(hits, max_chars=1200)
 
 
+async def retrieve_for_commander_async(
+    db: Session,
+    ctx: YardContext,
+    query: str,
+    *,
+    top_k: int = 4,
+    token_budget: int = 1000,
+) -> str:
+    """指挥官链路用的异步版（不阻塞事件循环）。"""
+    hits = await retrieve_async(
+        db,
+        ctx,
+        query,
+        top_k=top_k,
+        token_budget=token_budget,
+        kinds=[KIND_EPISODE, KIND_SUMMARY, KIND_PREFERENCE, KIND_FACT],
+    )
+    return format_for_prompt(hits, max_chars=1200)
+
+
 def retrieve_for_agent(
     db: Session,
     ctx: YardContext,
@@ -325,6 +447,28 @@ def retrieve_for_agent(
     token_budget: int = 600,
 ) -> str:
     hits = retrieve(
+        db,
+        ctx,
+        query,
+        top_k=top_k,
+        token_budget=token_budget,
+        agent_code=agent_code,
+        kinds=[KIND_EPISODE, KIND_SUMMARY, KIND_FACT],
+    )
+    return format_for_prompt(hits, max_chars=800)
+
+
+async def retrieve_for_agent_async(
+    db: Session,
+    ctx: YardContext,
+    query: str,
+    *,
+    agent_code: str,
+    top_k: int = 3,
+    token_budget: int = 600,
+) -> str:
+    """助手链路用的异步版（不阻塞事件循环）。"""
+    hits = await retrieve_async(
         db,
         ctx,
         query,

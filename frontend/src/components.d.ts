@@ -120,6 +120,7 @@ declare module 'vue' {
     OfficialModels: typeof import('./components/settings/OfficialModels.vue')['default']
     OfflineBar: typeof import('./components/offline/OfflineBar.vue')['default']
     PermissionMatrix: typeof import('./components/settings/PermissionMatrix.vue')['default']
+    PlanAdminPanel: typeof import('./components/quota/PlanAdminPanel.vue')['default']
     PlanCard: typeof import('./components/chat/PlanCard.vue')['default']
     PluginCard: typeof import('./components/chat/PluginCard.vue')['default']
     ProvincePanel: typeof import('./components/hubs/ProvincePanel.vue')['default']

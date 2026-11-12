@@ -52,11 +52,47 @@ CAPABILITIES: tuple[Capability, ...] = (
         "智能体编排",
         "对规则打分的前 8 个候选做复核重排（agent_code + confidence + reason）",
     ),
+    Capability(
+        "commander_eval",
+        "指挥官监督测评",
+        "智能体编排",
+        "监督测评 Agent 生成周度运行报告并写入 commander_evaluations",
+    ),
     Capability("supervisor", "班组总控", "班组", "协作班组的调度与收口判断"),
     Capability("team_synthesis", "班组检索融合", "班组", "班组多路检索结果的综述合成"),
     Capability("quick_action", "一句话业务解析", "业务", "台账/诊断/工单的一句话字段抽取"),
     Capability("factory", "Agent 工厂蓝图", "构建", "工厂按蓝图生成智能体的推理步"),
     Capability("agent_generation", "一句话生成助手", "构建", "自然语言描述→助手规格（AgentSpec）"),
+    Capability(
+        "org_generation",
+        "组织架构设计",
+        "构建",
+        "按知识库依据设计组织架构与岗位方案（产业提案链路）",
+    ),
+    Capability(
+        "chat_media",
+        "对话内媒体解析",
+        "视觉",
+        "对话里发图片/音视频时，先用模型把素材整理成结构化规格（失败回落确定性模板）",
+    ),
+    Capability(
+        "image_understanding",
+        "图片理解",
+        "视觉",
+        "对话里识别图片内容（作物长势/病斑/设备读数）；走统一计量链路，记成本、扣配额",
+    ),
+    Capability(
+        "pest_alert",
+        "病虫害预警解读",
+        "农业",
+        "依据监测数据与知识库摘录生成保守可核验的虫情预警等级",
+    ),
+    Capability(
+        "farm_agent",
+        "农场自动执行决策",
+        "农业",
+        "设备巡检发现异常后，模型给出处置动作建议（失败回落规则摘要）",
+    ),
     Capability("skill_generation", "一句话生成技能", "技能与插件", "自然语言描述→Skill 定义草稿"),
     Capability(
         "plugin_generation", "一句话生成插件", "技能与插件", "自然语言描述→Plugin 工作流草稿"

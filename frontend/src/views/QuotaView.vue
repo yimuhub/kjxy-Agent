@@ -608,6 +608,15 @@
       >
         <BillingPanel />
       </el-tab-pane>
+      <!-- 运营套餐管理（v3.80 审查 D-18）：改价/改额度/上下架不用发版 -->
+      <el-tab-pane
+        v-if="isPlatformAdmin"
+        label="套餐管理"
+        name="plan-admin"
+        lazy
+      >
+        <PlanAdminPanel />
+      </el-tab-pane>
     </el-tabs>
   </div>
 </template>
@@ -628,6 +637,7 @@
   import QuotaPolicies from '@/components/quota/QuotaPolicies.vue'
   import QuotaRequests from '@/components/quota/QuotaRequests.vue'
   import BillingPanel from '@/components/quota/BillingPanel.vue'
+  import PlanAdminPanel from '@/components/quota/PlanAdminPanel.vue'
   import AsyncState from '@/components/AsyncState.vue'
   import { classifyError, type ViewState } from '@/utils/status'
   import { useAuthStore } from '@/stores/auth'
@@ -707,6 +717,8 @@
   const unitsName = computed(() => auth.yard?.name ?? '当前小院')
   const canManageQuota = computed(() => auth.hasPermission('quota:manage'))
   const canApproveQuota = computed(() => auth.hasPermission('quota:approve'))
+  /** 套餐管理是平台运营能力，后端 /billing/admin/plans 要求平台管理员 */
+  const isPlatformAdmin = computed(() => auth.roles.includes('platform_admin'))
   const tab = ref('overview')
   const rows = computed<QuotaRow[]>(() =>
     Object.entries(quotas).map(([kind, item]) => ({

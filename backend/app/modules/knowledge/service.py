@@ -18,6 +18,7 @@ from app.core.config import settings
 from app.core.deps import YardContext
 from app.core.errors import AppError
 from app.core.logging import get_logger
+from app.db.base import is_empty_vector
 from app.modules.audit.service import log_audit
 from app.modules.knowledge.chunking import estimate_token_count, prune_chunk_for_query
 from app.modules.knowledge.embedding import get_embedding_provider
@@ -46,6 +47,13 @@ QUOTE_MAX_CHARS = 200
 #: pgvector 路径候选过采样因子：DB 侧取 top_k × 因子 的候选
 #: （下限 40，上限 settings.retrieval_scan_limit）
 VECTOR_OVERSAMPLE_FACTOR = 4
+
+#: 允许自助重新解析的文档状态。
+#: - failed：解析明确失败；
+#: - queued：任务已投递但无人消费（桌面单机未启 worker / Redis 队列滞留）的卡死态；
+#: - processing：解析进程中断，同样属于可恢复的悬挂态。
+#: ready / uploaded 不在其中：前者已成功入库，无需重试；后者尚未进入解析队列。
+REPARSEABLE_STATUSES = frozenset({"failed", "queued", "processing"})
 
 
 def _is_postgresql(db) -> bool:
@@ -171,9 +179,19 @@ def upload_document(
 def _dispatch_parse(document_id: str) -> str | None:
     """投递文档解析任务（上传与重解析共用的投递路径）。
 
-    返回 broker 任务 ID；broker 不可用时记录告警并按 worker_sync_fallback
-    配置降级为本机后台线程同步解析，此时返回 None。
+    返回 broker 任务 ID。以下两种情况返回 None 并改在本机后台线程同步解析：
+
+    1. **桌面单机模式**（``TASKS_INLINE_MODE=true``）：桌面端按设计不启动
+       Celery worker，此时 ``.delay()`` 会投递成功、消息却永远躺在队列里，
+       文档永久卡在 ``queued`` 且无任何报错（生产事故 D-03）。
+    2. broker 不可用且开启 ``worker_sync_fallback``。
+
+    注意：本函数是**全后端唯一的 Celery 投递点**，knowledge 也是唯一没有
+    ``tasks_inline_mode`` 分支的异步模块——修复必须落在这里。
     """
+    if settings.tasks_inline_mode:
+        _run_parse_in_thread(document_id)
+        return None
     try:
         from app.modules.knowledge.worker_tasks import parse_document
 
@@ -183,24 +201,33 @@ def _dispatch_parse(document_id: str) -> str | None:
         log.warning("解析任务投递失败 document_id=%s: %s", document_id, e)
         if settings.worker_sync_fallback:
             # 纯本机模式：无 Redis 时在后台线程同步解析，保证上传后可直接问答
-            thread = threading.Thread(
-                target=_parse_inline,
-                args=(document_id,),
-                name=f"parse-{document_id[:8]}",
-                daemon=True,
-            )
-            thread.start()
+            _run_parse_in_thread(document_id)
         return None
+
+
+def _run_parse_in_thread(document_id: str) -> None:
+    """在后台线程同步解析文档，不阻塞 API 响应。"""
+    thread = threading.Thread(
+        target=_parse_inline,
+        args=(document_id,),
+        name=f"parse-{document_id[:8]}",
+        daemon=True,
+    )
+    thread.start()
 
 
 def reparse_document(
     db: Session, ctx: YardContext, document_id: str, request_id: str = ""
 ) -> dict[str, str]:
-    """重新解析失败的文档（追加任务 A）：仅 status=failed 可调。
+    """重新解析文档（追加任务 A）：failed / queued / processing 可调。
 
     权限 knowledge:write；不存在/跨小院 → DOCUMENT_NOT_FOUND(404)；
-    非 failed 状态 → DOCUMENT_NOT_REPARSABLE(409)。
+    ready / uploaded → DOCUMENT_NOT_REPARSABLE(409)。
     动作：状态重置 queued、清空 error_message，并复用现有解析投递路径。
+
+    说明：queued/processing 属于"任务已投递但无人消费"的卡死态（桌面单机模式下
+    worker 未启动、Redis 队列消息滞留等）。此前仅允许 failed 重解析，导致此类
+    文档永久卡在 queued 且无任何恢复入口，形成死路；现允许自助重试。
     """
     if not has_role_permission(ctx.roles, "knowledge:write"):
         raise AppError(
@@ -218,10 +245,11 @@ def reparse_document(
     if doc is None:
         # 跨小院与不存在统一 404，防资源枚举
         raise AppError("DOCUMENT_NOT_FOUND", "文档不存在或无权访问。", http_status=404)
-    if doc.status != "failed":
+    if doc.status not in REPARSEABLE_STATUSES:
         raise AppError(
             "DOCUMENT_NOT_REPARSABLE",
-            "仅解析失败（failed）的文档可以重新解析。",
+            "仅解析失败（failed）或卡在排队/解析中（queued/processing）的文档可以重新解析；"
+            "已就绪（ready）的文档无需重试。",
             http_status=409,
             details={"status": doc.status},
         )
@@ -467,7 +495,7 @@ def _load_scan_index(db: Session, yard_id: str) -> list[_CachedChunk] | None:
     index: list[_CachedChunk] = []
     for row in rows:
         vector = row.embedding
-        if not vector:
+        if is_empty_vector(vector):
             continue
         doc = row.document
         index.append(
@@ -489,11 +517,22 @@ def _load_scan_index(db: Session, yard_id: str) -> list[_CachedChunk] | None:
     return index
 
 
-def _embed_query(query: str) -> tuple[float, ...]:
-    """查询向量：同一查询在进程内复用（Mock 嵌入按 bigram 逐维生成，重复计算很贵）。"""
+def _embed_query(
+    query: str,
+    db: Session | None = None,
+    yard_id: str | None = None,
+) -> tuple[float, ...]:
+    """查询向量：同一查询在进程内复用（Mock 嵌入按 bigram 逐维生成，重复计算很贵）。
+
+    带小院上下文时按供应商链解析向量模型（审查 h）；缓存键带上模型标识，
+    避免换模型后命中旧向量。
+    """
+    provider = get_embedding_provider(db, yard_id)
+    model_key = str(getattr(provider, "model", "") or settings.embedding_model or "")
     key = (
         settings.embedding_provider,
         settings.embedding_model,
+        model_key,
         int(settings.embedding_dim),
         query,
     )
@@ -501,7 +540,7 @@ def _embed_query(query: str) -> tuple[float, ...]:
         cached = _query_embed_cache.get(key)
     if cached is not None:
         return cached
-    vector = tuple(get_embedding_provider().embed([query])[0])
+    vector = tuple(provider.embed([query])[0])
     with _search_cache_lock:
         if len(_query_embed_cache) >= 512:
             _query_embed_cache.clear()
@@ -553,7 +592,7 @@ def search(
         )
     alpha = settings.retrieval_alpha if resolved_mode == "hybrid" else 1.0
 
-    query_vec = list(_embed_query(query))
+    query_vec = list(_embed_query(query, db, ctx.yard_id))
     query_bigrams = _char_bigrams(query) if resolved_mode == "hybrid" else set()
 
     base_query = (
@@ -603,12 +642,12 @@ def search(
                     len(query),
                 )
 
-    min_score = settings.retrieval_min_score
+    min_score = settings.effective_retrieval_min_score
     chunk_bigrams_cache: dict[str, set[str]] = {}
     scored: list[tuple[float, float, float, KnowledgeChunk | _CachedChunk]] = []
     for chunk in candidates:
         vec = chunk.embedding
-        if not vec:
+        if is_empty_vector(vec):
             continue
         vector_score = _cosine(query_vec, list(vec))
         keyword_score = 0.0

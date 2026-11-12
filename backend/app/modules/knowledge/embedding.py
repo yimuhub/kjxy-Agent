@@ -1,9 +1,18 @@
-"""Embedding 提供方。业务只依赖 EmbeddingProvider Protocol，不绑定具体供应商。"""
+"""Embedding 提供方。业务只依赖 EmbeddingProvider Protocol，不绑定具体供应商。
+
+三处修正（审查 h）：
+1. **SSRF 校验**：向量端点同样要做出网校验 —— 全仓 31 处 ``check_egress_url``
+   唯独漏了这里，等于给"模型中心"配的地址开了一个不受控的出网口。
+2. **不阻塞事件循环**：``embed_async`` 用 httpx.AsyncClient，
+   指挥官等异步链路不再被同步 HTTP 调用卡住（此前同步 httpx.post 直接跑在
+   事件循环里，一次向量请求能把整个 Worker 的并发堵住）。
+3. **走供应商链**：有���院上下文时按「模型中心」的绑定链解析向量模型
+   （与对话/图像/视频同一套口径），找不到再回落 settings（零回归）。
+"""
 
 import hashlib
 import math
-import random
-from typing import Protocol
+from typing import Any, Protocol
 
 import httpx
 
@@ -22,10 +31,16 @@ class EmbeddingProvider(Protocol):
 
 
 class MockEmbeddingProvider:
-    """确定性 Mock：字符 bigram 词向量平均并归一化。
+    """确定性 Mock：字符 bigram 的哈希词袋（sublinear TF + L2 归一化）。
 
-    共享词越多的文本余弦越接近 1（相同文本恒为 1.0），无关文本接近 0；
+    共享 bigram 越多余弦越接近 1（相同文本恒为 1.0），无关文本接近 0；
     仅为开发/CI 的 plumbing 替身，不代表真实语义质量。
+
+    **为什么不用"随机高斯向量求平均"**：那样共享 token 的信号会被 n·m 个
+    交叉项稀释，任意两段文本的余弦都落在 0.00x 量级，比 ``RETRIEVAL_MIN_SCORE``
+    低一个数量级 —— mock 模式下知识检索恒为空，且看起来像"检索坏了"。
+    改成哈希词袋后余弦 ≈ 共享 bigram 数 / sqrt(|A|·|B|)，与真实 embedding
+    同量级（0.0x~0.8），阈值语义恢复一致。
     """
 
     def __init__(self, dim: int | None = None) -> None:
@@ -46,26 +61,24 @@ class MockEmbeddingProvider:
         return [t[i : i + 2] for i in range(len(t) - 1)]
 
     @staticmethod
-    def _token_vector(token: str, dim: int) -> list[float]:
+    def _bucket(token: str, dim: int) -> int:
         digest = hashlib.sha256(token.encode("utf-8")).digest()
-        seed = int.from_bytes(digest[:8], "big")
-        rng = random.Random(seed)
-        return [rng.gauss(0.0, 1.0) for _ in range(dim)]
+        return int.from_bytes(digest[:8], "big") % dim
 
     def _embed_one(self, text: str) -> list[float]:
         tokens = self._bigrams(text)
         if not tokens:
             return [0.0] * self._dim
-        dim = self._dim
-        acc = [0.0] * dim
+        counts: dict[int, int] = {}
         for tok in tokens:
-            vec = self._token_vector(tok, dim)
-            for i, v in enumerate(vec):
-                acc[i] += v
-        n = len(tokens)
-        mean = [v / n for v in acc]
-        norm = math.sqrt(sum(v * v for v in mean)) or 1.0
-        return [v / norm for v in mean]
+            bucket = self._bucket(tok, self._dim)
+            counts[bucket] = counts.get(bucket, 0) + 1
+        vec = [0.0] * self._dim
+        for bucket, count in counts.items():
+            # sublinear TF：同一个 bigram 出现 10 次不该有 10 倍权重
+            vec[bucket] = 1.0 + math.log(count)
+        norm = math.sqrt(sum(v * v for v in vec)) or 1.0
+        return [v / norm for v in vec]
 
 
 class OpenAICompatibleEmbedding:
@@ -95,23 +108,31 @@ class OpenAICompatibleEmbedding:
         # 维度在首次成功调用后获知；调用前用配置默认值占位
         return self._dim or settings.embedding_dim
 
+    # -- 请求体 ----------------------------------------------------------
+
+    def _payload(self, texts: list[str]) -> dict[str, Any]:
+        return {"model": self.model, "input": texts}
+
+    def _url(self) -> str:
+        return f"{self.base_url}/embeddings"
+
+    def _check_egress(self) -> None:
+        """出网校验：向量端点不得指向回环/link-local/保留地址。"""
+        from app.core.net_guard import check_egress_url
+
+        check_egress_url(self._url(), context="embedding", allow_local=True)
+
+    # -- 同步实现（Celery worker / 种子脚本等非异步场景）--------------------
+
     def embed(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
+        self._check_egress()
         batch_size = max(1, int(settings.embedding_batch_size))
         vectors: list[list[float]] = []
         for start in range(0, len(texts), batch_size):
             vectors.extend(self._embed_batch(texts[start : start + batch_size]))
-        if len(vectors) != len(texts):
-            # 条数不一致会让 chunk 与向量错位入库，必须整批失败而不是静默截断。
-            raise AppError(
-                "LLM_ERROR",
-                f"向量模型返回数量与请求不一致（请求 {len(texts)} 条，返回 {len(vectors)} 条）。",
-                http_status=502,
-            )
-        dims = {len(vec) for vec in vectors}
-        if len(dims) > 1:
-            raise AppError("LLM_ERROR", "向量模型返回的维度不一致。", http_status=502)
+        self._validate(vectors, len(texts))
         if vectors:
             self._dim = len(vectors[0])
         return vectors
@@ -119,8 +140,8 @@ class OpenAICompatibleEmbedding:
     def _embed_batch(self, texts: list[str]) -> list[list[float]]:
         try:
             resp = httpx.post(
-                f"{self.base_url}/embeddings",
-                json={"model": self.model, "input": texts},
+                self._url(),
+                json=self._payload(texts),
                 headers={"Authorization": f"Bearer {self.api_key}"},
                 timeout=self.timeout_seconds,
             )
@@ -133,8 +154,128 @@ class OpenAICompatibleEmbedding:
             raise AppError("LLM_ERROR", "向量模型调用失败，请稍后重试。", http_status=502) from e
         return [item["embedding"] for item in sorted(data, key=lambda d: d["index"])]
 
+    # -- 异步实现（指挥官等异步链路）---------------------------------------
 
-def get_embedding_provider() -> EmbeddingProvider:
+    async def embed_async(self, texts: list[str]) -> list[list[float]]:
+        """异步版本：HTTP 调用不阻塞事件循环。"""
+        if not texts:
+            return []
+        self._check_egress()
+        batch_size = max(1, int(settings.embedding_batch_size))
+        vectors: list[list[float]] = []
+        for start in range(0, len(texts), batch_size):
+            vectors.extend(await self._embed_batch_async(texts[start : start + batch_size]))
+        self._validate(vectors, len(texts))
+        if vectors:
+            self._dim = len(vectors[0])
+        return vectors
+
+    async def _embed_batch_async(self, texts: list[str]) -> list[list[float]]:
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout_seconds, trust_env=False) as client:
+                resp = await client.post(
+                    self._url(),
+                    json=self._payload(texts),
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                )
+            resp.raise_for_status()
+            data = resp.json()["data"]
+        except AppError:
+            raise
+        except Exception as e:
+            log.warning("embedding request failed: %s", e)
+            raise AppError("LLM_ERROR", "向量模型调用失败，请稍后重试。", http_status=502) from e
+        return [item["embedding"] for item in sorted(data, key=lambda d: d["index"])]
+
+    # -- 校验 -------------------------------------------------------------
+
+    def _validate(self, vectors: list[list[float]], requested: int) -> None:
+        if len(vectors) != requested:
+            # 条数不一致会让 chunk 与向量错位入库，必须整批失败而不是静默截断。
+            raise AppError(
+                "LLM_ERROR",
+                f"向量模型返回数量与请求不一致（请求 {requested} 条，返回 {len(vectors)} 条）。",
+                http_status=502,
+            )
+        dims = {len(vec) for vec in vectors}
+        if len(dims) > 1:
+            raise AppError("LLM_ERROR", "向量模型返回的维度不一致。", http_status=502)
+        expected_dim = int(settings.embedding_dim)
+        if vectors and len(vectors[0]) != expected_dim:
+            # 数据库列维度在建表时固定；维度不一致时给出可操作提示，而不是
+            # 让 pgvector 抛 "expected N dimensions, not M" 这种难懂的库错。
+            raise AppError(
+                "LLM_ERROR",
+                f"向量模型返回维度 {len(vectors[0])}，与向量列维度 {expected_dim} 不一致；"
+                "请把 EMBEDDING_DIM 调整为模型实际维度并执行对应迁移。",
+                http_status=502,
+            )
+
+
+def _resolve_supplier_embedding(db, yard_id: str) -> EmbeddingProvider | None:
+    """按「模型中心」的绑定链解析向量模型（与对话/图像/视频同一套口径）。
+
+    找不到 embedding 模态的供应商模型时返回 None，由调用方回落 settings。
+    """
+    try:
+        from app.modules.llm import binding_service
+        from app.modules.llm.supplier_crypto import decrypt_api_key
+    except Exception as e:  # noqa: BLE001 - 供应商体系不可用时回落
+        log.warning("向量供应商链解析不可用，回落配置: %s", e)
+        return None
+
+    try:
+        chain = binding_service.resolve_chain(db, yard_id, purpose="embedding")
+    except Exception as e:  # noqa: BLE001 - 解析失败回落配置
+        log.warning("向量供应商链解析失败，回落配置: %s", e)
+        return None
+
+    for candidate in chain:
+        row = candidate.supplier
+        model_row = candidate.supplier_model
+        modality = str(getattr(model_row, "modality", "") or "").lower()
+        protocol = str(getattr(model_row, "protocol", "") or "").lower()
+        if modality != "embedding" and protocol != "openai_embedding":
+            continue
+        model = (
+            str(getattr(model_row, "upstream_model_id", "") or "").strip()
+            or str(candidate.model_name or "").strip()
+            or str(getattr(row, "model_id", "") or "").strip()
+        )
+        if not model:
+            continue
+        api_key = decrypt_api_key(row.api_key_enc)
+        try:
+            return OpenAICompatibleEmbedding(
+                base_url=str(getattr(row, "base_url", "") or "") or None,
+                api_key=api_key,
+                model=model,
+            )
+        except AppError:
+            continue
+        finally:
+            del api_key
+    return None
+
+
+def get_embedding_provider(db=None, yard_id: str | None = None) -> EmbeddingProvider:  # noqa: ANN001
+    """取向量提供方。
+
+    有小院上下文时优先按供应商链解析（运营可为每个小院单独绑定向量模型），
+    解析不到再回落 settings（零回归：旧部署行为完全不变）。
+    """
+    if db is not None and yard_id:
+        provider = _resolve_supplier_embedding(db, yard_id)
+        if provider is not None:
+            return provider
     if settings.embedding_provider == "openai_compatible":
         return OpenAICompatibleEmbedding()
     return MockEmbeddingProvider()
+
+
+__all__ = [
+    "EmbeddingProvider",
+    "MockEmbeddingProvider",
+    "OpenAICompatibleEmbedding",
+    "get_embedding_provider",
+]

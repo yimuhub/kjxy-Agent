@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.78.1
+  version: 3.80.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:
@@ -39,6 +39,22 @@ paths:
       summary: Worker Health
       description: Worker 心跳新鲜度（规范 §18.4：不得用 API 健康代替 Worker 健康）。
       operationId: worker_health_health_worker_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /health/knowledge:
+    get:
+      tags:
+      - health
+      summary: Knowledge Health
+      description: '知识库解析看门狗状态（运维排查：文档为何卡在 queued）。
+
+
+        只读探针，不改变任何状态。'
+      operationId: knowledge_health_health_knowledge_get
       responses:
         '200':
           description: Successful Response
@@ -1995,7 +2011,43 @@ paths:
       - v1
       - billing
       summary: List Plans
+      description: '套餐目录：含按本小院额度环境算出的**总额度**（与配额页同源）。
+
+
+        v3.80 起目录以数据库为准，运营改价不用发版（审查 D-18/D-21）。'
       operationId: list_plans_api_v1_billing_plans_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/billing/usage:
+    get:
+      tags:
+      - v1
+      - billing
+      summary: Usage Summary
+      description: 用量/额度/水位：用与套餐卖的东西完全一致的口径（审查 D-21）。
+      operationId: usage_summary_api_v1_billing_usage_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/billing/recommendation:
+    get:
+      tags:
+      - v1
+      - billing
+      summary: Recommendation
+      description: 升级引导：按近 30 天真实消耗给出该升到哪一档、为什么（审查 D-19/D-20）。
+      operationId: recommendation_api_v1_billing_recommendation_get
       responses:
         '200':
           description: Successful Response
@@ -2240,6 +2292,213 @@ paths:
         schema:
           type: string
           title: Code Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/billing/admin/plans:
+    get:
+      tags:
+      - v1
+      - billing
+      summary: Admin List Plans
+      description: 运营视角的套餐目录（含已下架的）。
+      operationId: admin_list_plans_api_v1_billing_admin_plans_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/billing/admin/plans/{plan_code}:
+    patch:
+      tags:
+      - v1
+      - billing
+      summary: Admin Update Plan
+      description: '改套餐：价格、卖点、额度项、排序、上下架。
+
+
+        改价立即对新订单生效；**已成交订单的价格快照不变**（订单存的是下单时的
+
+        price_yuan），不会出现"改价把老订单也算改了"。'
+      operationId: admin_update_plan_api_v1_billing_admin_plans__plan_code__patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: plan_code
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Plan Code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlanUpdateBody'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/billing/payment/providers:
+    get:
+      tags:
+      - v1
+      - billing
+      summary: List Payment Providers
+      description: 可用支付渠道清单（前端据此渲染"去支付"入口）。
+      operationId: list_payment_providers_api_v1_billing_payment_providers_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/billing/orders/{order_id}/pay:
+    post:
+      tags:
+      - v1
+      - billing
+      summary: Create Payment
+      description: 为待支付订单生成支付意图——用户自助付费入口。
+      operationId: create_payment_api_v1_billing_orders__order_id__pay_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: order_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Order Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentIntentBody'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/billing/orders/{order_id}/voucher:
+    post:
+      tags:
+      - v1
+      - billing
+      summary: Submit Voucher
+      description: 对公转账回单自助提交：金额匹配即自动到账，不匹配转人工。
+      operationId: submit_voucher_api_v1_billing_orders__order_id__voucher_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: order_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Order Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VoucherBody'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/billing/payments/sandbox/prepare:
+    post:
+      tags:
+      - v1
+      - billing
+      summary: Sandbox Prepare
+      description: '沙箱收银台：生成一份已签名的回调载荷（仅沙箱渠道可用）。
+
+
+        生产环境禁止沙箱渠道（见 Settings.validate_for_runtime），此端点随之失效。'
+      operationId: sandbox_prepare_api_v1_billing_payments_sandbox_prepare_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SandboxPrepareBody'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/billing/payments/{provider}/notify:
+    post:
+      tags:
+      - v1
+      - billing
+      summary: Payment Notify
+      description: '支付渠道回调（**公开端点**，靠签名鉴权而非 JWT）。
+
+
+        网关无法携带本平台的 JWT，因此签名是唯一凭据：验签失败一律拒绝，
+
+        验签通过后按"订单号 + 金额"核对，金额不符拒绝入账。
+
+        同一笔支付的重复回调是幂等的，不会重复发放额度。'
+      operationId: payment_notify_api_v1_billing_payments__provider__notify_post
+      parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Provider
       responses:
         '200':
           description: Successful Response
@@ -2659,7 +2918,7 @@ paths:
       - v1
       - knowledge
       summary: Reparse Document
-      description: 重新解析失败的文档（权限 knowledge:write，仅 status=failed 可调）。
+      description: 重新解析文档（权限 knowledge:write；failed/queued/processing 可调，ready 拒绝）。
       operationId: reparse_document_api_v1_knowledge_documents__document_id__reparse_post
       security:
       - HTTPBearer: []
@@ -14242,14 +14501,36 @@ paths:
       - v1
       - setup
       summary: Setup Skills
-      description: 向导第 4 步的技能清单（纯数据，不含任何密钥）。
+      description: '向导第 4 步的技能清单（纯数据，不含任何密钥）。
+
+
+        v3.79（审查 D-13）：``types=fruit,rice`` 传入用户在第 3 步**显式勾选**
+
+        的产业画像，服务端据此算出「推荐预选集合」与分组统计，前端不再把 35 个
+
+        技能一次性全选甩给小白。'
       operationId: setup_skills_api_v1_setup_skills_get
+      parameters:
+      - name: types
+        in: query
+        required: false
+        schema:
+          type: string
+          maxLength: 200
+          default: ''
+          title: Types
       responses:
         '200':
           description: Successful Response
           content:
             application/json:
               schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/setup/initialize:
     post:
       tags:
@@ -16688,10 +16969,12 @@ components:
           title: Industry
           default: ''
         skill_codes:
-          items:
-            type: string
-          type: array
-          maxItems: 200
+          anyOf:
+          - items:
+              type: string
+            type: array
+            maxItems: 200
+          - type: 'null'
           title: Skill Codes
         llm_provider:
           anyOf:
@@ -17511,6 +17794,16 @@ components:
       type: object
       title: ParticipantSetRequest
       description: 整表覆盖会话的群聊成员名单（PUT 幂等：空数组 = 清空名单）。
+    PaymentIntentBody:
+      properties:
+        provider:
+          anyOf:
+          - type: string
+            maxLength: 24
+          - type: 'null'
+          title: Provider
+      type: object
+      title: PaymentIntentBody
     PesticideCreate:
       properties:
         name:
@@ -17651,6 +17944,57 @@ components:
       - instruction
       title: PlanSubtaskIn
       description: 计划卡提交的一个子任务；depends_on 按新数组位置 1-based 解释。
+    PlanUpdateBody:
+      properties:
+        price_yuan:
+          anyOf:
+          - type: number
+            maximum: 1000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Price Yuan
+        tagline:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Tagline
+        highlights:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Highlights
+        items:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          title: Items
+        sort_order:
+          anyOf:
+          - type: integer
+            maximum: 10000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Sort Order
+        active:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Active
+        note:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Note
+      type: object
+      title: PlanUpdateBody
+      description: 运营改套餐（v3.80，审查 D-18）：改价不用发版。
     PlatformGrantRequest:
       properties:
         grants:
@@ -18847,6 +19191,17 @@ components:
           title: Notify Note
       type: object
       title: RulePatch
+    SandboxPrepareBody:
+      properties:
+        order_id:
+          type: string
+          maxLength: 64
+          minLength: 8
+          title: Order Id
+      type: object
+      required:
+      - order_id
+      title: SandboxPrepareBody
     ScheduleSpec:
       properties:
         enabled:
@@ -20377,6 +20732,23 @@ components:
       - msg
       - type
       title: ValidationError
+    VoucherBody:
+      properties:
+        voucher_no:
+          type: string
+          maxLength: 64
+          minLength: 4
+          title: Voucher No
+        amount_yuan:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Amount Yuan
+      type: object
+      required:
+      - voucher_no
+      title: VoucherBody
     WorkOrderComment:
       properties:
         note:

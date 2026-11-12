@@ -16,6 +16,47 @@
       {{ scopeText }}已用 {{ formatValue(block.used) }} / {{ formatValue(block.limit) }}，
       提交申请后由小院管理员审批，通过后额度自动生效。
     </el-alert>
+    <!-- 量化引导：把"该申请多少"变成一道选择题（审查 D-20） -->
+    <div
+      v-if="recommendation"
+      class="reco-box"
+    >
+      <div class="reco-head">
+        <el-tag
+          type="warning"
+          size="small"
+          effect="light"
+        >
+          用量建议
+        </el-tag>
+        <span>{{ recommendation.reason }}</span>
+      </div>
+      <div
+        v-if="recommendation.suggestions.length > 1"
+        class="reco-options"
+      >
+        <el-radio-group
+          v-model="chosenPlan"
+          size="small"
+        >
+          <el-radio
+            v-for="s in recommendation.suggestions"
+            :key="s.code"
+            :value="s.code"
+          >
+            {{ s.name }}（¥{{ s.price_yuan.toLocaleString('zh-CN') }}）
+          </el-radio>
+        </el-radio-group>
+        <el-button
+          size="small"
+          type="primary"
+          link
+          @click="applyRecommendation"
+        >
+          按建议填入期望额度
+        </el-button>
+      </div>
+    </div>
     <el-form label-width="96px">
       <el-form-item label="期望额度">
         <el-input-number
@@ -75,6 +116,7 @@
   import { computed, ref, watch } from 'vue'
   import { ElMessage } from 'element-plus'
   import { quotaApi, type QuotaBlockInfo } from '@/api/quota'
+  import { billingApi, type BillingRecommendation } from '@/api/modules'
 
   const props = defineProps<{
     modelValue: boolean
@@ -86,6 +128,9 @@
   const validDays = ref(7)
   const reason = ref('')
   const submitting = ref(false)
+  // 量化引导（审查 D-20）：按近 30 天真实消耗给出建议档位
+  const recommendation = ref<BillingRecommendation | null>(null)
+  const chosenPlan = ref('')
 
   const scopeText = computed(() => {
     const b = props.block
@@ -115,9 +160,41 @@
         requestedLimit.value = Math.max(Math.ceil(props.block.limit * 2), props.block.limit + 1)
         validDays.value = 7
         reason.value = ''
+        void loadRecommendation()
       }
     },
   )
+
+  /** 拉取升级引导：把"申请多少额度"变成有依据的选择题。 */
+  async function loadRecommendation(): Promise<void> {
+    try {
+      recommendation.value = await billingApi.recommendation()
+      chosenPlan.value = recommendation.value.recommended_code ?? ''
+    } catch {
+      recommendation.value = null
+    }
+  }
+
+  /** 按选中的档位填入期望额度（按真实消耗 × 目标倍数换算）。 */
+  function applyRecommendation(): void {
+    const reco = recommendation.value
+    const plan = reco?.suggestions.find(s => s.code === chosenPlan.value)
+    if (!reco || !plan || !props.block) return
+    const metric = props.block.metric
+    // 按近 30 天真实消耗折算成月度，再乘目标余量倍数
+    const monthlyUsage = metric === 'tokens'
+      ? reco.usage.tokens
+      : metric === 'calls'
+        ? reco.usage.calls
+        : reco.usage.cost
+    const suggested = (monthlyUsage * reco.target_multiple) / 30 * 30
+    requestedLimit.value = Math.max(
+      Math.ceil(suggested),
+      Math.ceil(props.block.limit * 1.5),
+      props.block.limit + 1,
+    )
+    ElMessage.success('已按建议档位填入期望额度，可再手动调整')
+  }
 
   async function submit() {
     if (!props.block?.policyId) {
@@ -151,5 +228,27 @@
     margin-left: 10px;
     font-size: 11.5px;
     color: var(--ds-text-3);
+  }
+  .reco-box {
+    margin-bottom: 14px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: var(--ds-bg-soft, #fafafa);
+    border: 1px solid var(--ds-border, #e4e7ed);
+  }
+  .reco-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 12.5px;
+    color: var(--ds-text-2);
+    line-height: 1.6;
+  }
+  .reco-options {
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
   }
 </style>

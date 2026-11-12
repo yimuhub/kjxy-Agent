@@ -20,6 +20,10 @@ class _Resp:
 def _provider(monkeypatch, reply):
     calls: list[list[str]] = []
 
+    # 桩供应商固定返回 2 维向量；向量列维度必须与之一致，
+    # 否则会先被"维度与向量列不一致"的护栏拦下（那是生产环境的正确行为）。
+    monkeypatch.setattr(settings, "embedding_dim", 2)
+
     def fake_post(url, json, headers, timeout):  # noqa: A002 - 对齐 httpx 签名
         calls.append(list(json["input"]))
         return _Resp(reply(json["input"]))

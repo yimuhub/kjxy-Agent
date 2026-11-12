@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 import httpx
@@ -27,6 +27,7 @@ import httpx
 from app.core.errors import AppError
 from app.core.logging import get_logger
 from app.modules.llm.images import normalize_dashscope_base, upstream_excerpt
+from app.modules.llm.providers_openai import sanitize_default_params
 
 log = get_logger(__name__)
 
@@ -41,6 +42,26 @@ MAX_DURATION_SECONDS = 30
 MAX_PROMPT_LEN = 2000
 DEFAULT_SIZE = "1280x720"
 
+#: 视频生成模式。空串 = 不下发（保持上游默认）；带图时平台推导为图生视频。
+MODE_TEXT_TO_VIDEO = "text_to_video"
+MODE_IMAGE_TO_VIDEO = "image_to_video"
+VIDEO_MODES = frozenset({MODE_TEXT_TO_VIDEO, MODE_IMAGE_TO_VIDEO})
+
+
+def normalize_video_mode(mode: str | None, *, has_image: bool) -> str:
+    """归一化视频生成模式。
+
+    - 显式给了合法 mode → 原样使用；
+    - 显式给了非法 mode → 回落为空（不下发，避免上游 400）；
+    - 没给 mode 但带了参考图 → 推导为 ``image_to_video``（带图必然是图生视频）；
+    - 纯文生视频 → 空串，**不下发 mode 字段**：不少兼容网关对未知字段严格校验，
+      多传一个 mode 就能让整次生成失败。
+    """
+    raw = str(mode or "").strip().lower().replace("-", "_")
+    if raw:
+        return raw if raw in VIDEO_MODES else ""
+    return MODE_IMAGE_TO_VIDEO if has_image else ""
+
 
 @dataclass(frozen=True)
 class VideoRequest:
@@ -48,6 +69,10 @@ class VideoRequest:
     duration_seconds: int = DEFAULT_DURATION_SECONDS
     size: str = DEFAULT_SIZE
     image_url: str | None = None
+    #: 生成模式（见 ``normalize_video_mode``）；空串 = 不下发该字段
+    mode: str = ""
+    #: 本次调用的临时参数覆盖：与模型行 default_params 合并后下发到上游
+    extra_params: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -162,6 +187,7 @@ class OpenAIVideoProvider:
         timeout_seconds: int = 120,
         provider_label: str = "video",
         endpoint_path: str | None = None,
+        default_params: dict | None = None,
         poll_interval: float = 3.0,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
@@ -171,6 +197,8 @@ class OpenAIVideoProvider:
         self.timeout = timeout_seconds
         self.provider_label = provider_label
         self.endpoint_path = _normalize_path(endpoint_path, "/videos")
+        #: 模型行 default_params：此前入库无人消费，现真正下发到上游
+        self.default_params = sanitize_default_params(default_params)
         self.poll_interval = poll_interval
         self.transport = transport
         if not self.base_url or not self.api_key or not self.model:
@@ -193,13 +221,26 @@ class OpenAIVideoProvider:
         """提交任务：返回 (命中的接口路径, 响应 JSON)。"""
         from app.core.net_guard import check_egress_url
 
+        # 参数合并顺序（后者覆盖前者）：模型行 default_params → 请求级 extra_params
+        # → 平台核心字段（model/prompt/seconds/size/image_url/mode 永不被覆盖）
+        merged: dict[str, Any] = {
+            **self.default_params,
+            **sanitize_default_params(request.extra_params),
+        }
         payload: dict[str, Any] = {
+            **merged,
             "model": self.model,
             "prompt": request.prompt[:MAX_PROMPT_LEN],
             "seconds": _normalize_duration(request.duration_seconds),
+            # 此前 size 只在百炼链路生效、OpenAI 兼容链路被静默丢弃，
+            # 用户设了分辨率却拿不到，属于"参数写了不生效"。
+            "size": request.size or DEFAULT_SIZE,
         }
         if request.image_url:
             payload["image_url"] = request.image_url
+        mode = normalize_video_mode(request.mode, has_image=bool(request.image_url))
+        if mode:
+            payload["mode"] = mode
         for path in self._candidate_paths:
             url = f"{self.base_url}{path}"
             check_egress_url(url, context="video_generation", allow_local=True)
@@ -371,6 +412,7 @@ class DashScopeVideoProvider:
         provider_label: str = "dashscope-video",
         poll_interval: float = 3.0,
         endpoint_path: str | None = None,
+        default_params: dict | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self.base_url = normalize_dashscope_base(base_url)
@@ -382,6 +424,8 @@ class DashScopeVideoProvider:
         self.endpoint_path = _normalize_path(
             endpoint_path, "/api/v1/services/aigc/video-generation/video-synthesis"
         )
+        #: 模型行 default_params：百炼的生成参数放在 parameters 段
+        self.default_params = sanitize_default_params(default_params)
         self.transport = transport
         if not self.api_key or not self.model:
             raise AppError(
@@ -401,10 +445,15 @@ class DashScopeVideoProvider:
 
         started = time.perf_counter()
         deadline = time.monotonic() + max(0, wait_seconds)
+        merged: dict[str, Any] = {
+            **self.default_params,
+            **sanitize_default_params(request.extra_params),
+        }
         payload: dict[str, Any] = {
             "model": self.model,
             "input": {"prompt": request.prompt[:MAX_PROMPT_LEN]},
             "parameters": {
+                **merged,
                 "duration": _normalize_duration(request.duration_seconds),
                 "size": request.size.replace("x", "*"),
             },
@@ -602,6 +651,8 @@ def build_video_provider(
             "model": model,
             "provider_label": f"supplier:{supplier.name}"[:50],
             "endpoint_path": getattr(model_row, "endpoint_path", None),
+            # 模型行 default_params：此前入库无人消费，现真正下发到上游
+            "default_params": sanitize_default_params(getattr(model_row, "default_params", None)),
         }
         if protocol == "dashscope_video":
             return DashScopeVideoProvider(**kwargs)
@@ -675,6 +726,9 @@ __all__ = [
     "DEFAULT_DURATION_SECONDS",
     "DEFAULT_SIZE",
     "MAX_DURATION_SECONDS",
+    "MODE_IMAGE_TO_VIDEO",
+    "MODE_TEXT_TO_VIDEO",
+    "VIDEO_MODES",
     "VIDEO_PROVIDER_LABELS",
     "VIDEO_PROVIDER_TYPES",
     "DashScopeVideoProvider",
@@ -684,6 +738,7 @@ __all__ = [
     "VideoRequest",
     "VideosProvider",
     "build_video_provider",
+    "normalize_video_mode",
     "resolve_video_provider",
     "video_error",
 ]

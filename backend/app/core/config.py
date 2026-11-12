@@ -46,6 +46,27 @@ class Settings(BaseSettings):
     local_storage_path: str = Field(default="/tmp/techyard-files")
     upload_max_mb: int = 50
 
+    # --- 支付渠道（v3.79 自助付费闭环，审查 D-17）-------------------------
+    billing_payment_provider: str = Field(
+        default="manual",
+        description="支付渠道：manual=对公转账自助核销 / sandbox=内置沙箱 / "
+        "wechat_pay / alipay（需商户参数）",
+    )
+    billing_payment_secret: str = Field(
+        default="",
+        description="沙箱/渠道回调签名密钥；留空则由 app_secret_key 域分离派生",
+    )
+    billing_transfer_account: str = Field(
+        default="",
+        description="对公转账收款账户展示文案（开户行/账号/户名），仅用于展示",
+    )
+    billing_wechat_appid: str = Field(default="", description="微信支付 AppID")
+    billing_wechat_mchid: str = Field(default="", description="微信支付商户号")
+    billing_wechat_api_v3_key: str = Field(default="", description="微信支付 APIv3 密钥")
+    billing_alipay_app_id: str = Field(default="", description="支付宝应用 ID")
+    billing_alipay_private_key: str = Field(default="", description="支付宝应用私钥（PKCS8）")
+    billing_alipay_public_key: str = Field(default="", description="支付宝公钥（验签用）")
+
     llm_provider: str = Field(default="fake", description="fake|openai_compatible")
     llm_base_url: str = ""
     llm_api_key: str = ""
@@ -125,6 +146,13 @@ class Settings(BaseSettings):
     retrieval_min_score: float = Field(
         default=0.25, description="检索最低相似度阈值；低于此分数的片段视为知识不足"
     )
+    retrieval_min_score_mock: float = Field(
+        default=0.10,
+        description="mock 向量提供方下的默认检索阈值：mock 只是词面（bigram）相似度替身，"
+        "真命中的相似度落在 0.14~0.47、无关文本的噪声底约 0.08；沿用 0.25 的真实模型"
+        "阈值会把真命中整片滤掉，表现为「知识库检索恒为空」。"
+        "仅在用户未显式设置 RETRIEVAL_MIN_SCORE 时生效",
+    )
     retrieval_mode: str = Field(
         default="hybrid", description="检索模式：vector=纯向量检索，hybrid=向量+关键词混合"
     )
@@ -144,6 +172,28 @@ class Settings(BaseSettings):
         default=False,
         description="桌面单机模式（TASKS_INLINE_MODE）：true 时创建/重试任务跳过 Celery 投递，"
         "直接走本机后台线程兜底路径执行；语义等同强制开启 worker_sync_fallback 的执行分支",
+    )
+    knowledge_parse_watchdog_enabled: bool = Field(
+        default=True,
+        description="知识库解析看门狗：broker 可达但无 worker 消费（消息进了队列却没人推进）时，"
+        "按文档状态判定并由 API 进程本机兜底解析，避免文档永久卡在 queued",
+    )
+    knowledge_parse_watchdog_interval_seconds: int = Field(
+        default=60,
+        description="知识库解析看门狗巡检节奏（秒）",
+    )
+    knowledge_parse_queued_stale_seconds: int = Field(
+        default=180,
+        description="无活跃 worker 时，文档排队超过该秒数即由看门狗本机兜底解析",
+    )
+    knowledge_parse_queued_alive_worker_stale_seconds: int = Field(
+        default=600,
+        description="有活跃 worker 时，文档排队超过该秒数仍无进展即由看门狗兜底"
+        "（覆盖 worker 连错数据库、消息被取走后丢弃的场景）",
+    )
+    knowledge_parse_processing_stale_seconds: int = Field(
+        default=900,
+        description="processing 状态停超过该秒数判定为僵尸解析，重置回 queued 重新排队",
     )
 
     use_pgvector: bool = Field(
@@ -354,6 +404,24 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return self.app_env.strip().lower() == "production"
 
+    @property
+    def effective_retrieval_min_score(self) -> float:
+        """当前生效的检索阈值。
+
+        mock 向量提供方只是词面相似度替身，相似度量级（0.0x~0.8）远低于真实
+        embedding；沿用 0.25 的默认阈值会让 mock 模式下的检索恒为空（表现为
+        "知识库检索坏了"）。因此在用户**未显式设置** RETRIEVAL_MIN_SCORE 时，
+        mock 走 ``retrieval_min_score_mock``；显式设置过则一律尊重用户值。
+
+        ``model_fields_set`` 只包含被显式赋值/来自环境变量的字段，
+        正好能区分"用户配的"与"走默认值的"。
+        """
+        if self.embedding_provider != "mock":
+            return float(self.retrieval_min_score)
+        if "retrieval_min_score" in self.model_fields_set:
+            return float(self.retrieval_min_score)
+        return float(self.retrieval_min_score_mock)
+
     def validate_for_runtime(self) -> tuple[list[str], list[str]]:
         """启动期安全校验。返回 (必须拒绝启动的错误, 仅告警的提示)。
 
@@ -397,6 +465,11 @@ class Settings(BaseSettings):
                         "生产环境禁止使用 SQLite，必须配置 PostgreSQL；"
                         "仅服务器单机版可显式设置 ALLOW_SQLITE_IN_PRODUCTION=true"
                     )
+            if self.billing_payment_provider == "sandbox":
+                errors.append(
+                    "生产环境禁止使用沙箱支付渠道（BILLING_PAYMENT_PROVIDER=sandbox）："
+                    "沙箱回调可被本地构造，必须改为 manual/wechat_pay/alipay"
+                )
         else:
             if self.app_secret_key == DEFAULT_APP_SECRET_KEY:
                 warnings.append("APP_SECRET_KEY 使用默认占位值（仅限开发/测试环境）")

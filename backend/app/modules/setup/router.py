@@ -10,7 +10,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
@@ -18,7 +18,7 @@ from app.core.config import settings
 from app.core.deps import get_db_session
 from app.core.errors import AppError
 from app.core.responses import ok
-from app.modules.setup import service
+from app.modules.setup import service, skill_catalog
 
 router = APIRouter(prefix="/setup", tags=["setup"])
 
@@ -51,7 +51,8 @@ class InitializeRequest(BaseModel):
     yard_description: str = Field(default="", max_length=64)
     school: str = Field(default="", max_length=40)
     industry: str = Field(default="", max_length=30)
-    skill_codes: list[str] = Field(default_factory=list, max_length=200)
+    # None = 老客户端未传（铺全部内置技能）；[] = 用户明确全不勾选（一个不铺）
+    skill_codes: list[str] | None = Field(default=None, max_length=200)
     llm_provider: LlmProviderIn | None = None
     app_name: str = Field(default="", max_length=40)
     primary_color: str = Field(default="", max_length=20)
@@ -81,10 +82,17 @@ def setup_status(request: Request, db: Session = Depends(get_db_session)):
 
 
 @router.get("/skills")
-def setup_skills(request: Request):
-    """向导第 4 步的技能清单（纯数据，不含任何密钥）。"""
-    items = service.builtin_skill_catalog()
-    return ok({"items": items, "total": len(items)}, request)
+def setup_skills(request: Request, types: str = Query(default="", max_length=200)):
+    """向导第 4 步的技能清单（纯数据，不含任何密钥）。
+
+    v3.79（审查 D-13）：``types=fruit,rice`` 传入用户在第 3 步**显式勾选**
+    的产业画像，服务端据此算出「推荐预选集合」与分组统计，前端不再把 35 个
+    技能一次性全选甩给小白。
+    """
+    profile_types = [t.strip() for t in types.split(",") if t.strip()]
+    catalog = service.builtin_skill_catalog()
+    payload = skill_catalog.build_payload(catalog, profile_types)
+    return ok(payload, request)
 
 
 @router.post("/initialize")

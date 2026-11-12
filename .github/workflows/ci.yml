@@ -76,6 +76,92 @@ jobs:
           uv run python backend/scripts/generate_openapi.py
           git diff --exit-code contracts/openapi.yaml
 
+  # PostgreSQL + pgvector 真实链路（审查 D-01 / D-05 / D-22 的根因护栏）。
+  #
+  # 为什么必须单独一个 job：此前 CI 的**全部**单测都跑在 SQLite 内存库上，
+  # 而本轮审查的三个 P0 缺陷只在 PostgreSQL 上复现——
+  #   - D-01：pgvector 列读回 numpy.ndarray，真值判断抛 ValueError；
+  #   - D-05/D-22：GROUP BY 里的常量渲染成绑定参数 → "column must appear in
+  #     the GROUP BY clause"，指挥官总览 500；
+  #   - 检索排序：pgvector 的 <=> 距离算子路径与 SQLite 扫描路径是两条分支。
+  # 于是出现「SQLite 全绿、生产库 500」。这里把这三条链路钉在真实 PG 上跑。
+  postgres-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: app_user
+          POSTGRES_PASSWORD: ci-password
+          POSTGRES_DB: techyard
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U app_user -d techyard"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: postgresql+psycopg://app_user:ci-password@localhost:5432/techyard
+      TEST_DATABASE_URL: postgresql+psycopg://app_user:ci-password@localhost:5432/techyard_test
+      APP_SECRET_KEY: ci-secret-key-for-tests-only-min-32-chars
+      LLM_PROVIDER: fake
+      EMBEDDING_PROVIDER: mock
+      UV_FROZEN: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Install dependencies (consume uv.lock)
+        run: uv sync --frozen --extra dev
+      - name: Create dedicated test database
+        run: |
+          uv run python -c "
+          from sqlalchemy import create_engine, text
+          e = create_engine(
+              'postgresql+psycopg://app_user:ci-password@localhost:5432/postgres',
+              isolation_level='AUTOCOMMIT',
+          )
+          with e.connect() as c:
+              c.execute(text('DROP DATABASE IF EXISTS techyard_test'))
+              c.execute(text('CREATE DATABASE techyard_test OWNER app_user'))
+          print('techyard_test ready')
+          "
+      - name: Migrate test database to head
+        run: |
+          cd backend
+          DATABASE_URL="$TEST_DATABASE_URL" uv run alembic upgrade head
+      - name: pgvector extension present
+        run: |
+          cd backend
+          uv run python -c "
+          from sqlalchemy import create_engine, text
+          import os
+          e = create_engine(os.environ['TEST_DATABASE_URL'])
+          with e.connect() as c:
+              v = c.execute(text(\"SELECT extversion FROM pg_extension WHERE extname = 'vector'\")).scalar()
+              assert v, 'pgvector extension missing'
+              print('pgvector', v)
+          "
+      - name: Real PostgreSQL paths (pgvector search / memory retrieve / commander overview)
+        run: |
+          cd backend
+          uv run python -m pytest tests/integration/test_postgres_paths.py -v
+      - name: Migration chain reversible on PostgreSQL
+        run: |
+          cd backend
+          DATABASE_URL="$TEST_DATABASE_URL" uv run alembic downgrade -1
+          DATABASE_URL="$TEST_DATABASE_URL" uv run alembic upgrade head
+      - name: Re-run paths after downgrade/upgrade (schema drift guard)
+        run: |
+          cd backend
+          uv run python -m pytest tests/integration/test_postgres_paths.py -q
+
   # 本机语音转写（v3.30）：同一份 ONNX 模型在三端都要能装、能跑、能删。
   # 模型不进安装包，这里用 actions/cache 缓存下载结果（key=校验和，换了模型会自动失效）。
   asr-smoke:

@@ -529,7 +529,7 @@ async def create_plan_run(
     # 记忆优先：把同类任务的历史复盘和用户偏好带进规划；检索失败不阻塞主流程
     memory_hint = ""
     try:
-        memory_hint = memory_service.retrieve_for_commander(db, ctx, text)
+        memory_hint = await memory_service.retrieve_for_commander_async(db, ctx, text)
     except Exception as exc:  # noqa: BLE001 - 记忆是增强，不能让规划挂掉
         log.warning("commander memory retrieve failed: %s", exc)
     # 经验资产：优先复用成熟工作流，并把同场景踩过的坑带进规划
@@ -1395,7 +1395,7 @@ async def _invoke_agent(
     # 执行前带上同类任务的历史经验；只给当前用户 + 本小院 + 该助手可读范围
     memory_hint = ""
     try:
-        memory_hint = memory_service.retrieve_for_agent(
+        memory_hint = await memory_service.retrieve_for_agent_async(
             db,
             ctx,
             instruction,

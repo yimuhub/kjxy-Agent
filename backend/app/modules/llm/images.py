@@ -26,6 +26,7 @@ import httpx
 
 from app.core.errors import AppError
 from app.core.logging import get_logger
+from app.modules.llm.providers_openai import sanitize_default_params
 
 log = get_logger(__name__)
 
@@ -152,6 +153,7 @@ class OpenAIImagesProvider:
         timeout_seconds: int = 120,
         provider_label: str = "images",
         endpoint_path: str | None = None,
+        default_params: dict | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self.base_url = (base_url or "").rstrip("/")
@@ -160,6 +162,9 @@ class OpenAIImagesProvider:
         self.timeout = timeout_seconds
         self.provider_label = provider_label
         self.endpoint_path = _normalize_path(endpoint_path, "/images/generations")
+        #: 模型行 default_params：仅在 level 0（完整参数）下发；
+        #: 上游若因多余字段报 400/422，降级重试会自动把它们摘掉。
+        self.default_params = sanitize_default_params(default_params)
         #: 测试注入口（httpx.MockTransport）；生产恒为 None
         self.transport = transport
         if not self.base_url or not self.api_key or not self.model:
@@ -175,6 +180,8 @@ class OpenAIImagesProvider:
             "model": self.model,
             "prompt": request.prompt[:MAX_PROMPT_LEN],
         }
+        if level == 0:
+            payload.update(self.default_params)
         if level < 2:
             payload["size"] = normalize_size(request.size)
         if level < 1:
@@ -307,6 +314,7 @@ class DashScopeImageProvider:
         timeout_seconds: int = 150,
         poll_interval: float = 2.0,
         provider_label: str = "dashscope",
+        default_params: dict | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self.base_url = normalize_dashscope_base(base_url)
@@ -315,6 +323,8 @@ class DashScopeImageProvider:
         self.timeout = timeout_seconds
         self.poll_interval = poll_interval
         self.provider_label = provider_label
+        #: 模型行 default_params：百炼的生成参数放在 parameters 段
+        self.default_params = sanitize_default_params(default_params)
         self.transport = transport
         if not self.api_key or not self.model:
             raise AppError(
@@ -333,6 +343,7 @@ class DashScopeImageProvider:
             "model": self.model,
             "input": {"prompt": request.prompt[:MAX_PROMPT_LEN]},
             "parameters": {
+                **self.default_params,
                 "size": normalize_size(request.size).replace("x", "*"),
                 "n": normalize_count(request.n),
             },
@@ -483,6 +494,8 @@ def build_image_provider(
             "api_key": api_key,
             "model": model,
             "provider_label": f"supplier:{supplier.name}"[:50],
+            # 模型行 default_params：此前入库无人消费，现真正下发到上游
+            "default_params": sanitize_default_params(getattr(model_row, "default_params", None)),
         }
         if image_protocol == "dashscope_image":
             return DashScopeImageProvider(**kwargs)

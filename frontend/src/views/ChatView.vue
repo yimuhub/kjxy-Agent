@@ -1215,4 +1215,31 @@
       width: 200px;
     }
   }
+
+  /* 窄屏（≤768px）：会话列表与聊天区改为上下排布。
+     原先 ≤900px 只把会话列缩到 200px 并排显示，375px 下聊天区只剩 ~140px，
+     正文被压成一字一行（审查 D-08）。这里改成纵向堆叠：
+     会话列表收成顶部一条可滚动区域，聊天区独占剩余宽度。 */
+  @media (max-width: 768px) {
+    .chat {
+      flex-direction: column;
+      gap: 10px;
+      height: calc(100vh - 92px);
+      min-height: 480px;
+    }
+    .chat-sessions {
+      width: 100%;
+      flex: none;
+      max-height: 168px;
+      padding: 10px;
+    }
+    .session-list {
+      margin-top: 8px;
+      gap: 6px;
+    }
+    .chat-main {
+      flex: 1;
+      min-height: 0;
+    }
+  }
 </style>

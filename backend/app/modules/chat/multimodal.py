@@ -8,23 +8,26 @@
 3. **图片是数据不是指令**：提示词要求模型只描述可见事实，并把图中文字当数据处理；
    识别结果随后作为不可信附件资料注入对话上下文（见 ``build_attachment_context``）。
 4. **不做医疗/用药建议**：识别只描述症状与可见文字，不给农药品种、剂量或施用方案。
+5. **必须走统一计量链路**（v3.4x 修复）：图片理解是真实花钱的模型调用，
+   此前直连 httpx 绕过了 ``complete_with_logging``，导致
+   **不写 llm_calls（成本不可见）、不扣配额（超发无人拦）、不写 llm_traces（无法追溯）**。
+   现统一走 ``complete_with_logging``，与文本对话一样记账、扣配额、留痕、还能供应商兜底。
 """
 
 from __future__ import annotations
 
 import base64
 
-import httpx
-
 from app.core.config import settings
 from app.core.deps import YardContext
 from app.core.errors import AppError
 from app.core.logging import get_logger
-from app.core.net_guard import check_egress_url
 from app.modules.audit.service import log_audit
 from app.modules.chat.models import ATT_IMAGE, ATT_READY, ChatAttachment
 from app.modules.knowledge.storage import LocalStorageBackend
 from app.modules.llm.provider import get_provider, provider_resolution
+from app.modules.llm.schemas import ChatMessage, LLMMetadata, LLMRequest
+from app.modules.llm.service import complete_with_logging
 
 log = get_logger(__name__)
 
@@ -39,9 +42,17 @@ VISION_PROMPT = (
     "用简洁的中文分条输出，不超过 300 字。"
 )
 
+#: 图片理解的用途码（登记在 app/modules/llm/capabilities.py）：
+#: 单独成码，运营才能为「看图」这条链路单独绑定多模态模型并核算成本。
+VISION_PURPOSE = "image_understanding"
+
 
 def _provider_media_config(db, yard_id: str) -> tuple[str, str, str]:
-    """取当前生效供应商的 base_url/api_key/model（只读内存，明文用完即弃）。"""
+    """取当前生效供应商的 base_url/api_key/model（只读内存，明文用完即弃）。
+
+    仅用于"是否已配置可用供应商"的前置校验与模型名兜底；真正的调用交给
+    ``complete_with_logging``，由它统一记账/扣配额/留痕/供应商兜底。
+    """
     with provider_resolution(yard_id, db):
         provider = get_provider()
     base_url = str(getattr(provider, "base_url", "") or "").rstrip("/")
@@ -73,46 +84,61 @@ def _upstream_error(what: str, status_code: int, body: str) -> AppError:
     )
 
 
-async def _post_vision(base_url: str, api_key: str, model: str, data_url: str) -> str:
-    url = f"{base_url}/chat/completions"
-    check_egress_url(url, context="vision", allow_local=True)
-    payload = {
-        "model": model,
-        "messages": [
-            {
-                "role": "user",
-                "content": [
+def _map_vision_error(e: AppError) -> AppError:
+    """把统一 LLM 链路的错误翻译成图片理解对外的错误契约。"""
+    if e.code == "LLM_NOT_CONFIGURED":
+        return AppError(
+            "MULTIMODAL_NOT_CONFIGURED",
+            "当前没有可用的模型供应商，无法使用图片理解；请联系管理员配置模型。",
+            http_status=503,
+        )
+    if e.code in ("LLM_ERROR", "QUOTA_EXCEEDED"):
+        category = e.details.get("category") if isinstance(e.details, dict) else None
+        hint = ""
+        if category == "auth":
+            hint = "（模型凭据无效或无权访问该能力，请联系管理员检查供应商配置）"
+        elif category == "rate_limit":
+            hint = "（上游限流，请稍后重试）"
+        elif category == "provider_4xx":
+            hint = "（供应商或模型可能不支持该能力，请在系统设置中切换支持的多模态模型）"
+        return AppError(
+            "MULTIMODAL_UPSTREAM_ERROR",
+            f"图片理解失败：{e.message}{hint}。",
+            http_status=502 if e.http_status != 429 else 429,
+            details={"category": category} if category else None,
+        )
+    return e
+
+
+async def _run_vision(db, ctx: YardContext, data_url: str, model: str) -> str:
+    """图片理解：走统一 LLM 链路（记账 + 配额 + traces + 供应商兜底）。"""
+    request = LLMRequest(
+        messages=[
+            ChatMessage(
+                role="user",
+                content=[
                     {"type": "text", "text": VISION_PROMPT},
                     {"type": "image_url", "image_url": {"url": data_url}},
                 ],
-            }
-        ],
-        "max_tokens": 600,
-        "temperature": 0.1,
-    }
-    async with httpx.AsyncClient(timeout=settings.llm_timeout_seconds, trust_env=False) as client:
-        try:
-            resp = await client.post(
-                url, json=payload, headers={"Authorization": f"Bearer {api_key}"}
             )
-        except httpx.HTTPError as e:
-            raise AppError(
-                "MULTIMODAL_UPSTREAM_ERROR",
-                "图片理解请求失败：无法连接上游服务。",
-                http_status=502,
-            ) from e
-    if resp.status_code >= 400:
-        raise _upstream_error("图片理解", resp.status_code, resp.text)
+        ],
+        max_tokens=600,
+        temperature=0.1,
+        model=model or None,
+        metadata=LLMMetadata(
+            yard_id=ctx.yard_id,
+            user_id=ctx.user_id,
+            request_id=ctx.request_id,
+            task_id=f"chat-vision-{ctx.request_id}"[:64],
+            purpose=VISION_PURPOSE,
+            agent_ref="chat_multimodal",
+        ),
+    )
     try:
-        choices = resp.json().get("choices") or []
-        content = choices[0]["message"]["content"]
-    except (ValueError, KeyError, IndexError, TypeError) as e:
-        raise AppError(
-            "MULTIMODAL_UPSTREAM_ERROR", "图片理解返回了无法解析的内容。", http_status=502
-        ) from e
-    if isinstance(content, list):
-        content = "".join(str(part.get("text") or "") for part in content if isinstance(part, dict))
-    return str(content or "").strip()
+        resp = await complete_with_logging(db, request)
+    except AppError as e:
+        raise _map_vision_error(e) from e
+    return (resp.content or "").strip()
 
 
 def _audit(db, ctx: YardContext, action: str, resource_id: str, metadata: dict) -> None:
@@ -147,9 +173,9 @@ async def recognize_image(db, ctx: YardContext, attachment: ChatAttachment) -> d
             "CHAT_ATTACHMENT_NOT_FOUND", "附件原图已不可用，请重新上传。", http_status=404
         ) from e
     base_url, api_key, provider_model = _provider_media_config(db, ctx.yard_id)
-    model = settings.vision_model or provider_model or "gpt-4o-mini"
+    model = (settings.vision_model or provider_model or "").strip()
     data_url = f"data:{attachment.mime};base64,{base64.b64encode(raw).decode('ascii')}"
-    text = await _post_vision(base_url, api_key, model, data_url)
+    text = await _run_vision(db, ctx, data_url, model)
     if not text:
         raise AppError(
             "MULTIMODAL_EMPTY_RESULT",
@@ -172,5 +198,6 @@ async def recognize_image(db, ctx: YardContext, attachment: ChatAttachment) -> d
 
 __all__ = [
     "VISION_PROMPT",
+    "VISION_PURPOSE",
     "recognize_image",
 ]

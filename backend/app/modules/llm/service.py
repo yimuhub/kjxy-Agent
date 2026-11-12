@@ -48,13 +48,13 @@ def _log_provider_choice_once(provider) -> None:
 
 def _prompt_sha(request: LLMRequest) -> str:
     """只存 prompt 的 sha256 摘要，不存原文。"""
-    text = "\n".join(f"{m.role}:{m.content}" for m in request.messages)
+    text = "\n".join(f"{m.role}:{m.text}" for m in request.messages)
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _prompt_digest(request: LLMRequest) -> str:
     """观测轨迹的提示词摘要（W4 隐私口径）：``sha256 前 12 位|前 200 字``。"""
-    text = "\n".join(f"{m.role}:{m.content or ''}" for m in request.messages)
+    text = "\n".join(f"{m.role}:{m.text}" for m in request.messages)
     sha12 = hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
     return f"{sha12}|{text[:200]}"
 
@@ -90,7 +90,7 @@ def _ensure_token_counts(request: LLMRequest, resp: LLMResponse) -> LLMResponse:
     in_tok = resp.input_tokens
     out_tok = resp.output_tokens
     if in_tok is None:
-        prompt_text = "\n".join(f"{m.role}:{m.content or ''}" for m in request.messages)
+        prompt_text = "\n".join(f"{m.role}:{m.text}" for m in request.messages)
         in_tok = estimate_token_count(prompt_text)
     if out_tok is None:
         out_tok = estimate_token_count(resp.content or "")
@@ -171,19 +171,89 @@ def _note_runtime_success(db: Session, provider) -> None:
     supplier_service.record_runtime_success(db, getattr(provider, "supplier_id", None))
 
 
-def _note_runtime_failure(db: Session, provider, note: str) -> None:
-    """真实调用失败 → 累计失败数，达阈值自动降级并记一条中文日志。"""
-    from app.modules.llm import supplier_service
+def _write_failure_telemetry(
+    db: Session,
+    *,
+    provider,
+    request: LLMRequest,
+    error: AppError,
+    latency_ms: int,
+    request_id: str,
+    yard_id: str,
+) -> None:
+    """失败调用的计量与降级记录：**优先用独立事务落库**。
 
-    degraded = supplier_service.record_runtime_failure(
-        db, getattr(provider, "supplier_id", None), note
-    )
-    if degraded:
-        log.warning(
-            "供应商 %s 运行时连续失败达到阈值，已自动降级（不再参与解析），"
-            "可在模型中心确认后重新启用",
-            _provider_label(provider),
+    业务请求最终失败时整个事务会回滚。若把失败记录留在业务会话里，
+    llm_calls/llm_traces 的 error 行与供应商连续失败计数会一起消失 ——
+    恰好是最需要留痕的场景最没数据（运营看到的"用量口径"与真实消耗对不上，
+    坏掉的供应商也永远不会累计到降级阈值）。
+
+    这两类记录都是纯遥测/运营状态，不依赖业务事务里未提交的行，
+    因此用独立会话提交，既不被回滚吞掉，也不污染业务事务。
+    独立会话写失败（如 SQLite 写锁冲突）时回退到业务会话，行为不比原来差。
+    """
+    category = error.details.get("category") if error.code == "LLM_ERROR" else None
+    error_text = f"{error.code}: {error.message}"
+    note = error_text
+
+    def _write(target: Session) -> bool:
+        """在给定会话里写 error 行并累计供应商失败数；返回是否已提交。"""
+        _write_call(
+            target,
+            provider=provider,
+            request=request,
+            resp=None,
+            status="error",
+            error_category=category,
+            latency_ms=latency_ms,
+            request_id=request_id,
+            yard_id=yard_id,
+            error_text=error_text,
         )
+        degraded = False
+        try:
+            from app.modules.llm import supplier_service
+
+            degraded = supplier_service.record_runtime_failure(
+                target, getattr(provider, "supplier_id", None), note
+            )
+        except Exception as e:  # noqa: BLE001 - 降级计数失败不应影响主错误
+            log.warning("供应商失败计数写入失败: %s", e)
+        if degraded:
+            log.warning(
+                "供应商 %s 运行时连续失败达到阈值，已自动降级（不再参与解析），"
+                "可在模型中心确认后重新启用",
+                _provider_label(provider),
+            )
+        return degraded
+
+    try:
+        from sqlalchemy.orm import Session as OrmSession
+
+        # 绑定到**调用方同一个引擎**：保证遥测一定落进调用方所在的库
+        # （测试用内存库、生产用 PostgreSQL），而不是某个全局默认库。
+        bind = db.get_bind()
+        iso = OrmSession(bind=bind, autoflush=False)
+        try:
+            _write(iso)
+            iso.commit()
+            return
+        except Exception as e:  # noqa: BLE001 - 独立事务失败则回退业务会话
+            iso.rollback()
+            log.warning("失败调用遥测写入独立事务失败，回退业务会话: %s", e)
+        finally:
+            try:
+                iso.close()
+            except Exception:  # noqa: BLE001,S110 - 关闭失败无需处理
+                pass
+    except Exception as e:  # noqa: BLE001 - 拿不到独立会话也回退业务会话
+        log.warning("失败调用遥测独立会话不可用，回退业务会话: %s", e)
+
+    # 回退：沿用业务会话（与历史行为一致，但不保证不被回滚吞掉）
+    try:
+        _write(db)
+    except Exception as e:  # noqa: BLE001 - 遥测失败绝不能盖掉主错误
+        log.warning("失败调用遥测写入失败: %s", e)
 
 
 async def complete_with_logging(db: Session, request: LLMRequest) -> LLMResponse:
@@ -235,23 +305,19 @@ async def complete_with_logging(db: Session, request: LLMRequest) -> LLMResponse
             resp = await provider.complete(request)
         except AppError as e:
             latency_ms = int((time.perf_counter() - started) * 1000)
-            category = e.details.get("category") if e.code == "LLM_ERROR" else None
-            _write_call(
+            _write_failure_telemetry(
                 db,
                 provider=provider,
                 request=request,
-                resp=None,
-                status="error",
-                error_category=category,
+                error=e,
                 latency_ms=latency_ms,
                 request_id=request_id,
                 yard_id=yard_id,
-                error_text=f"{e.code}: {e.message}",
             )
-            _note_runtime_failure(db, provider, f"{e.code}: {e.message}")
             last_error = e
             if index + 1 < len(candidates):
                 nxt = candidates[index + 1][0]
+                category = e.details.get("category") if e.code == "LLM_ERROR" else None
                 log.warning(
                     "模型兜底切换：第 %d 档 %s 调用失败（%s），改用 %s",
                     index + 1,

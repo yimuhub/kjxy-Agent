@@ -984,6 +984,12 @@ def build_provider_from_supplier(
                 provider.price_in_per_1k = float(pricing["input_per_1k"])
             if pricing.get("output_per_1k") is not None:
                 provider.price_out_per_1k = float(pricing["output_per_1k"])
+        # 模型行的默认请求参数：此前入库后无人消费（死配置），现注入 Provider
+        # 由 ``complete()`` 合并进 payload。model/messages/tools/stream 等
+        # 平台掌控的键会被过滤掉，避免模型行覆盖掉消息体。
+        from app.modules.llm.providers_openai import sanitize_default_params
+
+        provider.default_params = sanitize_default_params(model_row.default_params)
     return provider
 
 

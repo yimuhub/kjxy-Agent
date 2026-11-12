@@ -146,7 +146,7 @@ def _client(db, ctx: YardContext) -> TestClient:
 
 
 def test_memory_api_list_and_search(db_session, monkeypatch):
-    monkeypatch.setattr(memory_service, "_embed", lambda _text: [1.0, 0.0])
+    monkeypatch.setattr(memory_service, "_embed", lambda _text, *_: [1.0, 0.0])
     ctx = YardContext(
         yard_id="yard-api", user_id="u-api", roles=["yard_admin"], request_id="req-api"
     )
