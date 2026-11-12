@@ -997,24 +997,27 @@
           >
             {{ cur === 6 ? (submitting ? '正在创建…' : '创建我的小院') : '继续' }}
           </button>
-          <button
-            v-else
-            id="setup-enter"
-            type="button"
-            class="btn ghost"
-            @click="enterWorkspace()"
-          >
-            进入工作台
-          </button>
-          <button
-            v-else
-            id="setup-ask"
-            type="button"
-            class="btn primary"
-            @click="askFirstQuestion"
-          >
-            去问一句
-          </button>
+          <template v-else>
+            <!-- 首问闭环（审查 D-14）：主按钮是「去问一句」，工作台入口降为次按钮。
+                 注意两个按钮必须包在同一个 <template v-else> 里——此前写成两个
+                 并列 v-else，模板编译直接报错（vue-tsc 不查结构，vite build 才暴露）。 -->
+            <button
+              id="setup-ask"
+              type="button"
+              class="btn primary"
+              @click="askFirstQuestion"
+            >
+              去问一句
+            </button>
+            <button
+              id="setup-enter"
+              type="button"
+              class="btn ghost"
+              @click="enterWorkspace()"
+            >
+              进入工作台
+            </button>
+          </template>
         </footer>
       </section>
     </div>
