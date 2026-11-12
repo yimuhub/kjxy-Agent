@@ -15,6 +15,8 @@ export interface JournalRow {
   content_md: string
   status: 'draft' | 'submitted' | 'approved' | string
   author_user_id: string
+  /** 作者显示名（display_name 优先，回退用户名） */
+  author_name?: string | null
   reviewed_by?: string | null
   review_note?: string | null
   created_at?: string | null

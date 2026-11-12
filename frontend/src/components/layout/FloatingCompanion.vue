@@ -10,7 +10,7 @@
       <div
         v-if="wide && !expanded && bubbleText"
         class="companion-bubble"
-        :class="{ 'bubble-below': bubbleBelow }"
+        :class="{ 'bubble-below': bubbleBelow, 'is-dimmed': !bubbleVisible }"
         data-companion-bubble
       >
         {{ bubbleText }}
@@ -35,7 +35,7 @@
           class="avatar-figure"
           :skin="skin"
           :mood="mood"
-          :size="86"
+          :size="wide ? 86 : 64"
         />
         <span
           v-else
@@ -262,11 +262,17 @@
   const tickerIndex = ref(0)
   let briefTimer: number | null = null
   let tickerTimer: number | null = null
+  /** 闲聊气泡是否在「露出期」。2026-11-13 交付走查修正:此前的气泡 24 小时常驻,
+   * 在表格/按钮密度的页面上持续遮挡内容(全站 8+ 页复现)。现在按大厂陪伴件
+   * 惯例改成「露出 6s → 淡出 8s」的值守周期:陪伴感在,内容不被挡。 */
+  const bubbleVisible = ref(true)
+  let bubbleHideTimer: number | null = null
 
   const ambientLines = computed(() => [greetingFor(), sceneTip(scene.value), ...dataLines.value])
 
   const bubbleText = computed(() => {
     if (speech.value) return speech.value
+    if (!bubbleVisible.value) return ''
     const lines = ambientLines.value
     if (lines.length === 0) return ''
     return lines[tickerIndex.value % lines.length] ?? lines[0]
@@ -441,6 +447,7 @@
   function showSpeech(text: string): void {
     if (petMuted() || !text.trim()) return
     speech.value = text.trim().slice(0, 60)
+    bubbleVisible.value = true
     if (speechTimer !== null) window.clearTimeout(speechTimer)
     speechTimer = window.setTimeout(() => {
       speech.value = ''
@@ -537,8 +544,21 @@
     void refreshBriefs()
     briefTimer = window.setInterval(() => void refreshBriefs(), 5 * 60 * 1000)
     tickerTimer = window.setInterval(() => {
-      if (!speech.value) tickerIndex.value += 1
-    }, 10 * 1000)
+      if (speech.value) return
+      if (bubbleVisible.value) {
+        // 露出满 6 秒 → 淡出,让内容喘口气
+        bubbleVisible.value = false
+      } else {
+        // 淡出满 8 秒 → 换一句再露出
+        tickerIndex.value += 1
+        bubbleVisible.value = true
+        if (bubbleHideTimer !== null) window.clearTimeout(bubbleHideTimer)
+        bubbleHideTimer = window.setTimeout(() => {
+          bubbleVisible.value = false
+          bubbleHideTimer = null
+        }, 6 * 1000)
+      }
+    }, 8 * 1000)
   })
 
   onBeforeUnmount(() => {
@@ -549,6 +569,7 @@
     if (briefTimer !== null) window.clearInterval(briefTimer)
     if (tickerTimer !== null) window.clearInterval(tickerTimer)
     if (speechTimer !== null) window.clearTimeout(speechTimer)
+    if (bubbleHideTimer !== null) window.clearTimeout(bubbleHideTimer)
     window.removeEventListener('storage', onStorage)
     window.removeEventListener('resize', onResize)
     window.removeEventListener(PET_OVERLAY_EVENT, onOverlayEvent)
@@ -592,6 +613,13 @@
     /* 气泡只是提示，不能替头像吃掉点击：否则正好压在对话输入区右下角的
        「普通/指挥官」切换上，用户点下去没反应 */
     pointer-events: none;
+    opacity: 1;
+    transition: opacity 0.6s ease;
+  }
+
+  .companion-bubble.is-dimmed {
+    opacity: 0;
+    visibility: hidden;
   }
 
   .companion-bubble::after {

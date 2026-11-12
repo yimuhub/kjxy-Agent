@@ -333,7 +333,7 @@
   const HARNESS_SUGGESTIONS = ['这个助手能帮我做什么？', '总结一下上次拜访的结论']
   const HARNESS_OPTIONS = [
     { label: '单面板', value: 'single' },
-    { label: '双面板（测试）', value: 'dual' },
+    { label: '双面板（实验）', value: 'dual' },
   ]
 
   const route = useRoute()

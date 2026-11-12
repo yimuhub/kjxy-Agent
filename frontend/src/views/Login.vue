@@ -115,10 +115,6 @@
         >
           开通新的小院
         </router-link>
-        <span
-          v-if="showDemoHint"
-          class="demo-hint"
-        >演示环境账号见 README</span>
       </div>
       <p class="foot-help">
         没有账号？点上方「开通新的小院」自助注册；或联系本院管理员在成员管理里邀请你加入。
@@ -152,7 +148,6 @@
 
   const form = reactive({ username: '', password: '', yard_id: '' })
   /** 生产构建不展示演示账号提示，避免误导真实用户 */
-  const showDemoHint = !import.meta.env.PROD
 
   const rules: FormRules = {
     username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
@@ -337,10 +332,6 @@
   }
   .foot-link:hover {
     text-decoration: underline;
-  }
-  .demo-hint {
-    font-size: 12px;
-    color: var(--ds-text-3);
   }
   .foot-help {
     margin: 10px 0 0;

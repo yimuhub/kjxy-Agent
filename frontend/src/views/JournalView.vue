@@ -104,11 +104,15 @@
       </el-table-column>
       <el-table-column
         v-if="canReview"
-        prop="author_user_id"
+        prop="author_name"
         label="作者"
         width="140"
         show-overflow-tooltip
-      />
+      >
+        <template #default="{ row }">
+          {{ (row as JournalRow).author_name || (row as JournalRow).author_user_id }}
+        </template>
+      </el-table-column>
       <el-table-column
         label="操作"
         width="230"

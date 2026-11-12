@@ -51,12 +51,16 @@
     return {
       backgroundColor: 'transparent',
       animationDuration: 400,
-      grid: { left: 58, right: 52, top: 38, bottom: 30 },
+      grid: { left: 58, right: 52, top: 46, bottom: 30 },
       legend: {
-        top: 4,
-        right: 8,
+        // scroll 型图例:条目放不下时自动翻页,杜绝双系列图例文字叠字
+        type: 'scroll',
+        top: 2,
+        left: 58,
+        right: 52,
         itemWidth: 12,
         itemHeight: 8,
+        itemGap: 10,
         textStyle: { color: '#9aa1b5', fontSize: 11 },
       },
       tooltip: {

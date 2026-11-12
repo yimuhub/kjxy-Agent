@@ -152,7 +152,7 @@
           @click="menuStore.sidebarEditMode = !menuStore.sidebarEditMode"
         >
           <el-icon><Operation /></el-icon>
-          <span>{{ menuStore.sidebarEditMode ? '完成原地调整' : '原地拖拽调序' }}</span>
+          <span>{{ menuStore.sidebarEditMode ? '完成菜单调整' : '自定义菜单' }}</span>
         </el-button>
         <el-button
           size="small"
@@ -215,7 +215,7 @@
             :aria-label="`主题：${themeModeLabel()}`"
             @click="cycleTheme"
           >
-            {{ themeIcon }}
+            <el-icon :size="16"><component :is="themeIcon" /></el-icon>
           </button>
         </el-tooltip>
         <!-- 全局顶栏 Token 实时统计胶囊（点击跳转用量看板） -->
@@ -392,9 +392,12 @@
     Grid,
     List,
     Menu,
+    Monitor,
+    Moon,
     Odometer,
     OfficeBuilding,
     Operation,
+    Sunny,
     Reading,
     Setting,
     Shop,
@@ -617,7 +620,7 @@
   /* ---------- 主题三态（v3.69） ---------- */
   const localThemeMode = ref<ThemeMode>(themeMode())
   const themeIcon = computed(() =>
-    localThemeMode.value === 'system' ? '🌓' : localThemeMode.value === 'light' ? '☀️' : '🌙',
+    localThemeMode.value === 'light' ? Sunny : localThemeMode.value === 'dark' ? Moon : Monitor,
   )
   function themeModeLabel(): string {
     return localThemeMode.value === 'system'

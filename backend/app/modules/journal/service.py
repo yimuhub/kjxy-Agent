@@ -348,7 +348,13 @@ def list_journal(
     return list(db.scalars(stmt))
 
 
-def journal_out(row: YardJournal) -> dict[str, Any]:
+def journal_out(row: YardJournal, *, author_name: str | None = None) -> dict[str, Any]:
+    """单条日志载荷。
+
+    ``author_name``：作者显示名（优先昵称/姓名，回退用户名）。由列表/详情路由
+    批量解析后传入——交付走查修正：此前「作者」列直接暴露 user UUID，
+    对用户是不可读的内部标识。
+    """
     return {
         "id": row.id,
         "kind": row.kind,
@@ -362,9 +368,26 @@ def journal_out(row: YardJournal) -> dict[str, Any]:
         "content_md": row.content_md,
         "status": row.status,
         "author_user_id": row.author_user_id,
+        "author_name": author_name,
         "reviewed_by": row.reviewed_by,
         "review_note": row.review_note,
         "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+
+
+def author_name_map(db: Session, user_ids: list[str]) -> dict[str, str]:
+    """user_id → 展示名（display_name 优先，回退 username）；一次查询批量解析。"""
+    ids = [u for u in {i for i in user_ids if i} if u]
+    if not ids:
+        return {}
+    from app.modules.auth.models import User
+
+    rows = db.execute(
+        select(User.id, User.display_name, User.username).where(User.id.in_(ids))
+    ).all()
+    return {
+        uid: (display or username or uid[:8])
+        for uid, display, username in rows
     }
 
 

@@ -93,7 +93,8 @@ def create_draft(
     except Exception:
         db.rollback()
         raise
-    return ok(service.journal_out(row), request)
+    name = service.author_name_map(db, [row.author_user_id]).get(row.author_user_id)
+    return ok(service.journal_out(row, author_name=name), request)
 
 
 @router.get("")
@@ -122,7 +123,15 @@ def list_journal(
                 "FORBIDDEN", "缺少 logs:review 权限，无法查看全院日志。", http_status=403
             )
     rows = service.list_journal(db, ctx, month=month or None, mine_only=mine_only)
-    return ok({"items": [service.journal_out(r) for r in rows]}, request)
+    names = service.author_name_map(db, [r.author_user_id for r in rows])
+    return ok(
+        {
+            "items": [
+                service.journal_out(r, author_name=names.get(r.author_user_id)) for r in rows
+            ]
+        },
+        request,
+    )
 
 
 @router.put("/{journal_id}")
@@ -136,7 +145,8 @@ def save_journal(
 ):
     row = service.save_content(db, ctx, journal_id, payload.content_md, payload.title)
     db.commit()
-    return ok(service.journal_out(row), request)
+    name = service.author_name_map(db, [row.author_user_id]).get(row.author_user_id)
+    return ok(service.journal_out(row, author_name=name), request)
 
 
 @router.post("/{journal_id}/submit")
@@ -149,7 +159,8 @@ def submit_journal(
 ):
     row = service.submit(db, ctx, journal_id)
     db.commit()
-    return ok(service.journal_out(row), request)
+    name = service.author_name_map(db, [row.author_user_id]).get(row.author_user_id)
+    return ok(service.journal_out(row, author_name=name), request)
 
 
 @router.post("/{journal_id}/review")
@@ -163,7 +174,8 @@ def review_journal(
 ):
     row = service.review(db, ctx, journal_id, payload.action, payload.note)
     db.commit()
-    return ok(service.journal_out(row), request)
+    name = service.author_name_map(db, [row.author_user_id]).get(row.author_user_id)
+    return ok(service.journal_out(row, author_name=name), request)
 
 
 @router.get("/stats")

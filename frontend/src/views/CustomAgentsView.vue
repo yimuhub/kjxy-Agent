@@ -361,7 +361,8 @@
               <el-button
                 v-if="row.status === 'draft'"
                 size="small"
-                type="success"
+                type="primary"
+                plain
                 @click="daPublish(row as DeclarativeAgent)"
               >
                 发布
@@ -683,7 +684,7 @@
         </el-button>
         <el-button
           v-if="!daEditingId"
-          type="success"
+          type="primary"
           :loading="daSaving"
           @click="saveDa(true)"
         >

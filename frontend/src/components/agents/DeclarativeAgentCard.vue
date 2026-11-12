@@ -120,7 +120,8 @@
       <el-button
         v-if="agent.status === 'draft'"
         size="small"
-        type="success"
+        type="primary"
+        plain
         @click="emit('publish', agent)"
       >
         发布

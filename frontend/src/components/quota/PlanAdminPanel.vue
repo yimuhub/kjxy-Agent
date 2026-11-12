@@ -34,7 +34,7 @@
       />
       <el-table-column
         label="价格"
-        width="120"
+        width="100"
       >
         <template #default="{ row }">
           ¥{{ formatPrice(row.price_yuan) }}
@@ -42,7 +42,7 @@
       </el-table-column>
       <el-table-column
         label="类型"
-        width="110"
+        width="90"
       >
         <template #default="{ row }">
           <el-tag
@@ -55,7 +55,7 @@
       </el-table-column>
       <el-table-column
         label="额度项"
-        min-width="240"
+        min-width="200"
       >
         <template #default="{ row }">
           <span
@@ -67,7 +67,7 @@
       </el-table-column>
       <el-table-column
         label="卖点"
-        min-width="220"
+        min-width="170"
         show-overflow-tooltip
       >
         <template #default="{ row }">
@@ -76,7 +76,7 @@
       </el-table-column>
       <el-table-column
         label="排序"
-        width="90"
+        width="70"
       >
         <template #default="{ row }">
           {{ row.sort_order ?? 0 }}
@@ -84,7 +84,7 @@
       </el-table-column>
       <el-table-column
         label="状态"
-        width="140"
+        width="110"
       >
         <template #default="{ row }">
           <el-tag
@@ -204,6 +204,7 @@
                   class="item-note"
                   maxlength="120"
                   placeholder="备注（选填）"
+                  :title="it.note"
                 />
                 <el-button
                   type="danger"
@@ -414,7 +415,7 @@
   .item-chip { display: inline-block; margin: 2px 6px 2px 0; padding: 1px 8px; border: 1px solid var(--ds-border); border-radius: 999px; font-size: 11px; color: var(--ds-text-2); }
   .edit-form { max-height: min(62vh, 560px); overflow: auto; padding-right: 4px; }
   .items-editor { display: flex; flex-direction: column; gap: 8px; width: 100%; }
-  .item-row { display: grid; grid-template-columns: 130px 130px 100px 1fr auto; gap: 8px; align-items: center; }
+  .item-row { display: grid; grid-template-columns: 118px 118px 88px 1fr auto; gap: 8px; align-items: center; }
   .item-metric { width: 130px; }
   .item-amount { width: 130px; }
   .item-days { width: 100px; }

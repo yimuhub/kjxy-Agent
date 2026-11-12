@@ -38,15 +38,18 @@
             <template v-if="m.unlimited">
               不限量（已用 {{ formatAmount(m.used) }}）
             </template>
+            <template v-else-if="!m.limit">
+              已用 {{ formatAmount(m.used) }} {{ m.unit }} · 上限未设置
+            </template>
             <template v-else>
-              {{ formatAmount(m.used) }} / {{ formatAmount(m.limit ?? 0) }} {{ m.unit }}
+              {{ formatAmount(m.used) }} / {{ formatAmount(m.limit) }} {{ m.unit }}
             </template>
           </span>
           <el-progress
-            v-if="!m.unlimited"
+            v-if="m.limit"
             :percentage="Math.min(100, m.usage_percent)"
             :status="m.usage_percent >= 90 ? 'exception' : m.usage_percent >= 70 ? 'warning' : 'success'"
-            :stroke-width="6"
+            :stroke-width="8"
             :show-text="false"
           />
         </li>
@@ -966,7 +969,7 @@
 
   .plan-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(252px, 1fr));
     gap: 12px;
   }
 
@@ -1015,13 +1018,13 @@
 
   /* --- 用量水位与升级引导（v3.80 审查 D-19/D-20/D-21）--- */
   .usage-box {
-    border: 1px solid var(--ds-border, #e4e7ed);
+    border: 1px solid var(--ds-border);
     border-radius: 10px;
     padding: 12px 14px;
     display: flex;
     flex-direction: column;
     gap: 8px;
-    background: var(--ds-bg-soft, #fafafa);
+    background: var(--ds-bg-soft);
   }
 
   .usage-head {
@@ -1033,7 +1036,7 @@
   }
 
   .usage-warn {
-    color: var(--el-color-warning, #e6a23c);
+    color: var(--ds-warning);
     font-size: 12.5px;
   }
 
@@ -1062,6 +1065,11 @@
     font-variant-numeric: tabular-nums;
   }
 
+  /* 水位条轨道:默认浅灰在暗色下几乎不可见,统一走玻璃层 token */
+  .usage-metrics :deep(.el-progress-bar__outer) {
+    background-color: var(--ds-glass);
+  }
+
   .usage-anchor {
     margin: 0;
     font-size: 12.5px;
@@ -1087,7 +1095,7 @@
     padding: 8px 10px;
     list-style: none;
     border-radius: 8px;
-    background: var(--ds-bg-soft, #f5f7fa);
+    background: var(--ds-bg-soft);
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -1129,7 +1137,13 @@
   .plan-actions {
     margin-top: auto;
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
+    /* Element 按钮在窄卡里不收缩文字，防止「下单」被裁成半个字 */
+    :deep(.el-button) {
+      margin-left: 0;
+      flex: 0 0 auto;
+    }
   }
 
   .muted {

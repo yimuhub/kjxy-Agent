@@ -50,6 +50,22 @@
   --ds-radius-pill: 999px;
   --ds-font: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei',
     'Helvetica Neue', Arial, sans-serif;
+  --ds-font-mono: 'SF Mono', SFMono-Regular, ui-monospace, Menlo, Consolas,
+    'Liberation Mono', monospace;
+
+  /* ---- 3. 别名与补齐 token（2026-11-13 交付走查）----
+   * 此前 10 个变量被组件引用却从未定义（var() 无 fallback 时整条声明失效），
+   * 是「暗色白盒」「按钮文字不可见」「卡片文字叠影」等一批视觉缺陷的总根源。
+   * 这里按设计语言补齐：暗色=玻璃浮层，亮色=素白纸面。 */
+  --ds-bg-soft: rgba(255, 255, 255, 0.045);
+  --ds-bg-3: #232A3C;
+  --ds-surface-2: rgba(255, 255, 255, 0.05);
+  --ds-brand: var(--ds-accent);
+  --ds-text: var(--ds-text-1);
+  --ds-text-muted: var(--ds-text-3);
+  --ds-radius-sm: 8px;
+  --ds-radius-md: var(--ds-radius-control);
+  --ds-radius-chip: var(--ds-radius-pill);
 }
 
 /* ============ Element Plus 暗色桥接（html.dark） ============ */
@@ -224,6 +240,19 @@ html.light {
   --ds-nav-active-bg: rgba(79, 70, 229, 0.08);
   --ds-nav-active-text: #4338CA;
   --ds-mask: rgba(243, 245, 249, 0.62);
+
+  /* ---- 补齐 token（亮色）：与暗色同名同义，素白纸面口径 ---- */
+  --ds-bg-soft: #F5F6FA;
+  --ds-bg-3: #EEF0F6;
+  --ds-surface-2: #FFFFFF;
+  --ds-brand: var(--ds-accent);
+  --ds-text: var(--ds-text-1);
+  --ds-text-muted: var(--ds-text-3);
+  --ds-radius-sm: 8px;
+  --ds-radius-md: var(--ds-radius-control);
+  --ds-radius-chip: var(--ds-radius-pill);
+  --ds-font-mono: 'SF Mono', SFMono-Regular, ui-monospace, Menlo, Consolas,
+    'Liberation Mono', monospace;
 
   /* ---- Element Plus 亮色桥接 ---- */
   --el-color-primary: var(--ds-accent);
@@ -434,6 +463,24 @@ a {
   --el-button-hover-bg-color: var(--ds-accent);
   --el-button-hover-border-color: transparent;
   --el-button-hover-text-color: #fff;
+}
+/* text / link 型主按钮是「字按钮」，不吃实底——否则亮色下出现
+   accent 字压 accent 底（侧栏「工作台视图」文字不可见的根因） */
+.el-button--primary.is-text,
+.el-button--primary.is-link {
+  background-color: transparent;
+  background-image: none;
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--ds-accent-text);
+}
+.el-button--primary.is-text:hover,
+.el-button--primary.is-text:focus,
+.el-button--primary.is-link:hover,
+.el-button--primary.is-link:focus {
+  color: var(--ds-accent-text);
+  background-color: var(--ds-glass);
+  background-image: none;
 }
 .el-button--primary:hover,
 .el-button--primary:focus {
@@ -656,6 +703,34 @@ a {
 .el-table__inner-wrapper::before {
   background-color: var(--ds-border);
 }
+/* ---- fixed 列（fixed="right" 操作列 / v-col-resize 持久列）----
+ * fixed 单元格是 sticky 定位、横向滚动时会盖在普通列上方，因此**必须不透明**，
+ * 否则下层滚动内容会从它底下透出造成文字叠印；底色取卡片面板色（--ds-bg-1），
+ * 与表格外层浮层同底，hover/选中行再叠加玻璃层。EP 的边缘撕裂阴影变量
+ * 是 --el-table-fixed-right/left-column，暗色下默认黑渐变糊成黑带，统一收窄。 */
+.el-table .el-table-fixed-column--left,
+.el-table .el-table-fixed-column--right {
+  background-color: var(--ds-bg-1);
+  --el-table-fixed-right-column: -12px 0 12px -12px rgba(2, 4, 8, 0.45) inset;
+  --el-table-fixed-left-column: 12px 0 12px -12px rgba(2, 4, 8, 0.45) inset;
+}
+html.light .el-table .el-table-fixed-column--left,
+html.light .el-table .el-table-fixed-column--right {
+  --el-table-fixed-right-column: -12px 0 12px -12px rgba(16, 24, 40, 0.1) inset;
+  --el-table-fixed-left-column: 12px 0 12px -12px rgba(16, 24, 40, 0.1) inset;
+}
+.el-table tr:hover > td.el-table-fixed-column--left,
+.el-table tr:hover > td.el-table-fixed-column--right {
+  /* 不透明底 + 玻璃层叠加：与普通列的 hover 观感一致 */
+  background-color: var(--ds-bg-1);
+  background-image: linear-gradient(var(--ds-glass), var(--ds-glass));
+}
+.el-table tr.current-row > td.el-table-fixed-column--left,
+.el-table tr.current-row > td.el-table-fixed-column--right {
+  background-color: var(--ds-bg-1);
+  background-image: linear-gradient(var(--ds-glass-strong), var(--ds-glass-strong));
+}
+
 /* 列宽拖拽：表头列边界的热区必须高于排序/筛选控件，双击恢复默认宽度 */
 .el-table th.col-resizable {
   position: relative;

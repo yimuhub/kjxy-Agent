@@ -112,10 +112,12 @@
           v-col-resize
           :data="hits"
           stripe
+          max-height="420"
         >
           <el-table-column
             prop="title"
             label="文档"
+            min-width="220"
           />
           <el-table-column
             prop="source"
@@ -172,11 +174,12 @@
           v-col-resize
           :data="docs"
           stripe
+          max-height="560"
         >
           <el-table-column
             prop="title"
             label="标题"
-            min-width="160"
+            min-width="220"
           >
             <template #default="{ row }">
               {{ row.title || row.filename || row.id }}
