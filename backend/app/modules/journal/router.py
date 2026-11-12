@@ -125,11 +125,7 @@ def list_journal(
     rows = service.list_journal(db, ctx, month=month or None, mine_only=mine_only)
     names = service.author_name_map(db, [r.author_user_id for r in rows])
     return ok(
-        {
-            "items": [
-                service.journal_out(r, author_name=names.get(r.author_user_id)) for r in rows
-            ]
-        },
+        {"items": [service.journal_out(r, author_name=names.get(r.author_user_id)) for r in rows]},
         request,
     )
 

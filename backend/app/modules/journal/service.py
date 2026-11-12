@@ -385,10 +385,7 @@ def author_name_map(db: Session, user_ids: list[str]) -> dict[str, str]:
     rows = db.execute(
         select(User.id, User.display_name, User.username).where(User.id.in_(ids))
     ).all()
-    return {
-        uid: (display or username or uid[:8])
-        for uid, display, username in rows
-    }
+    return {uid: (display or username or uid[:8]) for uid, display, username in rows}
 
 
 # ---------------------------------------------------------------------------
