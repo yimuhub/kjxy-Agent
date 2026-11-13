@@ -55,14 +55,9 @@
         width: 40px;
         height: 40px;
         border-radius: 12px;
-        background: linear-gradient(135deg, #2f7c4f, #3ddc97);
-        color: #082414;
-        font-size: 13px;
-        font-weight: 700;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        letter-spacing: 1px;
+        object-fit: cover;
+        background: #fff;
+        flex: 0 0 auto;
       }
       h1 {
         margin: 0;
@@ -258,7 +253,11 @@
     <main class="card">
       <header>
         <div class="brand">
-          <div class="logo">小院</div>
+          <img
+            class="logo"
+            src="./brand-logo.png"
+            alt="科技小院徽标"
+          >
           <div>
             <h1>科技小院</h1>
             <p class="sub" id="headline" aria-live="polite">正在启动本地引擎…</p>

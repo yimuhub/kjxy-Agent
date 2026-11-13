@@ -8,8 +8,10 @@
  *
  * 离线时页面仍会提示“需要联网”，不做离线写入队列（避免与多端并发冲突）。
  */
-const CACHE = 'kjxy-shell-v1'
-const SHELL = ['/', '/index.html', '/favicon.svg', '/manifest.webmanifest']
+// v2：徽标由 /favicon.svg 换成 /brand-logo.png，必须换缓存名，否则老客户端
+// 的 cache-first 会一直吐出旧的「院」字方块（SHELL 里少了新图也会装不上）。
+const CACHE = 'kjxy-shell-v2'
+const SHELL = ['/', '/index.html', '/brand-logo.png', '/manifest.webmanifest']
 
 self.addEventListener('install', event => {
   event.waitUntil(

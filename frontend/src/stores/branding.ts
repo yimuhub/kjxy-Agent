@@ -4,7 +4,9 @@
  * - **不阻塞首屏**：先用默认值渲染，拿到品牌包后再补丁（避免登录页白屏等接口）；
  * - 只改「看得见」的东西：名称、标语、主色、logo、页脚；安装包名/图标是构建期产物，
  *   运行期改不了，设置页会明确标注；
- * - 换 logo / 换色靠 `brand_version` 加 `?v=`，避免浏览器缓存旧图。
+ * - 换 logo / 换色靠 `brand_version` 加 `?v=`，避免浏览器缓存旧图；
+ * - 未上传白标 logo 时统一显示内置徽标（随前端静态资源发布），不再回落文字方块；
+ *   设置页用 `hasCustomLogo` 区分「管理员上传的图」与「内置徽标」。
  */
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
@@ -19,6 +21,9 @@ export const BRANDING_DEFAULTS = {
   footer_text: '由 科技小院 · 多智能体平台 生成',
   primary_color: '#6366F1',
 } as const
+
+/** 内置徽标：与 favicon / PWA / 桌面启动屏共用同一张图；用 BASE_URL 兼容子路径部署 */
+const DEFAULT_LOGO_URL = `${import.meta.env.BASE_URL}brand-logo.png`
 
 function clamp(value: number): number {
   return Math.max(0, Math.min(255, Math.round(value)))
@@ -114,12 +119,15 @@ export const useBrandingStore = defineStore('branding', () => {
   const brandVersion = ref(0)
   const loaded = ref(false)
 
-  /** logo 完整地址（带版本戳）；未设置时 null，组件回落文字 logo */
+  /** logo 完整地址（自定义图带版本戳）；未上传白标图时回落到内置徽标 */
   const logoUrl = computed(() =>
     logoPath.value
       ? `${apiUrl(logoPath.value)}${brandVersion.value ? `?v=${brandVersion.value}` : ''}`
-      : null,
+      : DEFAULT_LOGO_URL,
   )
+
+  /** 是否由管理员上传了自定义 logo：设置页据此决定「上传/更换」与「移除」 */
+  const hasCustomLogo = computed(() => logoPath.value !== null)
 
   function apply(payload: BrandingPublic): void {
     appName.value = payload.app_name || BRANDING_DEFAULTS.app_name
@@ -171,6 +179,7 @@ export const useBrandingStore = defineStore('branding', () => {
     brandVersion,
     loaded,
     logoUrl,
+    hasCustomLogo,
     load,
     apply,
     applyAdmin,

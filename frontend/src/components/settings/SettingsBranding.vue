@@ -53,7 +53,7 @@
             class="narrow"
           />
           <div class="note">
-            侧栏 logo 右侧那行字，建议 2–4 字；未上传 logo 时方块里显示它的首字。
+            侧栏徽标右侧那行字，建议 2–4 字；未上传白标图时统一显示内置徽标。
           </div>
         </el-form-item>
 
@@ -112,25 +112,15 @@
       <div class="logo-row">
         <div class="logo-preview light">
           <img
-            v-if="store.logoUrl"
             :src="store.logoUrl"
             alt="当前 logo"
           >
-          <span
-            v-else
-            class="logo-fallback"
-          >{{ (form.short_name || data?.defaults.short_name || '科').slice(0, 1) }}</span>
         </div>
         <div class="logo-preview dark">
           <img
-            v-if="store.logoUrl"
             :src="store.logoUrl"
             alt="当前 logo"
           >
-          <span
-            v-else
-            class="logo-fallback"
-          >{{ (form.short_name || data?.defaults.short_name || '科').slice(0, 1) }}</span>
         </div>
         <div class="logo-actions">
           <input
@@ -144,20 +134,21 @@
             :loading="uploading"
             @click="fileRef?.click()"
           >
-            {{ store.logoUrl ? '更换 logo' : '上传 logo' }}
+            {{ store.hasCustomLogo ? '更换 logo' : '上传 logo' }}
           </el-button>
           <el-button
-            v-if="store.logoUrl"
+            v-if="store.hasCustomLogo"
             text
             type="danger"
             :disabled="uploading"
             @click="removeLogo"
           >
-            移除
+            恢复内置徽标
           </el-button>
           <div class="note">
             PNG / JPG / WEBP，≤{{ data?.logo_max_mb ?? 1 }}MB，建议正方形。
             不收 SVG（可内嵌脚本，登录页展示有 XSS 风险）。
+            未上传时使用随客户端发布的内置徽标；安装包图标是构建期产物，不在此处修改。
           </div>
         </div>
       </div>
@@ -363,7 +354,7 @@
     uploading.value = true
     try {
       hydrate(await brandingApi.clearLogo())
-      ElMessage.success('已恢复文字 logo')
+      ElMessage.success('已恢复内置徽标')
     } catch {
       /* 错误 toast 已由 client 统一处理 */
     } finally {

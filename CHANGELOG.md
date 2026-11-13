@@ -2,6 +2,21 @@
 
 本项目遵循《工程开发规范 V3.0》；版本号遵循语义化版本。
 
+## [3.80.1] - 2026-11-13
+
+**全平台品牌徽标统一 + 客户端发版**：Web、桌面客户端（macOS / Windows / Linux，
+含 iOS / Android 图标资源）、启动屏、PWA 与运行时门户 logo 全部换成新版「科技凤凰」徽标。
+
+- 图标唯一源 `client/desktop/icons-src/app-icon.png`（1024²），发版流水线用
+  `tauri icon` 现场生成 `.icns` / `.ico` / Windows Square 系列 / iOS / Android 全套；
+- `frontend/public/brand-logo.png`（256²）统一供 favicon、PWA manifest、Apple Touch Icon、
+  侧栏 / 登录 / 注册 / 邀请 / SSO 页的默认徽标、桌面启动屏使用；
+- 删除旧的蓝底「院」字 `favicon.svg`；Service Worker 缓存名 `kjxy-shell-v1 → v2`，
+  避免老客户端 cache-first 一直吐旧图；
+- 白标语义保持：`branding` store 新增 `hasCustomLogo`，未上传自定义图时显示内置徽标，
+  管理员上传后仍可覆盖、移除后回到内置徽标；设置页文案同步调整；
+- 桌面启动屏由文字方块改为 `./brand-logo.png`，随 `splash/` 一起进 `dist-web`。
+
 ## [3.80.0] - 2026-11-13
 
 五维审查（资深开发工程师 / 资深产品经理 / 重度用户 / 小白用户 / 资深运营经理）报告的
