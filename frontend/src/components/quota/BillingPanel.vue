@@ -187,14 +187,18 @@
           label="套餐"
           width="140"
         >
-          <template #default="{ row }">{{ planName(row.plan_code) }}</template>
+          <template #default="{ row }">
+            {{ planName(row.plan_code) }}
+          </template>
         </el-table-column>
         <el-table-column
           prop="price_yuan"
           label="金额"
           width="110"
         >
-          <template #default="{ row }">¥{{ formatPrice(row.price_yuan) }}</template>
+          <template #default="{ row }">
+            ¥{{ formatPrice(row.price_yuan) }}
+          </template>
         </el-table-column>
         <el-table-column
           prop="status"
@@ -205,7 +209,9 @@
             <el-tag
               size="small"
               :type="statusType(row.status)"
-            >{{ statusLabel(row.status) }}</el-tag>
+            >
+              {{ statusLabel(row.status) }}
+            </el-tag>
           </template>
         </el-table-column>
         <el-table-column
@@ -219,7 +225,9 @@
           label="时间"
           width="160"
         >
-          <template #default="{ row }">{{ shortTime(row.created_at) }}</template>
+          <template #default="{ row }">
+            {{ shortTime(row.created_at) }}
+          </template>
         </el-table-column>
         <el-table-column
           label=""
@@ -298,21 +306,27 @@
             label="套餐"
             width="130"
           >
-            <template #default="{ row }">{{ planName(row.plan_code) }}</template>
+            <template #default="{ row }">
+              {{ planName(row.plan_code) }}
+            </template>
           </el-table-column>
           <el-table-column
             prop="status"
             label="状态"
             width="100"
           >
-            <template #default="{ row }">{{ codeLabel(row.status) }}</template>
+            <template #default="{ row }">
+              {{ codeLabel(row.status) }}
+            </template>
           </el-table-column>
           <el-table-column
             prop="redeemed_at"
             label="兑换时间"
             width="160"
           >
-            <template #default="{ row }">{{ shortTime(row.redeemed_at) }}</template>
+            <template #default="{ row }">
+              {{ shortTime(row.redeemed_at) }}
+            </template>
           </el-table-column>
           <el-table-column
             label=""
@@ -352,7 +366,9 @@
             label="套餐"
             width="130"
           >
-            <template #default="{ row }">{{ planName(row.plan_code) }}</template>
+            <template #default="{ row }">
+              {{ planName(row.plan_code) }}
+            </template>
           </el-table-column>
           <el-table-column
             prop="status"
@@ -363,7 +379,9 @@
               <el-tag
                 size="small"
                 :type="statusType(row.status)"
-              >{{ statusLabel(row.status) }}</el-tag>
+              >
+                {{ statusLabel(row.status) }}
+              </el-tag>
             </template>
           </el-table-column>
           <el-table-column
@@ -416,7 +434,9 @@
         maxlength="24"
       />
       <template #footer>
-        <el-button @click="redeemOpen = false">取消</el-button>
+        <el-button @click="redeemOpen = false">
+          取消
+        </el-button>
         <el-button
           type="primary"
           :loading="busy"
@@ -445,7 +465,9 @@
         maxlength="500"
       />
       <template #footer>
-        <el-button @click="orderOpen = false">取消</el-button>
+        <el-button @click="orderOpen = false">
+          取消
+        </el-button>
         <el-button
           type="primary"
           :loading="busy"
@@ -547,7 +569,9 @@
         </template>
       </template>
       <template #footer>
-        <el-button @click="payOpen = false">稍后再付</el-button>
+        <el-button @click="payOpen = false">
+          稍后再付
+        </el-button>
       </template>
     </el-dialog>
 

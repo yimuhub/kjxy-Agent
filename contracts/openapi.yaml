@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: 科技小院多智能体平台
-  version: 3.81.0
+  version: 3.82.0
   description: 科技小院多智能体自生长开发平台 API 契约（由 FastAPI 应用生成，勿手改）。生成：`python backend/scripts/generate_openapi.py`
 paths:
   /health/live:

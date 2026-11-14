@@ -90,12 +90,15 @@ def _recent_usage(db: Session, yard_id: str, days: int = LOOKBACK_DAYS) -> dict[
 
 
 def _budget(db: Session, yard_id: str) -> dict[str, dict[str, float]]:
-    """当前预算：每个指标的上限、已用、临时额度余额。"""
+    """当前预算：每个指标的上限、已用、临时额度余额。
+
+    用 ``quota_engine.effective_budget`` 一次取齐三元组：此前每指标要打
+    4 条小查询（used/limit/grants 各自独立 + limit 内部重查 used），
+    现在降到 2 条（v3.82 性能项）。
+    """
     out: dict[str, dict[str, float]] = {}
     for policy in _yard_policies(db, yard_id):
-        used, _start = quota_engine.current_usage(db, policy)
-        limit = quota_engine.effective_limit(db, policy)
-        grants = quota_engine.grant_total(db, policy.id)
+        used, limit, grants = quota_engine.effective_budget(db, policy)
         out[policy.metric] = {
             "limit": float(limit) if math.isfinite(limit) else -1.0,
             "used": float(used),
@@ -174,7 +177,9 @@ def recommendation(db: Session, yard_id: str) -> dict[str, Any]:
     plans = [p for p in load_plans(db) if p.kind == "subscription"]
     plans.sort(key=lambda p: p.price_yuan)
 
-    baseline = environment_baseline(db, yard_id)
+    # 环境基础额度直接复用 usage_summary 已算好的那份（metrics[].baseline），
+    # 不再重复查一遍 settings 与模板策略（v3.82 性能项）。
+    baseline = {m["metric"]: float(m["baseline"]) for m in summary["metrics"]}
     target_tokens = float(recent["tokens"]) * COVERAGE_TARGET
     target_calls = float(recent["calls"]) * COVERAGE_TARGET
     target_cost = float(recent["cost"]) * COVERAGE_TARGET

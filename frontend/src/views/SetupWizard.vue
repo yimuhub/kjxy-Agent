@@ -37,944 +37,15 @@
 
       <section class="main">
         <div class="pane-wrap">
-          <div
-            v-show="cur === 1"
-            class="pane"
-            data-setup-step="1"
-          >
-            <p class="eyebrow">
-              第 1 步 · 共 7 步
-            </p>
-            <h1>欢迎建立你的科技小院</h1>
-            <p class="lead">
-              这台电脑将成为小院的数据中心。下面会依次创建管理员、建立小院、挑选能力与外观——全程不会写入任何默认账号。
-            </p>
-            <div class="cards">
-              <button
-                v-for="d in DEPLOY"
-                :key="d.key"
-                type="button"
-                :class="['opt-card', { sel: form.deployment === d.key }]"
-                @click="form.deployment = d.key"
-              >
-                <span class="tag">{{ d.tag }}</span>
-                <b>{{ d.title }}</b>
-                <small>{{ d.desc }}</small>
-              </button>
-            </div>
-            <p
-              class="hint"
-              data-testid="deploy-hint"
-            >
-              {{ deployHint }}
-            </p>
-            <div class="panel">
-              <div class="panel-h">
-                <b>数据落点</b><span class="chip">本机</span>
-              </div>
-              <div class="kv">
-                <span>数据库</span><b>~/Library/Application Support/科技小院/app.db</b>
-              </div>
-              <div class="kv">
-                <span>密钥与令牌</span><b>secret.key · supplier.key · engine.instance.token</b>
-              </div>
-              <div class="kv">
-                <span>监听地址</span><b>{{ localAddress }}</b>
-              </div>
-              <div class="kv">
-                <span>内置语音模型</span><b>随包安装（约 78 MB）</b>
-              </div>
-            </div>
-            <div class="chips">
-              <span class="chip">不预置账号</span>
-              <span class="chip">数据不出本机</span>
-              <span class="chip">随时可导出备份</span>
-            </div>
-          </div>
-
-          <div
-            v-show="cur === 2"
-            class="pane"
-            data-setup-step="2"
-          >
-            <p class="eyebrow">
-              第 2 步 · 共 7 步
-            </p>
-            <h1>创建管理员账号</h1>
-            <p class="lead">
-              这是小院的第一个账号，拥有平台管理员与小院负责人权限。系统不会提供任何默认账号或默认口令。
-            </p>
-            <div class="grid-2">
-              <div>
-                <div
-                  class="field"
-                  :class="{ err: errors.username }"
-                >
-                  <label>登录账号 <em>*</em><small>3–32 位字母、数字或下划线</small></label>
-                  <input
-                    id="setup-username"
-                    v-model.trim="form.username"
-                    class="ctl"
-                    autocomplete="username"
-                    placeholder="例如 zhangliqun"
-                    maxlength="32"
-                    @blur="validateField('username')"
-                  >
-                  <p class="msg">
-                    {{ errors.username || '登录时使用；不建议使用 admin / root 等弱名称。' }}
-                  </p>
-                </div>
-                <div
-                  class="field"
-                  :class="{ err: errors.displayName }"
-                >
-                  <label>显示名 <em>*</em><small>出现在成员列表与对话署名</small></label>
-                  <input
-                    id="setup-display-name"
-                    v-model.trim="form.displayName"
-                    class="ctl"
-                    placeholder="例如 张立群"
-                    maxlength="20"
-                    @blur="validateField('displayName')"
-                  >
-                  <p class="msg">
-                    {{ errors.displayName }}
-                  </p>
-                </div>
-                <div
-                  class="field"
-                  :class="{ err: errors.password }"
-                >
-                  <label>登录口令 <em>*</em><small>至少 10 位，含字母与数字</small></label>
-                  <div class="pwd-wrap">
-                    <input
-                      id="setup-password"
-                      v-model="form.password"
-                      :type="showPwd ? 'text' : 'password'"
-                      autocomplete="new-password"
-                      placeholder="设置一个只有你知道的口令"
-                      @input="validateField('password')"
-                    >
-                    <button
-                      type="button"
-                      class="icon-btn"
-                      title="显示/隐藏口令"
-                      @click="showPwd = !showPwd"
-                    >
-                      {{ showPwd ? '隐藏' : '显示' }}
-                    </button>
-                    <button
-                      type="button"
-                      class="icon-btn"
-                      title="生成强口令"
-                      @click="generatePassword"
-                    >
-                      生成
-                    </button>
-                  </div>
-                  <div
-                    class="strength"
-                    :class="`s${strengthLevel}`"
-                  >
-                    <i /><i /><i /><i />
-                  </div>
-                  <div class="rules">
-                    <span
-                      v-for="r in pwdRules"
-                      :key="r.key"
-                      :class="['rule', { pass: r.ok, fail: r.req && !r.ok && form.password }]"
-                    >
-                      <i />{{ r.label }}
-                    </span>
-                  </div>
-                  <p class="msg">
-                    {{ errors.password || '口令不可找回，请自行妥善保存。' }}
-                  </p>
-                </div>
-                <div
-                  class="field"
-                  :class="{ err: errors.password2 }"
-                >
-                  <label>确认口令 <em>*</em></label>
-                  <input
-                    id="setup-password2"
-                    v-model="form.password2"
-                    type="password"
-                    class="ctl"
-                    autocomplete="new-password"
-                    placeholder="再次输入口令"
-                    @blur="validateField('password2')"
-                  >
-                  <p class="msg">
-                    {{ errors.password2 }}
-                  </p>
-                </div>
-                <div class="row-2">
-                  <div
-                    class="field"
-                    :class="{ err: errors.email }"
-                  >
-                    <label>邮箱 <small>选填</small></label>
-                    <input
-                      v-model.trim="form.email"
-                      class="ctl"
-                      type="email"
-                      placeholder="用于找回与通知"
-                      @blur="validateField('email')"
-                    >
-                    <p class="msg">
-                      {{ errors.email }}
-                    </p>
-                  </div>
-                  <div
-                    class="field"
-                    :class="{ err: errors.phone }"
-                  >
-                    <label>手机 <small>选填</small></label>
-                    <input
-                      v-model.trim="form.phone"
-                      class="ctl"
-                      type="tel"
-                      placeholder="11 位手机号"
-                      maxlength="11"
-                      @blur="validateField('phone')"
-                    >
-                    <p class="msg">
-                      {{ errors.phone }}
-                    </p>
-                  </div>
-                </div>
-              </div>
-              <aside class="aside">
-                <div class="aside-h">
-                  账号预览
-                </div>
-                <div class="acct">
-                  <div class="avatar">
-                    {{ (form.displayName || form.username || '?').slice(0, 1) }}
-                  </div>
-                  <div>
-                    <b>{{ form.displayName || '未填写显示名' }}</b>
-                    <span>@{{ form.username || 'username' }}</span>
-                    <div class="badges">
-                      <em class="badge">平台管理员</em><em class="badge">小院负责人</em>
-                    </div>
-                  </div>
-                </div>
-                <div class="kv">
-                  <span>口令保存方式</span><b>bcrypt · 12 轮</b>
-                </div>
-                <div class="kv">
-                  <span>明文落盘</span><b>不会</b>
-                </div>
-                <div class="kv">
-                  <span>写入日志</span><b>不会</b>
-                </div>
-                <p class="aside-note">
-                  创建完成后可用该账号登录；忘记口令需在本机数据目录重置。
-                </p>
-              </aside>
-            </div>
-          </div>
-
-          <div
-            v-show="cur === 3"
-            class="pane"
-            data-setup-step="3"
-          >
-            <p class="eyebrow">
-              第 3 步 · 共 7 步
-            </p>
-            <h1>建立我的小院</h1>
-            <p class="lead">
-              小院是数据、成员与技能的组织单位。产业画像会决定接下来推荐哪些内置技能。
-            </p>
-            <div class="grid-2">
-              <div>
-                <div
-                  class="field"
-                  :class="{ err: errors.yardName }"
-                >
-                  <label>小院名称 <em>*</em><small>2–64 个字符</small></label>
-                  <input
-                    id="setup-yard-name"
-                    v-model.trim="form.yardName"
-                    class="ctl"
-                    placeholder="例如 张家港水稻科技小院"
-                    maxlength="64"
-                    @blur="validateField('yardName')"
-                  >
-                  <p class="msg">
-                    {{ errors.yardName || '建议使用「地点 + 产业 + 科技小院」的写法，便于成员识别。' }}
-                  </p>
-                </div>
-                <div class="row-3">
-                  <div
-                    class="field"
-                    :class="{ err: errors.province }"
-                  >
-                    <label>省 / 直辖市 <em>*</em></label>
-                    <select
-                      id="setup-province"
-                      v-model="form.province"
-                      class="ctl"
-                      @change="onProvinceChange"
-                    >
-                      <option value="">
-                        请选择省份
-                      </option>
-                      <option
-                        v-for="p in provinceNames"
-                        :key="p"
-                        :value="p"
-                      >
-                        {{ p }}
-                      </option>
-                    </select>
-                    <p class="msg">
-                      {{ errors.province }}
-                    </p>
-                  </div>
-                  <div
-                    class="field"
-                    :class="{ err: errors.city }"
-                  >
-                    <label>地市 <em>*</em></label>
-                    <select
-                      id="setup-city"
-                      v-model="form.city"
-                      class="ctl"
-                      @change="validateField('city')"
-                    >
-                      <option value="">
-                        {{ form.province ? '请选择地市' : '请先选择省份' }}
-                      </option>
-                      <option
-                        v-for="c in cities"
-                        :key="c"
-                        :value="c"
-                      >
-                        {{ c }}
-                      </option>
-                    </select>
-                    <p class="msg">
-                      {{ errors.city }}
-                    </p>
-                  </div>
-                  <div class="field">
-                    <label>县 / 区 <small>选填</small></label>
-                    <input
-                      v-model.trim="form.county"
-                      class="ctl"
-                      placeholder="如 张家港市"
-                      maxlength="30"
-                    >
-                    <p class="msg" />
-                  </div>
-                </div>
-                <div
-                  class="field"
-                  :class="{ err: errors.profiles }"
-                >
-                  <label>产业画像 <em>*</em><small>可多选</small></label>
-                  <div class="chips">
-                    <button
-                      v-for="p in PROFILES"
-                      :key="p.key"
-                      type="button"
-                      :class="['chip', 'btn-chip', { on: form.profileTypes.includes(p.key) }]"
-                      @click="toggleProfile(p.key)"
-                    >
-                      {{ p.emoji }} {{ p.label }}
-                    </button>
-                  </div>
-                  <p class="msg">
-                    {{ errors.profiles }}
-                  </p>
-                </div>
-                <div class="row-2">
-                  <div class="field">
-                    <label>培养单位 <small>选填</small></label>
-                    <input
-                      v-model.trim="form.school"
-                      class="ctl"
-                      placeholder="如 南京农业大学"
-                      maxlength="40"
-                    >
-                  </div>
-                  <div class="field">
-                    <label>主导产业 <small>选填</small></label>
-                    <input
-                      v-model.trim="form.industry"
-                      class="ctl"
-                      placeholder="如 优质稻米"
-                      maxlength="30"
-                    >
-                  </div>
-                </div>
-                <div class="field">
-                  <label>小院简介 <small>选填 · {{ form.description.length }} / 64</small></label>
-                  <textarea
-                    v-model.trim="form.description"
-                    class="ctl area"
-                    maxlength="64"
-                    placeholder="一句话说明小院在做什么，例如：稻麦轮作与优质食味稻米技术示范。"
-                  />
-                  <p class="msg" />
-                </div>
-              </div>
-              <aside class="aside">
-                <div class="aside-h">
-                  小院预览
-                </div>
-                <div class="yard-card">
-                  <span class="loc">{{ locText || '未选择地区' }}</span>
-                  <b>{{ form.yardName || '你的小院' }}</b>
-                  <div class="badges">
-                    <em
-                      v-for="k in form.profileTypes"
-                      :key="k"
-                      class="badge"
-                    >{{ profileLabel(k) }}</em>
-                    <em
-                      v-if="!form.profileTypes.length"
-                      class="badge"
-                    >尚未选择画像</em>
-                  </div>
-                  <p>{{ form.description || '简介会显示在小院首页与成员邀请页。' }}</p>
-                </div>
-                <div class="kv">
-                  <span>已勾选技能</span><b>{{ selectedSkills.size }} 个</b>
-                </div>
-                <div class="kv">
-                  <span>负责人</span><b>@{{ form.username || 'username' }}</b>
-                </div>
-                <p class="aside-note">
-                  地区与画像之后可在「设置 → 小院档案」中修改，技能可随时增删。
-                </p>
-              </aside>
-            </div>
-          </div>
-
-          <div
-            v-show="cur === 4"
-            class="pane"
-            data-setup-step="4"
-          >
-            <p class="eyebrow">
-              第 4 步 · 共 7 步
-            </p>
-            <h1>智能能力与模型</h1>
-            <p class="lead">
-              先决定小院会哪些本事，再决定由哪个模型来驱动。模型可以稍后再配，不影响先建院。
-            </p>
-            <div class="panel">
-              <div class="panel-h">
-                <b>内置技能</b>
-                <span class="chip">{{ selectedSkills.size }} / {{ catalog.length }}</span>
-                <span class="grow" />
-                <button
-                  type="button"
-                  class="mini-btn"
-                  @click="selectAllSkills(true)"
-                >
-                  全选
-                </button>
-                <button
-                  type="button"
-                  class="mini-btn"
-                  @click="selectAllSkills(false)"
-                >
-                  清空
-                </button>
-              </div>
-              <p
-                v-if="skillProfileLabels.length"
-                class="skill-hint"
-              >
-                已按你的产业画像（{{ skillProfileLabels.join('、') }}）预选 {{ skillRecommendedCount }} 个；其余技能随时可在技能库添加。
-              </p>
-              <div class="skill-tools">
-                <input
-                  v-model.trim="skillQuery"
-                  class="ctl skill-search"
-                  type="search"
-                  placeholder="搜索技能，如「病虫害」「灌溉」「PPT」"
-                >
-                <div class="chips">
-                  <button
-                    type="button"
-                    :class="['chip', 'btn-chip', { on: skillGroupFilter === 'all' }]"
-                    @click="skillGroupFilter = 'all'"
-                  >
-                    全部 {{ catalog.length }}
-                  </button>
-                  <button
-                    type="button"
-                    :class="['chip', 'btn-chip', { on: skillGroupFilter === 'recommended' }]"
-                    @click="skillGroupFilter = 'recommended'"
-                  >
-                    推荐 {{ skillRecommendedCount }}
-                  </button>
-                  <button
-                    v-for="g in skillGroups"
-                    :key="g.key"
-                    type="button"
-                    :class="['chip', 'btn-chip', { on: skillGroupFilter === g.key }]"
-                    @click="skillGroupFilter = g.key"
-                  >
-                    {{ g.label }} {{ g.total }}
-                  </button>
-                </div>
-              </div>
-              <div
-                v-if="skillsLoading"
-                class="skill-loading"
-              >
-                正在读取内置技能…
-              </div>
-              <div
-                v-else
-                class="skill-list"
-              >
-                <template
-                  v-for="group in visibleSkillGroups"
-                  :key="group.key"
-                >
-                  <p
-                    v-if="group.label"
-                    class="skill-group"
-                  >
-                    {{ group.label }} · {{ group.items.length }}
-                  </p>
-                  <label
-                    v-for="s in group.items"
-                    :key="s.code"
-                    :class="['skill-row', { on: selectedSkills.has(s.code) }]"
-                  >
-                    <input
-                      type="checkbox"
-                      :checked="selectedSkills.has(s.code)"
-                      @change="toggleSkill(s.code)"
-                    >
-                    <span class="skill-txt"><b>{{ s.name }}</b><small>{{ s.description }}</small></span>
-                    <span class="skill-tags">
-                      <em
-                        v-if="s.recommended"
-                        class="pack rec"
-                      >推荐</em>
-                      <em class="pack">{{ s.pack }}</em>
-                    </span>
-                  </label>
-                </template>
-                <p
-                  v-if="!visibleSkillGroups.length"
-                  class="skill-loading"
-                >
-                  没有匹配的技能，换个关键词或分类看看。
-                </p>
-              </div>
-            </div>
-            <div class="panel">
-              <div class="panel-h">
-                <b>功能开关</b><span class="chip">创建后仍可修改</span>
-              </div>
-              <div class="switch-row">
-                <div class="txt">
-                  <b>联网搜索</b><small>使用免费搜索源补充田间情报，单次查询 3–7 秒</small>
-                </div>
-                <button
-                  type="button"
-                  :class="['switch', { on: form.searchEnabled }]"
-                  @click="form.searchEnabled = !form.searchEnabled"
-                >
-                  <i />
-                </button>
-              </div>
-              <div class="switch-row">
-                <div class="txt">
-                  <b>智能体自动生成</b><small>在对话里用一句话创建助手，受每日上限约束</small>
-                </div>
-                <div class="stepper">
-                  <button
-                    type="button"
-                    @click="form.dailyLimit = Math.max(1, form.dailyLimit - 1)"
-                  >
-                    −
-                  </button>
-                  <span>{{ form.dailyLimit }}</span>
-                  <button
-                    type="button"
-                    @click="form.dailyLimit = Math.min(200, form.dailyLimit + 1)"
-                  >
-                    +
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  :class="['switch', { on: form.agentGenerate }]"
-                  @click="form.agentGenerate = !form.agentGenerate"
-                >
-                  <i />
-                </button>
-              </div>
-              <div class="switch-row">
-                <div class="txt">
-                  <b>工作日志</b><small>按角色开放农事记录与日志导出，进入系统后可调权限</small>
-                </div>
-                <span class="chip">默认开放</span>
-              </div>
-            </div>
-            <div class="panel">
-              <div class="panel-h">
-                <b>模型接入</b><span class="chip">选择会真正写入供应商配置</span>
-              </div>
-              <div class="mode-cards">
-                <button
-                  type="button"
-                  :class="['mode-card', { on: form.modelMode === 'later' }]"
-                  @click="form.modelMode = 'later'"
-                >
-                  <b>稍后配置</b><small>先用文档、台账与技能；进入系统后在模型中心接入</small>
-                </button>
-                <button
-                  type="button"
-                  :class="['mode-card', { on: form.modelMode === 'ollama' }]"
-                  @click="form.modelMode = 'ollama'"
-                >
-                  <b>本地模型</b><small>接入 Ollama 的 OpenAI 兼容接口，数据不出本机</small>
-                </button>
-                <button
-                  type="button"
-                  :class="['mode-card', { on: form.modelMode === 'cloud' }]"
-                  @click="form.modelMode = 'cloud'"
-                >
-                  <b>云端 API</b><small>填 Key 后加密保存</small>
-                </button>
-              </div>
-              <p
-                v-if="form.modelMode === 'later'"
-                class="hint"
-                style="padding: 12px 15px 16px"
-              >
-                选择「稍后配置」时，本次不会写入任何供应商与 Key；对话页会提示先接入模型。
-              </p>
-              <div
-                v-if="form.modelMode === 'ollama'"
-                class="model-form"
-              >
-                <div class="row-2">
-                  <div class="field">
-                    <label>Ollama 地址</label>
-                    <input
-                      v-model.trim="form.ollamaUrl"
-                      class="ctl"
-                      placeholder="http://127.0.0.1:11434"
-                    >
-                  </div>
-                  <div class="field">
-                    <label>模型名</label>
-                    <input
-                      v-model.trim="form.ollamaModel"
-                      class="ctl"
-                      placeholder="如 qwen2.5:14b"
-                    >
-                  </div>
-                </div>
-                <p class="hint">
-                  本地模型会以 OpenAI 兼容协议注册，Key 使用占位值本地保存。
-                </p>
-              </div>
-              <div
-                v-if="form.modelMode === 'cloud'"
-                class="model-form"
-              >
-                <div class="row-2">
-                  <div class="field">
-                    <label>供应商</label>
-                    <select
-                      v-model="form.cloudProvider"
-                      class="ctl"
-                      @change="onProviderChange"
-                    >
-                      <option
-                        v-for="p in PROVIDERS"
-                        :key="p.key"
-                        :value="p.key"
-                      >
-                        {{ p.label }}
-                      </option>
-                    </select>
-                  </div>
-                  <div class="field">
-                    <label>模型名</label>
-                    <input
-                      v-model.trim="form.cloudModel"
-                      class="ctl"
-                      placeholder="例如 deepseek-chat"
-                    >
-                  </div>
-                </div>
-                <div class="field">
-                  <label>接口地址</label>
-                  <input
-                    v-model.trim="form.cloudUrl"
-                    class="ctl"
-                    placeholder="https://api.example.com/v1"
-                  >
-                </div>
-                <div class="field">
-                  <label>API Key <small>加密保存，界面与日志不回显</small></label>
-                  <input
-                    v-model.trim="form.cloudKey"
-                    class="ctl"
-                    type="password"
-                    placeholder="sk-…"
-                    autocomplete="off"
-                  >
-                </div>
-                <p class="hint">
-                  创建时会做一次轻量校验：地址需以 http(s):// 开头，Key 与模型名必填。
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div
-            v-show="cur === 5"
-            class="pane"
-            data-setup-step="5"
-          >
-            <p class="eyebrow">
-              第 5 步 · 共 7 步
-            </p>
-            <h1>品牌与外观</h1>
-            <p class="lead">
-              让小院看起来像你自己的。主色会立即应用到按钮、选中态与图表；Logo 与主题进入系统后继续调整。
-            </p>
-            <div class="grid-2">
-              <div>
-                <div
-                  class="field"
-                  :class="{ err: errors.appName }"
-                >
-                  <label>应用名称 <em>*</em><small>显示在窗口标题与登录页</small></label>
-                  <input
-                    id="setup-app-name"
-                    v-model.trim="form.appName"
-                    class="ctl"
-                    maxlength="20"
-                    placeholder="科技小院"
-                    @blur="validateField('appName')"
-                  >
-                  <p class="msg">
-                    {{ errors.appName }}
-                  </p>
-                </div>
-                <div class="field">
-                  <label>主色</label>
-                  <div class="swatches">
-                    <button
-                      v-for="a in ACCENTS"
-                      :key="a.value"
-                      type="button"
-                      :class="['sw', { on: form.primaryColor.toUpperCase() === a.value.toUpperCase() }]"
-                      :style="{ background: a.value }"
-                      :title="a.label"
-                      @click="form.primaryColor = a.value"
-                    />
-                    <input
-                      v-model="form.primaryColor"
-                      type="color"
-                      title="自定义主色"
-                    >
-                  </div>
-                </div>
-                <div class="field">
-                  <label>登录页欢迎语 <small>选填 · 仅本次预览</small></label>
-                  <input
-                    v-model.trim="form.welcome"
-                    class="ctl"
-                    maxlength="40"
-                    placeholder="把论文写在田野大地上。"
-                  >
-                </div>
-                <p class="hint">
-                  Logo 与明暗主题可在「设置 → 品牌与门户」上传和切换，避免安装阶段被图片大小卡住。
-                </p>
-              </div>
-              <aside class="aside">
-                <div class="aside-h">
-                  实时预览
-                </div>
-                <div
-                  class="preview-login"
-                  :style="{ '--preview-brand': form.primaryColor }"
-                >
-                  <div class="plogo">
-                    {{ (form.appName || '小院').slice(0, 2) }}
-                  </div>
-                  <b>{{ form.appName || '科技小院' }}</b>
-                  <small>{{ form.welcome || '把论文写在田野大地上。' }}</small>
-                  <span class="pinput">登录账号</span>
-                  <span class="pinput">口令</span>
-                  <span class="pbtn">进入小院</span>
-                </div>
-                <p class="aside-note">
-                  主色同时作用于图表与状态标签；暗色下会自动提升对比度。
-                </p>
-              </aside>
-            </div>
-          </div>
-
-          <div
-            v-show="cur === 6"
-            class="pane"
-            data-setup-step="6"
-          >
-            <p class="eyebrow">
-              第 6 步 · 共 7 步
-            </p>
-            <h1>确认并创建</h1>
-            <p class="lead">
-              以下内容会一次性写入本机数据库。任何一步失败都会整体回滚，不会留下半个账号或空小院。
-            </p>
-            <div class="sum-grid">
-              <div
-                v-for="g in summary"
-                :key="g.title"
-                class="sum"
-              >
-                <div class="sum-h">
-                  <b>{{ g.title }}</b><button
-                    type="button"
-                    class="edit"
-                    @click="cur = g.step"
-                  >
-                    修改
-                  </button>
-                </div>
-                <div class="sum-b">
-                  <div
-                    v-for="r in g.rows"
-                    :key="r[0]"
-                    class="sum-row"
-                  >
-                    <span>{{ r[0] }}</span><b>{{ r[1] }}</b>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <label
-              class="check-line"
-              :class="{ on: savedPwdAck }"
-            >
-              <input
-                id="setup-saved-pwd"
-                v-model="savedPwdAck"
-                type="checkbox"
-              >
-              <span class="txt"><b>我已妥善保存管理员口令</b><small>口令只保存哈希，创建后无法找回。</small></span>
-            </label>
-            <div
-              v-if="submitting"
-              class="create-box"
-            >
-              <div class="create-bar">
-                <i :style="{ width: `${createPercent}%` }" />
-              </div>
-              <p class="hint">
-                {{ createStage }}
-              </p>
-            </div>
-            <div
-              v-if="submitError"
-              class="err-card"
-            >
-              <b>创建失败</b>
-              <p>{{ submitError }}</p>
-              <button
-                type="button"
-                class="btn"
-                @click="submit"
-              >
-                重试
-              </button>
-            </div>
-          </div>
-
-          <div
-            v-show="cur === 7"
-            class="pane"
-            data-setup-step="7"
-          >
-            <p class="eyebrow">
-              安装完成
-            </p>
-            <h1>你的科技小院已就绪</h1>
-            <p class="lead">
-              管理员与「{{ done?.yard_name || form.yardName }}」已写入本机数据库，接下来直接进入工作台。
-            </p>
-            <div class="receipt">
-              <div class="rt">
-                本次写入回执
-              </div>
-              <div class="rr">
-                <i>小院</i><b>{{ done?.yard_name || form.yardName }}</b>
-              </div>
-              <div class="rr">
-                <i>管理员</i><b>@{{ done?.username || form.username }}</b>
-              </div>
-              <div class="rr">
-                <i>内置技能</i><b>{{ done?.skill_count ?? selectedSkills.size }} 个已发布</b>
-              </div>
-              <div class="rr">
-                <i>默认助手</i><b>{{ done?.agent_count ?? 0 }} 个已发布，可直接提问</b>
-              </div>
-              <div class="rr">
-                <i>模型接入</i><b>{{ done?.model_configured ? '已写入并设为生效' : '稍后配置' }}</b>
-              </div>
-              <div class="rr">
-                <i>本地地址</i><b>{{ localUrl }}</b>
-              </div>
-              <div class="rr">
-                <i>审计</i><b>system_initialized 已记录</b>
-              </div>
-            </div>
-            <div class="next-cards">
-              <button
-                type="button"
-                class="next-card accent"
-                @click="askFirstQuestion"
-              >
-                <b>去问一句</b><small>{{ sampleQuestion }}</small>
-              </button>
-              <button
-                type="button"
-                class="next-card"
-                @click="enterWorkspace()"
-              >
-                <b>进入工作台</b><small>看看今日行动板与三步带练</small>
-              </button>
-              <button
-                type="button"
-                class="next-card"
-                @click="enterWorkspace('/members')"
-              >
-                <b>邀请成员</b><small>为团队分配专家、科研人员等角色</small>
-              </button>
-              <button
-                type="button"
-                class="next-card"
-                @click="enterWorkspace('/model-center')"
-              >
-                <b>接入更多模型</b><small>随时补充供应商与本地模型</small>
-              </button>
-            </div>
-            <p class="hint">
-              口令明文未落盘，安装包不再生成 desktop-login.txt。
-            </p>
-          </div>
+          <!-- 7 个步骤 pane 拆分为子组件（v3.82）：共享状态经 provide/inject 下发，
+               子组件模板与拆分前逐字一致；v-show 由各子组件根节点自带 -->
+          <SetupStepDeployment />
+          <SetupStepAccount />
+          <SetupStepYard />
+          <SetupStepCapabilities />
+          <SetupStepBranding />
+          <SetupStepConfirm />
+          <SetupStepDone />
         </div>
 
         <footer class="actionbar">
@@ -1026,21 +97,41 @@
 
 <script setup lang="ts">
 /**
- * 首次安装引导（v3.74）。
+ * 首次安装引导（v3.74；v3.82 拆分）。
  *
  * 与旧版（v3.69）的差别：
  * - 桌面版不再预置演示账号，7 步里由用户自建管理员与小院；
  * - 新增真实的内置技能铺设与云端供应商写入（旧版模型选择只是 UI）；
  * - 口令规则与后端一致（≥10 位、字母+数字、弱口令、不含账号）；
  * - 全量使用 --ds-* 令牌，跟随品牌与明暗主题。
+ *
+ * v3.82 起本组件只负责：7 步的编排（rail/进度/footer）、共享状态与校验逻辑
+ * （经 provide 下发给 SetupStep*.vue 子组件）、提交与路由跳转；
+ * 各步骤的表单模板与专属样式在 components/setup/SetupStep*.vue。
  */
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, provide, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { setupApi, type SetupInitializeResult, type SetupSkillGroup, type SetupSkillItem, type SetupLlmProvider } from '@/api/setup'
 import { useAuthStore } from '@/stores/auth'
 import { PROVINCES, PROVINCE_NAMES } from '@/utils/regions'
 import { APP_VERSION } from '@/utils/version'
+import {
+  ACCENTS,
+  DEPLOY,
+  PROVIDERS,
+  PROFILES,
+  setupWizardKey,
+  type SetupWizardContext,
+  type SetupWizardForm,
+} from '@/components/setup/wizardContext'
+import SetupStepDeployment from '@/components/setup/SetupStepDeployment.vue'
+import SetupStepAccount from '@/components/setup/SetupStepAccount.vue'
+import SetupStepYard from '@/components/setup/SetupStepYard.vue'
+import SetupStepCapabilities from '@/components/setup/SetupStepCapabilities.vue'
+import SetupStepBranding from '@/components/setup/SetupStepBranding.vue'
+import SetupStepConfirm from '@/components/setup/SetupStepConfirm.vue'
+import SetupStepDone from '@/components/setup/SetupStepDone.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -1054,44 +145,6 @@ const STEPS = [
   { title: '品牌外观', sub: '名称与主色' },
   { title: '确认创建', sub: '核对并写入本机' },
   { title: '完成', sub: '进入工作台' },
-]
-
-const DEPLOY = [
-  { key: 'desktop', title: '单机桌面版', desc: '一台电脑自用，离线可用，数据只在本地', tag: '推荐' },
-  { key: 'server', title: '院内服务器版', desc: '部署在小院内网，多人同时使用', tag: '局域网' },
-  { key: 'cloud', title: '云端多小院版', desc: '公网服务多个小院，含平台监管', tag: '集群' },
-]
-
-const PROFILES = [
-  { key: 'rice', label: '水稻 / 稻麦', emoji: '🌾' },
-  { key: 'aquaculture', label: '水产蟹虾', emoji: '🦀' },
-  { key: 'fruit', label: '应时鲜果', emoji: '🍇' },
-  { key: 'vegetable', label: '蔬菜瓜果', emoji: '🥬' },
-  { key: 'tea', label: '茶叶', emoji: '🍵' },
-  { key: 'livestock', label: '畜禽', emoji: '🐑' },
-  { key: 'smart_agri', label: '智慧农业 / 农文旅', emoji: '📡' },
-  { key: 'general', label: '通用', emoji: '🧰' },
-]
-
-const ACCENTS = [
-  { value: '#6366F1', label: '靛蓝' },
-  { value: '#3F9D68', label: '田园绿' },
-  { value: '#E0A83C', label: '丰收金' },
-  { value: '#C084FC', label: '智慧紫' },
-  { value: '#E2604A', label: '蟹虾朱' },
-  { value: '#22D3EE', label: '青碧' },
-]
-
-const PROVIDERS = [
-  { key: 'deepseek', label: 'DeepSeek', providerType: 'deepseek', url: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
-  { key: 'qwen', label: '通义千问', providerType: 'qwen', url: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus' },
-  { key: 'zhipu', label: '智谱 GLM', providerType: 'openai_compatible', url: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-plus' },
-  { key: 'kimi', label: 'Kimi (Moonshot)', providerType: 'moonshot', url: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-8k' },
-  { key: 'openai', label: 'OpenAI 兼容', providerType: 'openai', url: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
-  // 自定义：任何 OpenAI 兼容端点（含企业内网代理、聚合网关）。
-  // 此前下拉里只有 5 家known厂商，Agnes / OneAPI / vLLM / Ollama 这类
-  // 常见部署根本选不到，用户只能改配置文件绕过向导（审查 D-10）。
-  { key: 'custom', label: '自定义（OpenAI 兼容）', providerType: 'openai_compatible', url: '', model: '' },
 ]
 
 const WEAK_USERS = ['admin', 'root', 'system', 'administrator', 'platform_admin', 'test', 'guest', 'user', 'yard_admin']
@@ -1117,7 +170,7 @@ const createPercent = ref(0)
 const createStage = ref('正在写入本机数据库…')
 const errors = reactive<Record<string, string>>({})
 
-const form = reactive({
+const form = reactive<SetupWizardForm>({
   deployment: 'desktop',
   username: '',
   displayName: '',
@@ -1136,7 +189,7 @@ const form = reactive({
   searchEnabled: true,
   agentGenerate: true,
   dailyLimit: 10,
-  modelMode: 'later' as 'later' | 'ollama' | 'cloud',
+  modelMode: 'later',
   ollamaUrl: 'http://127.0.0.1:11434',
   ollamaModel: 'qwen2.5:7b',
   cloudProvider: 'deepseek',
@@ -1579,6 +632,54 @@ function askFirstQuestion(): void {
   void router.replace({ path: '/chat', query: { q: sampleQuestion.value } })
 }
 
+// ---- 共享上下文下发（子组件经 inject 拿到同名绑定，模板零改动）----
+provide(setupWizardKey, {
+  cur,
+  form,
+  errors,
+  selectedSkills,
+  catalog,
+  skillGroups,
+  skillProfileLabels,
+  skillRecommendedCount,
+  skillQuery,
+  skillGroupFilter,
+  skillsLoading,
+  done,
+  savedPwdAck,
+  showPwd,
+  submitting,
+  submitError,
+  createPercent,
+  createStage,
+  DEPLOY,
+  PROFILES,
+  ACCENTS,
+  PROVIDERS,
+  provinceNames,
+  cities,
+  locText,
+  localAddress,
+  localUrl,
+  deployHint,
+  pwdRules,
+  strengthLevel,
+  summary,
+  visibleSkillGroups,
+  sampleQuestion,
+  profileLabel,
+  validateField,
+  onProvinceChange,
+  toggleProfile,
+  toggleSkill,
+  selectAllSkills,
+  generatePassword,
+  onProviderChange,
+  submit,
+  askFirstQuestion,
+  enterWorkspace,
+} satisfies SetupWizardContext)
+
 onMounted(async () => {
   try {
     const st = await setupApi.status()
@@ -1662,181 +763,8 @@ onMounted(async () => {
 
 .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .pane-wrap { flex: 1; min-height: 0; overflow: auto; }
+/* .pane 命中子组件根节点（scoped 样式对子组件根生效）；pane 内部元素样式在各子组件 */
 .pane { padding: 30px 34px 26px; max-width: 820px; }
-.eyebrow { font-size: 11px; letter-spacing: .12em; color: var(--ds-accent-2); font-weight: 600; margin-bottom: 8px; }
-.pane h1 { font-size: 23px; font-weight: 650; line-height: 1.3; margin-bottom: 8px; }
-.lead { font-size: 13px; color: var(--ds-text-2); line-height: 1.75; max-width: 640px; margin-bottom: 22px; }
-
-.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-.opt-card {
-  position: relative; text-align: left; border: 1px solid var(--ds-border); border-radius: 14px;
-  padding: 16px 15px 14px; background: rgba(255, 255, 255, .045); display: flex; flex-direction: column; gap: 6px;
-}
-.opt-card:hover { border-color: var(--ds-border-strong); }
-.opt-card.sel { border-color: var(--ds-accent); background: color-mix(in srgb, var(--ds-accent) 16%, transparent); }
-.opt-card .tag { font-size: 10px; color: var(--ds-text-3); border: 1px solid var(--ds-border); border-radius: 999px; padding: 1px 7px; align-self: flex-start; }
-.opt-card b { font-size: 13px; }
-.opt-card small { font-size: 11.5px; color: var(--ds-text-3); line-height: 1.55; }
-.opt-card.sel .tag { color: var(--ds-accent-2); border-color: color-mix(in srgb, var(--ds-accent) 45%, transparent); }
-
-.panel { border: 1px solid var(--ds-border); border-radius: 14px; background: rgba(255, 255, 255, .035); margin-top: 18px; overflow: hidden; }
-.panel-h { display: flex; align-items: center; gap: 10px; padding: 12px 15px; border-bottom: 1px solid var(--ds-border); font-size: 13px; }
-.panel-h b { font-weight: 600; }
-.chip { font-size: 10.5px; color: var(--ds-text-3); border: 1px solid var(--ds-border); border-radius: 999px; padding: 1px 8px; }
-.grow { flex: 1; }
-.kv { display: flex; justify-content: space-between; gap: 14px; padding: 8px 15px; font-size: 11.5px; border-bottom: 1px dashed var(--ds-border); }
-.kv:last-child { border-bottom: 0; }
-.kv span { color: var(--ds-text-3); }
-.kv b { font-weight: 500; color: var(--ds-text-1); text-align: right; overflow-wrap: anywhere; max-width: 68%; }
-
-.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
-.chips .chip { height: 28px; display: inline-flex; align-items: center; padding: 0 12px; font-size: 11.5px; }
-.btn-chip { background: transparent; }
-.btn-chip.on { border-color: var(--ds-accent); background: color-mix(in srgb, var(--ds-accent) 18%, transparent); color: var(--ds-text-1); }
-
-.grid-2 { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 26px; align-items: start; }
-.aside { border: 1px solid var(--ds-border); border-radius: 14px; background: rgba(255, 255, 255, .035); overflow: hidden; }
-.aside-h { padding: 11px 14px; border-bottom: 1px solid var(--ds-border); font-size: 11.5px; color: var(--ds-text-3); }
-.aside-note { padding: 10px 14px 14px; font-size: 11px; color: var(--ds-text-3); line-height: 1.6; }
-.aside .kv { padding: 7px 14px; }
-.acct { display: flex; gap: 12px; align-items: center; padding: 14px; }
-.avatar {
-  width: 44px; height: 44px; border-radius: 13px; display: grid; place-items: center;
-  background: linear-gradient(145deg, var(--ds-accent), var(--ds-accent-2)); color: #fff; font-size: 17px; font-weight: 650;
-}
-.acct b { display: block; font-size: 13px; }
-.acct span { display: block; font-family: var(--mono, monospace); font-size: 11px; color: var(--ds-text-3); margin-top: 2px; }
-.badges { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
-.badge { font-style: normal; font-size: 10px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--ds-border); color: var(--ds-text-2); }
-
-.field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 15px; }
-.field > label { font-size: 12.5px; color: var(--ds-text-2); display: flex; align-items: center; gap: 6px; }
-.field > label em { color: var(--ds-danger); font-style: normal; font-size: 11px; }
-.field > label small { color: var(--ds-text-3); font-size: 11px; margin-left: auto; }
-.ctl {
-  width: 100%; height: 40px; padding: 0 12px; border-radius: 10px; font-size: 13.5px;
-  background: var(--ds-bg-0); border: 1px solid var(--ds-border); color: var(--ds-text-1);
-}
-.ctl:focus { border-color: var(--ds-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ds-accent) 18%, transparent); }
-.ctl.area { height: auto; min-height: 66px; padding: 9px 12px; resize: vertical; line-height: 1.6; }
-select.ctl { appearance: none; }
-.field.err .ctl, .field.err .pwd-wrap { border-color: var(--ds-danger); }
-.msg { font-size: 11.5px; color: var(--ds-text-3); line-height: 1.5; min-height: 16px; }
-.field.err .msg { color: var(--ds-danger); }
-.row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
-.pwd-wrap { display: flex; align-items: center; gap: 6px; border: 1px solid var(--ds-border); border-radius: 10px; background: var(--ds-bg-0); padding-right: 8px; }
-.pwd-wrap:focus-within { border-color: var(--ds-accent); }
-.pwd-wrap input { flex: 1; height: 38px; border: 0; background: none; padding: 0 12px; font-size: 13.5px; color: var(--ds-text-1); }
-.icon-btn { font-size: 11px; color: var(--ds-text-3); padding: 4px 7px; border-radius: 6px; background: none; }
-.icon-btn:hover { color: var(--ds-text-1); background: rgba(255, 255, 255, .06); }
-.strength { display: flex; gap: 5px; margin-top: 2px; }
-.strength i { flex: 1; height: 4px; border-radius: 999px; background: var(--ds-bg-3); }
-.strength.s1 i:nth-child(1) { background: var(--ds-danger); }
-.strength.s2 i:nth-child(-n+2) { background: var(--ds-warning); }
-.strength.s3 i:nth-child(-n+3) { background: var(--ds-success); }
-.strength.s4 i { background: var(--ds-success); }
-.rules { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; margin-top: 6px; }
-.rule { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ds-text-3); }
-.rule i { width: 5px; height: 5px; border-radius: 50%; background: var(--ds-border-strong); }
-.rule.pass { color: var(--ds-text-2); }
-.rule.pass i { background: var(--ds-success); }
-.rule.fail { color: var(--ds-danger); }
-.rule.fail i { background: var(--ds-danger); }
-
-.yard-card { margin: 14px; border: 1px solid var(--ds-border); border-radius: 12px; padding: 13px; background: var(--ds-bg-0); }
-.yard-card .loc { font-size: 10.5px; color: var(--ds-text-3); }
-.yard-card b { display: block; font-size: 14px; margin: 3px 0 6px; overflow-wrap: anywhere; }
-.yard-card p { font-size: 11.5px; color: var(--ds-text-2); line-height: 1.6; margin-top: 8px; }
-
-.skill-list { max-height: 240px; overflow: auto; padding: 6px 8px; }
-.skill-hint { margin: 0; padding: 10px 15px; font-size: 11.5px; color: var(--ds-text-3); line-height: 1.55; border-bottom: 1px solid var(--ds-border); }
-.skill-tools { display: flex; flex-direction: column; gap: 10px; padding: 12px 15px; border-bottom: 1px solid var(--ds-border); }
-.skill-tools .chips { margin-top: 0; }
-.skill-search { width: 100%; height: 34px; }
-.skill-group { margin: 10px 4px 4px; font-size: 10.5px; letter-spacing: .04em; color: var(--ds-text-3); text-transform: none; }
-.skill-row { display: grid; grid-template-columns: 16px 1fr auto; gap: 10px; align-items: start; padding: 8px; border-radius: 8px; cursor: pointer; }
-.skill-row:hover { background: rgba(255, 255, 255, .05); }
-.skill-row input { margin-top: 3px; accent-color: var(--ds-accent); }
-.skill-txt b { display: block; font-size: 12.5px; font-weight: 500; }
-.skill-txt small { display: block; font-size: 11px; color: var(--ds-text-3); margin-top: 1px; line-height: 1.45; }
-.skill-tags { display: inline-flex; align-items: center; gap: 6px; }
-.skill-row .pack { font-style: normal; font-size: 10px; color: var(--ds-text-3); border: 1px solid var(--ds-border); border-radius: 999px; padding: 1px 7px; }
-.skill-row .pack.rec { color: var(--ds-accent); border-color: color-mix(in srgb, var(--ds-accent) 45%, var(--ds-border)); }
-.skill-row.on { background: color-mix(in srgb, var(--ds-accent) 12%, transparent); }
-.skill-loading { padding: 16px; font-size: 12px; color: var(--ds-text-3); }
-
-.switch-row { display: flex; align-items: center; gap: 14px; padding: 12px 15px; border-bottom: 1px solid var(--ds-border); }
-.switch-row:last-child { border-bottom: 0; }
-.switch-row .txt { flex: 1; }
-.switch-row .txt b { display: block; font-size: 12.5px; font-weight: 550; }
-.switch-row .txt small { display: block; font-size: 11px; color: var(--ds-text-3); margin-top: 1px; }
-.switch { width: 38px; height: 22px; border-radius: 999px; background: var(--ds-bg-3); border: 1px solid var(--ds-border); position: relative; }
-.switch i { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--ds-text-3); transition: .18s; }
-.switch.on { background: var(--ds-accent); border-color: transparent; }
-.switch.on i { left: 18px; background: #fff; }
-.stepper { display: flex; align-items: center; border: 1px solid var(--ds-border); border-radius: 8px; overflow: hidden; }
-.stepper button { width: 26px; height: 26px; background: var(--ds-bg-0); color: var(--ds-text-2); }
-.stepper span { min-width: 34px; text-align: center; font-size: 12px; line-height: 26px; border-inline: 1px solid var(--ds-border); }
-
-.mode-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 14px 15px 0; }
-.mode-card { text-align: left; border: 1px solid var(--ds-border); border-radius: 11px; padding: 12px; background: var(--ds-bg-0); }
-.mode-card.on { border-color: var(--ds-accent); background: color-mix(in srgb, var(--ds-accent) 14%, transparent); }
-.mode-card b { display: block; font-size: 12.5px; margin-bottom: 3px; }
-.mode-card small { font-size: 11px; color: var(--ds-text-3); line-height: 1.5; display: block; }
-.model-form { padding: 14px 15px 16px; display: flex; flex-direction: column; gap: 12px; border-top: 1px dashed var(--ds-border); margin-top: 12px; }
-.hint { font-size: 11.5px; color: var(--ds-text-3); line-height: 1.6; margin-top: 8px; }
-
-.swatches { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
-.sw { width: 30px; height: 30px; border-radius: 9px; border: 2px solid transparent; }
-.sw.on { border-color: var(--ds-text-1); box-shadow: 0 0 0 2px var(--ds-bg-1) inset; }
-.swatches input[type='color'] { width: 34px; height: 30px; padding: 0; border: 1px solid var(--ds-border); border-radius: 9px; background: none; }
-
-.preview-login {
-  margin: 14px; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 8px; align-items: center;
-  background: radial-gradient(220px 120px at 50% 0%, color-mix(in srgb, var(--preview-brand) 22%, transparent), transparent 70%), var(--ds-bg-0);
-}
-.plogo { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; color: #fff; font-size: 12px; font-weight: 700; background: linear-gradient(145deg, var(--preview-brand), color-mix(in srgb, var(--preview-brand) 55%, #22d3ee)); }
-.preview-login b { font-size: 12.5px; }
-.preview-login small { font-size: 9.5px; color: var(--ds-text-3); text-align: center; line-height: 1.5; }
-.pinput { width: 100%; height: 24px; border-radius: 7px; border: 1px solid var(--ds-border); background: var(--ds-bg-1); font-size: 9.5px; color: var(--ds-text-3); display: flex; align-items: center; padding: 0 8px; }
-.pbtn { width: 100%; height: 24px; border-radius: 7px; background: var(--preview-brand); color: #fff; font-size: 10px; display: grid; place-items: center; }
-
-.sum-grid { display: flex; flex-direction: column; gap: 10px; }
-.sum { border: 1px solid var(--ds-border); border-radius: 12px; overflow: hidden; background: rgba(255, 255, 255, .035); }
-.sum-h { display: flex; align-items: center; padding: 9px 14px; border-bottom: 1px solid var(--ds-border); font-size: 12.5px; }
-.sum-h .edit { margin-left: auto; font-size: 11px; color: var(--ds-accent-text); }
-.sum-b { padding: 8px 14px; }
-.sum-row { display: flex; justify-content: space-between; gap: 16px; font-size: 12px; padding: 5px 0; border-bottom: 1px dashed var(--ds-border); }
-.sum-row:last-child { border-bottom: 0; }
-.sum-row span { color: var(--ds-text-3); }
-.sum-row b { font-weight: 500; text-align: right; overflow-wrap: anywhere; }
-
-.check-line { display: flex; gap: 10px; align-items: flex-start; padding: 14px 0 6px; cursor: pointer; }
-.check-line input { margin-top: 2px; accent-color: var(--ds-accent); }
-.check-line .txt b { display: block; font-size: 12.5px; font-weight: 550; }
-.check-line .txt small { display: block; font-size: 11px; color: var(--ds-text-3); margin-top: 1px; }
-.create-box { margin-top: 14px; }
-.create-bar { height: 5px; border-radius: 999px; background: var(--ds-bg-3); overflow: hidden; }
-.create-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--ds-accent), var(--ds-accent-2)); transition: width .35s; }
-.err-card { margin-top: 14px; border: 1px solid var(--ds-danger); background: rgba(248, 113, 113, .13); border-radius: 12px; padding: 13px 14px; }
-.err-card b { display: block; font-size: 12.5px; margin-bottom: 3px; }
-.err-card p { font-size: 11.5px; color: var(--ds-text-2); line-height: 1.6; }
-.err-card .btn { margin-top: 9px; }
-
-.receipt { border: 1px solid var(--ds-border); border-radius: 12px; padding: 13px 15px; background: var(--ds-bg-0); margin-bottom: 16px; }
-.receipt .rt { font-size: 11px; color: var(--ds-text-3); margin-bottom: 8px; }
-.receipt .rr { display: flex; gap: 10px; font-size: 11.5px; padding: 3px 0; color: var(--ds-text-2); }
-.receipt .rr i { font-style: normal; color: var(--ds-text-3); min-width: 56px; }
-.receipt .rr b { font-weight: 500; color: var(--ds-text-1); font-family: var(--mono, monospace); font-size: 11px; overflow-wrap: anywhere; }
-.next-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-.next-card { text-align: left; border: 1px solid var(--ds-border); border-radius: 12px; padding: 13px; background: rgba(255, 255, 255, .035); display: flex; flex-direction: column; gap: 5px; }
-.next-card:hover { border-color: color-mix(in srgb, var(--ds-accent) 45%, transparent); background: color-mix(in srgb, var(--ds-accent) 12%, transparent); }
-.next-card b { font-size: 12.5px; }
-.next-card small { font-size: 11px; color: var(--ds-text-3); line-height: 1.5; }
-/* 首问闭环（审查 D-14）：第一张卡是「去问一句」，视觉上要比其余出口更突出 */
-.next-card.accent { border-color: color-mix(in srgb, var(--ds-accent) 55%, transparent); background: color-mix(in srgb, var(--ds-accent) 14%, transparent); }
-.next-card.accent b { color: var(--ds-accent); font-weight: 600; }
 
 .actionbar { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; padding: 13px 24px 14px; border-top: 1px solid var(--ds-border); }
 .btn { height: 38px; padding: 0 17px; border-radius: 10px; font-size: 13px; font-weight: 550; border: 1px solid var(--ds-border); background: rgba(255, 255, 255, .045); color: var(--ds-text-1); }
@@ -1844,8 +772,6 @@ select.ctl { appearance: none; }
 .btn.primary { background: var(--ds-accent); border-color: transparent; color: #fff; }
 .btn.primary:disabled { opacity: .5; cursor: not-allowed; }
 .btn.ghost { background: none; border-color: transparent; color: var(--ds-text-2); }
-.mini-btn { font-size: 11px; color: var(--ds-text-3); padding: 4px 8px; border-radius: 6px; }
-.mini-btn:hover { color: var(--ds-text-1); background: rgba(255, 255, 255, .06); }
 
 @media (max-width: 980px) {
   .setup-shell { padding: 0; }
@@ -1856,12 +782,5 @@ select.ctl { appearance: none; }
   .step { grid-template-columns: auto; padding: 5px 7px; }
   .step .num { width: 24px; height: 24px; font-size: 10.5px; }
   .step .lab { font-size: 11px; white-space: nowrap; }
-  .pane { padding: 20px 18px; max-width: none; }
-  .grid-2 { grid-template-columns: 1fr; }
-  .cards, .mode-cards, .next-cards { grid-template-columns: 1fr; }
-}
-@media (max-width: 620px) {
-  .row-2, .row-3, .rules { grid-template-columns: 1fr; }
-  .pane h1 { font-size: 20px; }
 }
 </style>

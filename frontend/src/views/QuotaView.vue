@@ -57,535 +57,535 @@
           class="warn"
         />
 
-    <!-- 全场景 Token 统计看板（全员可见） -->
-    <div
-      v-if="overview"
-      class="overview-grid"
-    >
-      <div class="ov-card">
-        <span class="ov-label">今日消耗 Token</span>
-        <strong class="ov-val token">⚡ {{ overview.today_tokens.toLocaleString() }}</strong>
-        <span class="ov-sub">今日调用 {{ overview.today_calls.toLocaleString() }} 次</span>
-      </div>
-      <div class="ov-card">
-        <span class="ov-label">近 {{ range }} 天累计 Token</span>
-        <strong class="ov-val">{{ overview.total_tokens.toLocaleString() }}</strong>
-        <span class="ov-sub">累计调用 {{ overview.total_calls.toLocaleString() }} 次</span>
-      </div>
-      <div class="ov-card">
-        <span class="ov-label">近 {{ range }} 天输入 Token</span>
-        <strong class="ov-val">{{ overview.total_input_tokens.toLocaleString() }}</strong>
-        <span class="ov-sub">Prompt / 知识检索上下文</span>
-      </div>
-      <div class="ov-card">
-        <span class="ov-label">近 {{ range }} 天输出 Token</span>
-        <strong class="ov-val">{{ overview.total_output_tokens.toLocaleString() }}</strong>
-        <span class="ov-sub">模型生成内容</span>
-      </div>
-    </div>
-
-    <el-card
-      v-loading="overviewLoading"
-      class="section trend-card"
-      shadow="never"
-    >
-      <template #header>
-        <div class="card-head">
-          <span>Token 消耗趋势（近 {{ range }} 天）</span>
-          <span class="card-hint">柱：Token 总量 · 折线：调用次数</span>
+        <!-- 全场景 Token 统计看板（全员可见） -->
+        <div
+          v-if="overview"
+          class="overview-grid"
+        >
+          <div class="ov-card">
+            <span class="ov-label">今日消耗 Token</span>
+            <strong class="ov-val token">⚡ {{ overview.today_tokens.toLocaleString() }}</strong>
+            <span class="ov-sub">今日调用 {{ overview.today_calls.toLocaleString() }} 次</span>
+          </div>
+          <div class="ov-card">
+            <span class="ov-label">近 {{ range }} 天累计 Token</span>
+            <strong class="ov-val">{{ overview.total_tokens.toLocaleString() }}</strong>
+            <span class="ov-sub">累计调用 {{ overview.total_calls.toLocaleString() }} 次</span>
+          </div>
+          <div class="ov-card">
+            <span class="ov-label">近 {{ range }} 天输入 Token</span>
+            <strong class="ov-val">{{ overview.total_input_tokens.toLocaleString() }}</strong>
+            <span class="ov-sub">Prompt / 知识检索上下文</span>
+          </div>
+          <div class="ov-card">
+            <span class="ov-label">近 {{ range }} 天输出 Token</span>
+            <strong class="ov-val">{{ overview.total_output_tokens.toLocaleString() }}</strong>
+            <span class="ov-sub">模型生成内容</span>
+          </div>
         </div>
-      </template>
-      <UsageTrendChart
-        v-if="overview && overview.by_day.length"
-        :points="overview.by_day"
-        :height="300"
-      />
-      <div
-        v-else
-        class="chart-empty"
-      >
-        暂无趋势数据
-      </div>
-    </el-card>
 
-    <el-row
-      v-if="overview"
-      :gutter="16"
-      class="section row-fixed"
-    >
-      <el-col
-        :xs="24"
-        :md="12"
-      >
         <el-card
-          class="fixed-card"
+          v-loading="overviewLoading"
+          class="section trend-card"
           shadow="never"
         >
           <template #header>
             <div class="card-head">
-              <span>按场景 Token 消耗</span>
-              <span class="card-hint">近 {{ range }} 天</span>
+              <span>Token 消耗趋势（近 {{ range }} 天）</span>
+              <span class="card-hint">柱：Token 总量 · 折线：调用次数</span>
+            </div>
+          </template>
+          <UsageTrendChart
+            v-if="overview && overview.by_day.length"
+            :points="overview.by_day"
+            :height="300"
+          />
+          <div
+            v-else
+            class="chart-empty"
+          >
+            暂无趋势数据
+          </div>
+        </el-card>
+
+        <el-row
+          v-if="overview"
+          :gutter="16"
+          class="section row-fixed"
+        >
+          <el-col
+            :xs="24"
+            :md="12"
+          >
+            <el-card
+              class="fixed-card"
+              shadow="never"
+            >
+              <template #header>
+                <div class="card-head">
+                  <span>按场景 Token 消耗</span>
+                  <span class="card-hint">近 {{ range }} 天</span>
+                </div>
+              </template>
+              <el-table
+                v-col-resize
+                :data="overview.by_purpose"
+                :height="320"
+                size="small"
+                empty-text="暂无分场景消耗记录"
+              >
+                <el-table-column
+                  label="使用场景"
+                  min-width="110"
+                >
+                  <template #default="{ row }">
+                    {{ purposeLabel(row.purpose) }}
+                  </template>
+                </el-table-column>
+                <el-table-column
+                  prop="calls"
+                  label="调用次数"
+                  width="85"
+                />
+                <el-table-column
+                  prop="input_tokens"
+                  label="输入"
+                  width="90"
+                />
+                <el-table-column
+                  prop="output_tokens"
+                  label="输出"
+                  width="90"
+                />
+                <el-table-column
+                  label="总 Tokens"
+                  width="110"
+                >
+                  <template #default="{ row }">
+                    <span class="token-num">⚡ {{ row.total_tokens.toLocaleString() }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column
+                  label="占比"
+                  min-width="120"
+                >
+                  <template #default="{ row }">
+                    <el-progress
+                      :percentage="share(row.total_tokens)"
+                      :stroke-width="8"
+                      :show-text="false"
+                      color="#34d399"
+                    />
+                    <span class="share-text">{{ share(row.total_tokens) }}%</span>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </el-card>
+          </el-col>
+
+          <el-col
+            :xs="24"
+            :md="12"
+          >
+            <el-card
+              class="fixed-card"
+              shadow="never"
+            >
+              <template #header>
+                <div class="card-head">
+                  <span>按智能体 Token 消耗排行</span>
+                  <span class="card-hint">近 {{ range }} 天</span>
+                </div>
+              </template>
+              <el-table
+                v-col-resize
+                :data="overview.by_agent"
+                :height="320"
+                size="small"
+                empty-text="暂无智能体消耗记录"
+              >
+                <el-table-column
+                  prop="agent_ref"
+                  label="智能体 / 模块"
+                  min-width="130"
+                  show-overflow-tooltip
+                />
+                <el-table-column
+                  prop="calls"
+                  label="调用次数"
+                  width="85"
+                />
+                <el-table-column
+                  prop="input_tokens"
+                  label="输入"
+                  width="90"
+                />
+                <el-table-column
+                  prop="output_tokens"
+                  label="输出"
+                  width="90"
+                />
+                <el-table-column
+                  label="总 Tokens"
+                  width="110"
+                >
+                  <template #default="{ row }">
+                    <span class="token-num">⚡ {{ row.total_tokens.toLocaleString() }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column
+                  label="占比"
+                  min-width="120"
+                >
+                  <template #default="{ row }">
+                    <el-progress
+                      :percentage="share(row.total_tokens)"
+                      :stroke-width="8"
+                      :show-text="false"
+                      color="#60a5fa"
+                    />
+                    <span class="share-text">{{ share(row.total_tokens) }}%</span>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </el-card>
+          </el-col>
+        </el-row>
+
+        <el-row
+          v-if="overview"
+          :gutter="16"
+          class="section row-fixed"
+        >
+          <el-col
+            :xs="24"
+            :md="12"
+          >
+            <el-card
+              class="fixed-card"
+              shadow="never"
+            >
+              <template #header>
+                <div class="card-head">
+                  <span>按模型 Token 消耗</span>
+                  <span class="card-hint">近 {{ range }} 天</span>
+                </div>
+              </template>
+              <el-table
+                v-col-resize
+                :data="overview.by_model"
+                :height="320"
+                size="small"
+                empty-text="暂无模型消耗记录"
+              >
+                <el-table-column
+                  prop="model"
+                  label="模型"
+                  min-width="140"
+                  show-overflow-tooltip
+                />
+                <el-table-column
+                  prop="calls"
+                  label="调用次数"
+                  width="85"
+                />
+                <el-table-column
+                  prop="input_tokens"
+                  label="输入"
+                  width="90"
+                />
+                <el-table-column
+                  prop="output_tokens"
+                  label="输出"
+                  width="90"
+                />
+                <el-table-column
+                  label="总 Tokens"
+                  width="110"
+                >
+                  <template #default="{ row }">
+                    <span class="token-num">⚡ {{ row.total_tokens.toLocaleString() }}</span>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </el-card>
+          </el-col>
+
+          <el-col
+            :xs="24"
+            :md="12"
+          >
+            <el-card
+              class="fixed-card"
+              shadow="never"
+            >
+              <template #header>
+                <div class="card-head">
+                  <span>模型调用观测</span>
+                  <span class="card-hint">按日 × 模型</span>
+                </div>
+              </template>
+              <el-table
+                v-col-resize
+                :data="usageRows"
+                :height="320"
+                size="small"
+                empty-text="暂无调用记录"
+              >
+                <el-table-column
+                  prop="day"
+                  label="日期"
+                  width="110"
+                />
+                <el-table-column
+                  prop="model"
+                  label="模型"
+                  min-width="130"
+                  show-overflow-tooltip
+                />
+                <el-table-column
+                  prop="calls"
+                  label="次数"
+                  width="70"
+                />
+                <el-table-column
+                  prop="tokens"
+                  label="总 tokens"
+                  width="100"
+                />
+                <el-table-column
+                  label="平均延迟"
+                  width="100"
+                >
+                  <template #default="{ row }">
+                    {{ row.avg_latency_ms }} ms
+                  </template>
+                </el-table-column>
+                <el-table-column
+                  prop="errors"
+                  label="错误"
+                  width="70"
+                >
+                  <template #default="{ row }">
+                    <span :class="{ err: row.errors > 0 }">{{ row.errors }}</span>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </el-card>
+          </el-col>
+        </el-row>
+
+        <el-card
+          class="section"
+          shadow="never"
+        >
+          <template #header>
+            <div class="card-head">
+              <span>最近调用流水</span>
+              <span class="card-hint">近 {{ range }} 天 · 最多 100 条</span>
             </div>
           </template>
           <el-table
             v-col-resize
-            :data="overview.by_purpose"
-            :height="320"
+            :data="traceRows"
+            :height="360"
             size="small"
-            empty-text="暂无分场景消耗记录"
+            empty-text="暂无调用流水"
           >
             <el-table-column
-              label="使用场景"
-              min-width="110"
+              label="时间"
+              width="150"
+            >
+              <template #default="{ row }">
+                {{ formatTime(row.created_at) }}
+              </template>
+            </el-table-column>
+            <el-table-column
+              label="用途"
+              width="110"
             >
               <template #default="{ row }">
                 {{ purposeLabel(row.purpose) }}
               </template>
             </el-table-column>
             <el-table-column
-              prop="calls"
-              label="调用次数"
-              width="85"
-            />
-            <el-table-column
-              prop="input_tokens"
-              label="输入"
-              width="90"
-            />
-            <el-table-column
-              prop="output_tokens"
-              label="输出"
-              width="90"
-            />
-            <el-table-column
-              label="总 Tokens"
-              width="110"
-            >
-              <template #default="{ row }">
-                <span class="token-num">⚡ {{ row.total_tokens.toLocaleString() }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column
-              label="占比"
-              min-width="120"
-            >
-              <template #default="{ row }">
-                <el-progress
-                  :percentage="share(row.total_tokens)"
-                  :stroke-width="8"
-                  :show-text="false"
-                  color="#34d399"
-                />
-                <span class="share-text">{{ share(row.total_tokens) }}%</span>
-              </template>
-            </el-table-column>
-          </el-table>
-        </el-card>
-      </el-col>
-
-      <el-col
-        :xs="24"
-        :md="12"
-      >
-        <el-card
-          class="fixed-card"
-          shadow="never"
-        >
-          <template #header>
-            <div class="card-head">
-              <span>按智能体 Token 消耗排行</span>
-              <span class="card-hint">近 {{ range }} 天</span>
-            </div>
-          </template>
-          <el-table
-            v-col-resize
-            :data="overview.by_agent"
-            :height="320"
-            size="small"
-            empty-text="暂无智能体消耗记录"
-          >
-            <el-table-column
               prop="agent_ref"
-              label="智能体 / 模块"
-              min-width="130"
-              show-overflow-tooltip
-            />
-            <el-table-column
-              prop="calls"
-              label="调用次数"
-              width="85"
-            />
-            <el-table-column
-              prop="input_tokens"
-              label="输入"
-              width="90"
-            />
-            <el-table-column
-              prop="output_tokens"
-              label="输出"
-              width="90"
-            />
-            <el-table-column
-              label="总 Tokens"
-              width="110"
-            >
-              <template #default="{ row }">
-                <span class="token-num">⚡ {{ row.total_tokens.toLocaleString() }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column
-              label="占比"
+              label="来源"
               min-width="120"
-            >
-              <template #default="{ row }">
-                <el-progress
-                  :percentage="share(row.total_tokens)"
-                  :stroke-width="8"
-                  :show-text="false"
-                  color="#60a5fa"
-                />
-                <span class="share-text">{{ share(row.total_tokens) }}%</span>
-              </template>
-            </el-table-column>
-          </el-table>
-        </el-card>
-      </el-col>
-    </el-row>
-
-    <el-row
-      v-if="overview"
-      :gutter="16"
-      class="section row-fixed"
-    >
-      <el-col
-        :xs="24"
-        :md="12"
-      >
-        <el-card
-          class="fixed-card"
-          shadow="never"
-        >
-          <template #header>
-            <div class="card-head">
-              <span>按模型 Token 消耗</span>
-              <span class="card-hint">近 {{ range }} 天</span>
-            </div>
-          </template>
-          <el-table
-            v-col-resize
-            :data="overview.by_model"
-            :height="320"
-            size="small"
-            empty-text="暂无模型消耗记录"
-          >
-            <el-table-column
-              prop="model"
-              label="模型"
-              min-width="140"
               show-overflow-tooltip
-            />
-            <el-table-column
-              prop="calls"
-              label="调用次数"
-              width="85"
-            />
-            <el-table-column
-              prop="input_tokens"
-              label="输入"
-              width="90"
-            />
-            <el-table-column
-              prop="output_tokens"
-              label="输出"
-              width="90"
-            />
-            <el-table-column
-              label="总 Tokens"
-              width="110"
-            >
-              <template #default="{ row }">
-                <span class="token-num">⚡ {{ row.total_tokens.toLocaleString() }}</span>
-              </template>
-            </el-table-column>
-          </el-table>
-        </el-card>
-      </el-col>
-
-      <el-col
-        :xs="24"
-        :md="12"
-      >
-        <el-card
-          class="fixed-card"
-          shadow="never"
-        >
-          <template #header>
-            <div class="card-head">
-              <span>模型调用观测</span>
-              <span class="card-hint">按日 × 模型</span>
-            </div>
-          </template>
-          <el-table
-            v-col-resize
-            :data="usageRows"
-            :height="320"
-            size="small"
-            empty-text="暂无调用记录"
-          >
-            <el-table-column
-              prop="day"
-              label="日期"
-              width="110"
             />
             <el-table-column
               prop="model"
               label="模型"
-              min-width="130"
+              min-width="110"
               show-overflow-tooltip
             />
             <el-table-column
-              prop="calls"
-              label="次数"
-              width="70"
-            />
-            <el-table-column
-              prop="tokens"
-              label="总 tokens"
-              width="100"
-            />
-            <el-table-column
-              label="平均延迟"
-              width="100"
+              label="输入 / 输出 / 总计"
+              width="160"
             >
               <template #default="{ row }">
-                {{ row.avg_latency_ms }} ms
+                {{ row.input_tokens ?? 0 }} / {{ row.output_tokens ?? 0 }} /
+                <b>{{ (row.input_tokens ?? 0) + (row.output_tokens ?? 0) }}</b>
               </template>
             </el-table-column>
             <el-table-column
-              prop="errors"
-              label="错误"
-              width="70"
+              label="状态"
+              width="80"
             >
               <template #default="{ row }">
-                <span :class="{ err: row.errors > 0 }">{{ row.errors }}</span>
+                <el-tooltip
+                  v-if="row.prompt_digest"
+                  :content="row.prompt_digest"
+                  placement="top"
+                >
+                  <el-tag
+                    :type="row.status === 'ok' ? 'success' : 'danger'"
+                    size="small"
+                  >
+                    {{ row.status === 'ok' ? '成功' : '失败' }}
+                  </el-tag>
+                </el-tooltip>
+                <el-tag
+                  v-else
+                  :type="row.status === 'ok' ? 'success' : 'danger'"
+                  size="small"
+                >
+                  {{ row.status === 'ok' ? '成功' : '失败' }}
+                </el-tag>
               </template>
             </el-table-column>
           </el-table>
         </el-card>
-      </el-col>
-    </el-row>
 
-    <el-card
-      class="section"
-      shadow="never"
-    >
-      <template #header>
-        <div class="card-head">
-          <span>最近调用流水</span>
-          <span class="card-hint">近 {{ range }} 天 · 最多 100 条</span>
-        </div>
-      </template>
-      <el-table
-        v-col-resize
-        :data="traceRows"
-        :height="360"
-        size="small"
-        empty-text="暂无调用流水"
-      >
-        <el-table-column
-          label="时间"
-          width="150"
+        <el-card
+          class="section"
+          shadow="never"
         >
-          <template #default="{ row }">
-            {{ formatTime(row.created_at) }}
-          </template>
-        </el-table-column>
-        <el-table-column
-          label="用途"
-          width="110"
-        >
-          <template #default="{ row }">
-            {{ purposeLabel(row.purpose) }}
-          </template>
-        </el-table-column>
-        <el-table-column
-          prop="agent_ref"
-          label="来源"
-          min-width="120"
-          show-overflow-tooltip
-        />
-        <el-table-column
-          prop="model"
-          label="模型"
-          min-width="110"
-          show-overflow-tooltip
-        />
-        <el-table-column
-          label="输入 / 输出 / 总计"
-          width="160"
-        >
-          <template #default="{ row }">
-            {{ row.input_tokens ?? 0 }} / {{ row.output_tokens ?? 0 }} /
-            <b>{{ (row.input_tokens ?? 0) + (row.output_tokens ?? 0) }}</b>
-          </template>
-        </el-table-column>
-        <el-table-column
-          label="状态"
-          width="80"
-        >
-          <template #default="{ row }">
-            <el-tooltip
-              v-if="row.prompt_digest"
-              :content="row.prompt_digest"
-              placement="top"
-            >
-              <el-tag
-                :type="row.status === 'ok' ? 'success' : 'danger'"
-                size="small"
+          <template #header>
+            <div class="card-head">
+              <span>用量额度（{{ unitsName }}）</span>
+              <div
+                v-if="canManageQuota"
+                class="quota-actions"
               >
-                {{ row.status === 'ok' ? '成功' : '失败' }}
-              </el-tag>
-            </el-tooltip>
-            <el-tag
-              v-else
-              :type="row.status === 'ok' ? 'success' : 'danger'"
-              size="small"
-            >
-              {{ row.status === 'ok' ? '成功' : '失败' }}
-            </el-tag>
+                <span class="card-hint">上限为 0 表示停用该额度</span>
+                <el-button
+                  size="small"
+                  @click="openQuotaDialog"
+                >
+                  调整额度
+                </el-button>
+                <el-button
+                  size="small"
+                  :loading="quotaResetting"
+                  @click="resetQuota"
+                >
+                  清零已用
+                </el-button>
+              </div>
+            </div>
           </template>
-        </el-table-column>
-      </el-table>
-    </el-card>
-
-    <el-card
-      class="section"
-      shadow="never"
-    >
-      <template #header>
-        <div class="card-head">
-          <span>用量额度（{{ unitsName }}）</span>
-          <div
-            v-if="canManageQuota"
-            class="quota-actions"
+          <AsyncState
+            :state="quotaState"
+            empty-text="暂无配额信息"
+            @retry="loadQuota"
           >
-            <span class="card-hint">上限为 0 表示停用该额度</span>
-            <el-button
-              size="small"
-              @click="openQuotaDialog"
+            <el-table
+              v-col-resize
+              :data="rows"
+              stripe
             >
-              调整额度
-            </el-button>
-            <el-button
-              size="small"
-              :loading="quotaResetting"
-              @click="resetQuota"
-            >
-              清零已用
-            </el-button>
-          </div>
-        </div>
-      </template>
-      <AsyncState
-        :state="quotaState"
-        empty-text="暂无配额信息"
-        @retry="loadQuota"
-      >
-        <el-table
-          v-col-resize
-          :data="rows"
-          stripe
-        >
-          <el-table-column
-            prop="label"
-            label="额度类型"
-            width="180"
-          />
-          <el-table-column
-            prop="used"
-            label="已用"
-            width="120"
-          />
-          <el-table-column
-            prop="limit"
-            label="上限"
-            width="120"
-          />
-          <el-table-column
-            prop="remaining"
-            label="剩余"
-            width="120"
-          />
-          <el-table-column label="使用率">
-            <template #default="{ row }">
-              <el-progress
-                :percentage="row.usage_percent"
-                :status="progressStatus(row.usage_percent)"
-                :stroke-width="12"
+              <el-table-column
+                prop="label"
+                label="额度类型"
+                width="180"
               />
-            </template>
-          </el-table-column>
-          <el-table-column
-            label="状态"
-            width="140"
-          >
-            <template #default="{ row }">
-              <el-tag
-                v-if="row.usage_percent >= 90"
-                type="danger"
-                size="small"
+              <el-table-column
+                prop="used"
+                label="已用"
+                width="120"
+              />
+              <el-table-column
+                prop="limit"
+                label="上限"
+                width="120"
+              />
+              <el-table-column
+                prop="remaining"
+                label="剩余"
+                width="120"
+              />
+              <el-table-column label="使用率">
+                <template #default="{ row }">
+                  <el-progress
+                    :percentage="row.usage_percent"
+                    :status="progressStatus(row.usage_percent)"
+                    :stroke-width="12"
+                  />
+                </template>
+              </el-table-column>
+              <el-table-column
+                label="状态"
+                width="140"
               >
-                即将用尽
-              </el-tag><el-tag
-                v-else
-                type="success"
-                size="small"
-              >
-                充足
-              </el-tag>
-            </template>
-          </el-table-column>
-        </el-table>
-      </AsyncState>
-    </el-card>
+                <template #default="{ row }">
+                  <el-tag
+                    v-if="row.usage_percent >= 90"
+                    type="danger"
+                    size="small"
+                  >
+                    即将用尽
+                  </el-tag><el-tag
+                    v-else
+                    type="success"
+                    size="small"
+                  >
+                    充足
+                  </el-tag>
+                </template>
+              </el-table-column>
+            </el-table>
+          </AsyncState>
+        </el-card>
 
-    <el-dialog
-      v-model="quotaDialogVisible"
-      title="调整用量额度"
-      width="480px"
-      append-to-body
-    >
-      <p class="dialog-hint">
-        上限为 0 表示停用该额度；调整只影响之后的新请求，不会回溯已发生的调用。
-      </p>
-      <el-form label-width="110px">
-        <el-form-item
-          v-for="item in quotaForm"
-          :key="item.kind"
-          :label="item.label"
+        <el-dialog
+          v-model="quotaDialogVisible"
+          title="调整用量额度"
+          width="480px"
+          append-to-body
         >
-          <el-input-number
-            v-model="item.limit"
-            :min="0"
-            :max="100000000"
-            :step="100"
-          />
-          <span class="form-hint">已用 {{ item.used }}</span>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="quotaDialogVisible = false">
-          取消
-        </el-button>
-        <el-button
-          type="primary"
-          :loading="quotaSaving"
-          @click="saveQuota"
-        >
-          保存
-        </el-button>
-      </template>
-    </el-dialog>
+          <p class="dialog-hint">
+            上限为 0 表示停用该额度；调整只影响之后的新请求，不会回溯已发生的调用。
+          </p>
+          <el-form label-width="110px">
+            <el-form-item
+              v-for="item in quotaForm"
+              :key="item.kind"
+              :label="item.label"
+            >
+              <el-input-number
+                v-model="item.limit"
+                :min="0"
+                :max="100000000"
+                :step="100"
+              />
+              <span class="form-hint">已用 {{ item.used }}</span>
+            </el-form-item>
+          </el-form>
+          <template #footer>
+            <el-button @click="quotaDialogVisible = false">
+              取消
+            </el-button>
+            <el-button
+              type="primary"
+              :loading="quotaSaving"
+              @click="saveQuota"
+            >
+              保存
+            </el-button>
+          </template>
+        </el-dialog>
       </el-tab-pane>
       <el-tab-pane
         label="额度策略"

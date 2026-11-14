@@ -2,6 +2,35 @@
 
 本项目遵循《工程开发规范 V3.0》；版本号遵循语义化版本。
 
+## [3.82.0] - 2026-11-14
+
+v3.81.0 审计报告遗留建议的落地批次：**纯结构与性能重构，对外行为零变更**（所有 111 处 API 导入站点、
+向导模板表达式、接口路径与载荷全部保持不变）。
+
+- **quota engine 单次聚合（性能）**：新增 `quota_engine.effective_budget(db, policy)` 一次取齐
+  `(used, limit, grants)` 三元组；`effective_limit` 非无限分支委托其实现（单一事实源）。
+  `billing/usage._budget` 从每指标 4 条小查询降到 2 条；`recommendation()` 复用
+  `usage_summary` 已算好的环境基础额度，不再重复读 settings 与模板策略。
+  新增 `test_effective_budget_matches_effective_limit` 把三元组与 `effective_limit` 的同口径性钉死。
+- **统一 API 层（巨石拆分 + 双层合并）**：`api/modules.ts`（3234 行）与 `api/v3.ts`（1709 行）
+  的全部端点按业务域迁入 `api/domains/*`（14 个文件，common/core/admin/tasks/knowledge/llm/
+  teams/agents/skills/governance/devices/farm/bots/billing），section 原文搬运未改逻辑；
+  `unwrap`/`unwrapList`/`toParams`/`silent`/`ListResult` 收敛到 `client.ts` 单一实现；
+  `modules.ts` 与 `v3.ts` 变为桶式兼容层——67 处 `@/api/modules` 与 44 处 `@/api/v3` 导入
+  **零变更**；v3 侧与 modules 侧同名不同形的 `MarketInstallResult`（前者单条、后者批量）
+  改名 `MarketItemInstallResult`（无外部导入者，零影响）。新代码统一从 `@/api/modules` 导入。
+- **向导拆分（巨石拆分）**：`SetupWizard.vue`（1867 行）拆为 786 行编排层
+  （rail/进度/footer/全部状态与校验，经 `provide(setupWizardKey)` 下发）+
+  7 个步骤子组件 `components/setup/SetupStep*.vue`（102-370 行/个）+
+  `wizardContext.ts`（类型化注入契约）；子组件经 inject 拿到**同名绑定**，
+  步骤模板与拆分前逐字一致；样式按「类名出现在哪个步骤模板」归属迁移
+  （共享壳样式留在父级，`.pane` 命中子组件根节点）。
+- **验证**：后端 `ruff` / `ruff format` / `mypy` / `pytest` 全量（接真实 PG）全绿；
+  前端 `eslint 0 error`（警告总数 1499 → 954）/ `vue-tsc` / `vite build` / 单测 71 全绿；
+  版本面 3.82.0（9 处）一致；OpenAPI 契约重生成无漂移。
+- **发版边界**：本批不改任何接口行为与数据库结构，无需迁移；补丁语义上属内部重构，
+  按 VERSIONING 纪律升 minor 记录。
+
 ## [3.81.0] - 2026-11-14
 
 近 3 天改动（v3.75.0 → v3.80.1，171 文件）全量审计的收尾批次：在 22 缺陷修复与门禁全绿的基础上，

@@ -1,6 +1,11 @@
-import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios'
+import axios, {
+  AxiosError,
+  type AxiosRequestConfig,
+  type AxiosResponse,
+  type InternalAxiosRequestConfig,
+} from 'axios'
 import { ElMessage } from 'element-plus'
-import type { ApiError } from '@/types/api'
+import type { ApiError, ApiResponse, ListResponse, PageMeta } from '@/types/api'
 import { classifyResponseError, friendlyErrorMessage } from '@/utils/status'
 import { getMockAdapter, isMockEnabled } from './mock'
 
@@ -27,6 +32,43 @@ function toastOnce(text: string): void {
 /** 请求没有拿到响应（超时/断网/被取消）：写操作结果未知，调用方需回查（审查 F3） */
 export function isNoResponseError(err: unknown): boolean {
   return err instanceof AxiosError && !err.response && err.code !== 'ERR_CANCELED'
+}
+
+/**
+ * 解包成功信封 ``{data, request_id} → data``（v3.82 统一 API 层共用）。
+ * 此前 modules.ts 与 v3.ts 各自定义了一份同名实现，随双 API 层合并一并收敛。
+ */
+export function unwrap<T>(promise: Promise<AxiosResponse<ApiResponse<T>>>): Promise<T> {
+  return promise.then(res => res.data.data)
+}
+
+/** 静默请求选项：跳过拦截器的错误 toast（写操作自带错误兜底时使用） */
+export const silent: AxiosRequestConfig & { skipErrorToast?: boolean } = {
+  skipErrorToast: true,
+}
+
+/** 分页列表信封（items + meta） */
+export interface ListResult<T> {
+  items: T[]
+  meta: PageMeta
+}
+
+/** 解包分页信封 ``{data, meta} → {items, meta}`` */
+export function unwrapList<T>(
+  promise: Promise<AxiosResponse<ListResponse<T>>>,
+): Promise<ListResult<T>> {
+  return promise.then(res => ({ items: res.data.data, meta: res.data.meta }))
+}
+
+/** 查询参数清理：剔除 undefined / null / 空串 */
+export function toParams(params: object): Record<string, string | number> {
+  const out: Record<string, string | number> = {}
+  for (const [k, v] of Object.entries(params as Record<string, unknown>)) {
+    if (v !== undefined && v !== null && v !== '') {
+      out[k] = v as string | number
+    }
+  }
+  return out
 }
 
 export const api = axios.create({

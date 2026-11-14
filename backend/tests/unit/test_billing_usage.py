@@ -84,3 +84,44 @@ def test_usage_summary_empty_yard_is_zeroed(db):
     assert summary["anchor"]["based_on_calls"] == 0
     assert summary["anchor"]["calls_remaining"] == 0
     assert summary["needs_attention"] is False
+
+
+def test_effective_budget_matches_effective_limit(db):
+    """v3.82 聚合护栏：effective_budget 三元组与 effective_limit 逐字段同口径。
+
+    守住的性质：
+    - 非无限策略：limit == max(limit_value, used) + grants；
+    - 无限策略：limit == inf，但 grants/used 照实返回（用量页要展示水位）；
+    - 同一策略重复查询时，budget 与 limit/grant_total 的一致性不随调用顺序漂移。
+    """
+    import math
+
+    from app.modules.quota import engine as quota_engine
+    from app.modules.quota.models import QuotaPolicy
+
+    def _policy(limit_value: float) -> QuotaPolicy:
+        return QuotaPolicy(
+            yard_id="yard-usage",
+            scope_type="yard",
+            scope_key="",
+            metric="tokens",
+            window="month",
+            limit_value=limit_value,
+            on_exceed="approve",
+        )
+
+    # 零余额：limit=0，被 preflight 当"已用尽"
+    used, limit, grants = quota_engine.effective_budget(db, _policy(0))
+    assert (used, limit, grants) == (0.0, 0.0, 0.0)
+    assert quota_engine.effective_limit(db, _policy(0)) == 0.0
+
+    # 有基线：limit == 基线（无用量无临时额度）
+    used, limit, grants = quota_engine.effective_budget(db, _policy(5000))
+    assert (used, limit, grants) == (0.0, 5000.0, 0.0)
+
+    # 无限策略：limit=inf，grants 照实返回 0（本例无 grant 行）
+    used, limit, grants = quota_engine.effective_budget(db, _policy(-1))
+    assert used == 0.0
+    assert math.isinf(limit)
+    assert grants == 0.0
+    assert quota_engine.effective_limit(db, _policy(-1)) == math.inf

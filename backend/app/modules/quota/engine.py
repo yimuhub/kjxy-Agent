@@ -190,6 +190,32 @@ def is_unlimited(policy: QuotaPolicy) -> bool:
     return float(policy.limit_value) < 0
 
 
+def effective_budget(
+    db: Session, policy: QuotaPolicy, *, now: datetime | None = None
+) -> tuple[float, float, float]:
+    """一次取齐 ``(used, limit, grants)`` 三元组（v3.82 性能项）。
+
+    此前用量页对同一策略要打四次小查询：
+    ``current_usage``（自己调一次 + ``effective_limit`` 内部再调一次）和
+    ``grant_total``（``effective_limit`` 内部一次 + 自己再调一次）。
+    本函数把三个口径在一次遍历里取齐：
+
+    - ``used``：本窗口已用（``QuotaCounter`` 单行读）；
+    - ``limit``：与 :func:`effective_limit` 完全同口径（``max(limit_value, used)``
+      + 未到期临时额度余额；无限制策略返回 ``math.inf``）；
+    - ``grants``：未到期临时额度余额（无限制策略也照实返回，
+      用量页要展示"已发放"水位，不能因为不限量就丢掉）。
+
+    非无限策略从 4 次查询降到 2 次；无限策略从 3 次降到 2 次
+    （``effective_limit`` 单独调用无限策略时仍保持 0 次查询的热路径不变）。
+    """
+    used, _start = current_usage(db, policy, now=now)
+    grants = grant_total(db, policy.id, now)
+    if is_unlimited(policy):
+        return used, math.inf, grants
+    return used, max(float(policy.limit_value), used) + grants, grants
+
+
 def effective_limit(db: Session, policy: QuotaPolicy, now: datetime | None = None) -> float:
     """可用预算上限：本窗口基线未用尽部分 + 临时额度余额。
 
@@ -197,11 +223,13 @@ def effective_limit(db: Session, policy: QuotaPolicy, now: datetime | None = Non
     判断退化为「临时额度还有余额」，不会把已扣过的额度重复计入；零余额策略
     返回 0，由 preflight 当作「已用尽」处理（审查 B3）。无限制策略返回
     ``math.inf``（调用方据此跳过拦截与告警，序列化时转 null）。
+
+    需要同时拿 used/grants 的调用方（用量页）请改用 :func:`effective_budget`，
+    避免对同一策略重复查询。
     """
     if is_unlimited(policy):
         return math.inf
-    used, _start = current_usage(db, policy, now=now)
-    return max(float(policy.limit_value), used) + grant_total(db, policy.id, now)
+    return effective_budget(db, policy, now=now)[1]
 
 
 def current_usage(
