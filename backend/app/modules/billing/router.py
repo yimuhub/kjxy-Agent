@@ -318,7 +318,11 @@ def submit_voucher(
     user: CurrentUser = Depends(require_yard_permission("quota:manage")),
     db: Session = Depends(get_db_session),
 ):
-    """对公转账回单自助提交：金额匹配即自动到账，不匹配转人工。"""
+    """对公转账回单自助提交：登记回单号 + 金额预检，订单保持待确认。
+
+    到账只走平台管理员「确认到账」链路——回单真实性只有平台对账能判定，
+    金额匹配不构成入账依据（2026-11-13 二次深审收紧，见 service.submit_voucher）。
+    """
     data = service.submit_voucher(
         db,
         yard_id=_yard_id(user),

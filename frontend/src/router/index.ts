@@ -48,6 +48,7 @@ const WorkspaceView = () => import('@/views/WorkspaceView.vue')
 const OwnerView = () => import('@/views/OwnerView.vue')
 const ProfileView = () => import('@/views/ProfileView.vue')
 const ShareView = () => import('@/views/ShareView.vue')
+const SandboxCheckoutView = () => import('@/views/SandboxCheckoutView.vue')
 const NotFoundView = () => import('@/views/NotFoundView.vue')
 const ForbiddenView = () => import('@/views/ForbiddenView.vue')
 
@@ -101,6 +102,15 @@ const routes: RouteRecordRaw[] = [
     name: 'Pet',
     component: PetView,
     meta: { public: true, title: '桌面伙伴' },
+  },
+  {
+    // 沙箱收银台（v3.80 补口）：支付意图的 pay_url / 二维码指向本页。
+    // 此前该路由不存在，扫码或点链接直接 404，沙箱链路只剩计费面板按钮一条路。
+    // 需登录；quota:manage 与后端 prepare/notify 端点的权限口径一致。
+    path: '/billing/sandbox/checkout',
+    name: 'SandboxCheckout',
+    component: SandboxCheckoutView,
+    meta: { title: '沙箱收银台', permission: 'quota:manage' },
   },
   {
     path: '/',

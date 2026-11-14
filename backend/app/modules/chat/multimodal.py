@@ -21,16 +21,12 @@ import base64
 from app.core.config import settings
 from app.core.deps import YardContext
 from app.core.errors import AppError
-from app.core.logging import get_logger
 from app.modules.audit.service import log_audit
 from app.modules.chat.models import ATT_IMAGE, ATT_READY, ChatAttachment
 from app.modules.knowledge.storage import LocalStorageBackend
 from app.modules.llm.provider import get_provider, provider_resolution
 from app.modules.llm.schemas import ChatMessage, LLMMetadata, LLMRequest
 from app.modules.llm.service import complete_with_logging
-
-log = get_logger(__name__)
-
 
 #: 图片识别提示词：只描述事实 + 数据边界 + 不给用药方案
 VISION_PROMPT = (
@@ -67,25 +63,12 @@ def _provider_media_config(db, yard_id: str) -> tuple[str, str, str]:
     return base_url, api_key, model
 
 
-def _upstream_error(what: str, status_code: int, body: str) -> AppError:
-    """上游失败统一转 502；只透出类别，不带 key 与完整响应体。"""
-    hint = ""
-    lowered = body.lower()
-    if "does not support" in lowered or "invalid model" in lowered or "not found" in lowered:
-        hint = "（供应商或模型可能不支持该能力，请在系统设置中切换支持的多模态模型）"
-    if status_code in (401, 403):
-        hint = "（模型凭据无效或无权访问该能力，请联系管理员检查供应商配置）"
-    log.warning("多模态上游失败 what=%s status=%s body=%s", what, status_code, body[:300])
-    return AppError(
-        "MULTIMODAL_UPSTREAM_ERROR",
-        f"{what}失败：上游返回 {status_code}{hint}。",
-        http_status=502,
-        details={"upstream_status": status_code},
-    )
-
-
 def _map_vision_error(e: AppError) -> AppError:
-    """把统一 LLM 链路的错误翻译成图片理解对外的错误契约。"""
+    """把统一 LLM 链路的错误翻译成图片理解对外的错误契约。
+
+    上游失败分类（凭据/限流/能力不支持）已由 llm 层按 category 标注，
+    这里只做错误码映射；直连 httpx 的旧 ``_upstream_error`` 随统一收口一并移除。
+    """
     if e.code == "LLM_NOT_CONFIGURED":
         return AppError(
             "MULTIMODAL_NOT_CONFIGURED",

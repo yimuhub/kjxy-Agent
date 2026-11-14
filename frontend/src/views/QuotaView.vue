@@ -623,6 +623,7 @@
 <script setup lang="ts">
   import { computed, onMounted, reactive, ref, watch } from 'vue'
   import { ElMessage, ElMessageBox } from 'element-plus'
+  import { useRoute } from 'vue-router'
   import {
     yardApi,
     llmTraceApi,
@@ -719,7 +720,11 @@
   const canApproveQuota = computed(() => auth.hasPermission('quota:approve'))
   /** 套餐管理是平台运营能力，后端 /billing/admin/plans 要求平台管理员 */
   const isPlatformAdmin = computed(() => auth.roles.includes('platform_admin'))
-  const tab = ref('overview')
+  // 支持深链定位（如沙箱收银台支付成功后跳 ?tab=billing）：非法取值回落概览
+  const VALID_TABS = new Set(['overview', 'policies', 'requests', 'billing', 'plan-admin'])
+  const route = useRoute()
+  const initialTab = String(route.query.tab ?? 'overview')
+  const tab = ref(VALID_TABS.has(initialTab) ? initialTab : 'overview')
   const rows = computed<QuotaRow[]>(() =>
     Object.entries(quotas).map(([kind, item]) => ({
       kind,

@@ -2,6 +2,35 @@
 
 本项目遵循《工程开发规范 V3.0》；版本号遵循语义化版本。
 
+## [3.81.0] - 2026-11-14
+
+近 3 天改动（v3.75.0 → v3.80.1，171 文件）全量审计的收尾批次：在 22 缺陷修复与门禁全绿的基础上，
+再核对出 1 处功能性死路、1 处行为偏差、1 处可感知性能点与 3 处一致性/清理项，全部修复并实测。
+
+- **沙箱收银台死路补口（P2）**：`SandboxProvider.create_intent` 生成的 `pay_url` /
+  二维码指向 `/billing/sandbox/checkout`，但前端从未实现该路由——扫码或点链接直接 404，
+  沙箱付费链路只剩计费面板「我已完成支付」按钮一条路。新增 `SandboxCheckoutView.vue`
+  （prepare → 真实公开回调 notify → 幂等结算 → 成绩回执，成功后可跳回额度页）并注册路由
+  （`quota:manage`，与后端端口径一致）；`QuotaView` 支持 `?tab=` 深链定位。
+- **桌宠气泡值守周期修正（P1 行为偏差）**：v3.80 走查把闲聊气泡改为「露出 6s → 淡出 8s」，
+  但实现用 8s interval + 6s hide timer 两套相位，hide 先到后 interval 紧跟着又点亮，
+  实际淡出仅 ~2s，气泡仍约 75% 时间遮挡内容。改为单一 setTimeout 状态机严格交替
+  （露出 6s → 淡出 8s）；正式发言插队期间挂起、说完从头计窗。
+- **计费面板并行回读（性能）**：`BillingPanel.refresh()` 此前 6 个接口逐个 `await` 串行往返，
+  最慢叠加 6 个 RTT 才渲染完整；改 `Promise.allSettled` 并行，每路独立兜底
+  （usage/recommendation 失败仍回落空值语义）。
+- **金额格式化口径统一（重复逻辑去重）**：`formatPriceYuan` / `formatQuotaAmount` 抽入
+  `utils/format.ts`，BillingPanel 与 PlanAdminPanel 共用；消除两面板各自维护且
+  小数位不一致（0 位 vs 2 位）的同类句式；运营面板额度项从 `2000000.00` 收敛为 `2000000`。
+- **文档与代码一致性（3 处）**：`billing/router.submit_voucher` docstring 仍写
+  "金额匹配即自动到账"，与二次深审收紧后的真实语义（登记 + 预检 + 平台核销）相反，已改写；
+  迁移 0085 文件头同样过时的三态描述同步更正；`chat/multimodal.py` 统一收口后
+  遗留的 `_upstream_error` 死函数与不再使用的 logger 一并移除。
+- **验证**：后端 `ruff check` / `ruff format`（727 文件）/ `mypy`（472 文件）全绿；
+  `pytest` 全量（接真实 PG 测试库）通过；前端 `eslint 0 error` / `vue-tsc` /
+  `vite build` / 单测 71 全过；主回归 21/21（全新 PG 实例 + 沙箱支付幂等 + 真实 Agnes 对话）；
+  版本面 `check_versions.py` 3.81.0（9 处）一致；OpenAPI 契约重生成无漂移。
+
 ## [3.80.1] - 2026-11-13
 
 **全平台品牌徽标统一 + 客户端发版**：Web、桌面客户端（macOS / Windows / Linux，

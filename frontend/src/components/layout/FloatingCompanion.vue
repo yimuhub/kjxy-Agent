@@ -255,18 +255,23 @@
 
   /**
    * 气泡轮播（v3.70）：固定两句（时段问候 + 场景提示）打底，
-   * 再叠加周期拉取的小院实况（天气/工单/警报/后台任务），每 10 秒换一句；
+   * 再叠加周期拉取的小院实况（天气/工单/警报/后台任务），
+   * 按值守周期（露出 6s → 淡出 8s）每轮换一句；
    * 事件短句（任务结果等）随时插队，说完接着轮播。
    */
   const dataLines = ref<string[]>([])
   const tickerIndex = ref(0)
   let briefTimer: number | null = null
-  let tickerTimer: number | null = null
   /** 闲聊气泡是否在「露出期」。2026-11-13 交付走查修正:此前的气泡 24 小时常驻,
    * 在表格/按钮密度的页面上持续遮挡内容(全站 8+ 页复现)。现在按大厂陪伴件
    * 惯例改成「露出 6s → 淡出 8s」的值守周期:陪伴感在,内容不被挡。 */
   const bubbleVisible = ref(true)
-  let bubbleHideTimer: number | null = null
+  /** 值守周期计时器：单一 setTimeout 状态机自续，保证「露出 6s / 淡出 8s」
+   * 相位严格交替。此前用 8s interval + 6s hide timer 两套相位，hide 先到后
+   * interval 紧跟着又点亮，实际淡出只有 ~2s，遮挡问题只修掉了一半。 */
+  let bubbleTimer: number | null = null
+  const BUBBLE_SHOW_MS = 6 * 1000
+  const BUBBLE_DIM_MS = 8 * 1000
 
   const ambientLines = computed(() => [greetingFor(), sceneTip(scene.value), ...dataLines.value])
 
@@ -444,14 +449,42 @@
     void router.push('/commander')
   }
 
+  /** 值守周期驱动：visible=true 表示"已露出，再过 SHOW_MS 淡出"；
+   * false 表示"已淡出，再过 DIM_MS 换一句点亮"。正式发言插队期间挂起，
+   * 发言结束后从头进入露出窗。 */
+  function scheduleBubbleCycle(visible: boolean): void {
+    if (bubbleTimer !== null) window.clearTimeout(bubbleTimer)
+    bubbleTimer = window.setTimeout(() => {
+      bubbleTimer = null
+      if (speech.value) {
+        // 事件短句正在展示：不打断，等它说完再进入值守
+        scheduleBubbleCycle(true)
+        return
+      }
+      if (bubbleVisible.value) {
+        // 露出满 6 秒 → 淡出，让内容喘口气
+        bubbleVisible.value = false
+        scheduleBubbleCycle(false)
+      } else {
+        // 淡出满 8 秒 → 换一句再露出
+        tickerIndex.value += 1
+        bubbleVisible.value = true
+        scheduleBubbleCycle(true)
+      }
+    }, visible ? BUBBLE_SHOW_MS : BUBBLE_DIM_MS)
+  }
+
   function showSpeech(text: string): void {
     if (petMuted() || !text.trim()) return
     speech.value = text.trim().slice(0, 60)
     bubbleVisible.value = true
+    // 正式发言期间暂停值守周期，说完从头计 6s 露出窗
+    scheduleBubbleCycle(true)
     if (speechTimer !== null) window.clearTimeout(speechTimer)
     speechTimer = window.setTimeout(() => {
       speech.value = ''
       speechTimer = null
+      scheduleBubbleCycle(true)
     }, 7000)
   }
 
@@ -543,22 +576,8 @@
     void ensureCompanionSession()
     void refreshBriefs()
     briefTimer = window.setInterval(() => void refreshBriefs(), 5 * 60 * 1000)
-    tickerTimer = window.setInterval(() => {
-      if (speech.value) return
-      if (bubbleVisible.value) {
-        // 露出满 6 秒 → 淡出,让内容喘口气
-        bubbleVisible.value = false
-      } else {
-        // 淡出满 8 秒 → 换一句再露出
-        tickerIndex.value += 1
-        bubbleVisible.value = true
-        if (bubbleHideTimer !== null) window.clearTimeout(bubbleHideTimer)
-        bubbleHideTimer = window.setTimeout(() => {
-          bubbleVisible.value = false
-          bubbleHideTimer = null
-        }, 6 * 1000)
-      }
-    }, 8 * 1000)
+    // 气泡值守周期：单一 setTimeout 状态机，露出 6s → 淡出 8s 严格交替
+    scheduleBubbleCycle(true)
   })
 
   onBeforeUnmount(() => {
@@ -567,9 +586,8 @@
     stopPanelDrag?.()
     stopResize?.()
     if (briefTimer !== null) window.clearInterval(briefTimer)
-    if (tickerTimer !== null) window.clearInterval(tickerTimer)
     if (speechTimer !== null) window.clearTimeout(speechTimer)
-    if (bubbleHideTimer !== null) window.clearTimeout(bubbleHideTimer)
+    if (bubbleTimer !== null) window.clearTimeout(bubbleTimer)
     window.removeEventListener('storage', onStorage)
     window.removeEventListener('resize', onResize)
     window.removeEventListener(PET_OVERLAY_EVENT, onOverlayEvent)

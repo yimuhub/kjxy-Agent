@@ -628,6 +628,7 @@
     type PaymentIntent,
   } from '@/api/modules'
   import { isNoResponseError } from '@/api/client'
+  import { formatPriceYuan, formatQuotaAmount } from '@/utils/format'
   import { useAuthStore } from '@/stores/auth'
 
   const auth = useAuthStore()
@@ -665,18 +666,11 @@
   const codePlan = ref('pro')
   const codeCount = ref(10)
 
-  function formatPrice(value: number): string {
-    return Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 0 })
-  }
+  /** 金额与额度数字走全站共用口径（utils/format），本组件不再各自维护 */
+  const formatPrice = (value: number): string => formatPriceYuan(value)
 
-  /** 额度数字：Token 用千分位，算力金额保留两位小数 */
-  function formatAmount(value: number, metric?: string): string {
-    const num = Number(value) || 0
-    if (metric === 'cost') {
-      return num.toLocaleString('zh-CN', { maximumFractionDigits: 2 })
-    }
-    return num.toLocaleString('zh-CN', { maximumFractionDigits: 0 })
-  }
+  const formatAmount = (value: number, metric?: string): string =>
+    formatQuotaAmount(value, metric)
 
   /** 滚到推荐档位的套餐卡（升级引导落地） */
   function jumpToPlan(code: string | null | undefined): void {
@@ -734,27 +728,47 @@
   }
 
   async function refresh(): Promise<void> {
-    try {
-      plans.value = await billingApi.plans()
-      if (canManage.value) orders.value = await billingApi.listOrders('yard')
-      if (isPlatformAdmin.value) {
-        allOrders.value = await billingApi.listOrders('all')
-        codes.value = await billingApi.listCodes()
-      }
-    } catch {
-      /* 读不到就静默：面板不强依赖 */
+    // 面板每次挂载/操作后都要回读 6 个接口；此前逐个 await 串行往返，
+    // 最慢要叠加 6 个 RTT 才渲染完整，改为并行（每路独立兜底，互不阻塞）。
+    const requests: Array<Promise<void>> = [
+      billingApi.plans().then(v => {
+        plans.value = v
+      }),
+      billingApi
+        .usage()
+        .then(v => {
+          usage.value = v
+        })
+        .catch(() => {
+          usage.value = null
+        }),
+      billingApi
+        .recommendation()
+        .then(v => {
+          recommendation.value = v
+        })
+        .catch(() => {
+          recommendation.value = null
+        }),
+    ]
+    if (canManage.value) {
+      requests.push(
+        billingApi.listOrders('yard').then(v => {
+          orders.value = v
+        }),
+      )
     }
-    // 用量与升级引导独立加载：失败不影响套餐展示
-    try {
-      usage.value = await billingApi.usage()
-    } catch {
-      usage.value = null
+    if (isPlatformAdmin.value) {
+      requests.push(
+        billingApi.listOrders('all').then(v => {
+          allOrders.value = v
+        }),
+        billingApi.listCodes().then(v => {
+          codes.value = v
+        }),
+      )
     }
-    try {
-      recommendation.value = await billingApi.recommendation()
-    } catch {
-      recommendation.value = null
-    }
+    await Promise.allSettled(requests)
   }
 
   async function doRedeem(): Promise<void> {

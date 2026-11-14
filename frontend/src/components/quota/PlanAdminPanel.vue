@@ -265,6 +265,7 @@
   import { onMounted, ref } from 'vue'
   import { ElMessage } from 'element-plus'
   import { billingApi, type BillingPlan, type BillingPlanUpdate } from '@/api/modules'
+  import { formatPriceYuan, formatQuotaAmount } from '@/utils/format'
 
   const METRICS = [
     { value: 'tokens', label: 'Token', unit: '' },
@@ -301,20 +302,18 @@
     active: true,
   })
 
-  function metricLabel(metric: string): string {    return METRICS.find(m => m.value === metric)?.label ?? metric
+  function metricLabel(metric: string): string {
+    return METRICS.find(m => m.value === metric)?.label ?? metric
   }
 
   function unitOf(metric: string): string {
     return METRICS.find(m => m.value === metric)?.unit ?? ''
   }
 
-  function formatPrice(value: number): string {
-    return Number(value ?? 0).toLocaleString('zh-CN', { maximumFractionDigits: 2 })
-  }
+  /** 金额与额度数字走全站共用口径（utils/format），与计费面板同源 */
+  const formatPrice = (value: number): string => formatPriceYuan(value, 2)
 
-  function formatAmount(value: number): string {
-    return Number(value ?? 0).toLocaleString('zh-CN', { maximumFractionDigits: 2 })
-  }
+  const formatAmount = (value: number): string => formatQuotaAmount(value)
 
   async function load(): Promise<void> {
     loading.value = true

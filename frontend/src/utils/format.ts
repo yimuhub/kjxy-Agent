@@ -56,6 +56,26 @@ export function formatDateTime(t?: string | null): string {
 }
 
 /**
+ * 金额（元）格式化：千分位。整数价默认不带小数；传 digits 可保留小数位。
+ * 计费面板与运营套餐管理共用同一口径，避免"同一价格两页两种显示"。
+ */
+export function formatPriceYuan(value: number | null | undefined, digits = 0): string {
+  return Number(value ?? 0).toLocaleString('zh-CN', { maximumFractionDigits: digits })
+}
+
+/**
+ * 额度数字格式化（计费口径）：Token/次数用千分位取整；算力金额（metric=cost）保留两位。
+ * BillingPanel 与 PlanAdminPanel 共用。
+ */
+export function formatQuotaAmount(value: number | null | undefined, metric?: string): string {
+  const num = Number(value ?? 0)
+  if (metric === 'cost') {
+    return num.toLocaleString('zh-CN', { maximumFractionDigits: 2 })
+  }
+  return num.toLocaleString('zh-CN', { maximumFractionDigits: 0 })
+}
+
+/**
  * 由起止时间计算耗时，返回值单位秒的展示文本（如 12.3s）。
  * 任一时间缺失/无效则显示占位符；running 中的任务不计算。
  */
