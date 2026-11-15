@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
 from app.core.logging import get_logger
+from app.core.timezone import ensure_utc
 from app.modules.audit.service import log_audit
 from app.modules.devices import analysis
 from app.modules.devices.models import (
@@ -32,6 +33,7 @@ from app.modules.devices.models import (
     DeviceAnalysis,
     Reading,
 )
+from app.modules.llm.json_utils import clean_single_line, parse_llm_json_dict
 from app.modules.llm.schemas import ChatMessage, LLMMetadata, LLMRequest
 from app.modules.llm.service import complete_with_logging
 from app.modules.yards.settings_service import get_setting
@@ -48,10 +50,7 @@ ALERT_DEDUPE_MINUTES = 30
 DEVICE_ANALYSIS_JOB = "device_analysis"
 
 
-def _as_utc(value: datetime | None) -> datetime | None:
-    if value is None:
-        return None
-    return value if value.tzinfo else value.replace(tzinfo=UTC)
+_as_utc = ensure_utc
 
 
 def window_hours(setting: dict[str, Any]) -> int:
@@ -172,27 +171,8 @@ def _llm_messages(
     return [ChatMessage(role="system", content=system), ChatMessage(role="user", content=user)]
 
 
-_FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
-
-
-def _parse_json(content: str) -> dict[str, Any] | None:
-    text = _FENCE_RE.sub("", (content or "").strip()).strip()
-    candidates = [text]
-    start, end = text.find("{"), text.rfind("}")
-    if start != -1 and end > start:
-        candidates.append(text[start : end + 1])
-    for candidate in candidates:
-        try:
-            data = json.loads(candidate)
-        except (json.JSONDecodeError, ValueError):
-            continue
-        if isinstance(data, dict):
-            return data
-    return None
-
-
-def _clean(text: Any, limit: int) -> str:
-    return " ".join(str(text or "").split())[:limit]
+_parse_json = parse_llm_json_dict
+_clean = clean_single_line
 
 
 def explain_with_llm(

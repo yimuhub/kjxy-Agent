@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.deps import CurrentUser, get_db_session, require_yard_permission
 from app.core.errors import AppError
-from app.core.rate_limit import RateLimiter
+from app.core.rate_limit import RateLimiter, extract_client_ip
 from app.core.responses import ok
 from app.modules.a2a import service
 from app.modules.a2a.models import A2aPeer
@@ -45,8 +45,7 @@ def _request_id(request: Request) -> str:
     return getattr(request.state, "request_id", "req_unknown")
 
 
-def _client_ip(request: Request) -> str:
-    return request.client.host if request.client else "unknown"
+_client_ip = extract_client_ip
 
 
 def _require_yard(user: CurrentUser) -> str:

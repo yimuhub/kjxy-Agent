@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.deps import YardContext, get_db_session, get_yard_context
 from app.core.errors import AppError
-from app.core.rate_limit import RateLimiter
+from app.core.rate_limit import RateLimiter, extract_client_ip
 from app.core.responses import ok
 from app.modules.pairing import service
 from app.modules.pairing.schemas import PairExchangeRequest
@@ -30,9 +30,7 @@ _ADMIN_ROLES = {"platform_admin", "yard_admin"}
 #: 这里挡的是扫描式试错与无效请求刷量。失败计数、成功清零。
 _exchange_limiter = RateLimiter(max_attempts=30, window_seconds=60)
 
-
-def _client_ip(request: Request) -> str:
-    return request.client.host if request.client else "unknown"
+_client_ip = extract_client_ip
 
 
 def _admin(ctx: YardContext = Depends(get_yard_context)) -> YardContext:

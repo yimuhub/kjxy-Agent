@@ -9,6 +9,16 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 ClientOpId = Annotated[str, Field(min_length=8, max_length=64, pattern=r"^[A-Za-z0-9._:-]+$")]
 
 
+class _NonEmptyUpdateModel(BaseModel):
+    """更新请求公共基类：统一校验至少提交一个更新字段，消除 5 处重复 _not_empty。"""
+
+    @model_validator(mode="after")
+    def _not_empty(self) -> "_NonEmptyUpdateModel":
+        if not self.model_fields_set:
+            raise ValueError("没有需要更新的字段")
+        return self
+
+
 class PlotCreate(BaseModel):
     client_op_id: ClientOpId | None = None
     name: str = Field(..., min_length=1, max_length=80)
@@ -21,7 +31,7 @@ class PlotCreate(BaseModel):
     notes: str = Field(default="", max_length=2000)
 
 
-class PlotUpdate(BaseModel):
+class PlotUpdate(_NonEmptyUpdateModel):
     #: 离线冲突检测：带上客户端看到的版本，后端版本不同则 409 并回传当前副本
     expected_revision: int | None = Field(default=None, ge=1)
     name: str | None = Field(default=None, min_length=1, max_length=80)
@@ -32,12 +42,6 @@ class PlotUpdate(BaseModel):
     irrigation_type: str | None = Field(default=None, max_length=40)
     status: str | None = Field(default=None, max_length=16)
     notes: str | None = Field(default=None, max_length=2000)
-
-    @model_validator(mode="after")
-    def _not_empty(self) -> "PlotUpdate":
-        if not self.model_fields_set:
-            raise ValueError("没有需要更新的字段")
-        return self
 
 
 class PlotOut(BaseModel):
@@ -67,7 +71,7 @@ class CycleCreate(BaseModel):
     notes: str = Field(default="", max_length=2000)
 
 
-class CycleUpdate(BaseModel):
+class CycleUpdate(_NonEmptyUpdateModel):
     expected_revision: int | None = Field(default=None, ge=1)
     crop: str | None = Field(default=None, min_length=1, max_length=60)
     variety: str | None = Field(default=None, max_length=60)
@@ -75,12 +79,6 @@ class CycleUpdate(BaseModel):
     expected_harvest_on: date | None = None
     status: str | None = Field(default=None, max_length=16)
     notes: str | None = Field(default=None, max_length=2000)
-
-    @model_validator(mode="after")
-    def _not_empty(self) -> "CycleUpdate":
-        if not self.model_fields_set:
-            raise ValueError("没有需要更新的字段")
-        return self
 
 
 class CycleOut(BaseModel):
@@ -113,7 +111,7 @@ class RecordCreate(BaseModel):
     metadata_json: dict | None = None
 
 
-class RecordUpdate(BaseModel):
+class RecordUpdate(_NonEmptyUpdateModel):
     expected_revision: int | None = Field(default=None, ge=1)
     cycle_id: str | None = Field(default=None, max_length=36)
     kind: str | None = Field(default=None, max_length=20)
@@ -124,12 +122,6 @@ class RecordUpdate(BaseModel):
     unit: str | None = Field(default=None, max_length=20)
     operator_name: str | None = Field(default=None, max_length=60)
     metadata_json: dict | None = None
-
-    @model_validator(mode="after")
-    def _not_empty(self) -> "RecordUpdate":
-        if not self.model_fields_set:
-            raise ValueError("没有需要更新的字段")
-        return self
 
 
 class RecordOut(BaseModel):
@@ -282,19 +274,13 @@ class PesticideCreate(BaseModel):
     status: str = Field(default="active", max_length=16)
 
 
-class PesticideUpdate(BaseModel):
+class PesticideUpdate(_NonEmptyUpdateModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     active_ingredient: str | None = Field(default=None, max_length=120)
     registered_crops: list[str] | None = None
     pre_harvest_interval_days: int | None = Field(default=None, ge=0, le=365)
     label_notes: str | None = Field(default=None, max_length=2000)
     status: str | None = Field(default=None, max_length=16)
-
-    @model_validator(mode="after")
-    def _not_empty(self) -> "PesticideUpdate":
-        if not self.model_fields_set:
-            raise ValueError("没有需要更新的字段")
-        return self
 
 
 class PesticideOut(BaseModel):
@@ -363,19 +349,13 @@ class WorkOrderCreate(BaseModel):
     due_on: date | None = None
 
 
-class WorkOrderUpdate(BaseModel):
+class WorkOrderUpdate(_NonEmptyUpdateModel):
     expected_revision: int | None = Field(default=None, ge=1)
     priority: str | None = None
     status: str | None = None
     assignee_id: str | None = Field(default=None, max_length=36)
     due_on: date | None = None
     description: str | None = Field(default=None, max_length=4000)
-
-    @model_validator(mode="after")
-    def _not_empty(self) -> "WorkOrderUpdate":
-        if not self.model_fields_set:
-            raise ValueError("没有需要更新的字段")
-        return self
 
 
 class WorkOrderReceipt(BaseModel):

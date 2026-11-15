@@ -19,6 +19,7 @@ services:
           memory: 2G
     environment:
       APP_ENV: production
+      TRUSTED_PROXY_COUNT: ${TRUSTED_PROXY_COUNT:-1}
       # redis 开启 requirepass 后，所有服务必须带凭证连接（整改修正：此前生产会连不上）
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/1

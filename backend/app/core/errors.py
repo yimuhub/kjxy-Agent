@@ -6,6 +6,10 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.core.logging import get_logger
+
+log = get_logger(__name__)
+
 
 class AppError(Exception):
     def __init__(
@@ -61,6 +65,13 @@ async def validation_error_handler(request: Request, exc: Exception) -> JSONResp
 
 
 async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    log.exception(
+        "unhandled server exception [request_id=%s method=%s path=%s]",
+        _request_id(request),
+        request.method,
+        request.url.path,
+        exc_info=exc,
+    )
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={

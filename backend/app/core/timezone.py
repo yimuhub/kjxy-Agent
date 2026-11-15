@@ -1,4 +1,4 @@
-"""业务日切：库里时间戳一律 UTC，但「今天/本周/本月/当日上限」按业务时区切。
+"""业务日切与全局 UTC 时间工具：库里时间戳一律 UTC，但「今天/本周/本月/当日上限」按业务时区切。
 
 产品面向国内小院：按 UTC 0 点日切会让北京时间 0–8 点的日报告仍写「昨天」，
 指挥官每日创建上限也要到早上 8 点才清零。所有按日历切的窗口都从这里取，
@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 from datetime import UTC, date, datetime, time, timedelta, timezone, tzinfo
+from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 #: 业务时区名；桌面版或海外部署可用 TZ_BUSINESS 覆盖（如 TZ_BUSINESS=UTC）
@@ -69,3 +70,45 @@ def month_bounds(month_key: str) -> tuple[datetime, datetime]:
     first = date(year, month, 1)
     following = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
     return _local_midnight(first), _local_midnight(following)
+
+
+def utc_now() -> datetime:
+    """返回带 UTC 时区的当前时间（统一替代各模块散落的 _utcnow / _now）。"""
+    return datetime.now(UTC)
+
+
+def utc_iso_now() -> str:
+    """返回当前 UTC 时间的 ISO-8601 字符串。"""
+    return datetime.now(UTC).isoformat()
+
+
+def ensure_utc(moment: datetime | None) -> datetime | None:
+    """将 naive datetime 补齐为 UTC，已是 aware 则保持/转换至 UTC（统一替代 _as_utc / _aware）。"""
+    if moment is None:
+        return None
+    if moment.tzinfo is None:
+        return moment.replace(tzinfo=UTC)
+    return moment.astimezone(UTC)
+
+
+def ensure_utc_strict(moment: datetime) -> datetime:
+    """非空版本的 UTC 补齐（用于类型要求非 None 的调用方）。"""
+    return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
+
+
+def to_iso(moment: Any) -> str | None:
+    """将 datetime 统一格式化为带 UTC 时区的 ISO-8601 字符串（统一替代 _iso）。"""
+    if moment is None:
+        return None
+    if isinstance(moment, datetime):
+        aware = moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
+        return aware.isoformat()
+    if hasattr(moment, "isoformat"):
+        return str(moment.isoformat())
+    return str(moment)
+
+
+def to_iso_or_empty(moment: Any) -> str:
+    """将 datetime 格式化为 ISO-8601 字符串，None 时返回空串 ""。"""
+    res = to_iso(moment)
+    return res if res is not None else ""

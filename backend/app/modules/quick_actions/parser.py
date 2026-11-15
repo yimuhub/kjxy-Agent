@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.core.logging import get_logger
 from app.modules.farm.models import FarmAlert, FarmPlot
 from app.modules.farm.workorder_service import list_assignable_members
+from app.modules.llm.json_utils import parse_llm_json_dict
 from app.modules.llm.schemas import ChatMessage, LLMMetadata, LLMRequest
 from app.modules.llm.service import complete_with_logging
 
@@ -559,21 +560,7 @@ def _llm_messages(
     ]
 
 
-def _parse_json(content: str) -> dict[str, Any] | None:
-    text = (content or "").strip()
-    fenced = re.search(r"```(?:json)?\s*(\{.*\})\s*```", text, re.S)
-    if fenced:
-        text = fenced.group(1)
-    else:
-        start = text.find("{")
-        end = text.rfind("}")
-        if start >= 0 and end > start:
-            text = text[start : end + 1]
-    try:
-        data = json.loads(text)
-    except (ValueError, json.JSONDecodeError):
-        return None
-    return data if isinstance(data, dict) else None
+_parse_json = parse_llm_json_dict
 
 
 def _llm_fill(

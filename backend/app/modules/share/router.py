@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Query, Request
 
 from app.core.deps import CurrentUser, get_db_session, require_yard_permission
 from app.core.errors import AppError
-from app.core.rate_limit import RateLimiter
+from app.core.rate_limit import RateLimiter, extract_client_ip
 from app.core.responses import ok
 from app.modules.share import service
 from app.modules.share.schemas import ShareCreate
@@ -61,7 +61,7 @@ def revoke_share(
 @public_router.get("/shares/{token}")
 def view_public_share(token: str, request: Request, db=Depends(get_db_session)):
     """匿名读取分享快照；限流按来源 IP，失败不区分“不存在/撤销/过期”。"""
-    ip = request.client.host if request.client else "unknown"
+    ip = extract_client_ip(request)
     if not public_limiter.is_allowed(f"share:{ip}"):
         raise AppError("RATE_LIMITED", "访问过于频繁，请稍后再试。", http_status=429)
     public_limiter.record_failure(f"share:{ip}")

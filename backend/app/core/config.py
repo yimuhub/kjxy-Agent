@@ -38,6 +38,18 @@ class Settings(BaseSettings):
     allow_sqlite_in_production: bool = Field(
         default=False, description="生产环境允许 SQLite（仅服务器单机版显式开启）"
     )
+    db_pool_size: int = Field(
+        default=20, ge=1, le=200, description="数据库连接池常驻连接数（仅非 SQLite 生效）"
+    )
+    db_max_overflow: int = Field(
+        default=40, ge=0, le=500, description="数据库连接池最大溢出连接数（仅非 SQLite 生效）"
+    )
+    db_pool_recycle_seconds: int = Field(
+        default=1800, ge=60, description="数据库连接自动回收秒数，防空闲连接被防火墙掐断"
+    )
+    db_pool_timeout_seconds: int = Field(
+        default=30, ge=5, le=120, description="连接池获取连接超时秒数"
+    )
     redis_url: str = Field(default="redis://localhost:6379/0")
     celery_broker_url: str = Field(default="redis://localhost:6379/1")
     celery_result_backend: str = Field(default="redis://localhost:6379/2")

@@ -98,15 +98,19 @@ echo "==> 数据库迁移 ..."
 (cd "$PREFIX/backend" && ../.venv/bin/alembic upgrade head)
 
 CRED_FILE="$PREFIX/backend/.initial-credentials"
-if [ -f "$CRED_FILE" ]; then
-  echo "==> 初始账号文件已存在，跳过初始化：$CRED_FILE"
+if [ "${INSTALL_SEED_DEMO:-0}" = "1" ]; then
+  if [ -f "$CRED_FILE" ]; then
+    echo "==> 初始账号文件已存在，跳过初始化：$CRED_FILE"
+  else
+    echo "==> 初始化账号（随机口令，仅写入 $CRED_FILE，请立即妥善保存）..."
+    (cd "$PREFIX/backend" && \
+      SEED_ALLOW_PRODUCTION=YES SEED_RANDOM_PASSWORDS=YES SEED_PLATFORM_ADMIN_USERNAME="$ADMIN_USER" \
+      ../.venv/bin/python -m app.db.seed) | tee "$CRED_FILE"
+    chmod 600 "$CRED_FILE"
+    echo "==> 初始账号已写入：$CRED_FILE"
+  fi
 else
-  echo "==> 初始化账号（随机口令，仅写入 $CRED_FILE，请立即妥善保存）..."
-  (cd "$PREFIX/backend" && \
-    SEED_ALLOW_PRODUCTION=YES SEED_RANDOM_PASSWORDS=YES SEED_PLATFORM_ADMIN_USERNAME="$ADMIN_USER" \
-    ../.venv/bin/python -m app.db.seed) | tee "$CRED_FILE"
-  chmod 600 "$CRED_FILE"
-  echo "==> 初始账号已写入：$CRED_FILE"
+  echo "==> 保持空库状态：首次打开 Web 端将自动进入 7 步初始化向导创建超级管理员与首个小院（如需命令行预置可传 INSTALL_SEED_DEMO=1）"
 fi
 
 if grep -q '^LLM_PROVIDER=fake' "$PREFIX/backend/.env" 2>/dev/null; then

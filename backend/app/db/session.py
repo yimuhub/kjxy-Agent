@@ -32,7 +32,22 @@ ensure_sqlite_parent_dir(settings.database_url)
 
 _IS_SQLITE = settings.database_url.startswith("sqlite")
 connect_args = {"check_same_thread": False} if _IS_SQLITE else {}
-engine = create_engine(settings.database_url, pool_pre_ping=True, connect_args=connect_args)
+_pool_kwargs: dict[str, int] = (
+    {}
+    if _IS_SQLITE
+    else {
+        "pool_size": settings.db_pool_size,
+        "max_overflow": settings.db_max_overflow,
+        "pool_recycle": settings.db_pool_recycle_seconds,
+        "pool_timeout": settings.db_pool_timeout_seconds,
+    }
+)
+engine = create_engine(
+    settings.database_url,
+    pool_pre_ping=True,
+    connect_args=connect_args,
+    **_pool_kwargs,
+)
 
 if _IS_SQLITE:
 

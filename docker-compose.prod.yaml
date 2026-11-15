@@ -70,6 +70,7 @@ services:
     env_file: .env.production
     environment:
       APP_ENV: production
+      TRUSTED_PROXY_COUNT: ${TRUSTED_PROXY_COUNT:-1}
       DATABASE_URL: postgresql+psycopg://app_user:${POSTGRES_PASSWORD}@postgres:5432/techyard
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/1

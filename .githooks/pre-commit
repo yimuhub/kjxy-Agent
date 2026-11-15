@@ -3,9 +3,9 @@
 set -e
 root=$(git rev-parse --show-toplevel)
 cd "$root"
-if [ -x .venv/bin/python ]; then
+if [ -x .venv/bin/python ] && .venv/bin/python -c "import sys" >/dev/null 2>&1; then
   .venv/bin/python scripts/check_versions.py
-elif command -v uv >/dev/null 2>&1; then
+elif command -v uv >/dev/null 2>&1 && uv run python -c "import sys" >/dev/null 2>&1; then
   uv run python scripts/check_versions.py
 else
   python3 scripts/check_versions.py
