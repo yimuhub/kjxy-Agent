@@ -30,27 +30,17 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.errors import AppError
 from app.core.security import ALGORITHM, decode_token, resolve_yard_id
+from app.core.timezone import ensure_utc_strict, to_iso_or_empty, utc_now
 from app.modules.audit.service import log_audit
 from app.modules.pairing.models import PairCode, PairDevice
 
-
-def _utcnow() -> datetime:
-    return datetime.now(UTC)
-
-
-def _as_utc(dt: datetime) -> datetime:
-    """SQLite 读回的 datetime 无 tzinfo：统一补 UTC 再比较/序列化。"""
-    return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
+_utcnow = utc_now
+_as_utc = ensure_utc_strict
+_iso = to_iso_or_empty
 
 
 def _sha256(raw: str) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
-
-
-def _iso(dt: datetime | None) -> str:
-    if dt is None:
-        return ""
-    return _as_utc(dt).isoformat()
 
 
 # ---------------------------------------------------------------------------

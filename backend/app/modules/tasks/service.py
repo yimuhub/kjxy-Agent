@@ -16,13 +16,12 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.deps import YardContext
 from app.core.errors import AppError
+from app.core.timezone import utc_now
 from app.modules.audit.service import log_audit
 from app.modules.tasks import state_machine as sm
 from app.modules.tasks.models import Task, TaskEvent
 
-
-def _utcnow() -> datetime:
-    return datetime.now(UTC)
+_utcnow = utc_now
 
 
 class TaskService:

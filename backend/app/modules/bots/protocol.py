@@ -23,6 +23,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+from app.core.ids import sha256_12
+
 log = logging.getLogger(__name__)
 
 WECOM_WS_URL = "wss://openws.work.weixin.qq.com"
@@ -56,10 +58,7 @@ class InboundMessage:
     raw: dict[str, Any] = field(default_factory=dict)
 
 
-def _sha12(text: str) -> str:
-    import hashlib
-
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+_sha12 = sha256_12
 
 
 class WecomAibotAdapter:

@@ -47,12 +47,7 @@ def _admin(ctx: YardContext = Depends(get_yard_context)) -> YardContext:
     return ctx
 
 
-def _iso(dt: datetime | None) -> str:
-    if dt is None:
-        return ""
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=UTC)
-    return dt.isoformat()
+from app.core.timezone import to_iso_or_empty as _iso
 
 
 def _audit(ctx: YardContext, db: Session, action: str, resource_id: str | None, meta: dict) -> None:

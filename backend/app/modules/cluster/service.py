@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
 from app.core.net_guard import check_egress_url
+from app.core.timezone import utc_now
 from app.modules.cluster.models import (
     STATUS_DEGRADED,
     STATUS_NEVER,
@@ -36,9 +37,7 @@ STATUS_LABELS = {
     STATUS_OFFLINE: "离线",
 }
 
-
-def _now() -> datetime:
-    return datetime.now(UTC)
+_now = utc_now
 
 
 def normalize_base_url(raw: str) -> str:

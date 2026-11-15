@@ -31,13 +31,7 @@ from app.modules.yards.signup import normalize_username, validate_password
 INVITATION_STATUSES = ("pending", "accepted", "revoked")
 
 
-def _now() -> datetime:
-    return datetime.now(UTC)
-
-
-def _as_utc(value: datetime) -> datetime:
-    """SQLite 读回的时间不带 tzinfo，统一按 UTC 解释后再比较。"""
-    return value if value.tzinfo else value.replace(tzinfo=UTC)
+from app.core.timezone import ensure_utc_strict as _as_utc, utc_now as _now
 
 
 def _hash_token(token: str) -> str:

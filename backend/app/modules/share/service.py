@@ -29,17 +29,14 @@ from app.modules.share.models import SHARE_MAX_DAYS, ShareLink
 from app.modules.share.schemas import PublicShare, ShareCreate
 
 
-def _utcnow() -> datetime:
-    return datetime.now(UTC)
+from app.core.timezone import ensure_utc_strict as _as_utc, utc_now as _utcnow
 
 
 def _hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def _as_utc(value: datetime) -> datetime:
-    """SQLite 读回来的时间不带时区：统一按 UTC 解释后再比较。"""
-    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+# _as_utc 已在文件顶部统一从 app.core.timezone 导入
 
 
 def _out(row: ShareLink) -> dict:

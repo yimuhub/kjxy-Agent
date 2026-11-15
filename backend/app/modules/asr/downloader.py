@@ -58,8 +58,7 @@ _STATES: dict[str, DownloadState] = {}
 _THREADS: dict[str, threading.Thread] = {}
 
 
-def _now() -> str:
-    return datetime.now(UTC).isoformat()
+from app.core.timezone import utc_iso_now as _now
 
 
 def state_of(model_id: str) -> DownloadState:

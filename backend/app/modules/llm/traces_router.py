@@ -49,12 +49,7 @@ def _cutoff(days: int) -> datetime:
     return datetime.now(UTC) - timedelta(days=days)
 
 
-def _iso(dt: Any) -> str:
-    if dt is None:
-        return ""
-    if isinstance(dt, str):  # SQLite 下 func.date() 返回文本日期
-        return dt
-    return dt.isoformat()
+from app.core.timezone import to_iso_or_empty as _iso
 
 
 @router.get("/traces", response_model=None)

@@ -82,19 +82,7 @@ class MemoryHit:
         }
 
 
-def _utcnow() -> datetime:
-    return datetime.now(UTC)
-
-
-def _as_utc(value: datetime | None) -> datetime | None:
-    if value is None:
-        return None
-    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
-
-
-def _iso(value: datetime | None) -> str | None:
-    value = _as_utc(value)
-    return value.isoformat() if value else None
+from app.core.timezone import ensure_utc as _as_utc, to_iso as _iso, utc_now as _utcnow
 
 
 def _clip01(value: float) -> float:

@@ -44,8 +44,7 @@ VOUCHER_MANUAL = "manual"
 AMOUNT_EPSILON = 0.01
 
 
-def _now() -> datetime:
-    return datetime.now(UTC)
+from app.core.timezone import ensure_utc as _aware, utc_now as _now
 
 
 def _plan_of(db: Session, code: str) -> Plan:
@@ -62,11 +61,7 @@ def _plan_of(db: Session, code: str) -> Plan:
     return plan
 
 
-def _aware(moment: datetime | None) -> datetime | None:
-    """SQLite 会把 tz-aware 读成 naive：比较前统一补 UTC（与 official_service 同口径）。"""
-    if moment is not None and moment.tzinfo is None:
-        return moment.replace(tzinfo=UTC)
-    return moment
+# _aware 已在文件顶部统一从 app.core.timezone 导入
 
 
 def _gen_code() -> str:

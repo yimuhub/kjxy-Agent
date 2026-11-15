@@ -53,8 +53,7 @@ _SUGGEST_ROLES = {"yard_admin", "yard_owner", "platform_admin"}
 _QUESTION_KEYS = ("question", "query", "input", "message")
 
 
-def _sha12(text: str) -> str:
-    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
+from app.core.ids import sha1_12 as _sha12
 
 
 def _require_suggest_permission(ctx: YardContext) -> None:

@@ -26,8 +26,7 @@ ACK_TEXT = (
 )
 
 
-def _utcnow() -> datetime:
-    return datetime.now(UTC)
+from app.core.timezone import to_iso as _iso, utc_now as _utcnow
 
 
 def serialize(row: PluginConsent) -> dict[str, Any]:
@@ -50,11 +49,7 @@ def serialize(row: PluginConsent) -> dict[str, Any]:
     }
 
 
-def _iso(value: datetime | None) -> str | None:
-    if value is None:
-        return None
-    aware = value if value.tzinfo else value.replace(tzinfo=UTC)
-    return aware.isoformat()
+# _iso 已在文件顶部统一从 app.core.timezone 导入
 
 
 def active_consent(

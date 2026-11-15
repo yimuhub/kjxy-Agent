@@ -111,8 +111,7 @@ class FactoryApplyRequest(BaseModel):
         return out
 
 
-def _iso(dt: Any) -> str | None:
-    return dt.isoformat() if dt is not None else None
+from app.core.timezone import to_iso as _iso
 
 
 def _run_summary(run: FactoryRun) -> dict[str, Any]:

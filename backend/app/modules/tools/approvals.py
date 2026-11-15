@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.errors import AppError
 from app.core.logging import get_logger
+from app.core.timezone import utc_now
 from app.modules.audit.service import log_audit
 from app.modules.tools.models import (
     APPROVAL_APPROVED,
@@ -30,9 +31,7 @@ log = get_logger(__name__)
 #: 计算 params_hash 时剔除的易变键（审批标记本身不参与去重）
 _VOLATILE_PARAM_KEYS = frozenset({"approved", "_approval_id"})
 
-
-def _utcnow() -> datetime:
-    return datetime.now(UTC)
+_utcnow = utc_now
 
 
 def params_hash(params: dict | None) -> str:

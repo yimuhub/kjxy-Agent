@@ -1,10 +1,11 @@
 """密码哈希与 JWT。密钥只从配置读取；日志中永不输出令牌明文。"""
 
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 import bcrypt
 import jwt
 from app.core.config import settings
+from app.core.timezone import utc_now
 
 ALGORITHM = "HS256"
 
@@ -36,8 +37,7 @@ def verify_password(password: str, password_hash: str) -> bool:
         return False
 
 
-def _now() -> datetime:
-    return datetime.now(UTC)
+_now = utc_now
 
 
 def create_access_token(

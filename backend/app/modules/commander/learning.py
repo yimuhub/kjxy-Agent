@@ -116,8 +116,7 @@ _DEFAULT_KNOWLEDGE = (
 )
 
 
-def _now() -> datetime:
-    return datetime.now(UTC)
+from app.core.timezone import utc_now as _now
 
 
 def _sha(text: str, size: int = 12) -> str:

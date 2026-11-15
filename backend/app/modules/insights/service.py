@@ -17,6 +17,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
+from app.core.timezone import ensure_utc, utc_now
 from app.modules.agents.models import STATUS_DELETED, YardAgent
 from app.modules.auth.models import User
 from app.modules.chat.models import (
@@ -35,15 +36,8 @@ from app.modules.yards.models import YardMembership
 
 MAX_DAYS = 90
 
-
-def _utcnow() -> datetime:
-    return datetime.now(UTC)
-
-
-def _as_utc(value: datetime | None) -> datetime | None:
-    if value is None:
-        return None
-    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+_utcnow = utc_now
+_as_utc = ensure_utc
 
 
 def _day_start(moment: datetime | None = None) -> datetime:

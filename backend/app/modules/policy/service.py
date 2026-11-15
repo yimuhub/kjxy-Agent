@@ -30,8 +30,7 @@ from app.modules.policy.schemas import (
 _MATCH_LEVEL_RANK = {"eligible": 0, "partial": 1, "insufficient": 2, "ineligible": 3}
 
 
-def _utcnow() -> datetime:
-    return datetime.now(UTC)
+from app.core.timezone import utc_now as _utcnow
 
 
 # ------------------------------------------------------------------ 采集

@@ -62,8 +62,7 @@ _SAVE_AS_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,49}$")
 _TEMPLATE_RE = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
 
 
-def _sha12(text: str) -> str:
-    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
+from app.core.ids import sha1_12 as _sha12
 
 
 # ---------------------------------------------------------------- 注册校验

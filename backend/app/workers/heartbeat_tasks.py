@@ -32,6 +32,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.notify import send_alert
+from app.core.timezone import utc_now
 from app.modules.audit.service import log_audit
 from app.workers.celery_app import celery_app
 from app.workers.heartbeat import mark_worker_alive
@@ -61,8 +62,7 @@ def _get_session_factory() -> Callable[[], Session]:
     return SessionLocal
 
 
-def _utcnow() -> datetime:
-    return datetime.now(UTC)
+_utcnow = utc_now
 
 
 def reap_once(db: Session) -> dict[str, int]:

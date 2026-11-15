@@ -85,18 +85,8 @@ CUSTOM_UNITS: dict[str, timedelta] = {
 }
 
 
-def _utcnow() -> datetime:
-    return datetime.now(UTC)
-
-
-def _as_utc(value: datetime | None) -> datetime | None:
-    if value is None:
-        return None
-    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
-
-
-def _sha12(text: str) -> str:
-    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
+from app.core.ids import sha1_12 as _sha12
+from app.core.timezone import ensure_utc as _as_utc, utc_now as _utcnow
 
 
 def schedule_interval(setting: dict[str, Any]) -> timedelta:
@@ -338,27 +328,11 @@ def _build_prompt(evidence: dict[str, Any], scope: str) -> list[ChatMessage]:
     return [ChatMessage(role="system", content=system), ChatMessage(role="user", content=user)]
 
 
-_FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
+from app.modules.llm.json_utils import clean_single_line as _clean_str, parse_llm_json_dict
 
 
 def _parse_payload(content: str) -> dict[str, Any]:
-    text = _FENCE_RE.sub("", (content or "").strip()).strip()
-    payloads: list[str] = [text]
-    start, end = text.find("{"), text.rfind("}")
-    if start != -1 and end > start:
-        payloads.append(text[start : end + 1])
-    for payload in payloads:
-        try:
-            data = json.loads(payload)
-        except (json.JSONDecodeError, ValueError):
-            continue
-        if isinstance(data, dict):
-            return data
-    raise ValueError("模型输出中未找到合法的总结 JSON")
-
-
-def _clean_str(value: Any, limit: int) -> str:
-    return " ".join(str(value or "").split())[:limit]
+    return parse_llm_json_dict(content, error_message="模型输出中未找到合法的总结 JSON")
 
 
 def _persist_outputs(

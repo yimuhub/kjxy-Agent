@@ -14,6 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
+from app.core.timezone import utc_now
 from app.modules.audit.service import log_audit
 from app.modules.chat.attachments import store_uploaded_file
 from app.modules.crop_diagnosis.service import diagnose as run_diagnosis
@@ -60,9 +61,7 @@ MAX_DIAGNOSIS_ATTACHMENTS = 20
 REVIEW_STATUSES = ("confirmed", "closed")
 PESTICIDE_STATUSES = ("active", "draft", "archived")
 
-
-def _utcnow() -> datetime:
-    return datetime.now(UTC)
+_utcnow = utc_now
 
 
 def _plot_name(db: Session, yard_id: str, plot_id: str | None) -> str:

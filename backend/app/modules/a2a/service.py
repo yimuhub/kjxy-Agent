@@ -100,8 +100,7 @@ def set_test_transport(transport: httpx.BaseTransport | None) -> None:
     _transport_override = transport
 
 
-def _now() -> datetime:
-    return datetime.now(UTC)
+from app.core.timezone import utc_now as _now
 
 
 def _client() -> httpx.Client:

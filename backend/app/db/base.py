@@ -1,15 +1,15 @@
 """SQLAlchemy 基类：统一 UUID 主键、UTC 时间戳、软删除字段约定。"""
 
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import DateTime, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+from app.core.timezone import utc_now
 
-def _utcnow() -> datetime:
-    return datetime.now(UTC)
+_utcnow = utc_now
 
 
 def normalize_vector(value: Any) -> list[float] | None:

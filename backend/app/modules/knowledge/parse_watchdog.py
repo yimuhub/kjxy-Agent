@@ -109,8 +109,7 @@ def _processing_stale_seconds() -> int:
     return max(60, int(settings.knowledge_parse_processing_stale_seconds))
 
 
-def _utcnow() -> datetime:
-    return datetime.now(UTC)
+from app.core.timezone import utc_now as _utcnow
 
 
 def _stale_queued_ids(db: Session, *, now: datetime, stale_seconds: int, limit: int) -> list[str]:

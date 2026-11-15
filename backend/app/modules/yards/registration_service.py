@@ -39,8 +39,7 @@ from app.modules.yards.signup import (
 REGISTRATION_STATUSES = ("pending", "approved", "rejected")
 
 
-def _now() -> datetime:
-    return datetime.now(UTC)
+from app.core.timezone import utc_now as _now
 
 
 def _to_out(row: YardJoinRequest, user: User) -> RegistrationOut:

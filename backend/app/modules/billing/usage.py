@@ -40,8 +40,7 @@ UPGRADE_TRIGGER_PERCENT = 70.0
 FALLBACK_TOKENS_PER_CALL = 3000.0
 
 
-def _now() -> datetime:
-    return datetime.now(UTC)
+from app.core.timezone import utc_now as _now
 
 
 def _yard_policies(db: Session, yard_id: str) -> list[QuotaPolicy]:

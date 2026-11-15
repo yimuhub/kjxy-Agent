@@ -40,14 +40,7 @@ PRESET_INTERVALS: dict[str, timedelta] = {
 }
 
 
-def _utcnow() -> datetime:
-    return datetime.now(UTC)
-
-
-def _as_utc(value: datetime | None) -> datetime | None:
-    if value is None:
-        return None
-    return value if value.tzinfo else value.replace(tzinfo=UTC)
+from app.core.timezone import ensure_utc as _as_utc, utc_now as _utcnow
 
 
 def schedule_interval(setting: dict[str, Any]) -> timedelta:

@@ -20,6 +20,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
+from app.core.timezone import ensure_utc, to_iso
 from app.modules.devices.models import Device, Reading
 from app.modules.farm import weather
 from app.modules.farm.models import (
@@ -39,16 +40,8 @@ MAX_RECORDS = 300
 OPEN_DIAGNOSIS_STATUSES = ("open", "agent_diagnosed", "expert_review")
 OPEN_ORDER_STATUSES = ("open", "assigned", "in_progress")
 
-
-def _as_utc(value: datetime | None) -> datetime | None:
-    if value is None:
-        return None
-    return value if value.tzinfo else value.replace(tzinfo=UTC)
-
-
-def _iso(value: datetime | None) -> str | None:
-    normalized = _as_utc(value)
-    return normalized.isoformat() if normalized is not None else None
+_as_utc = ensure_utc
+_iso = to_iso
 
 
 def _norm(text: str | None) -> str:

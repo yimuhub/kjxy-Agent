@@ -41,8 +41,7 @@ from app.modules.commander.models import (
 from app.modules.llm.models import LLMCall
 
 
-def _now() -> datetime:
-    return datetime.now(UTC)
+from app.core.timezone import utc_now as _now
 
 
 def _period(start: datetime, end: datetime) -> dict[str, str]:

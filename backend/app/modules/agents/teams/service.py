@@ -68,8 +68,7 @@ CRITIC_KEYWORDS = (
 )
 
 
-def _utcnow() -> datetime:
-    return datetime.now(UTC)
+from app.core.timezone import to_iso as _iso, utc_now as _utcnow
 
 
 # ---------------------------------------------------------------------------
@@ -360,10 +359,7 @@ def delete_team(
 # ---------------------------------------------------------------------------
 
 
-def _iso(dt: Any) -> str | None:
-    if isinstance(dt, datetime) and dt.tzinfo is None:
-        dt = dt.replace(tzinfo=UTC)
-    return dt.isoformat() if dt is not None else None
+# _iso 已在文件顶部统一从 app.core.timezone 导入
 
 
 def team_out(team: AgentTeam) -> dict[str, Any]:

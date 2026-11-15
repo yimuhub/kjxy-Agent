@@ -72,10 +72,7 @@ SENSOR_QUERY_INPUT_SCHEMA: dict = {
 }
 
 
-def _iso(dt: datetime) -> str:
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=UTC)
-    return dt.isoformat()
+from app.core.timezone import to_iso_or_empty as _iso
 
 
 def _resolve_devices(db: Session, yard_id: str, keyword: str | None) -> list[Device]:

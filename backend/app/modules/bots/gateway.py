@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.deps import YardContext
+from app.core.ids import sha256_12
 from app.modules.audit.service import log_audit
 from app.modules.bots.models import (
     BINDING_TEAM,
@@ -46,9 +47,7 @@ _USE_PREFIX = ("/use", "/使用", "/助手")
 # /skill 命令（v3.56）：田间快捷直达——按关键词匹配本院技能，问题自动带上技能上下文
 _SKILL_PREFIX = ("/skill", "/技能", "/技能包")
 
-
-def _sha12(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+_sha12 = sha256_12
 
 
 class IdempotencyGuard:

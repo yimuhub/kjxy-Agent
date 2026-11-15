@@ -200,12 +200,7 @@ def _precheck_quota(db: Session, ctx: YardContext) -> None:
     quota_engine.preflight(db, ctx.yard_id, requester_id=ctx.user_id)
 
 
-def _now() -> datetime:
-    return datetime.now(UTC)
-
-
-def _iso(value: datetime | None) -> str | None:
-    return value.isoformat() if value is not None else None
+from app.core.timezone import to_iso as _iso, utc_now as _now
 
 
 def _emit(on_event: Callable[[str, dict], None] | None, kind: str, payload: dict) -> None:
@@ -218,173 +213,25 @@ def _emit(on_event: Callable[[str, dict], None] | None, kind: str, payload: dict
 
 
 # ---------------------------------------------------------------------------
-# 输出契约
+# 输出契约 / 读取与权限（已拆分至 app.modules.commander.views，保持重导出兼容）
 # ---------------------------------------------------------------------------
-
-
-def subtask_out(st: CommanderSubtask) -> dict[str, Any]:
-    return {
-        "id": st.id,
-        "seq": int(st.seq),
-        "title": st.title,
-        "instruction": st.instruction,
-        "expected_output": st.expected_output,
-        "agent_id": st.agent_id,
-        "agent_code": st.agent_code,
-        "agent_name": st.agent_name,
-        "agent_source": st.agent_source,
-        "status": st.status,
-        "depends_on": [int(x) for x in (st.depends_on_json or [])],
-        "attempts": int(st.attempts or 0),
-        "remediation": list(st.remediation_json or []),
-        "tokens": int(st.input_tokens or 0) + int(st.output_tokens or 0),
-        "output_excerpt": st.output_excerpt,
-        "artifact_json": st.artifact_json,
-        "error_code": st.error_code,
-        "started_at": _iso(st.started_at),
-        "finished_at": _iso(st.finished_at),
-    }
-
-
-def _budget_view(run: CommanderRun) -> dict[str, Any]:
-    budget = int(getattr(run, "token_budget", 0) or 0)
-    used = int(run.tokens_total or 0)
-    ratio = round(used / budget, 4) if budget > 0 else 0.0
-    status = str(getattr(run, "budget_status", "") or "")
-    if not status and budget > 0:
-        status = "exceeded" if used >= budget else "warning" if ratio >= 0.8 else "ok"
-    return {
-        "token_budget": budget,
-        "budget_ratio": ratio,
-        "budget_status": status or "ok",
-        "budget_remaining": max(0, budget - used) if budget > 0 else 0,
-    }
-
-
-def run_out(run: CommanderRun, subtasks: list[CommanderSubtask]) -> dict[str, Any]:
-    return {
-        "id": run.id,
-        "session_id": run.session_id,
-        "goal": run.goal,
-        "status": run.status,
-        "max_parallel": int(run.max_parallel or 1),
-        "effective_parallel": int(run.effective_parallel or run.max_parallel or 1),
-        "degraded": bool(run.degraded),
-        "approval_mode": str(getattr(run, "approval_mode", None) or "ask"),
-        "tokens_total": int(run.tokens_total or 0),
-        **_budget_view(run),
-        "latency_ms": int(run.latency_ms or 0),
-        "created_at": _iso(run.created_at),
-        "plan_fallback": bool((run.plan_json or {}).get("fallback")),
-        # 降级原因：clarify_disabled / parse_failed / llm_error；空串表示没有降级
-        "plan_fallback_reason": str((run.plan_json or {}).get("fallback_reason") or ""),
-        "memory_used": bool((run.plan_json or {}).get("memory_used")),
-        "clarify": list((run.plan_json or {}).get("clarify") or []),
-        "subtasks": [subtask_out(st) for st in subtasks],
-    }
-
-
-def plan_message_payload(
-    run: CommanderRun, subtasks: list[CommanderSubtask] | None = None
-) -> dict[str, Any]:
-    """对话层「计划卡」的载荷（SSE ``commander-plan`` 直接发送）。
-
-    ``subtasks`` 省略时按运行所属 Session 现查，方便对话层只拿 run 直接调用。
-    """
-    if subtasks is None:
-        state = getattr(run, "_sa_instance_state", None)
-        session = state.session if state is not None else None
-        if session is not None:
-            subtasks = list(
-                session.scalars(
-                    select(CommanderSubtask)
-                    .where(CommanderSubtask.run_id == run.id)
-                    .order_by(CommanderSubtask.seq.asc())
-                )
-            )
-        else:
-            subtasks = []
-    return {
-        "type": "commander_plan",
-        "run_id": run.id,
-        "goal": run.goal,
-        "status": run.status,
-        "degraded": bool(run.degraded),
-        "max_parallel": int(run.max_parallel or 1),
-        "effective_parallel": int(run.effective_parallel or run.max_parallel or 1),
-        "plan_fallback": bool((run.plan_json or {}).get("fallback")),
-        "plan_fallback_reason": str((run.plan_json or {}).get("fallback_reason") or ""),
-        "clarify": list((run.plan_json or {}).get("clarify") or []),
-        # 技能优先：把这次命中的技能随计划卡下发，用户能看到「用了哪些技能」
-        "skills": [
-            {"code": str(item.get("code") or ""), "name": str(item.get("name") or "")}
-            for item in (run.plan_json or {}).get("skills") or []
-            if isinstance(item, dict) and item.get("code")
-        ],
-        "token_usage": {
-            "input_tokens": 0,
-            "output_tokens": 0,
-            "total_tokens": int(run.tokens_total or 0),
-            "model": "commander",
-        },
-        "subtasks": [
-            {
-                "id": st.id,
-                "seq": int(st.seq),
-                "title": st.title,
-                # 计划卡可编辑：带上指令，前端打开编辑即可改而不是先拉一次详情
-                "instruction": st.instruction,
-                "expected_output": st.expected_output,
-                "agent_id": st.agent_id,
-                "agent_code": st.agent_code,
-                "agent_name": st.agent_name,
-                "agent_source": st.agent_source,
-                "status": st.status,
-                "depends_on": [int(x) for x in (st.depends_on_json or [])],
-            }
-            for st in subtasks
-        ],
-    }
-
-
-# ---------------------------------------------------------------------------
-# 读取 / 权限
-# ---------------------------------------------------------------------------
-
-
-def get_run(db: Session, yard_id: str, run_id: str) -> tuple[CommanderRun, list[CommanderSubtask]]:
-    run = db.get(CommanderRun, run_id)
-    if run is None or run.yard_id != yard_id:
-        raise AppError(
-            ERR_RUN_NOT_FOUND,
-            "指挥官运行不存在或无权访问。",
-            http_status=404,
-        )
-    subtasks = list(
-        db.scalars(
-            select(CommanderSubtask)
-            .where(
-                CommanderSubtask.run_id == run.id,
-                CommanderSubtask.yard_id == yard_id,
-            )
-            .order_by(CommanderSubtask.seq.asc())
-        )
-    )
-    return run, subtasks
-
-
-def can_access_run(db: Session, run: CommanderRun, *, user_id: str, roles: list[str]) -> bool:
-    if run.user_id == user_id or "platform_admin" in roles:
-        return True
-    from app.modules.yards.authz import is_owner
-
-    return is_owner(db, run.yard_id, user_id)
-
-
-def require_run_access(db: Session, run: CommanderRun, *, user_id: str, roles: list[str]) -> None:
-    if not can_access_run(db, run, user_id=user_id, roles=roles):
-        # 不泄露他人运行是否存在
-        raise AppError(ERR_RUN_NOT_FOUND, "指挥官运行不存在或无权访问。", http_status=404)
+from app.modules.commander.views import (
+    CommanderSummary,
+    _artifact_matches_format,
+    _budget_view,
+    _collect_artifacts,
+    _deterministic_answer,
+    _extract_artifacts,
+    _failed_items,
+    _summary_payload,
+    can_access_run,
+    get_run,
+    plan_message_payload,
+    require_run_access,
+    run_member_revoked,
+    run_out,
+    subtask_out,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -392,46 +239,7 @@ def require_run_access(db: Session, run: CommanderRun, *, user_id: str, roles: l
 # ---------------------------------------------------------------------------
 
 
-def _unrealizable_plan(text: str, check: feasibility.Assessment) -> dict[str, Any]:
-    """现实不可执行时的唯一合法降级：如实说明 + 给出可照着做的替代路径。
-
-    这类目标无论怎么补能力都做不到（需要身体动作/到场/实物交付），所以不拆
-    执行任务，只交一份「为什么做不到 + 你可以怎么做」的说明，由指挥官直接答。
-    """
-    verb = check.verb or "该动作"
-    guidance = check.guidance or (
-        f"「{verb}」需要人在现实里完成，我无法代替你的身体动作。"
-        "我可以把该做的事整理成一份可执行的清单，你照着做即可。"
-    )
-    return {
-        "goal": (text or "完成用户请求")[:500],
-        "success_criteria": [],
-        "assumptions": [],
-        "merge_notes": "",
-        "fallback": True,
-        "fallback_reason": feasibility.REASON_UNREALIZABLE,
-        "feasibility": check.to_json(),
-        "subtasks": [
-            {
-                "seq": 1,
-                "title": "说明原因与替代方案",
-                "instruction": (
-                    f"用户目标：{text}\n"
-                    f"该目标需要现实中的身体动作（{verb}），系统无法执行。\n"
-                    f"已知的替代路径参考：{guidance}\n"
-                    "请直接回答：1) 为什么做不到（一句话）；2) 你能替他做到哪一步"
-                    "（查资料/写清单/出方案）；3) 他照着做时需要准备什么、分几步。"
-                    "不要假装已经完成，也不要只回一句「无法完成」。"
-                ),
-                "expected_output": "原因说明 + 可直接照做的替代清单",
-                "agent_hint": "指挥官",
-                "agent_code": "",
-                "depends_on": [],
-                "executor": "commander",
-            }
-        ],
-        "clarify": [],
-    }
+# _unrealizable_plan 已由 app.modules.commander.plan_editor 统一提供
 
 
 def _delivery_format(run: CommanderRun, subtask: Any) -> str | None:
@@ -794,241 +602,17 @@ async def create_plan_run(
 
 
 # ---------------------------------------------------------------------------
-# 计划编辑
+# 计划编辑 / 并发闸门（已拆分至 app.modules.commander.plan_editor，保持重导出兼容）
 # ---------------------------------------------------------------------------
-
-
-def _bind_plan_agent(db: Session, ctx: YardContext, agent_id: str | None) -> dict[str, Any]:
-    """校验执行者绑定：空 = 指挥官代执行；否则必须可见可用。"""
-    if not agent_id:
-        return {
-            "agent_id": None,
-            "agent_code": None,
-            "agent_name": "指挥官",
-            "agent_source": SOURCE_COMMANDER,
-        }
-    agent = db.get(YardAgent, str(agent_id))
-    if agent is None or agent.yard_id != ctx.yard_id or agent.status == STATUS_DELETED:
-        raise AppError(
-            "INVALID_REQUEST",
-            "所选助手不存在、不属于当前小院或已被删除。",
-            http_status=400,
-        )
-    visible = agent.visibility == "public" or agent.created_by == ctx.user_id
-    if not visible:
-        raise AppError(
-            "INVALID_REQUEST",
-            f"无权使用助手「{agent.name}」（仅创建者可用）。",
-            http_status=400,
-        )
-    generated_draft = agent.created_from == CREATED_FROM_COMMANDER and agent.status == STATUS_DRAFT
-    if agent.status != STATUS_PUBLISHED and not generated_draft:
-        raise AppError(
-            "INVALID_REQUEST",
-            f"助手「{agent.name}」当前状态为 {agent.status}，"
-            "只有已发布助手或指挥官生成的草稿可用。",
-            http_status=400,
-        )
-    return {
-        "agent_id": agent.id,
-        "agent_code": agent.agent_code,
-        "agent_name": agent.name,
-        "agent_source": SOURCE_GENERATED if generated_draft else SOURCE_EXISTING,
-    }
-
-
-def _edit_depends_on(raw: Any, *, position: int) -> list[int]:
-    """按新数组位置（1-based）解释依赖，只保留指向更早位置的合法项。"""
-    if not isinstance(raw, list):
-        return []
-    deps: list[int] = []
-    for item in raw:
-        if isinstance(item, bool) or not isinstance(item, int):
-            continue
-        if 1 <= item < position and item not in deps:
-            deps.append(item)
-    return deps
-
-
-def update_plan(
-    db: Session, ctx: YardContext, run_id: str, subtasks_payload: list[dict[str, Any]]
-) -> CommanderRun:
-    """用计划卡提交的内容整表替换子任务（仅 queued 运行可编辑）。"""
-    run, existing = get_run(db, ctx.yard_id, run_id)
-    require_run_access(db, run, user_id=ctx.user_id, roles=ctx.roles)
-    if run.status != RUN_QUEUED:
-        raise AppError(
-            ERR_RUN_STATE,
-            f"当前状态为 {run.status}，只有排队中的运行可以编辑计划。",
-            http_status=409,
-        )
-
-    settings = commander_settings.settings_for(db, run.yard_id)
-    limit = int(settings["max_subtasks"])
-    if not 1 <= len(subtasks_payload) <= limit:
-        raise AppError(
-            "INVALID_REQUEST",
-            f"子任务数量需在 1-{limit} 之间。",
-            http_status=400,
-        )
-
-    plan_subtasks: list[dict[str, Any]] = []
-    bindings: list[dict[str, Any]] = []
-    for position, item in enumerate(subtasks_payload, start=1):
-        title = str(item.get("title") or "").strip()
-        instruction = str(item.get("instruction") or "").strip()
-        if not title or len(title) > 200:
-            raise AppError(
-                "INVALID_REQUEST",
-                f"第 {position} 个子任务标题不能为空且不超过 200 字。",
-                http_status=400,
-            )
-        if not instruction or len(instruction) > 8000:
-            raise AppError(
-                "INVALID_REQUEST",
-                f"第 {position} 个子任务指令不能为空且不超过 8000 字。",
-                http_status=400,
-            )
-        binding = _bind_plan_agent(db, ctx, item.get("agent_id"))
-        deps = _edit_depends_on(item.get("depends_on"), position=position)
-        bindings.append(binding)
-        plan_subtasks.append(
-            {
-                "seq": position,
-                "title": title,
-                "instruction": instruction,
-                "expected_output": str(item.get("expected_output") or "").strip()[:1000],
-                "agent_hint": binding["agent_name"] or "",
-                "agent_code": binding["agent_code"] or "",
-                "depends_on": deps,
-            }
-        )
-
-    removed = max(0, len(existing) - len(plan_subtasks))
-    # 用户要文件：编辑时删掉交付任务也要补回来（否则改完计划就出不了文件）
-    required_fmt = deliverables.detect(str(run.goal or "")) or str(
-        (run.plan_json or {}).get("deliverable", {}).get("format") or ""
-    )
-    if required_fmt:
-        before = len(plan_subtasks)
-        temp = {"subtasks": plan_subtasks}
-        if deliverables.ensure_plan_deliverable(
-            temp, str(run.goal or ""), required_fmt, max_subtasks=limit
-        ):
-            plan_subtasks = temp["subtasks"]
-            commander_binding = {
-                "agent_id": None,
-                "agent_code": None,
-                "agent_name": "指挥官",
-                "agent_source": SOURCE_COMMANDER,
-            }
-            if len(plan_subtasks) > before:
-                bindings.append(commander_binding)
-            else:
-                bindings[-1] = commander_binding
-            log.info(
-                "commander plan edited: deliverable=%s auto_restored=%s",
-                required_fmt,
-                len(plan_subtasks) > before,
-            )
-    # 先删后插：绕开 (run_id, seq) 唯一约束（同事务内 flush 保证删除先落）
-    for row in existing:
-        db.delete(row)
-    db.flush()
-
-    new_rows: list[CommanderSubtask] = []
-    for plan_subtask, binding in zip(plan_subtasks, bindings, strict=True):
-        row = CommanderSubtask(
-            run_id=run.id,
-            yard_id=ctx.yard_id,
-            seq=int(plan_subtask["seq"]),
-            title=str(plan_subtask["title"])[:200],
-            instruction=str(plan_subtask["instruction"]),
-            expected_output=str(plan_subtask["expected_output"]),
-            agent_id=binding["agent_id"],
-            agent_code=binding["agent_code"],
-            agent_name=binding["agent_name"],
-            agent_source=binding["agent_source"],
-            status=SUB_PENDING,
-            depends_on_json=list(plan_subtask["depends_on"]),
-            attempts=0,
-            input_tokens=0,
-            output_tokens=0,
-        )
-        db.add(row)
-        new_rows.append(row)
-
-    plan = dict(run.plan_json or {})
-    plan.setdefault("clarify", [])
-    plan["subtasks"] = plan_subtasks
-    if required_fmt:
-        plan["deliverable"] = {
-            "format": required_fmt,
-            "label": deliverables.label(required_fmt),
-        }
-    plan["generated_agents"] = [
-        {
-            "seq": int(plan_subtask["seq"]),
-            "agent_id": binding["agent_id"],
-            "agent_code": binding["agent_code"],
-            "agent_name": binding["agent_name"],
-        }
-        for plan_subtask, binding in zip(plan_subtasks, bindings, strict=True)
-        if binding["agent_source"] == SOURCE_GENERATED
-    ]
-    run.plan_json = plan
-    db.add(run)
-    db.flush()
-
-    log_audit(
-        db,
-        yard_id=ctx.yard_id,
-        actor_id=ctx.user_id,
-        action="commander_plan_edited",
-        resource_type="commander_run",
-        resource_id=run.id,
-        result="success",
-        request_id=ctx.request_id,
-        metadata={"subtasks": len(new_rows), "deleted": removed},
-    )
-    _safe_commit(db)
-    return run
-
-
-# ---------------------------------------------------------------------------
-# 并发闸门
-# ---------------------------------------------------------------------------
-
-
-class ConcurrencyGate:
-    """可动态缩容的并发闸门（降级时把容量改小，不影响已运行任务）。"""
-
-    def __init__(self, capacity: int) -> None:
-        self.capacity = max(1, int(capacity))
-        self._inflight = 0
-        self._condition = asyncio.Condition()
-
-    async def acquire(self) -> None:
-        async with self._condition:
-            await self._condition.wait_for(lambda: self._inflight < self.capacity)
-            self._inflight += 1
-
-    async def release(self) -> None:
-        async with self._condition:
-            self._inflight = max(0, self._inflight - 1)
-            self._condition.notify_all()
-
-    async def set_capacity(self, capacity: int) -> None:
-        async with self._condition:
-            self.capacity = max(1, int(capacity))
-            self._condition.notify_all()
-
-    async def __aenter__(self) -> ConcurrencyGate:
-        await self.acquire()
-        return self
-
-    async def __aexit__(self, *_exc: object) -> None:
-        await self.release()
+from app.modules.commander.plan_editor import (
+    ConcurrencyGate,
+    _bind_plan_agent,
+    _edit_depends_on,
+    _unrealizable_plan,
+    cancel_run,
+    retry_run,
+    update_plan,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -1074,83 +658,7 @@ def _failure_from(exc: BaseException) -> _Failure:
     )
 
 
-def _extract_artifacts(payload: Any, answer: str) -> list[dict[str, Any]]:
-    """从 AgentResult 或正文中提取产物卡（文档/图片/链接）。"""
-    found: list[dict[str, Any]] = []
-    seen: set[str] = set()
-
-    def _add(item: Any) -> None:
-        if len(found) >= 20:
-            return
-        artifact: dict[str, Any]
-        if isinstance(item, str):
-            url = item.strip()
-            if not url:
-                return
-            artifact = {"type": "link", "title": url.rsplit("/", 1)[-1] or url, "url": url}
-        elif isinstance(item, dict):
-            url = str(
-                item.get("url")
-                or item.get("download_url")
-                or item.get("href")
-                or item.get("path")
-                or ""
-            ).strip()
-            title = str(
-                item.get("title") or item.get("name") or item.get("filename") or url
-            ).strip()
-            artifact = {
-                "type": str(item.get("type") or item.get("kind") or "file"),
-                "title": title,
-                "url": url or None,
-                "format": item.get("format") or item.get("ext"),
-                "mime": item.get("mime") or item.get("content_type"),
-            }
-            for key in ("storage_key", "doc_format", "generated"):
-                if key in item:
-                    artifact[key] = item[key]
-        else:
-            return
-        fingerprint = f"{artifact.get('url') or ''}|{artifact.get('title') or ''}"
-        if fingerprint in seen:
-            return
-        seen.add(fingerprint)
-        found.append({k: v for k, v in artifact.items() if v not in (None, "")})
-
-    def _walk(node: Any, depth: int) -> None:
-        if depth > 4 or not isinstance(node, dict):
-            return
-        for key in _ARTIFACT_KEYS:
-            value = node.get(key)
-            if isinstance(value, list):
-                for item in value:
-                    _add(item)
-        for value in node.values():
-            if isinstance(value, dict):
-                _walk(value, depth + 1)
-
-    if isinstance(payload, dict):
-        _walk(payload, 0)
-    for match in _ARTIFACT_URL_RE.findall(answer or ""):
-        _add(match)
-    return found
-
-
-def _artifact_matches_format(artifacts: Any, fmt: str) -> bool:
-    """产物里是否有指定格式的文件（按 format/文件名/下载地址判断）。"""
-    ext = deliverables.FORMAT_EXT.get(fmt, f".{fmt}").lower()
-    want = fmt.lower().lstrip(".")
-    for item in artifacts or []:
-        if not isinstance(item, dict):
-            continue
-        declared = str(item.get("format") or "").strip().lower().lstrip(".")
-        if declared == want:
-            return True
-        for key in ("title", "filename", "name", "url", "download_url", "path"):
-            value = str(item.get(key) or "").strip().lower()
-            if value and value.endswith(ext):
-                return True
-    return False
+# _extract_artifacts 与 _artifact_matches_format 已由 app.modules.commander.views 统一提供
 
 
 async def _deliver_document(
@@ -2149,55 +1657,7 @@ async def _schedule(
                     _emit_out(st)
 
 
-def _failed_items(subtasks: list[CommanderSubtask]) -> list[dict[str, Any]]:
-    """失败/跳过原因：优先给人能读懂的结果说明，错误码只做兜底。"""
-    return [
-        {
-            "seq": int(st.seq),
-            "title": st.title,
-            "reason": ((st.output_excerpt or "").strip() or st.error_code or "未完成")[:200],
-        }
-        for st in subtasks
-        if st.status in (SUB_ERROR, SUB_SKIPPED)
-    ]
-
-
-def _collect_artifacts(subtasks: list[CommanderSubtask]) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    for st in subtasks:
-        for item in st.artifact_json or []:
-            if not isinstance(item, dict):
-                continue
-            out.append(
-                {
-                    **item,
-                    "subtask_seq": int(st.seq),
-                    "subtask_title": st.title,
-                    "agent_name": st.agent_name,
-                }
-            )
-    return out[:50]
-
-
-def _deterministic_answer(
-    run: CommanderRun, subtasks: list[CommanderSubtask], *, failed: list[dict[str, Any]]
-) -> str:
-    lines = [f"目标：{run.goal}"]
-    ok = [st for st in subtasks if st.status == SUB_OK]
-    if ok:
-        lines.append("已完成：")
-        for st in ok:
-            excerpt = (st.output_excerpt or "").strip()
-            lines.append(f"- {st.title}（{st.agent_name or '指挥官'}）")
-            if excerpt:
-                lines.append(f"  {excerpt[:400]}")
-    if failed:
-        lines.append("未完成：")
-        for item in failed:
-            lines.append(f"- {item['title']}：{item['reason']}")
-    if not ok and not failed:
-        lines.append("本次没有可交付的子任务结果。")
-    return "\n".join(lines)
+# _failed_items、_collect_artifacts、_deterministic_answer 已由 app.modules.commander.views 统一提供
 
 
 async def _summarize(
@@ -2262,83 +1722,7 @@ async def _summarize(
     return answer, int(resp.input_tokens or 0) + int(resp.output_tokens or 0)
 
 
-class CommanderSummary(TypedDict):
-    """``execute_run`` 的汇总返回（同时兼容对话层的 content/payload 字段）。"""
-
-    run_id: str
-    answer: str
-    artifacts: list[dict[str, Any]]
-    failed: list[dict[str, Any]]
-    tokens_total: int
-    degraded: bool
-    content: str
-    payload: dict[str, Any]
-    citations: list[Any]
-    token_usage: dict[str, Any]
-
-
-def _summary_payload(
-    run: CommanderRun,
-    subtasks: list[CommanderSubtask],
-    *,
-    answer: str,
-    artifacts: list[dict[str, Any]],
-    failed: list[dict[str, Any]],
-) -> CommanderSummary:
-    tokens = int(run.tokens_total or 0)
-    return {
-        "run_id": run.id,
-        "answer": answer,
-        "artifacts": artifacts,
-        "failed": failed,
-        "tokens_total": tokens,
-        "degraded": bool(run.degraded),
-        "content": answer,
-        "payload": {
-            "type": "commander_summary",
-            "run_id": run.id,
-            "answer": answer,
-            "artifacts": artifacts,
-            "failed": failed,
-            "tokens_total": tokens,
-            "degraded": bool(run.degraded),
-            "subtasks": [subtask_out(st) for st in subtasks],
-        },
-        "citations": [],
-        "token_usage": {
-            "input_tokens": 0,
-            "output_tokens": 0,
-            "total_tokens": tokens,
-            "model": "commander",
-        },
-    }
-
-
-def run_member_revoked(db: Session, run: CommanderRun) -> bool:
-    """成员身份重验（v3.56，审计 C16）。
-
-    口径：该小院**已有成员记录**（正式运行的组）且发起人不在其中 → 视为
-    被移出/降权，在途 run 不得再按旧角色快照执行。空成员表（测试造的裸
-    小院）不触发——无法区分「从未加入」与「已移出」，宁可不误杀。
-    """
-    yard_has_members = (
-        db.scalar(
-            select(func.count())
-            .select_from(YardMembership)
-            .where(YardMembership.yard_id == run.yard_id)
-        )
-        or 0
-    ) > 0
-    if not yard_has_members:
-        return False
-    return (
-        db.scalar(
-            select(YardMembership.user_id).where(
-                YardMembership.yard_id == run.yard_id,
-                YardMembership.user_id == run.user_id,
-            )
-        )
-    ) is None
+# CommanderSummary、_summary_payload、run_member_revoked 已由 app.modules.commander.views 统一提供
 
 
 async def execute_run(
@@ -2628,100 +2012,7 @@ async def run_in_background(run_id: str) -> None:
         db.close()
 
 
-# ---------------------------------------------------------------------------
-# 重试 / 取消
-# ---------------------------------------------------------------------------
-
-
-def retry_run(db: Session, ctx: YardContext, run_id: str) -> CommanderRun:
-    """把 error/skipped 子任务重置 pending（attempts 不清零），运行回到 queued。"""
-    run, subtasks = get_run(db, ctx.yard_id, run_id)
-    require_run_access(db, run, user_id=ctx.user_id, roles=ctx.roles)
-    if run.status == RUN_RUNNING:
-        raise AppError(ERR_RUN_BUSY, "运行正在执行中，请先取消或等待完成。", http_status=409)
-    if run.status == RUN_CANCELLED:
-        raise AppError(ERR_RUN_STATE, "已取消的运行不能重试。", http_status=409)
-
-    retried = 0
-    reclaimed = 0
-    for st in subtasks:
-        if st.status in (SUB_ERROR, SUB_SKIPPED):
-            reclaimed += int(st.input_tokens or 0) + int(st.output_tokens or 0)
-            st.status = SUB_PENDING
-            st.error_code = None
-            st.output_excerpt = None
-            st.artifact_json = None
-            st.input_tokens = 0
-            st.output_tokens = 0
-            st.started_at = None
-            st.finished_at = None
-            db.add(st)
-            retried += 1
-    if reclaimed:
-        # 子任务的 token 清零了，运行级总数必须同扣：否则重试一轮后 tokens_total 里还
-        # 掺着上一轮的失败账，预算闸一上来就按虚高值判
-        run.tokens_total = max(0, int(run.tokens_total or 0) - reclaimed)
-        run.budget_status = ""
-    if retried == 0:
-        raise AppError(
-            "COMMANDER_NOTHING_TO_RETRY",
-            "没有失败或跳过的子任务可重试。",
-            http_status=400,
-        )
-    settings = commander_settings.settings_for(db, run.yard_id)
-    run.status = RUN_QUEUED
-    run.error_code = None
-    run.degraded = False
-    run.max_parallel = int(settings["max_parallel"])
-    run.effective_parallel = int(settings["max_parallel"])
-    db.add(run)
-    log_audit(
-        db,
-        yard_id=ctx.yard_id,
-        actor_id=ctx.user_id,
-        action="commander_subtask_retried",
-        resource_type="commander_run",
-        resource_id=run.id,
-        result="success",
-        request_id=ctx.request_id,
-        metadata={"retried": retried},
-    )
-    _safe_commit(db)
-    return run
-
-
-def cancel_run(db: Session, ctx: YardContext, run_id: str) -> CommanderRun:
-    """取消：pending → skipped，已完成的保留，运行标记 cancelled。"""
-    run, subtasks = get_run(db, ctx.yard_id, run_id)
-    require_run_access(db, run, user_id=ctx.user_id, roles=ctx.roles)
-    if run.status in (RUN_COMPLETED, RUN_FAILED, RUN_CANCELLED):
-        raise AppError(ERR_RUN_STATE, "该运行已结束，无法取消。", http_status=409)
-
-    now = _now()
-    skipped = 0
-    for st in subtasks:
-        if st.status == SUB_PENDING:
-            st.status = SUB_SKIPPED
-            st.error_code = ERR_RUN_CANCELLED
-            st.finished_at = now
-            db.add(st)
-            skipped += 1
-    run.status = RUN_CANCELLED
-    run.error_code = ERR_RUN_CANCELLED
-    db.add(run)
-    log_audit(
-        db,
-        yard_id=ctx.yard_id,
-        actor_id=ctx.user_id,
-        action="commander_run_cancelled",
-        resource_type="commander_run",
-        resource_id=run.id,
-        result="success",
-        request_id=ctx.request_id,
-        metadata={"skipped": skipped},
-    )
-    _safe_commit(db)
-    return run
+# retry_run 与 cancel_run 已由 app.modules.commander.plan_editor 统一提供
 
 
 __all__ = [

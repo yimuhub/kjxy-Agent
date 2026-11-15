@@ -15,8 +15,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import UTC, datetime
-from typing import Any
+from app.core.timezone import utc_iso_now
 
 PHASE_READING = "reading"
 PHASE_ROUTING = "routing"
@@ -53,9 +52,7 @@ StepCallback = Callable[[str, str, str], None]
 #: 步骤快照回调签名：(累计步骤列表)
 StepNotify = Callable[[list[dict[str, Any]]], None]
 
-
-def _now() -> str:
-    return datetime.now(UTC).isoformat()
+_now = utc_iso_now
 
 
 class StepRecorder:

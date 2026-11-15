@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
+from app.core.timezone import ensure_utc, utc_now
 from app.modules.farm import agent_service
 from app.modules.self_improve.models import (
     JOB_STATUS_ACTIVE,
@@ -37,15 +38,8 @@ PRESET_INTERVALS: dict[str, timedelta] = {
     "daily": timedelta(days=1),
 }
 
-
-def _utcnow() -> datetime:
-    return datetime.now(UTC)
-
-
-def _as_utc(value: datetime | None) -> datetime | None:
-    if value is None:
-        return None
-    return value if value.tzinfo else value.replace(tzinfo=UTC)
+_utcnow = utc_now
+_as_utc = ensure_utc
 
 
 def schedule_interval(setting: dict[str, Any]) -> timedelta:

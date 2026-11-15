@@ -25,8 +25,7 @@ from app.modules.yards.authz import effective_permissions, get_active_membership
 log = get_logger(__name__)
 
 
-def _utcnow() -> datetime:
-    return datetime.now(UTC)
+from app.core.timezone import utc_now as _utcnow
 
 
 # ---------------------------------------------------------------- 权限

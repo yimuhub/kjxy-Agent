@@ -56,8 +56,7 @@ log = get_logger(__name__)
 _weak_bootstrap_warned: set[str] = set()
 
 
-def _utcnow() -> datetime:
-    return datetime.now(UTC)
+from app.core.timezone import utc_now as _utcnow
 
 
 def issue_refresh_session(

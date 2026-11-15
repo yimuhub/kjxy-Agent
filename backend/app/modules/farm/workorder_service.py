@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
 from app.core.notify import send_alert
+from app.core.timezone import utc_now
 from app.modules.audit.service import log_audit
 from app.modules.auth.models import User
 from app.modules.farm.models import (
@@ -46,9 +47,7 @@ _ALLOWED_TRANSITIONS: dict[str, set[str]] = {
     "cancelled": set(),
 }
 
-
-def _utcnow() -> datetime:
-    return datetime.now(UTC)
+_utcnow = utc_now
 
 
 def _ensure_plot(db: Session, yard_id: str, plot_id: str | None) -> None:

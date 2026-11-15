@@ -49,8 +49,7 @@ _PASSWORD_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789"
 MEMBER_STATUSES = ("active", "disabled")
 
 
-def _now() -> datetime:
-    return datetime.now(UTC)
+from app.core.timezone import utc_now as _now
 
 
 def generate_password(length: int = 12) -> str:
