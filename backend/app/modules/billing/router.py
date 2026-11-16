@@ -386,5 +386,10 @@ async def payment_notify(
         raise AppError("BILLING_PAYMENT_UNKNOWN", "未知支付渠道。", http_status=404)
     event = impl.verify_event(raw_body=raw_body, headers=headers, query=query)
     data = service.settle_payment_event(db, event=event, provider_code=impl.code)
-    # 网关通常期望固定应答体，失败时抛 4xx 让它重试或告警
+    # 网关应答体各家不同：支付宝只认纯文本 success，微信认 JSON code=SUCCESS；
+    # 返回错格式会让网关持续重试，甚至把已到账订单判成失败。
+    if impl.code == payment.PROVIDER_ALIPAY:
+        from fastapi.responses import PlainTextResponse
+
+        return PlainTextResponse("success")
     return {"code": "SUCCESS", "message": "OK", "data": data}

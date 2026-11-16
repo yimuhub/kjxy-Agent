@@ -46,35 +46,35 @@ const LIBRARY_ROLES = ['yard_owner', 'yard_admin', 'platform_admin', 'expert']
 
 /** 全系统所有可配置的功能原子池（唯一事实源） */
 export const ALL_MENU_ATOMS: DiyMenuLeaf[] = [
-  { key: 'dashboard', path: '/', title: '概览', iconName: 'Odometer' },
+  { key: 'dashboard', path: '/', title: '今日工作台', iconName: 'Odometer' },
   { key: 'journal', path: '/journal', title: '工作日志', iconName: 'Notebook', permission: 'logs:write' },
-  { key: 'oversight', path: '/oversight', title: '小院监管', iconName: 'DataAnalysis', permission: 'yards:aggregate', roles: ['platform_admin'] },
-  { key: 'hubs', path: '/hubs', title: '枢纽工作台', iconName: 'Share', permission: 'hubs:view' },
+  { key: 'oversight', path: '/oversight', title: '全局监管', iconName: 'DataAnalysis', permission: 'yards:aggregate', roles: ['platform_admin'] },
+  { key: 'hubs', path: '/hubs', title: '区域工作台', iconName: 'Share', permission: 'hubs:view' },
   { key: 'chat', path: '/chat', title: '智能对话', iconName: 'ChatDotRound', permission: 'chat:use' },
-  { key: 'commander', path: '/commander', title: '指挥官工作台', iconName: 'Compass', permission: 'chat:use' },
+  { key: 'commander', path: '/commander', title: 'AI 任务编排', iconName: 'Compass', permission: 'chat:use' },
   { key: 'custom-agents', path: '/agents/custom', title: '我的智能体', iconName: 'UserFilled', permission: 'chat:use' },
-  { key: 'teams', path: '/teams', title: '协作班组', iconName: 'Connection', permission: 'chat:use' },
+  { key: 'teams', path: '/teams', title: 'AI 团队协作', iconName: 'Connection', permission: 'chat:use' },
   { key: 'org', path: '/org', title: '组织架构', iconName: 'OfficeBuilding', permission: 'org:read' },
-  { key: 'agents', path: '/agents', title: '专业助手', iconName: 'Cpu', permission: 'chat:use' },
-  { key: 'evolution', path: '/evolution', title: '自我升级', iconName: 'TrendCharts', permission: 'evolution:manage', roles: ADMIN_ROLES },
+  { key: 'agents', path: '/agents', title: '官方助手', iconName: 'Cpu', permission: 'chat:use' },
+  { key: 'evolution', path: '/evolution', title: '能力升级', iconName: 'TrendCharts', permission: 'evolution:manage', roles: ADMIN_ROLES },
   { key: 'market', path: '/market', title: 'Agent 市场', iconName: 'Shop', permission: 'market:install', roles: ADMIN_ROLES },
   { key: 'library', path: '/library', title: '插件与技能库', iconName: 'Shop', permission: 'market:install', roles: LIBRARY_ROLES },
-  { key: 'workspace', path: '/workspace', title: '工作区', iconName: 'Files', permission: 'workspace:read' },
-  { key: 'factory', path: '/agents/factory', title: '智能工厂', iconName: 'Operation', permission: 'agents:manage', roles: ADMIN_ROLES },
+  { key: 'workspace', path: '/workspace', title: '文件工作区', iconName: 'Files', permission: 'workspace:read' },
+  { key: 'factory', path: '/agents/factory', title: '智能体工厂', iconName: 'Operation', permission: 'agents:manage', roles: ADMIN_ROLES },
   { key: 'knowledge', path: '/knowledge', title: '知识库', iconName: 'Files', permission: 'knowledge:read' },
-  { key: 'farm', path: '/farm', title: '农业台账', iconName: 'Grid', permission: 'farm:read' },
+  { key: 'farm', path: '/farm', title: '农事台账', iconName: 'Grid', permission: 'farm:read' },
   { key: 'diagnosis', path: '/diagnosis', title: '作物诊断', iconName: 'Reading', permission: 'farm:read' },
-  { key: 'work-orders', path: '/work-orders', title: '告警与工单', iconName: 'Checked', permission: 'tasks:read' },
+  { key: 'work-orders', path: '/work-orders', title: '告警工单', iconName: 'Checked', permission: 'tasks:read' },
   { key: 'review', path: '/review', title: '专家审核', iconName: 'Checked', permission: 'review:approve', roles: REVIEW_ROLES },
-  { key: 'policies', path: '/policies', title: '政策服务', iconName: 'Document', permission: 'policies:read' },
+  { key: 'policies', path: '/policies', title: '惠农政策', iconName: 'Document', permission: 'policies:read' },
   { key: 'devices', path: '/devices', title: '设备接入', iconName: 'Connection', permission: 'devices:read' },
   { key: 'tasks', path: '/tasks', title: '任务中心', iconName: 'List', permission: 'tasks:read' },
   { key: 'bots', path: '/bots', title: 'IM 机器人', iconName: 'ChatDotRound', permission: 'settings:manage', roles: ADMIN_ROLES },
-  { key: 'quota', path: '/quota', title: 'Token 与用量', iconName: 'DataLine', permission: 'insights:read' },
+  { key: 'quota', path: '/quota', title: '用量额度', iconName: 'DataLine', permission: 'insights:read' },
   { key: 'roi', path: '/roi', title: '投入产出', iconName: 'Coin', permission: 'insights:read', roles: ADMIN_ROLES },
   { key: 'board', path: '/board', title: '运行大屏', iconName: 'Odometer', permission: 'insights:read', roles: ADMIN_ROLES },
-  { key: 'model-center', path: '/model-center', title: '模型中心', iconName: 'Cpu', permission: 'llm:manage', roles: ADMIN_ROLES },
-  { key: 'members', path: '/members', title: '成员管理', iconName: 'User', permission: 'members:manage', roles: ADMIN_ROLES },
+  { key: 'model-center', path: '/model-center', title: '模型与供应商', iconName: 'Cpu', permission: 'llm:manage', roles: ADMIN_ROLES },
+  { key: 'members', path: '/members', title: '成员与权限', iconName: 'User', permission: 'members:manage', roles: ADMIN_ROLES },
   { key: 'settings', path: '/settings', title: '系统设置', iconName: 'Setting', permission: 'settings:manage', roles: ADMIN_ROLES, locked: true },
   {
     key: 'owner',
@@ -119,79 +119,69 @@ export function buildDefaultMenuGroups(): DiyMenuGroup[] {
 }
 
 function buildDefaultMenuGroupsRaw(): DiyMenuGroup[] {
+  // v3.82 IA 三层重构（审查 5.1）：按"今天要做 → 日常业务 → 高级能力"分层，
+  // 所有原有入口与路由都保留，只调整归属与命名，避免新手第一眼看到 30 项平铺。
   return [
     {
-      id: 'grp-workbench',
-      label: '工作台',
+      id: 'grp-today',
+      label: '① 今天要做的',
       items: [
-        { key: 'dashboard', path: '/', title: '概览', iconName: 'Odometer' },
-  { key: 'journal', path: '/journal', title: '工作日志', iconName: 'Notebook', permission: 'logs:write' },
-  { key: 'oversight', path: '/oversight', title: '小院监管', iconName: 'DataAnalysis', permission: 'yards:aggregate', roles: ['platform_admin'] },
-  { key: 'hubs', path: '/hubs', title: '枢纽工作台', iconName: 'Share', permission: 'hubs:view' },
+        { key: 'dashboard', path: '/', title: '今日工作台', iconName: 'Odometer' },
+        { key: 'farm', path: '/farm', title: '农事台账', iconName: 'Grid', permission: 'farm:read' },
+        { key: 'diagnosis', path: '/diagnosis', title: '作物诊断', iconName: 'Reading', permission: 'farm:read' },
         { key: 'chat', path: '/chat', title: '智能对话', iconName: 'ChatDotRound', permission: 'chat:use' },
-        { key: 'commander', path: '/commander', title: '指挥官工作台', iconName: 'Compass', permission: 'chat:use' },
+        { key: 'journal', path: '/journal', title: '工作日志', iconName: 'Notebook', permission: 'logs:write' },
       ],
     },
     {
-      id: 'grp-capability',
-      label: '能力协作',
+      id: 'grp-daily',
+      label: '② 日常业务',
       items: [
+        { key: 'knowledge', path: '/knowledge', title: '知识库', iconName: 'Files', permission: 'knowledge:read' },
+        { key: 'policies', path: '/policies', title: '惠农政策', iconName: 'Document', permission: 'policies:read' },
+        { key: 'work-orders', path: '/work-orders', title: '告警工单', iconName: 'Checked', permission: 'tasks:read' },
+        { key: 'tasks', path: '/tasks', title: '任务中心', iconName: 'List', permission: 'tasks:read' },
+        { key: 'review', path: '/review', title: '专家审核', iconName: 'Checked', permission: 'review:approve', roles: REVIEW_ROLES },
+        { key: 'devices', path: '/devices', title: '设备接入', iconName: 'Connection', permission: 'devices:read' },
+        { key: 'hubs', path: '/hubs', title: '区域工作台', iconName: 'Share', permission: 'hubs:view' },
+      ],
+    },
+    {
+      id: 'grp-advanced',
+      label: '③ 高级能力',
+      items: [
+        { key: 'commander', path: '/commander', title: 'AI 任务编排', iconName: 'Compass', permission: 'chat:use' },
         {
           key: 'capability',
-          title: '能力中心',
+          title: 'AI 能力',
           iconName: 'Cpu',
           children: [
             { key: 'custom-agents', path: '/agents/custom', title: '我的智能体', iconName: 'UserFilled', permission: 'chat:use' },
-            { key: 'agents', path: '/agents', title: '专业助手', iconName: 'Cpu', permission: 'chat:use' },
-            { key: 'teams', path: '/teams', title: '协作班组', iconName: 'Connection', permission: 'chat:use' },
-            { key: 'org', path: '/org', title: '组织架构', iconName: 'OfficeBuilding', permission: 'org:read' },
+            { key: 'agents', path: '/agents', title: '官方助手', iconName: 'Cpu', permission: 'chat:use' },
+            { key: 'teams', path: '/teams', title: 'AI 团队协作', iconName: 'Connection', permission: 'chat:use' },
+            { key: 'factory', path: '/agents/factory', title: '智能体工厂', iconName: 'Operation', permission: 'agents:manage', roles: ADMIN_ROLES },
             { key: 'market', path: '/market', title: 'Agent 市场', iconName: 'Shop', permission: 'market:install', roles: ADMIN_ROLES },
             { key: 'library', path: '/library', title: '插件与技能库', iconName: 'Shop', permission: 'market:install', roles: LIBRARY_ROLES },
-            { key: 'workspace', path: '/workspace', title: '工作区', iconName: 'Files', permission: 'workspace:read' },
-            { key: 'factory', path: '/agents/factory', title: '智能工厂', iconName: 'Operation', permission: 'agents:manage', roles: ADMIN_ROLES },
+            { key: 'workspace', path: '/workspace', title: '文件工作区', iconName: 'Files', permission: 'workspace:read' },
           ],
         },
-        // 自我升级（/evolution）恢复为一级入口：藏在折叠菜单里时用户找不到
-        { key: 'evolution', path: '/evolution', title: '自我升级', iconName: 'TrendCharts', permission: 'evolution:manage', roles: ADMIN_ROLES },
-      ],
-    },
-    {
-      id: 'grp-knowledge',
-      label: '知识数据',
-      items: [
-        { key: 'knowledge', path: '/knowledge', title: '知识库', iconName: 'Files', permission: 'knowledge:read' },
-        { key: 'farm', path: '/farm', title: '农业台账', iconName: 'Grid', permission: 'farm:read' },
-        { key: 'diagnosis', path: '/diagnosis', title: '作物诊断', iconName: 'Reading', permission: 'farm:read' },
-        { key: 'work-orders', path: '/work-orders', title: '告警与工单', iconName: 'Checked', permission: 'tasks:read' },
-        { key: 'tasks', path: '/tasks', title: '任务中心', iconName: 'List', permission: 'tasks:read' },
-        {
-          key: 'data',
-          title: '设备与政策',
-          iconName: 'Connection',
-          children: [
-            { key: 'devices', path: '/devices', title: '设备接入', iconName: 'Connection', permission: 'devices:read' },
-            { key: 'policies', path: '/policies', title: '政策服务', iconName: 'Document', permission: 'policies:read' },
-          ],
-        },
-      ],
-    },
-    {
-      id: 'grp-admin',
-      label: '管理与统计',
-      items: [
+        { key: 'org', path: '/org', title: '组织架构', iconName: 'OfficeBuilding', permission: 'org:read' },
         { key: 'quota', path: '/quota', title: '用量额度', iconName: 'DataLine', permission: 'insights:read' },
-        { key: 'review', path: '/review', title: '专家审核', iconName: 'Checked', permission: 'review:approve', roles: REVIEW_ROLES },
+        { key: 'evolution', path: '/evolution', title: '能力升级', iconName: 'TrendCharts', permission: 'evolution:manage', roles: ADMIN_ROLES },
         {
           key: 'admin',
-          title: '小院管理',
+          title: '管理与统计',
           iconName: 'Setting',
           roles: ADMIN_ROLES,
           children: [
-            { key: 'owner', path: '/owner', title: '负责人驾驶舱', iconName: 'DataLine', permission: 'insights:read', roles: ['yard_owner', 'platform_admin'] },
-            { key: 'model-center', path: '/model-center', title: '模型中心', iconName: 'Cpu', permission: 'llm:manage', roles: ADMIN_ROLES },
-            { key: 'members', path: '/members', title: '成员管理', iconName: 'User', permission: 'members:manage', roles: ADMIN_ROLES },
-            { key: 'settings', path: '/settings', title: '系统设置', iconName: 'Setting', permission: 'settings:manage', roles: ADMIN_ROLES, locked: true },
+            { key: 'owner', path: '/owner', title: '经营驾驶舱', iconName: 'DataLine', permission: 'insights:read', roles: ['yard_owner', 'platform_admin'] },
+            { key: 'roi', path: '/roi', title: '投入产出', iconName: 'Coin', permission: 'insights:read', roles: ADMIN_ROLES },
+            { key: 'board', path: '/board', title: '运行大屏', iconName: 'Odometer', permission: 'insights:read', roles: ADMIN_ROLES },
+            { key: 'oversight', path: '/oversight', title: '全局监管', iconName: 'DataAnalysis', permission: 'yards:aggregate', roles: ['platform_admin'] },
+            { key: 'model-center', path: '/model-center', title: '模型与供应商', iconName: 'Cpu', permission: 'llm:manage', roles: ADMIN_ROLES },
+            { key: 'members', path: '/members', title: '成员与权限', iconName: 'User', permission: 'members:manage', roles: ADMIN_ROLES },
             { key: 'bots', path: '/bots', title: 'IM 机器人', iconName: 'ChatDotRound', permission: 'settings:manage', roles: ADMIN_ROLES },
+            { key: 'settings', path: '/settings', title: '系统设置', iconName: 'Setting', permission: 'settings:manage', roles: ADMIN_ROLES, locked: true },
           ],
         },
       ],
@@ -210,18 +200,18 @@ function buildFlatQuickGroupsRaw(): DiyMenuGroup[] {
       id: 'grp-quick',
       label: '高频直达',
       items: [
-        { key: 'dashboard', path: '/', title: '概览', iconName: 'Odometer' },
+        { key: 'dashboard', path: '/', title: '今日工作台', iconName: 'Odometer' },
   { key: 'journal', path: '/journal', title: '工作日志', iconName: 'Notebook', permission: 'logs:write' },
-  { key: 'oversight', path: '/oversight', title: '小院监管', iconName: 'DataAnalysis', permission: 'yards:aggregate', roles: ['platform_admin'] },
-  { key: 'hubs', path: '/hubs', title: '枢纽工作台', iconName: 'Share', permission: 'hubs:view' },
+  { key: 'oversight', path: '/oversight', title: '全局监管', iconName: 'DataAnalysis', permission: 'yards:aggregate', roles: ['platform_admin'] },
+  { key: 'hubs', path: '/hubs', title: '区域工作台', iconName: 'Share', permission: 'hubs:view' },
         { key: 'chat', path: '/chat', title: '智能对话', iconName: 'ChatDotRound', permission: 'chat:use' },
-        { key: 'commander', path: '/commander', title: '指挥官工作台', iconName: 'Compass', permission: 'chat:use' },
+        { key: 'commander', path: '/commander', title: 'AI 任务编排', iconName: 'Compass', permission: 'chat:use' },
         { key: 'custom-agents', path: '/agents/custom', title: '我的智能体', iconName: 'UserFilled', permission: 'chat:use' },
-        { key: 'teams', path: '/teams', title: '协作班组', iconName: 'Connection', permission: 'chat:use' },
+        { key: 'teams', path: '/teams', title: 'AI 团队协作', iconName: 'Connection', permission: 'chat:use' },
         { key: 'knowledge', path: '/knowledge', title: '知识库', iconName: 'Files', permission: 'knowledge:read' },
-        { key: 'farm', path: '/farm', title: '农业台账', iconName: 'Grid', permission: 'farm:read' },
+        { key: 'farm', path: '/farm', title: '农事台账', iconName: 'Grid', permission: 'farm:read' },
         { key: 'diagnosis', path: '/diagnosis', title: '作物诊断', iconName: 'Reading', permission: 'farm:read' },
-        { key: 'work-orders', path: '/work-orders', title: '告警与工单', iconName: 'Checked', permission: 'tasks:read' },
+        { key: 'work-orders', path: '/work-orders', title: '告警工单', iconName: 'Checked', permission: 'tasks:read' },
         { key: 'quota', path: '/quota', title: '用量额度', iconName: 'DataLine', permission: 'insights:read' },
       ],
     },
@@ -234,12 +224,12 @@ function buildFlatQuickGroupsRaw(): DiyMenuGroup[] {
           title: '能力扩展',
           iconName: 'Cpu',
           children: [
-            { key: 'agents', path: '/agents', title: '专业助手', iconName: 'Cpu', permission: 'chat:use' },
+            { key: 'agents', path: '/agents', title: '官方助手', iconName: 'Cpu', permission: 'chat:use' },
             { key: 'org', path: '/org', title: '组织架构', iconName: 'OfficeBuilding', permission: 'org:read' },
-            { key: 'evolution', path: '/evolution', title: '自我升级', iconName: 'TrendCharts', permission: 'evolution:manage', roles: ADMIN_ROLES },
+            { key: 'evolution', path: '/evolution', title: '能力升级', iconName: 'TrendCharts', permission: 'evolution:manage', roles: ADMIN_ROLES },
             { key: 'market', path: '/market', title: 'Agent 市场', iconName: 'Shop', permission: 'market:install', roles: ADMIN_ROLES },
             { key: 'library', path: '/library', title: '插件与技能库', iconName: 'Shop', permission: 'market:install', roles: LIBRARY_ROLES },
-            { key: 'factory', path: '/agents/factory', title: '智能工厂', iconName: 'Operation', permission: 'agents:manage', roles: ADMIN_ROLES },
+            { key: 'factory', path: '/agents/factory', title: '智能体工厂', iconName: 'Operation', permission: 'agents:manage', roles: ADMIN_ROLES },
           ],
         },
         {
@@ -249,10 +239,10 @@ function buildFlatQuickGroupsRaw(): DiyMenuGroup[] {
           children: [
             { key: 'tasks', path: '/tasks', title: '任务中心', iconName: 'List', permission: 'tasks:read' },
             { key: 'devices', path: '/devices', title: '设备接入', iconName: 'Connection', permission: 'devices:read' },
-            { key: 'policies', path: '/policies', title: '政策服务', iconName: 'Document', permission: 'policies:read' },
+            { key: 'policies', path: '/policies', title: '惠农政策', iconName: 'Document', permission: 'policies:read' },
             { key: 'review', path: '/review', title: '专家审核', iconName: 'Checked', permission: 'review:approve', roles: REVIEW_ROLES },
             { key: 'bots', path: '/bots', title: 'IM 机器人', iconName: 'ChatDotRound', permission: 'settings:manage', roles: ADMIN_ROLES },
-            { key: 'members', path: '/members', title: '成员管理', iconName: 'User', permission: 'members:manage', roles: ADMIN_ROLES },
+            { key: 'members', path: '/members', title: '成员与权限', iconName: 'User', permission: 'members:manage', roles: ADMIN_ROLES },
             { key: 'settings', path: '/settings', title: '系统设置', iconName: 'Setting', permission: 'settings:manage', roles: ADMIN_ROLES, locked: true },
           ],
         },
@@ -380,7 +370,7 @@ export const MENU_PRESETS: MenuPresetMeta[] = [
   {
     id: 'standard',
     name: '标准视图',
-    description: '工作台 / 能力协作 / 知识数据 / 管理与统计四组',
+    description: '① 今天要做的 / ② 日常业务 / ③ 高级能力，三层任务优先',
     mode: 'standard',
   },
   {
@@ -432,8 +422,8 @@ export function buildPresetGroups(id: string): DiyMenuGroup[] | null {
   return null
 }
 
-// v4：恢复「自我升级」一级入口后再次提升版本号，旧布局（缺该入口且标题被钉死）一次性重建
-const STORAGE_KEY_PREFIX = 'kjxy_menu_diy_v4_'
+// v5：IA 三层重构（今天要做/日常业务/高级能力），旧的四组平铺布局一次性重建
+const STORAGE_KEY_PREFIX = 'kjxy_menu_diy_v5_'
 /** 已补齐过的功能入口：用户再次隐藏后不再重复补 */
 const SEEN_KEY_PREFIX = 'kjxy_menu_surfaced_v1_'
 

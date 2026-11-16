@@ -119,6 +119,7 @@ def _guard(db: Session, yard_id: str, crop: str, output: dict | None) -> dict | 
 
 def _follow_up_out(row: DiagnosisFollowUp) -> dict:
     return {
+        "id": row.id,
         "followup_id": row.id,
         "diagnosis_id": row.diagnosis_id,
         "occurred_on": row.occurred_on,
@@ -132,6 +133,7 @@ def _follow_up_out(row: DiagnosisFollowUp) -> dict:
 def attachment_out(att: DiagnosisAttachment) -> dict:
     """诊断材料出参：不含存储键（读取走带登录态的文件接口）。"""
     return {
+        "id": att.id,
         "attachment_id": att.id,
         "filename": att.filename,
         "mime": att.mime,
@@ -254,6 +256,7 @@ def _device_name(db: Session, yard_id: str, device_id: str | None) -> str | None
 
 def _basis_out(row: CropDiagnosis) -> dict:
     return {
+        "id": row.id,
         "diagnosis_id": row.id,
         "plot_id": row.plot_id,
         "crop": row.crop,

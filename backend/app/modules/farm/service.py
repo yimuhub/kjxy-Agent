@@ -37,6 +37,8 @@ from app.modules.farm.schemas import (
 
 def _plot_out(plot: FarmPlot) -> dict:
     return {
+        # v3.82 契约统一：所有资源暴露 id；plot_id 保留兼容旧前端
+        "id": plot.id,
         "plot_id": plot.id,
         "name": plot.name,
         "crop": plot.crop,
@@ -54,6 +56,7 @@ def _plot_out(plot: FarmPlot) -> dict:
 
 def _cycle_out(cycle: FarmCycle) -> dict:
     return {
+        "id": cycle.id,
         "cycle_id": cycle.id,
         "plot_id": cycle.plot_id,
         "crop": cycle.crop,
@@ -70,6 +73,7 @@ def _cycle_out(cycle: FarmCycle) -> dict:
 
 def _record_out(record: FarmRecord, plot_name: str) -> dict:
     return {
+        "id": record.id,
         "record_id": record.id,
         "plot_id": record.plot_id,
         "plot_name": plot_name,

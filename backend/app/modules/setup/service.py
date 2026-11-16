@@ -391,6 +391,11 @@ def initialize(
         request_id=request_id,
     )
 
+    # ④ 真实政策样例（官方原文摘要 + 来源链接），避免政策页开箱为空。
+    from app.modules.policy.seed import seed_default_policies
+
+    policy_count = seed_default_policies(db, yard.id)
+
     # ⑤ 模型接入（可选；Key 加密保存，明文不落盘）
     model_configured = False
     if llm_provider and (llm_provider.get("api_key") or "").strip():
@@ -464,6 +469,7 @@ def initialize(
         "username": user.username,
         "skill_count": skill_count,
         "agent_count": agent_count,
+        "policy_count": policy_count,
         "model_configured": model_configured,
         "access_token": token,
         "refresh_token": refresh_token,

@@ -90,7 +90,35 @@ def list_providers(
 ):
     user, is_platform_admin = ctx
     items = supplier_service.list_suppliers(db, user.yard_id, is_platform_admin=is_platform_admin)
-    return ok([s.model_dump() for s in items])
+    is_admin = is_platform_admin or any(
+        role in (user.roles or []) for role in ("yard_admin", "yard_owner")
+    )
+    if is_admin:
+        return ok([s.model_dump() for s in items])
+    # 普通成员只需"选哪个模型"：供应商名称/类型/可选模型/是否可用。
+    # base_url、Key 掩码、价格、失败原因、探测延迟一律不下发（最小权限，审查 D14）。
+    safe_keys = (
+        "id",
+        "name",
+        "provider_type",
+        "model_id",
+        "default_model_id",
+        "models",
+        "channel_kind",
+        "status",
+        "is_active",
+    )
+    return ok(
+        [
+            {
+                **{key: getattr(item, key, None) for key in safe_keys},
+                "readonly": True,
+                "api_key_masked": "",
+                "base_url": "",
+            }
+            for item in items
+        ]
+    )
 
 
 @router.post("/providers", response_model=None)

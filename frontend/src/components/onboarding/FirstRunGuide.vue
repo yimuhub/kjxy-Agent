@@ -20,7 +20,7 @@
       <li>
         <span class="num">1</span>
         <div class="guide-item-body">
-          <strong>说一句话，交给指挥官</strong>
+          <strong>说一句话，交给 AI 助手</strong>
           <span>去智能对话，直接说你要办的事，比如「帮我把本周设备异常整理成报告」。</span>
         </div>
         <el-button
@@ -35,7 +35,7 @@
         <span class="num">2</span>
         <div class="guide-item-body">
           <strong>看计划卡与产物</strong>
-          <span>指挥官会拆任务、派助手；做完的文件会回到对话里，也能在工作台回看。</span>
+          <span>AI 助手会拆任务、派专业助手；做完的文件会回到对话里，也能在工作台回看。</span>
         </div>
         <el-button
           size="small"

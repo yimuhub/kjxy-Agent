@@ -74,10 +74,23 @@ class Settings(BaseSettings):
     )
     billing_wechat_appid: str = Field(default="", description="微信支付 AppID")
     billing_wechat_mchid: str = Field(default="", description="微信支付商户号")
-    billing_wechat_api_v3_key: str = Field(default="", description="微信支付 APIv3 密钥")
+    billing_wechat_api_v3_key: str = Field(default="", description="微信支付 APIv3 密钥（32 字节）")
+    billing_wechat_serial_no: str = Field(default="", description="微信支付商户证书序列号")
+    billing_wechat_private_key: str = Field(
+        default="", description="微信支付商户私钥 PEM（apiclient_key.pem 内容）"
+    )
+    billing_wechat_platform_public_key: str = Field(
+        default="", description="微信支付平台证书/公钥 PEM（回调验签用）"
+    )
+    billing_wechat_api_base: str = Field(
+        default="https://api.mch.weixin.qq.com", description="微信支付 API 域名"
+    )
     billing_alipay_app_id: str = Field(default="", description="支付宝应用 ID")
     billing_alipay_private_key: str = Field(default="", description="支付宝应用私钥（PKCS8）")
     billing_alipay_public_key: str = Field(default="", description="支付宝公钥（验签用）")
+    billing_alipay_gateway: str = Field(
+        default="https://openapi.alipay.com/gateway.do", description="支付宝网关地址"
+    )
 
     llm_provider: str = Field(default="fake", description="fake|openai_compatible")
     llm_base_url: str = ""
@@ -482,6 +495,25 @@ class Settings(BaseSettings):
                     "生产环境禁止使用沙箱支付渠道（BILLING_PAYMENT_PROVIDER=sandbox）："
                     "沙箱回调可被本地构造，必须改为 manual/wechat_pay/alipay"
                 )
+            if self.billing_payment_provider == "wechat_pay" and not all(
+                (
+                    self.billing_wechat_appid,
+                    self.billing_wechat_mchid,
+                    self.billing_wechat_api_v3_key,
+                    self.billing_wechat_serial_no,
+                    self.billing_wechat_private_key,
+                    self.billing_wechat_platform_public_key,
+                )
+            ):
+                errors.append("已选择微信支付，但商户参数/证书未配置完整，无法收款。")
+            if self.billing_payment_provider == "alipay" and not all(
+                (
+                    self.billing_alipay_app_id,
+                    self.billing_alipay_private_key,
+                    self.billing_alipay_public_key,
+                )
+            ):
+                errors.append("已选择支付宝，但应用 ID/私钥/公钥未配置完整，无法收款。")
         else:
             if self.app_secret_key == DEFAULT_APP_SECRET_KEY:
                 warnings.append("APP_SECRET_KEY 使用默认占位值（仅限开发/测试环境）")

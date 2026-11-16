@@ -514,9 +514,34 @@
             type="primary"
             class="pay-primary"
             :loading="busy"
-            @click="confirmSandboxPay"
+            @click="intent.provider === 'sandbox' ? confirmSandboxPay() : refreshAfterPay()"
           >
-            我已完成支付
+            {{ intent.provider === 'sandbox' ? '我已完成支付' : '我已完成支付，刷新状态' }}
+          </el-button>
+        </template>
+
+        <template v-else-if="intent.mode === 'redirect'">
+          <ol class="pay-steps">
+            <li
+              v-for="(line, i) in intent.instructions"
+              :key="i"
+            >
+              {{ line }}
+            </li>
+          </ol>
+          <el-button
+            type="primary"
+            class="pay-primary"
+            @click="openRedirectPay"
+          >
+            前往支付宝支付
+          </el-button>
+          <el-button
+            class="pay-primary"
+            :loading="busy"
+            @click="refreshAfterPay"
+          >
+            我已完成支付，刷新状态
           </el-button>
         </template>
 
@@ -867,6 +892,31 @@
   }
 
   /** 沙箱收银台「我已完成支付」：走真实的公开回调端点，验证的是同一条链路。 */
+  /** 支付宝收银台：跳转外部页面（微信扫码不适用）。 */
+  function openRedirectPay(): void {
+    const url = intent.value?.pay_url
+    if (!url) return
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
+
+  /** 扫码/跳转支付完成后刷新订单状态：到账由渠道回调驱动，不伪造成功。 */
+  async function refreshAfterPay(): Promise<void> {
+    if (!intent.value) return
+    busy.value = true
+    try {
+      await refresh()
+      const order = orders.value.find(o => o.id === intent.value?.order_id)
+      if (order && order.status !== 'pending') {
+        payOpen.value = false
+        showSettled(intent.value.plan_code)
+      } else {
+        ElMessage.info('尚未收到支付结果，请完成支付后稍候再刷新。')
+      }
+    } finally {
+      busy.value = false
+    }
+  }
+
   async function confirmSandboxPay(): Promise<void> {
     if (!intent.value) return
     busy.value = true

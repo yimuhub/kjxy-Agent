@@ -203,6 +203,15 @@ async def lifespan(app: FastAPI):
         log.warning("startup safety warning: %s", warning)
     log.info("tech-yard-platform starting, env=%s", settings.app_env)
     _startup_wiring()
+    # 政策样例回填：老小院升级后也能看到官方政策（幂等；失败不阻断启动）
+    try:
+        from app.db.session import SessionLocal
+        from app.modules.policy.seed import seed_all_yards
+
+        with SessionLocal() as db:
+            seed_all_yards(db)
+    except Exception as e:  # noqa: BLE001 —— 种子不是启动硬依赖
+        log.warning("policy seed backfill failed: %s", e)
     # IM 机器人管家：拉起 enabled 机器人长连接（测试环境/显式关闭时内部自行跳过）
     import asyncio
 

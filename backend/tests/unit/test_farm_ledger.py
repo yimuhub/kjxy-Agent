@@ -38,6 +38,7 @@ def test_plot_crud_and_duplicate_name(db_session, world):
     plot = _plot(db_session, yard_id, user_id)
     assert plot["name"] == "东一号田"
     assert plot["area_mu"] == 12.5
+    assert plot["id"] == plot["plot_id"]  # v3.82 统一契约：id 与旧字段并存
 
     with pytest.raises(AppError) as dup:
         _plot(db_session, yard_id, user_id)
@@ -78,6 +79,7 @@ def test_cycle_links_to_plot_and_record_validates_owner(db_session, world):
         CycleCreate(crop="水稻", variety="南粳46", planted_on=date(2026, 5, 1)),
     )
     assert cycle["plot_id"] == plot["plot_id"]
+    assert cycle["id"] == cycle["cycle_id"]
 
     with pytest.raises(AppError) as bad_cycle:
         service.create_record(
@@ -117,6 +119,7 @@ def test_records_filter_paginate_and_block_plot_delete(db_session, world):
     assert total == 1
     assert items[0]["kind_label"] == "施肥"
     assert items[0]["quantity"] == 2.5
+    assert items[0]["id"] == items[0]["record_id"]
 
     page, total = service.list_records(
         db_session,

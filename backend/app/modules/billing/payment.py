@@ -25,6 +25,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import json
@@ -33,6 +34,13 @@ import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
+from urllib.parse import parse_qs, urlencode
+
+import httpx
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from app.core.config import settings
 from app.core.errors import AppError
@@ -272,24 +280,111 @@ class SandboxProvider:
 # ---------------------------------------------------------------------------
 
 
-class WeChatPayProvider:
-    """微信支付 v3 适配器。
+def _compact_order_id(order_id: str) -> str:
+    """渠道单号上限 32：UUID 去连字符正好 32 位。"""
+    return str(order_id).replace("-", "")[:32]
 
-    需要配置 ``BILLING_WECHAT_APPID / MCHID / API_V3_KEY`` 与商户证书；
-    未配置时 :meth:`create_intent` 会明确报错而不是静默降级。
+
+def _expand_order_id(value: str) -> str:
+    raw = str(value or "").strip()
+    if len(raw) == 32 and "-" not in raw:
+        return f"{raw[:8]}-{raw[8:12]}-{raw[12:16]}-{raw[16:20]}-{raw[20:]}"
+    return raw
+
+
+def _pem_bytes(value: str, kind: str = "PUBLIC KEY") -> bytes:
+    text = (value or "").strip()
+    if not text:
+        return b""
+    # 环境变量里常见把换行写成 \n；还原后才可被 cryptography 解析
+    text = text.replace("\\n", "\n")
+    # 开放平台常给“无头无尾”的单行 base64，这里补成 PEM
+    if "BEGIN" not in text:
+        body = "".join(text.split())
+        lines = [body[i : i + 64] for i in range(0, len(body), 64)]
+        text = f"-----BEGIN {kind}-----\n" + "\n".join(lines) + f"\n-----END {kind}-----"
+    return text.encode("utf-8")
+
+
+def _load_private_key(pem: str):
+    key = serialization.load_pem_private_key(_pem_bytes(pem, "PRIVATE KEY"), password=None)
+    if not hasattr(key, "sign"):
+        raise ValueError("不是 RSA 私钥")
+    return key
+
+
+def _load_public_key(pem: str):
+    data = _pem_bytes(pem, "PUBLIC KEY")
+    if b"CERTIFICATE" in data:
+        return x509.load_pem_x509_certificate(data).public_key()
+    return serialization.load_pem_public_key(data)
+
+
+def _rsa_sign(pem: str, content: str) -> str:
+    signature = _load_private_key(pem).sign(
+        content.encode("utf-8"), padding.PKCS1v15(), hashes.SHA256()
+    )
+    return base64.b64encode(signature).decode("ascii")
+
+
+def _rsa_verify(pem: str, content: str, signature: str) -> bool:
+    try:
+        _load_public_key(pem).verify(
+            base64.b64decode(signature),
+            content.encode("utf-8"),
+            padding.PKCS1v15(),
+            hashes.SHA256(),
+        )
+        return True
+    except Exception:  # noqa: BLE001 —— 验签失败一律 false
+        return False
+
+
+class WeChatPayProvider:
+    """微信支付 v3 Native 扫码（真实网关）。
+
+    需要：AppID、商户号、APIv3 密钥、商户证书序列号、商户私钥 PEM、
+    微信支付平台证书/公钥 PEM。缺一项即 ``configured=False``，下单/回调都
+    明确报 ``BILLING_PAYMENT_NOT_CONFIGURED``，不静默降级。
     """
 
     code = PROVIDER_WECHAT
     label = "微信支付"
+    api_path = "/v3/pay/transactions/native"
 
     def __init__(self) -> None:
         self.appid = settings.billing_wechat_appid.strip()
         self.mchid = settings.billing_wechat_mchid.strip()
         self.api_v3_key = settings.billing_wechat_api_v3_key.strip()
+        self.serial_no = settings.billing_wechat_serial_no.strip()
+        self.private_key = settings.billing_wechat_private_key.strip()
+        self.platform_public_key = settings.billing_wechat_platform_public_key.strip()
+        self.api_base = settings.billing_wechat_api_base.strip().rstrip("/")
 
     @property
     def configured(self) -> bool:
-        return bool(self.appid and self.mchid and self.api_v3_key)
+        return bool(
+            self.appid
+            and self.mchid
+            and self.api_v3_key
+            and self.serial_no
+            and self.private_key
+            and self.platform_public_key
+        )
+
+    def _ensure(self) -> None:
+        if not self.configured:
+            raise AppError(
+                "BILLING_PAYMENT_NOT_CONFIGURED",
+                "微信支付尚未配置完整（AppID/商户号/APIv3 密钥/证书序列号/商户私钥/平台公钥）。",
+                http_status=503,
+            )
+        if len(self.api_v3_key.encode("utf-8")) != 32:
+            raise AppError(
+                "BILLING_PAYMENT_NOT_CONFIGURED",
+                "微信支付 APIv3 密钥必须是 32 字节。",
+                http_status=503,
+            )
 
     def create_intent(
         self,
@@ -302,36 +397,142 @@ class WeChatPayProvider:
         notify_url: str,
         return_url: str,
     ) -> PaymentIntent:
-        if not self.configured:
+        self._ensure()
+        body = json.dumps(
+            {
+                "appid": self.appid,
+                "mchid": self.mchid,
+                "description": (plan_name or "科技小院套餐")[:127],
+                "out_trade_no": _compact_order_id(order_id),
+                "notify_url": notify_url,
+                "amount": {"total": int(round(float(amount_yuan) * 100)), "currency": "CNY"},
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        timestamp = str(int(time.time()))
+        nonce = secrets.token_hex(16)
+        sign_content = f"POST\n{self.api_path}\n{timestamp}\n{nonce}\n{body}\n"
+        try:
+            signature = _rsa_sign(self.private_key, sign_content)
+        except Exception as e:  # noqa: BLE001
             raise AppError(
-                "BILLING_PAYMENT_NOT_CONFIGURED",
-                "微信支付尚未配置商户参数，请联系平台管理员。",
-                http_status=503,
+                "BILLING_PAYMENT_NOT_CONFIGURED", "微信支付商户私钥无法解析。", http_status=503
+            ) from e
+        authorization = (
+            "WECHATPAY2-SHA256-RSA2048 "
+            f'mchid="{self.mchid}",nonce_str="{nonce}",signature="{signature}",'
+            f'timestamp="{timestamp}",serial_no="{self.serial_no}"'
+        )
+        try:
+            with httpx.Client(timeout=15) as client:
+                resp = client.post(
+                    f"{self.api_base}{self.api_path}",
+                    content=body.encode("utf-8"),
+                    headers={
+                        "Authorization": authorization,
+                        "Accept": "application/json",
+                        "Content-Type": "application/json",
+                        "User-Agent": "kjxy-billing/3.82",
+                    },
+                )
+        except httpx.HTTPError as e:
+            raise AppError(
+                "BILLING_PAYMENT_GATEWAY_ERROR", f"微信支付下单请求失败：{e}", http_status=502
+            ) from e
+        data = resp.json() if resp.content else {}
+        if resp.status_code >= 400 or not data.get("code_url"):
+            raise AppError(
+                "BILLING_PAYMENT_GATEWAY_ERROR",
+                (
+                    f"微信支付下单失败：{data.get('code') or resp.status_code} "
+                    f"{data.get('message') or ''}"
+                ).strip(),
+                http_status=502,
             )
-        raise AppError(
-            "BILLING_PAYMENT_NOT_CONFIGURED",
-            "微信支付下单需要商户证书与已备案域名，请在网关适配器中补齐后启用。",
-            http_status=503,
+        expires = datetime.now(UTC) + timedelta(minutes=INTENT_TTL_MINUTES)
+        code_url = str(data["code_url"])
+        return PaymentIntent(
+            provider=self.code,
+            mode="qr",
+            order_id=order_id,
+            order_code=order_code,
+            plan_code=plan_code,
+            plan_name=plan_name,
+            amount_yuan=amount_yuan,
+            pay_url=code_url,
+            qr_payload=code_url,
+            expires_at=expires.isoformat(),
+            instructions=("请使用微信扫描二维码完成支付；支付成功后订单自动到账。",),
+            extra={"code_url": code_url},
         )
 
     def verify_event(
         self, *, raw_body: bytes, headers: dict[str, str], query: dict[str, str]
     ) -> PaymentEvent:
-        if not self.configured:
+        self._ensure()
+        timestamp = headers.get("wechatpay-timestamp", "")
+        nonce = headers.get("wechatpay-nonce", "")
+        signature = headers.get("wechatpay-signature", "")
+        if not timestamp or not nonce or not signature:
+            raise AppError("BILLING_PAYMENT_SIGNATURE", "微信支付回调缺少签名头。", http_status=400)
+        # 防重放：超过 5 分钟的回调拒绝
+        try:
+            if abs(int(time.time()) - int(timestamp)) > 300:
+                raise AppError(
+                    "BILLING_PAYMENT_SIGNATURE", "微信支付回调时间戳过期。", http_status=400
+                )
+        except ValueError as e:
             raise AppError(
-                "BILLING_PAYMENT_NOT_CONFIGURED",
-                "微信支付尚未配置商户参数。",
-                http_status=503,
+                "BILLING_PAYMENT_SIGNATURE", "微信支付回调时间戳非法。", http_status=400
+            ) from e
+        sign_content = f"{timestamp}\n{nonce}\n{raw_body.decode('utf-8')}\n"
+        if not _rsa_verify(self.platform_public_key, sign_content, signature):
+            raise AppError(
+                "BILLING_PAYMENT_SIGNATURE", "微信支付回调签名校验失败。", http_status=400
             )
-        raise AppError(
-            "BILLING_PAYMENT_NOT_CONFIGURED",
-            "微信支付回调验签需要商户证书与平台证书，请补齐配置后启用。",
-            http_status=503,
+        try:
+            envelope = json.loads(raw_body.decode("utf-8"))
+            resource = envelope["resource"]
+            plain = AESGCM(self.api_v3_key.encode("utf-8")).decrypt(
+                str(resource["nonce"]).encode("utf-8"),
+                base64.b64decode(resource["ciphertext"]),
+                str(resource.get("associated_data") or "").encode("utf-8"),
+            )
+            data = json.loads(plain.decode("utf-8"))
+        except Exception as e:  # noqa: BLE001
+            raise AppError(
+                "BILLING_PAYMENT_SIGNATURE", "微信支付回调解密失败。", http_status=400
+            ) from e
+        if data.get("trade_state") not in (None, "SUCCESS"):
+            raise AppError("BILLING_PAYMENT_STATE", "微信支付回调不是成功状态。", http_status=400)
+        try:
+            amount = float(data["amount"]["total"]) / 100.0
+        except (KeyError, TypeError, ValueError) as e:
+            raise AppError(
+                "BILLING_PAYMENT_AMOUNT", "微信支付回调金额无效。", http_status=400
+            ) from e
+        paid_at = datetime.now(UTC)
+        if data.get("success_time"):
+            try:
+                paid_at = datetime.fromisoformat(str(data["success_time"]))
+            except ValueError:
+                paid_at = datetime.now(UTC)
+        return PaymentEvent(
+            order_id=_expand_order_id(str(data.get("out_trade_no") or "")),
+            trade_no=str(data.get("transaction_id") or ""),
+            amount_yuan=amount,
+            paid_at=paid_at,
+            raw=data,
         )
 
 
 class AlipayProvider:
-    """支付宝适配器（占位）：需要 ``BILLING_ALIPAY_APP_ID / PRIVATE_KEY / PUBLIC_KEY``。"""
+    """支付宝电脑网站支付（RSA2 真实网关）。
+
+    需要：应用 ID、应用私钥（PKCS8）、支付宝公钥。回调用 form 表单，
+    验签通过且 trade_status 为 TRADE_SUCCESS/TRADE_FINISHED 才入账。
+    """
 
     code = PROVIDER_ALIPAY
     label = "支付宝"
@@ -340,10 +541,19 @@ class AlipayProvider:
         self.app_id = settings.billing_alipay_app_id.strip()
         self.private_key = settings.billing_alipay_private_key.strip()
         self.public_key = settings.billing_alipay_public_key.strip()
+        self.gateway = settings.billing_alipay_gateway.strip().rstrip("?")
 
     @property
     def configured(self) -> bool:
         return bool(self.app_id and self.private_key and self.public_key)
+
+    def _ensure(self) -> None:
+        if not self.configured:
+            raise AppError(
+                "BILLING_PAYMENT_NOT_CONFIGURED",
+                "支付宝尚未配置完整（应用 ID/应用私钥/支付宝公钥）。",
+                http_status=503,
+            )
 
     def create_intent(
         self,
@@ -356,31 +566,100 @@ class AlipayProvider:
         notify_url: str,
         return_url: str,
     ) -> PaymentIntent:
-        if not self.configured:
+        self._ensure()
+        biz = json.dumps(
+            {
+                "out_trade_no": _compact_order_id(order_id),
+                "product_code": "FAST_INSTANT_TRADE_PAY",
+                "total_amount": f"{float(amount_yuan):.2f}",
+                "subject": (plan_name or "科技小院套餐")[:256],
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        params = {
+            "app_id": self.app_id,
+            "method": "alipay.trade.page.pay",
+            "format": "JSON",
+            "charset": "utf-8",
+            "sign_type": "RSA2",
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "version": "1.0",
+            "notify_url": notify_url,
+            "return_url": return_url,
+            "biz_content": biz,
+        }
+        # 支付宝签名口径：剔除 sign / sign_type，其余参数按 key 排序拼接
+        sign_content = "&".join(
+            f"{key}={params[key]}"
+            for key in sorted(params)
+            if key not in ("sign", "sign_type") and params[key] not in (None, "")
+        )
+        try:
+            params["sign"] = _rsa_sign(self.private_key, sign_content)
+        except Exception as e:  # noqa: BLE001
             raise AppError(
-                "BILLING_PAYMENT_NOT_CONFIGURED",
-                "支付宝尚未配置商户参数，请联系平台管理员。",
-                http_status=503,
-            )
-        raise AppError(
-            "BILLING_PAYMENT_NOT_CONFIGURED",
-            "支付宝下单需要商户私钥，请在网关适配器中补齐后启用。",
-            http_status=503,
+                "BILLING_PAYMENT_NOT_CONFIGURED", "支付宝应用私钥无法解析。", http_status=503
+            ) from e
+        pay_url = f"{self.gateway}?{urlencode(params)}"
+        expires = datetime.now(UTC) + timedelta(minutes=INTENT_TTL_MINUTES)
+        return PaymentIntent(
+            provider=self.code,
+            mode="redirect",
+            order_id=order_id,
+            order_code=order_code,
+            plan_code=plan_code,
+            plan_name=plan_name,
+            amount_yuan=amount_yuan,
+            pay_url=pay_url,
+            expires_at=expires.isoformat(),
+            instructions=("点击链接跳转支付宝收银台完成支付；支付成功后订单自动到账。",),
+            extra={"gateway": self.gateway},
         )
 
     def verify_event(
         self, *, raw_body: bytes, headers: dict[str, str], query: dict[str, str]
     ) -> PaymentEvent:
-        if not self.configured:
+        self._ensure()
+        try:
+            data = {key: values[0] for key, values in parse_qs(raw_body.decode("utf-8")).items()}
+        except Exception as e:  # noqa: BLE001
             raise AppError(
-                "BILLING_PAYMENT_NOT_CONFIGURED",
-                "支付宝尚未配置商户参数。",
-                http_status=503,
+                "BILLING_PAYMENT_SIGNATURE", "支付宝回调载荷无法解析。", http_status=400
+            ) from e
+        signature = data.pop("sign", "")
+        data.pop("sign_type", None)
+        if not signature:
+            raise AppError("BILLING_PAYMENT_SIGNATURE", "支付宝回调缺少签名。", http_status=400)
+        sign_content = "&".join(
+            f"{key}={data[key]}" for key in sorted(data) if data[key] not in (None, "")
+        )
+        if not _rsa_verify(self.public_key, sign_content, signature):
+            raise AppError("BILLING_PAYMENT_SIGNATURE", "支付宝回调签名校验失败。", http_status=400)
+        if data.get("app_id") and data["app_id"] != self.app_id:
+            raise AppError(
+                "BILLING_PAYMENT_SIGNATURE", "支付宝回调 app_id 不匹配。", http_status=400
             )
-        raise AppError(
-            "BILLING_PAYMENT_NOT_CONFIGURED",
-            "支付宝回调验签需要商户公钥，请补齐配置后启用。",
-            http_status=503,
+        if data.get("trade_status") not in ("TRADE_SUCCESS", "TRADE_FINISHED"):
+            raise AppError("BILLING_PAYMENT_STATE", "支付宝回调不是成功状态。", http_status=400)
+        try:
+            amount = float(data["total_amount"])
+        except (KeyError, TypeError, ValueError) as e:
+            raise AppError("BILLING_PAYMENT_AMOUNT", "支付宝回调金额无效。", http_status=400) from e
+        paid_at = datetime.now(UTC)
+        for key in ("gmt_payment", "notify_time"):
+            if data.get(key):
+                try:
+                    paid_at = datetime.strptime(data[key], "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
+                    break
+                except ValueError:
+                    continue
+        return PaymentEvent(
+            order_id=_expand_order_id(data.get("out_trade_no") or ""),
+            trade_no=str(data.get("trade_no") or ""),
+            amount_yuan=amount,
+            paid_at=paid_at,
+            raw=data,
         )
 
 
@@ -402,28 +681,24 @@ def get_payment_provider(code: str | None = None) -> PaymentProvider:
 def list_providers() -> list[dict[str, Any]]:
     """可用渠道清单（前端据此展示"去支付"的方式）。
 
-    ``available`` 的语义是"**现在这个部署真的能用它支付**"：
-    - 当前配置的渠道永远可用；
-    - 对公转账无需任何资质，恒可用（兜底路径）；
-    - 其余渠道需要商户参数真正配齐（``configured``）才算可用——
-      沙箱不是生产可选项，不在配置渠道时不应被标为 available
-      （``create_payment_intent`` 已按配置渠道校验，列表口径必须一致）。
+    ``available`` 的语义是"**当前部署可以直接用它下单**"：只有
+    ``BILLING_PAYMENT_PROVIDER`` 选中的渠道为 true；其余渠道即使商户参数
+    齐全（``configured=true``）也只是"已配置、未启用"，不能直接下单。
     """
     current = (settings.billing_payment_provider or PROVIDER_MANUAL).strip().lower()
     out: list[dict[str, Any]] = []
     for code, cls in _PROVIDERS.items():
         provider = cls()
-        available = (
-            code == current
-            or code == PROVIDER_MANUAL
-            or bool(getattr(provider, "configured", False))
-        )
+        # 下单服务只接受“当前配置的那一个渠道”，列表口径必须一致：
+        # 否则前端会把已配好但未启用的渠道当成可选，点下去必然 400。
+        configured = bool(getattr(provider, "configured", code == PROVIDER_MANUAL))
         out.append(
             {
                 "code": code,
                 "label": provider.label,
                 "current": code == current,
-                "available": available,
+                "available": code == current,
+                "configured": configured,
             }
         )
     return out

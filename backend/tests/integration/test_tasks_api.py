@@ -1,10 +1,10 @@
-import pytest
 """任务 API 集成测试：创建 → 查询 → 事件 → 执行 → 取消 → 重试全流程。
 
 - 直接挂载 app.modules.tasks.router（prefix=/api/v1）；v1 总路由的接入由技术负责人集成。
 - 用内存 SQLite；worker 的会话工厂被覆盖为同一测试库。
 - 用 "mock.echo" handler 做端到端执行验证。
 """
+# ruff: noqa: E402, I001 — 需要先设环境变量再导入 app
 
 import os
 
