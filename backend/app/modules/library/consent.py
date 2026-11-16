@@ -8,7 +8,6 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -26,7 +25,8 @@ ACK_TEXT = (
 )
 
 
-from app.core.timezone import to_iso as _iso, utc_now as _utcnow
+from app.core.timezone import to_iso as _iso  # noqa: E402 - 延迟导入以避免循环依赖
+from app.core.timezone import utc_now as _utcnow  # noqa: E402 - 延迟导入以避免循环依赖
 
 
 def serialize(row: PluginConsent) -> dict[str, Any]:

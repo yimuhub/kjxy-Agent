@@ -14,7 +14,6 @@ import os
 import threading
 import time
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -58,7 +57,7 @@ _STATES: dict[str, DownloadState] = {}
 _THREADS: dict[str, threading.Thread] = {}
 
 
-from app.core.timezone import utc_iso_now as _now
+from app.core.timezone import utc_iso_now as _now  # noqa: E402 - 延迟导入以避免循环依赖
 
 
 def state_of(model_id: str) -> DownloadState:

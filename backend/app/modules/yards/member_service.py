@@ -10,7 +10,6 @@
 from __future__ import annotations
 
 import secrets
-from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -49,7 +48,7 @@ _PASSWORD_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789"
 MEMBER_STATUSES = ("active", "disabled")
 
 
-from app.core.timezone import utc_now as _now
+from app.core.timezone import utc_now as _now  # noqa: E402 - 延迟导入以避免循环依赖
 
 
 def generate_password(length: int = 12) -> str:

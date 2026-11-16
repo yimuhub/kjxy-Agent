@@ -82,7 +82,9 @@ class MemoryHit:
         }
 
 
-from app.core.timezone import ensure_utc as _as_utc, to_iso as _iso, utc_now as _utcnow
+from app.core.timezone import ensure_utc as _as_utc  # noqa: E402 - 延迟导入以避免循环依赖
+from app.core.timezone import to_iso as _iso  # noqa: E402 - 延迟导入以避免循环依赖
+from app.core.timezone import utc_now as _utcnow  # noqa: E402 - 延迟导入以避免循环依赖
 
 
 def _clip01(value: float) -> float:

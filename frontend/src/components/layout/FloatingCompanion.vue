@@ -339,6 +339,9 @@
     const stored = readPetPanelRect()
     fitPanel(stored ?? defaultPetPanelRect(pos.value, w, h))
     expanded.value = true
+    // 只有用户主动点开伙伴时才切到指挥官会话；挂载即切换会把新用户默认落进
+    // "指挥官伙伴"，普通提问被编排十几秒甚至中止（走查 D17）。
+    void ensureCompanionSession()
   }
 
   function onPointerDown(event: PointerEvent): void {
@@ -573,7 +576,6 @@
     window.addEventListener('resize', onResize)
     window.addEventListener(PET_OVERLAY_EVENT, onOverlayEvent)
     void loadCommanderSettings()
-    void ensureCompanionSession()
     void refreshBriefs()
     briefTimer = window.setInterval(() => void refreshBriefs(), 5 * 60 * 1000)
     // 气泡值守周期：单一 setTimeout 状态机，露出 6s → 淡出 8s 严格交替

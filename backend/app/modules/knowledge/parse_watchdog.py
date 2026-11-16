@@ -57,7 +57,7 @@
 from __future__ import annotations
 
 import threading
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import cast
 
 from sqlalchemy import select, update
@@ -109,7 +109,7 @@ def _processing_stale_seconds() -> int:
     return max(60, int(settings.knowledge_parse_processing_stale_seconds))
 
 
-from app.core.timezone import utc_now as _utcnow
+from app.core.timezone import utc_now as _utcnow  # noqa: E402 - 延迟导入以避免循环依赖
 
 
 def _stale_queued_ids(db: Session, *, now: datetime, stale_seconds: int, limit: int) -> list[str]:

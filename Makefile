@@ -1,6 +1,6 @@
 .PHONY: up down logs migrate seed-dev test test-security lint type-check contract contract-check check lock build ps
 .PHONY: dialogs-check ui-check
-.PHONY: native-install native-migrate native-seed native-api native-web
+.PHONY: native-install native-migrate native-seed native-api native-worker native-web
 
 # 本机 Python 解释器：优先用仓库 .venv（native 流程产物）
 PY := $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
@@ -35,8 +35,13 @@ native-migrate:
 native-seed:
 	cd backend && ../.venv/bin/python -m app.db.seed
 
+native-worker:
+	cd backend && ../.venv/bin/celery -A app.workers.celery_app:celery_app worker -l info -c 2
+
+# 本机模式同时拉起 worker：此前只起 API，班组/知识解析/任务中心会永久排队（走查 D13）
 native-api:
-	cd backend && ../.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+	cd backend && ( ../.venv/bin/celery -A app.workers.celery_app:celery_app worker -l info -c 2 > /tmp/kjxy-worker.log 2>&1 & ) && \
+		../.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
 
 native-web:
 	cd frontend && npm run dev

@@ -1,12 +1,11 @@
 """统一错误模型。错误码见 contracts/error-codes.md。"""
 
+from app.core.logging import get_logger
 from fastapi import Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
-
-from app.core.logging import get_logger
 
 log = get_logger(__name__)
 

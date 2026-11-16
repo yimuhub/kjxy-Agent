@@ -13,8 +13,14 @@ from typing import Any
 _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
 
 
-def parse_llm_json_dict(content: str | None) -> dict[str, Any] | None:
-    """从模型输出文本中容错提取 JSON 对象（自动剥离 Markdown 代码围栏与前后缀说明文字）。"""
+def parse_llm_json_dict(
+    content: str | None, *, error_message: str | None = None
+) -> dict[str, Any] | None:
+    """从模型输出文本中容错提取 JSON 对象（自动剥离 Markdown 代码围栏与前后缀说明文字）。
+
+    ``error_message`` 传入时，解析失败改为抛 ``ValueError``（调用方可直接捕获并
+    落失败原因）；不传则保持历史行为返回 ``None``，兼容既有调用方。
+    """
     text = _FENCE_RE.sub("", (content or "").strip()).strip()
     if not text:
         return None
@@ -31,6 +37,8 @@ def parse_llm_json_dict(content: str | None) -> dict[str, Any] | None:
             continue
         if isinstance(data, dict):
             return data
+    if error_message:
+        raise ValueError(error_message)
     return None
 
 

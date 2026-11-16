@@ -8,7 +8,6 @@
 from __future__ import annotations
 
 import copy
-from datetime import UTC, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session

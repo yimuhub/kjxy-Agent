@@ -33,10 +33,9 @@ import threading
 import time
 import uuid
 from collections.abc import Callable
-from datetime import UTC, datetime
-from typing import Any, TypedDict
+from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
@@ -45,10 +44,6 @@ from app.core.errors import AppError
 from app.core.logging import get_logger
 from app.modules.agents import declarative
 from app.modules.agents.models import (
-    CREATED_FROM_COMMANDER,
-    STATUS_DELETED,
-    STATUS_DRAFT,
-    STATUS_PUBLISHED,
     YardAgent,
 )
 from app.modules.audit.service import log_audit
@@ -85,7 +80,6 @@ from app.modules.llm.schemas import ChatMessage
 from app.modules.llm.service import complete_with_logging
 from app.modules.memory import service as memory_service
 from app.modules.quota import engine as quota_engine
-from app.modules.yards.models import YardMembership
 
 log = get_logger(__name__)
 
@@ -200,7 +194,7 @@ def _precheck_quota(db: Session, ctx: YardContext) -> None:
     quota_engine.preflight(db, ctx.yard_id, requester_id=ctx.user_id)
 
 
-from app.core.timezone import to_iso as _iso, utc_now as _now
+from app.core.timezone import utc_now as _now  # noqa: E402 - 延迟导入以避免循环依赖
 
 
 def _emit(on_event: Callable[[str, dict], None] | None, kind: str, payload: dict) -> None:
@@ -215,10 +209,8 @@ def _emit(on_event: Callable[[str, dict], None] | None, kind: str, payload: dict
 # ---------------------------------------------------------------------------
 # 输出契约 / 读取与权限（已拆分至 app.modules.commander.views，保持重导出兼容）
 # ---------------------------------------------------------------------------
-from app.modules.commander.views import (
+from app.modules.commander.views import (  # noqa: E402 - 延迟导入以避免循环依赖
     CommanderSummary,
-    _artifact_matches_format,
-    _budget_view,
     _collect_artifacts,
     _deterministic_answer,
     _extract_artifacts,
@@ -232,7 +224,6 @@ from app.modules.commander.views import (
     run_out,
     subtask_out,
 )
-
 
 # ---------------------------------------------------------------------------
 # 计划创建
@@ -604,16 +595,13 @@ async def create_plan_run(
 # ---------------------------------------------------------------------------
 # 计划编辑 / 并发闸门（已拆分至 app.modules.commander.plan_editor，保持重导出兼容）
 # ---------------------------------------------------------------------------
-from app.modules.commander.plan_editor import (
+from app.modules.commander.plan_editor import (  # noqa: E402 - 延迟导入以避免循环依赖
     ConcurrencyGate,
-    _bind_plan_agent,
-    _edit_depends_on,
     _unrealizable_plan,
     cancel_run,
     retry_run,
     update_plan,
 )
-
 
 # ---------------------------------------------------------------------------
 # 执行
@@ -1920,6 +1908,51 @@ async def execute_run(
         return summary
     finally:
         db.close()
+
+
+STALE_RUN_SECONDS = 30 * 60
+
+
+def reap_stale_runs(db: Session, *, yard_id: str | None = None) -> int:
+    """收敛超时仍 running 的指挥官 run（SSE 断连/进程重启后无人收尸）。
+
+    走查复现（2026-11-16）：两条 run 的子任务全部 ok，一小时后仍停 running。
+    ``run_timeout_seconds`` 只在协程内生效，协程被中断后没有第二次机会。
+    """
+    from datetime import UTC, datetime, timedelta
+
+    cutoff = datetime.now(UTC) - timedelta(seconds=STALE_RUN_SECONDS)
+    conds = [CommanderRun.status == RUN_RUNNING, CommanderRun.created_at < cutoff]
+    if yard_id:
+        conds.append(CommanderRun.yard_id == yard_id)
+    rows = db.execute(
+        update(CommanderRun)
+        .where(*conds)
+        .values(
+            status=RUN_FAILED,
+            error_code="COMMANDER_STALE_REAPED",
+        )
+        .execution_options(synchronize_session=False)
+    )
+    reaped = int(rows.rowcount or 0)  # type: ignore[attr-defined]
+    if reaped:
+        db.execute(
+            update(CommanderSubtask)
+            .where(
+                CommanderSubtask.run_id.in_(
+                    select(CommanderRun.id).where(
+                        CommanderRun.status == RUN_FAILED,
+                        CommanderRun.error_code == "COMMANDER_STALE_REAPED",
+                    )
+                ),
+                CommanderSubtask.status.in_((SUB_PENDING, SUB_RUNNING)),
+            )
+            .values(status=SUB_ERROR, error_code="COMMANDER_STALE_REAPED")
+            .execution_options(synchronize_session=False)
+        )
+        db.commit()
+        log.warning("指挥官僵尸 run 已收敛 %d 条", reaped)
+    return reaped
 
 
 async def run_in_background(run_id: str) -> None:

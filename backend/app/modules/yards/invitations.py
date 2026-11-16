@@ -8,7 +8,7 @@
 
 import hashlib
 import secrets
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from typing import Any, cast
 
 from sqlalchemy import select, update
@@ -31,7 +31,8 @@ from app.modules.yards.signup import normalize_username, validate_password
 INVITATION_STATUSES = ("pending", "accepted", "revoked")
 
 
-from app.core.timezone import ensure_utc_strict as _as_utc, utc_now as _now
+from app.core.timezone import ensure_utc_strict as _as_utc  # noqa: E402 - 延迟导入以避免循环依赖
+from app.core.timezone import utc_now as _now  # noqa: E402 - 延迟导入以避免循环依赖
 
 
 def _hash_token(token: str) -> str:

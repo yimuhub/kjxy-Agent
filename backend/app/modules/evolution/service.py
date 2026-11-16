@@ -6,7 +6,6 @@ review_candidate 的 approve 流程降级为仅标记 status=approved，
 """
 
 from collections.abc import Callable
-from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import and_, or_, select
@@ -25,7 +24,7 @@ from app.modules.yards.authz import effective_permissions, get_active_membership
 log = get_logger(__name__)
 
 
-from app.core.timezone import utc_now as _utcnow
+from app.core.timezone import utc_now as _utcnow  # noqa: E402 - 延迟导入以避免循环依赖
 
 
 # ---------------------------------------------------------------- 权限

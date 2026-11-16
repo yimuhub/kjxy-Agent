@@ -1,3 +1,4 @@
+import pytest
 """任务 API 集成测试：创建 → 查询 → 事件 → 执行 → 取消 → 重试全流程。
 
 - 直接挂载 app.modules.tasks.router（prefix=/api/v1）；v1 总路由的接入由技术负责人集成。
@@ -187,7 +188,9 @@ def test_worker_executes_mock_echo_end_to_end(auth_headers, api_client):
 
 def test_worker_marks_unknown_handler_failed(auth_headers, api_client):
     created = _create(api_client, auth_headers, task_type="no.such.handler").json()["data"]
-    worker_tasks.execute_task(created["id"])
+    # v3.82：Celery 入口在 DB 终态为 failed 时回抛，让 worker 结果不再伪装成功
+    with pytest.raises(RuntimeError):
+        worker_tasks.execute_task(created["id"])
     detail = api_client.get(f"/api/v1/tasks/{created['id']}", headers=auth_headers).json()["data"]
     assert detail["status"] == "failed"
     assert detail["error_code"] == "INVALID_REQUEST"
@@ -228,7 +231,8 @@ def test_retry_failed_task_creates_new_record(auth_headers, api_client):
     created = _create(
         api_client, auth_headers, task_type="no.such.handler", input={"question": "retry me"}
     ).json()["data"]
-    worker_tasks.execute_task(created["id"])
+    with pytest.raises(RuntimeError):
+        worker_tasks.execute_task(created["id"])
 
     resp = api_client.post(f"/api/v1/tasks/{created['id']}/retry", headers=auth_headers)
     assert resp.status_code == 201

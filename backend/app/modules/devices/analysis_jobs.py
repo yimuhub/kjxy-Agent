@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -40,7 +40,8 @@ PRESET_INTERVALS: dict[str, timedelta] = {
 }
 
 
-from app.core.timezone import ensure_utc as _as_utc, utc_now as _utcnow
+from app.core.timezone import ensure_utc as _as_utc  # noqa: E402 - 延迟导入以避免循环依赖
+from app.core.timezone import utc_now as _utcnow  # noqa: E402 - 延迟导入以避免循环依赖
 
 
 def schedule_interval(setting: dict[str, Any]) -> timedelta:

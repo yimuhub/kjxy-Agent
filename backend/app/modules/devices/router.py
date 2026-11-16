@@ -8,7 +8,6 @@ ingest 为设备侧通道：不走登录态，用 X-Device-Token/body.token 的 
 必须先于 /devices/{device_id} 注册（FastAPI 按声明顺序匹配）。
 """
 
-from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -47,7 +46,7 @@ def _admin(ctx: YardContext = Depends(get_yard_context)) -> YardContext:
     return ctx
 
 
-from app.core.timezone import to_iso_or_empty as _iso
+from app.core.timezone import to_iso_or_empty as _iso  # noqa: E402 - 延迟导入以避免循环依赖
 
 
 def _audit(ctx: YardContext, db: Session, action: str, resource_id: str | None, meta: dict) -> None:

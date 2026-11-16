@@ -72,7 +72,7 @@ SENSOR_QUERY_INPUT_SCHEMA: dict = {
 }
 
 
-from app.core.timezone import to_iso_or_empty as _iso
+from app.core.timezone import to_iso_or_empty as _iso  # noqa: E402 - 延迟导入以避免循环依赖
 
 
 def _resolve_devices(db: Session, yard_id: str, keyword: str | None) -> list[Device]:

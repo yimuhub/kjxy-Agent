@@ -11,7 +11,6 @@
 （首个 LLM 步 input_json 的运行入参）、失败错误类别、高频工具与工具序列。
 """
 
-import hashlib
 import json
 import re
 import uuid
@@ -53,7 +52,7 @@ _SUGGEST_ROLES = {"yard_admin", "yard_owner", "platform_admin"}
 _QUESTION_KEYS = ("question", "query", "input", "message")
 
 
-from app.core.ids import sha1_12 as _sha12
+from app.core.ids import sha1_12 as _sha12  # noqa: E402 - 延迟导入以避免循环依赖
 
 
 def _require_suggest_permission(ctx: YardContext) -> None:

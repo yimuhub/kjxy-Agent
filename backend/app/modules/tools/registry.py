@@ -649,10 +649,11 @@ def seed_builtin_tools(db: Session) -> int:
     """
     # 视频生成工具的实现与元数据同源（video_tool.py），避免两处描述漂移
     from app.modules.docs.tool import doc_tool_meta
+    from app.modules.farm.agent_tool import farm_tools_meta
     from app.modules.llm.video_tool import tool_meta as video_tool_meta
 
     count = 0
-    for meta in [*BUILTIN_TOOLS, video_tool_meta(), doc_tool_meta()]:
+    for meta in [*BUILTIN_TOOLS, video_tool_meta(), doc_tool_meta(), *farm_tools_meta()]:
         row = db.query(ToolDefinition).filter_by(code=meta["code"]).first()
         if row is None:
             row = ToolDefinition(**meta)

@@ -10,7 +10,6 @@ supervisor 三级路由（或按配置绑定指定助手/班组）→ 出站回�
 
 from __future__ import annotations
 
-import hashlib
 import logging
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable

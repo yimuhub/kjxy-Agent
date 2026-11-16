@@ -18,7 +18,7 @@
 from __future__ import annotations
 
 import math
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from typing import Any
 
 from sqlalchemy import func, select
@@ -40,7 +40,7 @@ UPGRADE_TRIGGER_PERCENT = 70.0
 FALLBACK_TOKENS_PER_CALL = 3000.0
 
 
-from app.core.timezone import utc_now as _now
+from app.core.timezone import utc_now as _now  # noqa: E402 - 延迟导入以避免循环依赖
 
 
 def _yard_policies(db: Session, yard_id: str) -> list[QuotaPolicy]:

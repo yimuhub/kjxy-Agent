@@ -8,8 +8,6 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -39,7 +37,7 @@ from app.modules.yards.signup import (
 REGISTRATION_STATUSES = ("pending", "approved", "rejected")
 
 
-from app.core.timezone import utc_now as _now
+from app.core.timezone import utc_now as _now  # noqa: E402 - 延迟导入以避免循环依赖
 
 
 def _to_out(row: YardJoinRequest, user: User) -> RegistrationOut:

@@ -32,6 +32,7 @@ def _startup_wiring() -> None:
         from app.modules.agents.agent_tools import register_agent_tools
         from app.modules.devices.agent_tool import register_sensor_query_tool
         from app.modules.docs.tool import register_doc_generate_tool
+        from app.modules.farm.agent_tool import register_farm_tools
         from app.modules.growth.compliance import register_compliance_tool
         from app.modules.growth.poster import register_image_tool
         from app.modules.growth.toolseed import seed_growth_tools
@@ -178,6 +179,7 @@ def _startup_wiring() -> None:
             log.warning("official library sync scheduler start failed: %s", e)
 
         register_knowledge_search_tool()
+        register_farm_tools()
         register_workorder_tool()
         register_sensor_query_tool()
         register_search_tools()

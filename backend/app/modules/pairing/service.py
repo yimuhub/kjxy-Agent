@@ -20,7 +20,7 @@
 import hashlib
 import secrets
 import socket
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 import jwt
 from fastapi import Request

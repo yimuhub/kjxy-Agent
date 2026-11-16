@@ -92,6 +92,31 @@ def _fail_task(db: Session, task_id: str, error_code: str, error_message: str) -
                 error_code=error_code,
                 error_message=error_message,
             )
+        # 班组 run 以 task_id 关联：任务失败必须同步收敛，否则界面永久显示"运行中"
+        try:
+            from datetime import UTC, datetime
+
+            from sqlalchemy import update
+
+            from app.modules.agents.teams.models import RUN_QUEUED, RUN_RUNNING, TeamRun
+
+            rows = db.execute(
+                update(TeamRun)
+                .where(
+                    TeamRun.task_id == task_id,
+                    TeamRun.status.in_((RUN_QUEUED, RUN_RUNNING)),
+                )
+                .values(
+                    status="failed",
+                    finished_at=datetime.now(UTC),
+                    last_error=f"{error_code}: {error_message}"[:500],
+                )
+                .execution_options(synchronize_session=False)
+            )
+            if rows.rowcount:  # type: ignore[attr-defined]
+                log.warning("班组 run 随任务 %s 失败已收敛", task_id)
+        except Exception:
+            log.exception("failed to converge team run for task %s", task_id)
         db.commit()
     except Exception:
         db.rollback()
@@ -125,8 +150,21 @@ def execute_task(self, task_id: str) -> None:
     """Celery 入口：委托给 run_task_inline。
 
     跑在**真实 Celery worker 进程**里，因此心跳按 worker 角色写。
+
+    走查复现（2026-11-16）：处理器抛错后 ``run_task_inline`` 已把 DB 任务置 failed，
+    但 Celery 仍打印 "succeeded: None"，监控/重试完全看不到失败。这里按 DB 终态
+    回抛，让 Celery 结果与业务状态一致。
     """
     run_task_inline(task_id, role=ROLE_WORKER)
+    db = _get_session_factory()()
+    try:
+        from app.modules.tasks.models import Task
+
+        task = db.get(Task, task_id)
+        if task is not None and task.status == "failed":
+            raise RuntimeError(f"task {task_id} failed: {task.error_code or 'INTERNAL_ERROR'}")
+    finally:
+        db.close()
 
 
 def run_task_inline(task_id: str, *, role: str = ROLE_INLINE_API) -> None:

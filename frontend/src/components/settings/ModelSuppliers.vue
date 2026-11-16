@@ -25,10 +25,12 @@
       empty-text="暂无供应商，点击「新增供应商」添加"
       @retry="loadSuppliers"
     >
+      <div class="table-x-scroll">
       <el-table
         v-col-resize
         :data="suppliers"
         stripe
+        style="min-width: 1560px"
       >
         <el-table-column
           prop="name"
@@ -204,6 +206,7 @@
           </template>
         </el-table-column>
       </el-table>
+      </div>
       <div
         v-if="rowTest"
         class="test-result"
@@ -1085,4 +1088,12 @@
     border: 1px solid var(--ds-border);
     border-radius: 8px;
   }
+
+/* 走查复现（2026-11-16）：供应商表格列宽合计超出视口，右侧操作列被裁切且无滚动条 */
+.table-x-scroll {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 4px;
+}
 </style>

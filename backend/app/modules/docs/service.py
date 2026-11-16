@@ -56,10 +56,22 @@ _RENDERERS: dict[str, tuple[str, str, Callable[[DocModel], bytes]]] = {
 
 _FORMAT_HINTS: tuple[tuple[tuple[str, ...], str], ...] = (
     (("ppt", "幻灯片", "演示文稿", "powerpoint"), "pptx"),
-    (("excel", "xlsx", "工作表", "表格", "台账"), "xlsx"),
+    (("excel", "xlsx", "工作表", "表格"), "xlsx"),
     (("pdf",), "pdf"),
     (("markdown", " md ", "md文档"), "md"),
     (("word", "docx", "文档"), "docx"),
+)
+#: 显式格式词：按出现位置取最近的，避免"台账/表格"等内容词把"Word 文档"拐去 Excel
+_EXPLICIT_FORMATS: tuple[tuple[str, str], ...] = (
+    ("powerpoint", "pptx"),
+    ("pptx", "pptx"),
+    ("ppt", "pptx"),
+    ("excel", "xlsx"),
+    ("xlsx", "xlsx"),
+    ("docx", "docx"),
+    ("word", "docx"),
+    ("markdown", "md"),
+    ("pdf", "pdf"),
 )
 
 _UNSAFE_FILENAME = re.compile(r"[\\/:*?\"<>|\r\n\t]+")
@@ -78,8 +90,15 @@ def normalize_format(fmt: str) -> str:
 
 
 def format_from_text(text: str) -> str:
-    """按用户原话猜格式（命中不到默认 Word，最通用）。"""
+    """按用户原话猜格式（命中不到默认 Word，最通用）。
+
+    走查复现（2026-11-16）："生成本周农事周报，Word 文档" 因为句中带"台账"，
+    被旧的提示词顺序判成 Excel。显式格式词必须优先于内容词。
+    """
     lowered = f" {(text or '').lower()} "
+    explicit = [(lowered.find(word), fmt) for word, fmt in _EXPLICIT_FORMATS if word in lowered]
+    if explicit:
+        return min(explicit, key=lambda item: item[0])[1]
     for words, fmt in _FORMAT_HINTS:
         if any(w in lowered for w in words):
             return fmt

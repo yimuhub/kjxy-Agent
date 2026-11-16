@@ -8,7 +8,7 @@
 
 import hashlib
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session

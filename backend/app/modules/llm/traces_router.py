@@ -49,7 +49,7 @@ def _cutoff(days: int) -> datetime:
     return datetime.now(UTC) - timedelta(days=days)
 
 
-from app.core.timezone import to_iso_or_empty as _iso
+from app.core.timezone import to_iso_or_empty as _iso  # noqa: E402 - 延迟导入以避免循环依赖
 
 
 @router.get("/traces", response_model=None)

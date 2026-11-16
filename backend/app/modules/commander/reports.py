@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select
@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.core import timezone as business_time
 from app.core.deps import YardContext
+from app.core.timezone import utc_now as _now
 from app.modules.commander import evaluator, snapshots
 from app.modules.commander import settings as commander_settings
 from app.modules.commander.asset_models import (
@@ -39,9 +40,6 @@ from app.modules.commander.models import (
     CommanderSubtask,
 )
 from app.modules.llm.models import LLMCall
-
-
-from app.core.timezone import utc_now as _now
 
 
 def _period(start: datetime, end: datetime) -> dict[str, str]:

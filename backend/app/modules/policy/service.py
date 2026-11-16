@@ -11,7 +11,6 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import UTC, datetime
 from typing import Literal
 
 from sqlalchemy.orm import Session
@@ -30,8 +29,7 @@ from app.modules.policy.schemas import (
 _MATCH_LEVEL_RANK = {"eligible": 0, "partial": 1, "insufficient": 2, "ineligible": 3}
 
 
-from app.core.timezone import utc_now as _utcnow
-
+from app.core.timezone import utc_now as _utcnow  # noqa: E402 - 延迟导入以避免循环依赖
 
 # ------------------------------------------------------------------ 采集
 

@@ -14,9 +14,7 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
-import re
 import time
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
@@ -29,6 +27,8 @@ from app.core.errors import AppError
 from app.core.logging import get_logger
 from app.modules.audit.service import log_audit
 from app.modules.evolution.models import KnowledgeCandidate, Skill
+from app.modules.llm.json_utils import clean_single_line as _clean_str
+from app.modules.llm.json_utils import parse_llm_json_dict
 from app.modules.llm.schemas import ChatMessage, LLMMetadata, LLMRequest, LLMResponse
 from app.modules.llm.service import complete_with_logging
 from app.modules.self_improve.evidence import collect_evidence
@@ -85,8 +85,9 @@ CUSTOM_UNITS: dict[str, timedelta] = {
 }
 
 
-from app.core.ids import sha1_12 as _sha12
-from app.core.timezone import ensure_utc as _as_utc, utc_now as _utcnow
+from app.core.ids import sha1_12 as _sha12  # noqa: E402 - 延迟导入以避免循环依赖
+from app.core.timezone import ensure_utc as _as_utc  # noqa: E402 - 延迟导入以避免循环依赖
+from app.core.timezone import utc_now as _utcnow  # noqa: E402 - 延迟导入以避免循环依赖
 
 
 def schedule_interval(setting: dict[str, Any]) -> timedelta:
@@ -326,9 +327,6 @@ def _build_prompt(evidence: dict[str, Any], scope: str) -> list[ChatMessage]:
     )
     user = f"归纳口径：{scope_hint}。\n窗口证据（JSON）：\n{text}"
     return [ChatMessage(role="system", content=system), ChatMessage(role="user", content=user)]
-
-
-from app.modules.llm.json_utils import clean_single_line as _clean_str, parse_llm_json_dict
 
 
 def _parse_payload(content: str) -> dict[str, Any]:

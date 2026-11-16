@@ -48,6 +48,8 @@ def test_plot_name_cut_at_crop_area_soil():
 
 def test_record_kind_detection():
     assert parser._record_kind("今天追肥 尿素 5 公斤") == "fertilizing"
+    # 回归（2026-11-16）：口语"追施复合肥"曾判为 other，逼用户二次确认类型
+    assert parser._record_kind("追施复合肥 15 公斤") == "fertilizing"
     assert parser._record_kind("给地块浇水") == "irrigation"
     assert parser._record_kind("打药防治蚜虫") == "pesticide"
     assert parser._record_kind("巡田看看长势") == "scouting"

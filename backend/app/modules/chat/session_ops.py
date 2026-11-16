@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import YardContext
 from app.core.errors import AppError
+from app.core.output_sanitizer import strip_internal_markup
 from app.core.timezone import utc_now as _utcnow
 from app.modules.agents import declarative, supervisor
 from app.modules.agents.models import YardAgent
@@ -924,6 +925,7 @@ def persist_assistant_message(
     citations: list[dict[str, Any]] | None = None,
     token_usage: dict[str, Any] | None = None,
 ) -> ChatMessage:
+    content = strip_internal_markup(content)
     if token_usage is None and content:
         out_tok = estimate_token_count(content)
         token_usage = {

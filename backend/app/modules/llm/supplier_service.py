@@ -1,3 +1,4 @@
+# ruff: noqa: E402, F401, F811, I001 - 本模块保留旧导入路径重导出（兼容外部代码）
 """模型供应商服务：CRUD、连通性探测、小院 active 解析、Provider 构建。
 
 - API Key 明文只在内存中短暂使用（加密落库 / 探测时），绝不打日志、绝不返回。
@@ -452,7 +453,7 @@ def set_active_supplier(
 
 
 # ---------- 模态推断（已拆分至 app.modules.llm.modality，保持重导出兼容） ----------
-from app.modules.llm.modality import (
+from app.modules.llm.modality import (  # noqa: F401 - 兼容旧导入路径的重导出
     _MODALITY_ALIASES,
     _MODALITY_KEYWORDS,
     _collect_modalities,
@@ -1186,7 +1187,7 @@ def resolve_model_row(
 
 
 # ---------- 模型导入（已拆分至 app.modules.llm.model_import，保持重导出兼容） ----------
-from app.modules.llm.model_import import (
+from app.modules.llm.model_import import (  # noqa: F401 - 兼容旧导入路径的重导出
     IMPORT_MAX_BYTES,
     IMPORT_MAX_REDIRECTS,
     IMPORT_TIMEOUT_SECONDS,
@@ -1452,4 +1453,4 @@ async def test_supplier_models_batch(
     return results
 
 
-from app.modules.llm.templates import get_provider_templates
+from app.modules.llm.templates import get_provider_templates  # noqa: F401 - 兼容旧导入路径

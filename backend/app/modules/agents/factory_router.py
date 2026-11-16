@@ -111,7 +111,7 @@ class FactoryApplyRequest(BaseModel):
         return out
 
 
-from app.core.timezone import to_iso as _iso
+from app.core.timezone import to_iso as _iso  # noqa: E402 - 延迟导入以避免循环依赖
 
 
 def _run_summary(run: FactoryRun) -> dict[str, Any]:

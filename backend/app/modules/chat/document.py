@@ -1424,6 +1424,45 @@ def _markdown_outline_card(
     return card, note, token_usage
 
 
+_TITLE_PREFIX_RE = re.compile(r"^(请|帮我|麻烦)?(生成|做|写|整理|输出|出一份|生成一份|做一份)+")
+_TITLE_FORMAT_RE = re.compile(r"(Word|word|PPT|ppt|Excel|excel|PDF|pdf|文档|表格|演示文稿)")
+
+
+def _ensure_doc_title(model: DocModel, request_text: str) -> DocModel:
+    """标题不能是用户整句原话（走查复现：docx 文件名直接是"根据台账…Word 文档。"）。
+
+    只在标题疑似复述需求时改写：取"生成/做…"之后到逗号/格式词之前的名词短语；
+    提取失败就保留模型原标题，避免误伤正常标题。
+    """
+    title = (model.title or "").strip()
+    suspicious = (
+        len(title) > 40
+        or "，" in title
+        or "。" in title
+        or title.startswith(("请", "帮我", "根据", "生成", "做", "写"))
+    )
+    if not suspicious:
+        return model
+    text = (request_text or "").strip()
+    match = re.search(
+        r"(?:生成|做|写|整理|输出)(?:一份|一个|一张)?(.{2,40}?)(?=[，,。；;]|Word|PPT|Excel|PDF|文档|表格|$)",
+        text,
+        re.IGNORECASE,
+    )
+    candidate = (match.group(1) if match else "").strip(" 　的")
+    candidate = _TITLE_PREFIX_RE.sub("", candidate)
+    candidate = _TITLE_FORMAT_RE.sub("", candidate).strip(" 　的")
+    if not candidate or len(candidate) < 2:
+        return model
+    return model.model_copy(update={"title": candidate[:60]})
+
+
+def _count_placeholders(payload: object) -> int:
+    """统计文档模型里“待补充/待确认/待定”等占位词出现次数（用于降级提示）。"""
+    text = str(payload)
+    return sum(text.count(word) for word in ("待补充", "待确认", "待定", "待完善", "TODO", "TBD"))
+
+
 async def _generate_pptx_document(
     db: Session,
     *,
@@ -1473,11 +1512,22 @@ async def _generate_pptx_document(
     card = docs_service.document_out(att)
     size_kb = max(1, round(att.size_bytes / 1024))
     via = f"已由「{agent_name}」生成" if agent_name else "已生成"
+    degraded = used_model == "deck_builder_fallback"
     note = (
         f"{via}PPT 演示文稿《{plan.title}》（{len(plan.slides)} 页，{size_kb} KB）。"
         f"{report.summary()}。"
         "可以点卡片上的「预览」查看文字稿，或「下载」打开排版后的 .pptx。"
     )
+    if degraded:
+        # 走查复现（2026-11-16）：模型输出未通过 schema 校验时曾静默改用骨架模板，
+        # 5 页正文全空却只报"已生成"。降级必须显式告知，否则属于对外承诺失实。
+        note = (
+            "⚠️ PPT 内容未完整生成：模型输出的演示计划未通过结构校验，"
+            f"当前文件由骨架模板渲染（{len(plan.slides)} 页，正文可能为空）。"
+            "建议点「重试」再生成一次，或改用 Word/Markdown 交付。"
+        )
+        token_usage["degraded"] = True
+        token_usage["degrade_reason"] = "deck_plan_validation_failed"
     token_usage.setdefault("model", used_model)
     return card, note, token_usage
 
@@ -1590,6 +1640,7 @@ async def generate_document_from_chat(
             style = formal_writing_skills.doc_style_for_code(matched[0])
     if style != "general":
         model = model.model_copy(update={"doc_style": style})
+    model = _ensure_doc_title(model, request_text)
     att = docs_service.generate_document(
         db, ctx=ctx, session_id=session_id, fmt=fmt, raw_model=model.model_dump()
     )
@@ -1597,10 +1648,18 @@ async def generate_document_from_chat(
     label = _FORMAT_LABELS[fmt]
     size_kb = max(1, round(att.size_bytes / 1024))
     via = f"已由「{agent_name}」生成" if agent_name else "已生成"
+    placeholders = _count_placeholders(model.model_dump())
     note = (
         f"{via}{label}《{model.title}》（{size_kb} KB）。"
         "可以点卡片上的「预览」在线查看，或「下载」保存到本地。"
     )
+    if placeholders >= 3:
+        note = (
+            f"⚠️ {via}{label}《{model.title}》（{size_kb} KB），但检测到 {placeholders} 处"
+            "“待补充/待确认/待定”，内容可能不完整。可补充台账/附件后重新生成。"
+        )
+        token_usage["degraded"] = True
+        token_usage["degrade_reason"] = "document_placeholders"
     token_usage.setdefault("model", used_model)
     token_usage["skills"] = [*office_codes, *skill_router.codes(resolved)]
     return card, note, token_usage

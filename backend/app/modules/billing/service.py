@@ -6,7 +6,7 @@ on_exceed=approve 与配额页默认一致），追加一条带有效期的 Quot
 """
 
 import secrets
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
@@ -44,7 +44,8 @@ VOUCHER_MANUAL = "manual"
 AMOUNT_EPSILON = 0.01
 
 
-from app.core.timezone import ensure_utc as _aware, utc_now as _now
+from app.core.timezone import ensure_utc as _aware  # noqa: E402 - 延迟导入以避免循环依赖
+from app.core.timezone import utc_now as _now  # noqa: E402 - 延迟导入以避免循环依赖
 
 
 def _plan_of(db: Session, code: str) -> Plan:

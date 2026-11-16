@@ -31,3 +31,31 @@ def register_handler(task_type: str) -> Callable[[TaskHandler], TaskHandler]:
 def echo_handler(input_data: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
     """示例/测试用处理器：原样回显输入。"""
     return {"echo": input_data, "task_id": context.get("task_id")}
+
+
+def _load_builtin_handlers() -> None:
+    """导入各业务模块的处理器实现，触发 ``@register_handler`` 注册。
+
+    Celery worker 进程只 import 本模块；若不在启动时主动导入注册方，
+    真实任务（team_run / knowledge_qa / factory …）在 worker 侧一律
+    "未注册的任务类型"。API 进程因为 import 全部 router 碰巧正常，
+    问题只在 worker 暴露，属于典型的"本机能跑、部署必挂"。
+    """
+    import importlib
+
+    for path in (
+        "app.modules.agents.teams.worker_tasks",
+        "app.modules.agriculture.worker_tasks",
+        "app.modules.agents.agent_generate_tasks",
+        "app.modules.agents.factory_pipeline",
+        "app.modules.org.proposal_tasks",
+    ):
+        try:
+            importlib.import_module(path)
+        except Exception:  # noqa: BLE001 - 单个模块导入失败不应拖垮其余处理器
+            import logging
+
+            logging.getLogger(__name__).warning("导入任务处理器失败：%s", path, exc_info=True)
+
+
+_load_builtin_handlers()

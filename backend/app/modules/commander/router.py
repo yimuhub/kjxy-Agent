@@ -799,6 +799,8 @@ def get_run_detail(
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db_session),
 ):
+    ctx = _ctx(user)
+    service.reap_stale_runs(db, yard_id=ctx.yard_id)
     run, subtasks = _load(db, user, run_id)
     return ok({"run": service.run_out(run, subtasks)}, request)
 

@@ -236,6 +236,11 @@ class OpenAIVideoProvider:
             # 用户设了分辨率却拿不到，属于"参数写了不生效"。
             "size": request.size or DEFAULT_SIZE,
         }
+        # 上游对 size 的取值口径并不统一（如部分网关只认 "720P" 标签）。
+        # 模型行 default_params 显式给出的 size 是供应商契约，调用方未显式改尺寸时以它为准。
+        model_size = merged.get("size")
+        if isinstance(model_size, str) and model_size:
+            payload["size"] = model_size
         if request.image_url:
             payload["image_url"] = request.image_url
         mode = normalize_video_mode(request.mode, has_image=bool(request.image_url))

@@ -222,6 +222,7 @@ async def synthesize_answer(
             metadata=LLMMetadata(
                 yard_id=ctx.yard_id,
                 user_id=ctx.user_id,
+                # 0088 起 llm_calls.task_id 为 varchar(64)，前缀可保留（可追溯）
                 task_id=f"team-summary-{run.id}",
                 request_id=ctx.request_id,
                 purpose="team_synthesis",

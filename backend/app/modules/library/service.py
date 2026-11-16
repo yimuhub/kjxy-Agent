@@ -17,18 +17,14 @@ import hashlib
 import json
 import re
 from collections.abc import Callable
-from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any
-from urllib.parse import urljoin, urlparse
 
-import httpx
 from sqlalchemy.orm import Session
 
 from app.core.deps import YardContext
 from app.core.errors import AppError
 from app.core.logging import get_logger
-from app.core.net_guard import check_egress_url
 from app.modules.audit.service import log_audit
 from app.modules.evolution import attestation
 from app.modules.evolution.models import Skill
@@ -75,18 +71,13 @@ _ITEM_KEY_RE = re.compile(r"^official:[a-z_]{3,24}:[A-Za-z0-9_.:-]{1,120}$")
 # ---------------------------------------------------------------------------
 
 
-from app.core.timezone import ensure_utc as _aware, to_iso as _iso, utc_now as _utcnow
-
-
-from app.modules.library.views import (
+from app.core.timezone import ensure_utc as _aware  # noqa: E402 - 延迟导入以避免循环依赖
+from app.core.timezone import to_iso as _iso  # noqa: E402 - 延迟导入以避免循环依赖
+from app.core.timezone import utc_now as _utcnow  # noqa: E402 - 延迟导入以避免循环依赖
+from app.modules.library.views import (  # noqa: E402 - 延迟导入以避免循环依赖
     FetchResponse,
-    Fetcher,
-    SYNC_TIMEOUT_SECONDS,
-    _call_fetcher,
     _code_from_item_key,
-    _default_fetch,
     _fetch,
-    _normalize_response,
     _parse_dt,
     _require_https,
     _text,

@@ -136,7 +136,8 @@
               >
                 <el-table-column
                   label="使用场景"
-                  min-width="110"
+                  width="150"
+                  show-overflow-tooltip
                 >
                   <template #default="{ row }">
                     {{ purposeLabel(row.purpose) }}
@@ -402,7 +403,8 @@
             </el-table-column>
             <el-table-column
               label="用途"
-              width="110"
+              width="150"
+              show-overflow-tooltip
             >
               <template #default="{ row }">
                 {{ purposeLabel(row.purpose) }}

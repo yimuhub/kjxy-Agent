@@ -16,7 +16,6 @@ import json
 import secrets
 import time
 import uuid
-from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
 
@@ -100,7 +99,7 @@ def set_test_transport(transport: httpx.BaseTransport | None) -> None:
     _transport_override = transport
 
 
-from app.core.timezone import utc_now as _now
+from app.core.timezone import utc_now as _now  # noqa: E402 - 延迟导入以避免循环依赖
 
 
 def _client() -> httpx.Client:

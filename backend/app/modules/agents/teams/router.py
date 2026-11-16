@@ -317,6 +317,41 @@ def get_team_run(
     return ok(service.run_out(run, service.members_of_run(db, run)), request)
 
 
+@runs_router.post("/{run_id}/cancel")
+def cancel_team_run(
+    run_id: str,
+    request: Request,
+    payload: dict | None = None,
+    ctx: YardContext = Depends(get_yard_context),
+    db: Session = Depends(get_db_session),
+):
+    """取消排队/运行中的班组 run；同时把僵尸 run 从排队态收敛，解开 TEAM_BUSY。"""
+    reason = str((payload or {}).get("reason") or "").strip()
+    service.reap_stale_runs(db, yard_id=ctx.yard_id)
+    run = service.cancel_team_run(
+        db, yard_id=ctx.yard_id, run_id=run_id, user_id=ctx.user_id, reason=reason
+    )
+    return ok(service.run_out(run, service.members_of_run(db, run)), request)
+
+
+@router.get("/{team_id}/runs/{run_id}")
+def get_team_run_nested(
+    team_id: str,
+    run_id: str,
+    request: Request,
+    ctx: YardContext = Depends(get_yard_context),
+    db: Session = Depends(get_db_session),
+):
+    """RESTful 别名：``/agents/teams/{team_id}/runs/{run_id}``。
+
+    走查时按直觉调用该路径得到 404，真实路径在 ``/agents/team-runs/{run_id}``。
+    这里补一层别名，避免客户端两套路径来回试。
+    """
+    service.get_team(db, yard_id=ctx.yard_id, team_id=team_id)
+    run = service.get_team_run(db, yard_id=ctx.yard_id, run_id=run_id, user_id=ctx.user_id)
+    return ok(service.run_out(run, service.members_of_run(db, run)), request)
+
+
 @runs_router.post("/{run_id}/retry", status_code=202)
 def retry_team_run(
     run_id: str,

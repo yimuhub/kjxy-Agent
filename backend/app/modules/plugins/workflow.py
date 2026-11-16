@@ -18,7 +18,6 @@ suggest 挖掘：近 7 天 ``agent_run_steps`` 中重复出现 ≥3 次、长度
 绝不自动启用——自动化止步于建议，启用永远经人。
 """
 
-import hashlib
 import json
 import re
 from collections import OrderedDict
@@ -62,7 +61,7 @@ _SAVE_AS_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,49}$")
 _TEMPLATE_RE = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
 
 
-from app.core.ids import sha1_12 as _sha12
+from app.core.ids import sha1_12 as _sha12  # noqa: E402 - 延迟导入以避免循环依赖
 
 
 # ---------------------------------------------------------------- 注册校验

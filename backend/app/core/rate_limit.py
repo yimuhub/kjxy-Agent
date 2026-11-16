@@ -1,8 +1,9 @@
 """滑动窗口限流器（Redis 分布式优先 + 进程内内存自动兜底）与受信客户端 IP 提取。
 
 用于公开端点的"公共限流"（如登录接口、配对码交换、SSO、A2A RPC、公开分享等）：
-- 生产多进程 / 多实例部署且 Redis 可用时，使用 Redis 原子计数，跨进程共享限流窗口；
-- 桌面单机模式（TASKS_INLINE_MODE）、测试环境或 Redis 瞬时不可达时，无感回退至进程内线程安全内存滑动窗口。
+- 生产多进程 / 多实例部署且 Redis 可用时，使用 Redis 原子计数，跨进程共享窗口；
+- 桌面单机模式（TASKS_INLINE_MODE）、测试环境或 Redis 瞬时不可达时，
+  无感回退至进程内线程安全内存滑动窗口。
 """
 
 import threading
@@ -10,9 +11,8 @@ import time
 from collections import deque
 from typing import Any
 
-from fastapi import Request
-
 from app.core.config import settings
+from fastapi import Request
 
 
 def extract_client_ip(request: Request) -> str:

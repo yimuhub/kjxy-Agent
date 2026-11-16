@@ -17,7 +17,7 @@ class LLMCall(Base, TimestampMixin):
     __tablename__ = "llm_calls"
 
     yard_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
-    task_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    task_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     provider: Mapped[str] = mapped_column(String(50), nullable=False)  # fake|openai_compatible
     model: Mapped[str] = mapped_column(String(100), nullable=False)
     input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)

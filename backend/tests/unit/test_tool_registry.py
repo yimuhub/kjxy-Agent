@@ -269,9 +269,9 @@ async def test_output_schema_validation(db_session):
 
 
 def test_seed_builtin_tools_idempotent(db_session):
-    # v3.41：在内置 video.generate 基础上新增 doc.generate，种子共 5 项
-    assert seed_builtin_tools(db_session) == 5
-    assert seed_builtin_tools(db_session) == 5  # 第二次幂等
+    # v3.82：在原有 5 项基础上新增 farm.record.create / farm.plot.create / farm.report.generate
+    assert seed_builtin_tools(db_session) == 8
+    assert seed_builtin_tools(db_session) == 8  # 第二次幂等
     db_session.commit()
     rows = db_session.query(ToolDefinition).filter_by(code="knowledge.search").all()
     assert len(rows) == 1

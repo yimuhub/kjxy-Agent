@@ -426,7 +426,7 @@
     uploading.value = true
     try {
       await knowledgeApi.upload(uploadFile.value, uploadForm.title || undefined)
-      ElMessage.success('上传成功，已通过 MarkItDown 引擎转化为结构化知识分块')
+      ElMessage.success('上传成功，已进入解析队列；完成后可在知识库查看分块')
       uploadRef.value?.clearFiles()
       uploadFile.value = null
       uploadForm.title = ''

@@ -10,7 +10,7 @@
 import hmac
 import os
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -56,7 +56,7 @@ log = get_logger(__name__)
 _weak_bootstrap_warned: set[str] = set()
 
 
-from app.core.timezone import utc_now as _utcnow
+from app.core.timezone import utc_now as _utcnow  # noqa: E402 - 延迟导入以避免循环依赖
 
 
 def issue_refresh_session(

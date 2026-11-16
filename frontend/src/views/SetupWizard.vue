@@ -182,7 +182,7 @@ const form = reactive<SetupWizardForm>({
   province: '',
   city: '',
   county: '',
-  profileTypes: ['rice'] as string[],
+  profileTypes: [] as string[],
   school: '',
   industry: '',
   description: '',
@@ -224,7 +224,7 @@ const localUrl = computed(() => {
 })
 const deployHint = computed(() => {
   if (form.deployment === 'desktop') return '单机桌面版固定只监听 127.0.0.1，不对外开放端口。'
-  if (form.deployment === 'server') return '本安装器仍只准备本机数据；局域网多用户请在院内服务器上按部署文档另行安装。'
+  if (form.deployment === 'server') return '当前安装器只监听 127.0.0.1（本机）；局域网多人访问请在院内服务器按部署文档绑定 0.0.0.0 并配置反向代理。'
   return '本安装器仍只准备本机数据；云端多小院请使用服务器部署包，并配置反向代理与备份。'
 })
 

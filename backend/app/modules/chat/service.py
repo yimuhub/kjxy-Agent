@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import json
+import re
 from collections.abc import Callable
 from dataclasses import replace
-from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.deps import YardContext
@@ -25,7 +26,6 @@ from app.core.progress import (
     StepRecorder,
 )
 from app.modules.agents import declarative, supervisor
-from app.modules.agents.models import YardAgent
 from app.modules.audit.service import log_audit
 from app.modules.chat import attachments as attachments_service
 from app.modules.chat import capability as capability_service
@@ -33,16 +33,12 @@ from app.modules.chat import intent as intent_service
 from app.modules.chat import media as media_service_chat
 from app.modules.chat.models import (
     APPROVAL_ASK,
-    APPROVAL_ESCALATION_ROLES,
     APPROVAL_FULL,
-    MSG_FAILED,
     MSG_OK,
     ROLE_ASSISTANT,
     ROLE_USER,
-    VALID_APPROVAL_MODES,
     ChatAttachment,
     ChatMessage,
-    ChatParticipant,
     ChatSession,
 )
 from app.modules.knowledge.chunking import estimate_token_count
@@ -62,27 +58,15 @@ ROUTED_LOCAL = "local"
 CommanderEventCallback = Callable[[str, dict[str, Any]], None]
 
 
-from app.core.timezone import utc_now as _utcnow
 
 
-from app.modules.chat.session_ops import (
-    ASSISTANT_CONTENT_CAP,
+from app.modules.chat.session_ops import (  # noqa: E402 - 延迟导入以避免循环依赖
     BATCH_ACTIONS,
-    CONTENT_CAP,
-    TITLE_CAP,
-    _CITATION_KEYS,
-    _CITATION_LIMIT,
-    _attachment_ref,
-    _attachment_ref_id,
-    _bulk_message_stats,
-    _chunks,
-    _commander_enabled,
-    _commander_settings,
-    _default_execution_mode,
+    _attachment_ref,  # noqa: F401 - 兼容旧路径导入
+    _attachment_ref_id,  # noqa: F401 - 兼容旧路径导入
     _normalize_citations,
     _persist_failure,
-    _remap_attachment_ref,
-    _session_token_summary,
+    _remap_attachment_ref,  # noqa: F401 - 兼容旧路径导入
     apply_execution_mode,
     batch_sessions,
     citations_from_result,
@@ -104,7 +88,6 @@ from app.modules.chat.session_ops import (
     sessions_out_bulk,
     update_session_flags,
 )
-
 
 # ---------------------------------------------------------------------------
 # 一次对话的执行（问答链路 / 能力链路）
@@ -542,10 +525,14 @@ async def execute_turn(
         from app.modules.chat import document as document_service
 
         doc_context = ""
+        farm_md = _farm_report_context(db, ctx, content)
+        if farm_md:
+            doc_context = farm_md
         if attachments:
             if on_step:
                 on_step(PHASE_READING, f"正在阅读 {len(attachments)} 个附件", STEP_RUNNING)
-            doc_context = attachments_service.build_attachment_context(attachments)
+            attach_ctx = attachments_service.build_attachment_context(attachments)
+            doc_context = "\n\n".join(p for p in (doc_context, attach_ctx) if p)
             if on_step:
                 on_step(PHASE_READING, f"已读取 {len(attachments)} 个附件", STEP_DONE)
         if on_step:
@@ -595,6 +582,24 @@ async def execute_turn(
                 f"已读取 {len(attachments)} 个附件（{ready} 个可解析）",
                 STEP_DONE,
             )
+
+    # ---- 一句话办理：农事写入走确定性解析，不让模型"口头记账"（v3.82 修复）----
+    quick_note = _try_quick_farm_action(db, ctx, content)
+    if quick_note:
+        context = "\n\n".join(p for p in (context, quick_note) if p)
+        if on_step:
+            on_step(PHASE_RETRIEVING, "已执行台账写入", STEP_DONE)
+
+    # ---- 时效性问题：先做确定性联网检索，避免模型自拟链接（v3.82 修复）----
+    from app.modules.chat import web_context as web_ctx_service
+
+    web_ctx = await web_ctx_service.build_web_context(
+        db, ctx=ctx, question=content, request_id=ctx.request_id
+    )
+    if web_ctx:
+        context = "\n\n".join(p for p in (context, web_ctx) if p)
+        if on_step:
+            on_step(PHASE_RETRIEVING, "已联网检索并标注来源", STEP_DONE)
 
     # ---- 方案链路：多源取证合成完整方案（v3.14）----
     if intent.kind == intent_service.INTENT_PLAN and not target_code:
@@ -649,6 +654,134 @@ async def execute_turn(
         "token_usage": token_usage,
     }
 
+
+_FARM_WRITE_INTENT = re.compile(
+    r"(记一笔|记录一下|帮我记|新增.{0,8}(农事|记录|地块)|"
+    r"登记.{0,8}(农事|施肥|追肥|打药|灌溉|播种|采收))"
+)
+
+
+def _try_quick_farm_action(db: Session, ctx: YardContext, text: str) -> str:
+    """把明确的"记一笔/新增地块"直接落库，再把结果交给模型回复。
+
+    走查复现（2026-11-16）：普通对话链路不执行任何工具，模型会一本正经地
+    "列出"一条农事记录，但台账 total 不变——用户以为记上了，实际没写。
+    这里复用既有 ``quick_actions``（权限/校验/审计都不绕过），只做确定性写入。
+    """
+    raw = (text or "").strip()
+    if not raw or not _FARM_WRITE_INTENT.search(raw):
+        return ""
+    from app.modules.quick_actions import service as quick_service
+    from app.modules.quick_actions.schemas import QuickActionConfirmIn, QuickActionPreviewIn
+    from app.modules.yards.authz import has_permission
+
+    if not has_permission(
+        db,
+        yard_id=ctx.yard_id,
+        user_id=ctx.user_id,
+        jwt_roles=list(ctx.roles or []),
+        permission="farm:write",
+    ):
+        return ""
+    try:
+        preview = quick_service.preview(
+            db,
+            yard_id=ctx.yard_id,
+            user_id=ctx.user_id,
+            request_id=ctx.request_id,
+            req=QuickActionPreviewIn(module="farm", text=raw),
+        )
+        if not preview.get("ready"):
+            missing = "、".join(preview.get("missing") or [])
+            return (
+                f"【系统检测】这句话想写入台账，但还缺：{missing}。"
+                "请先向用户确认缺失信息，不要声称已经记录。"
+            )
+        confirmed = quick_service.confirm(
+            db,
+            yard_id=ctx.yard_id,
+            user_id=ctx.user_id,
+            request_id=ctx.request_id,
+            req=QuickActionConfirmIn(
+                module="farm",
+                action=str(preview["action"]),
+                payload=dict(preview["payload"]),
+                fingerprint=str(preview["fingerprint"]),
+            ),
+        )
+    except AppError as e:
+        # 不是可办理的农事指令（如"怎么写记录"）就交回普通问答
+        log.info("一句话办理未命中：%s", e.code)
+        return ""
+    except Exception as e:  # noqa: BLE001 - 写入失败不能拖垮整轮对话
+        log.warning("一句话办理执行失败：%s", e)
+        return "【系统检测】台账写入失败，回答时必须如实说明未写入，并建议用户稍后重试。"
+    created = confirmed.get("created") or {}
+    facts = {
+        key: created.get(key)
+        for key in (
+            "record_id",
+            "plot_name",
+            "kind_label",
+            "occurred_on",
+            "content",
+            "quantity",
+            "unit",
+            "operator_name",
+        )
+        if created.get(key) not in (None, "")
+    }
+    return (
+        f"【系统已执行】{confirmed.get('summary')}。写入后的真实字段："
+        f"{json.dumps(facts, ensure_ascii=False, default=str)}。"
+        "回答时必须逐字引用 occurred_on 作为日期，不得自行推算或改写日期；"
+        "不要再让用户手动录入。"
+    )
+
+
+def _farm_report_context(db: Session, ctx: YardContext, request_text: str) -> str:
+    """请求涉及周报/月报/季报/农事汇总时，把台账真数据注入文档上下文。
+
+    走查复现（2026-11-16）：一句"记一笔农事 + 生成周报"只产出空模板 docx，
+    正文全是"待补充/待确认"，因为文档链路从不读台账。这里在生成前注入
+    真实报表 Markdown，让模型有事实可写；台账为空时明确告诉它没有记录。
+    """
+    text = request_text or ""
+    markers = ("周报", "月报", "季报", "农事", "台账", "种植记录")
+    if not any(m in text for m in markers):
+        return ""
+    from datetime import date, timedelta
+
+    from app.modules.farm import service as farm_service
+    from app.modules.farm.schemas import ReportRequest
+
+    today = date.today()
+    if "季报" in text:
+        kind = "quarterly"
+        start = date(today.year, (today.month - 1) // 3 * 3 + 1, 1)
+    elif "月报" in text:
+        kind = "log"
+        start = today.replace(day=1)
+    else:
+        kind = "weekly"
+        start = today - timedelta(days=today.weekday())
+    try:
+        report = farm_service.build_report(
+            db, ctx.yard_id, ReportRequest(kind=kind, start=start, end=today)
+        )
+    except Exception as e:  # noqa: BLE001 - 报表失败不应阻断文档生成
+        log.warning("生成台账报表上下文失败：%s", e)
+        return ""
+    md = str(report.get("content_md") or "").strip()
+    if not md:
+        return "【台账数据】当前区间没有农事记录；正文必须写明“本周暂无农事记录”，不得编造。"
+    return (
+        "【台账真实数据｜必须以此为准，不得改数】\n"
+        f"{md}\n"
+        "写作要求：直接引用上述记录（地块/类型/事项/用量/操作人/日期），"
+        "不得写“待补充/待确认/待定”来替代已有数据；"
+        "下期计划的时间必须落到具体日期（如本周内某天），不能写“待定”。"
+    )
 
 def scoped_ctx(ctx: YardContext, session: ChatSession) -> YardContext:
     """把「本会话的授权模式 + 会话 id」带进本轮执行上下文。

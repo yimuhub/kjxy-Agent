@@ -168,6 +168,8 @@ def test_format_hints():
     assert format_from_text("生成一份 PDF") == "pdf"
     assert format_from_text("写成 markdown") == "md"
     assert format_from_text("生成一份周报") == "docx"
+    # 回归（2026-11-16）：内容词"台账"不能覆盖显式"Word 文档"
+    assert format_from_text("根据台账生成农事周报，Word 文档") == "docx"
 
 
 def test_normalize_format_rejects_unknown():

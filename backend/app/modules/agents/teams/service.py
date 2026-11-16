@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import uuid
 from collections.abc import Iterable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -68,8 +68,8 @@ CRITIC_KEYWORDS = (
 )
 
 
-from app.core.timezone import to_iso as _iso, utc_now as _utcnow
-
+from app.core.timezone import to_iso as _iso  # noqa: E402 - 延迟导入以避免循环依赖
+from app.core.timezone import utc_now as _utcnow  # noqa: E402 - 延迟导入以避免循环依赖
 
 # ---------------------------------------------------------------------------
 # 1) 成员定义规整与拼接纯函数（可单测）
@@ -436,7 +436,8 @@ def run_out(
     tok_map: dict[str, dict[str, Any]] = {}
     if session is not None:
         tids = [m.task_id for m in (members or []) if m.task_id]
-        tids.append(f"team-summary-{run.id}")
+        # 综合调用以 team-summary-<run_id> 记账，必须一并统计，否则班组总 Token 少算
+        tids.extend((run.id, f"team-summary-{run.id}"))
         tok_map = _tokens_by_task_ids(session, run.yard_id, tids)
 
     total_in = sum(v["input_tokens"] for v in tok_map.values())
@@ -591,6 +592,86 @@ def execution_context(db: Session, *, yard_id: str, user_id: str, request_id: st
     )
 
 
+#: 队列/运行超过该时长仍未收敛 → 视为僵尸（班组正常 1-5 分钟完成）
+STALE_RUN_SECONDS = 30 * 60
+
+
+def reap_stale_runs(db: Session, *, yard_id: str | None = None) -> int:
+    """把超时仍排队/运行的班组 run 收敛为 failed，解开 ``TEAM_BUSY`` 死锁。
+
+    走查复现（2026-11-16）：一次"未注册任务类型"的 run 永久停在 queued，
+    之后所有新 run 都被 TEAM_BUSY 拒绝，且没有取消接口，只能人工改库。
+    """
+    cutoff = datetime.now(UTC) - timedelta(seconds=STALE_RUN_SECONDS)
+    conditions = [
+        TeamRun.status.in_((RUN_QUEUED, RUN_RUNNING)),
+        TeamRun.created_at < cutoff,
+    ]
+    if yard_id:
+        conditions.append(TeamRun.yard_id == yard_id)
+    rows = db.execute(
+        update(TeamRun)
+        .where(*conditions)
+        .values(
+            status=RUN_FAILED,
+            finished_at=datetime.now(UTC),
+            last_error="STALE_RUN_REAPED: 任务超时未完成，已自动收敛；请重新运行。",
+        )
+        .execution_options(synchronize_session=False)
+    )
+    reaped = int(rows.rowcount or 0)  # type: ignore[attr-defined]
+    if reaped:
+        log.warning("班组僵尸 run 已收敛 %d 条", reaped)
+    return reaped
+
+
+def cancel_team_run(
+    db: Session, *, yard_id: str, run_id: str, user_id: str, reason: str = ""
+) -> TeamRun:
+    """用户主动取消排队/运行中的班组 run（幂等收敛，重复取消报 409）。"""
+    run = get_team_run(db, yard_id=yard_id, run_id=run_id, user_id=user_id)
+    if run.status not in (RUN_QUEUED, RUN_RUNNING):
+        raise AppError(
+            "RUN_NOT_CANCELLABLE",
+            f"该运行已结束（{run.status}），无需取消。",
+            http_status=409,
+        )
+    updated = db.execute(
+        update(TeamRun)
+        .where(TeamRun.id == run.id, TeamRun.status.in_((RUN_QUEUED, RUN_RUNNING)))
+        .values(
+            status=RUN_FAILED,
+            finished_at=datetime.now(UTC),
+            last_error=f"已取消：{reason}".strip("：")[:500],
+        )
+        .execution_options(synchronize_session=False)
+    )
+    if not updated.rowcount:  # type: ignore[attr-defined]
+        raise AppError("RUN_NOT_CANCELLABLE", "该运行已结束，无需取消。", http_status=409)
+    if run.task_id:
+        from app.modules.tasks.models import Task
+
+        db.execute(
+            update(Task)
+            .where(Task.id == run.task_id, Task.status.in_(("queued", "running")))
+            .values(status="cancelled", error_message="用户取消班组运行")
+            .execution_options(synchronize_session=False)
+        )
+    db.commit()
+    db.refresh(run)
+    log_audit(
+        db,
+        yard_id=yard_id,
+        actor_id=user_id,
+        action="team_run_cancel",
+        resource_type="team_run",
+        resource_id=run.id,
+        result="success",
+        request_id="",
+    )
+    return run
+
+
 def require_team_idle(db: Session, team: AgentTeam, *, exclude_run_id: str = "") -> None:
     # UPDATE 持有班组行锁直到台账提交，与调度 CAS 共用同一串行化边界。
     locked = db.execute(
@@ -605,6 +686,7 @@ def require_team_idle(db: Session, team: AgentTeam, *, exclude_run_id: str = "")
     )
     if not locked.rowcount:  # type: ignore[attr-defined]
         raise AppError("TEAM_DISABLED", "班组已停用，不能运行。", http_status=409)
+    reap_stale_runs(db, yard_id=team.yard_id)
     busy = db.scalar(
         select(TeamRun.id)
         .where(
